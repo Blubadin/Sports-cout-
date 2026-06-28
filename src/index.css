@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    @apply overflow-x-hidden;
+  }
+  button, a, select, input, [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400 dark:bg-gray-500;
+  }
+}
+
+/* Screen Marking Mode Styling */
+body.scout-marking-active [data-scout-selectable="true"] {
+  cursor: crosshair !important;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease !important;
+}
+
+body.scout-marking-active [data-scout-hovered="true"] {
+  outline: 3px solid rgb(56, 189, 248) !important;
+  outline-offset: 2px !important;
+  transform: scale(1.05) !important;
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.4) !important;
+  z-index: 40 !important;
+}

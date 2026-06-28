@@ -1,0 +1,119 @@
+import React from "react";
+import { useScoutContext } from "../../context/ScoutContext";
+import { Undo2 } from "lucide-react";
+
+export default function HUDActionStatus() {
+  const {
+    currentAction,
+    currentActions,
+    sportTemplate,
+    getThaiMeaning,
+    hudLastSavedText,
+    undoLastAction,
+  } = useScoutContext();
+
+  const getTeamLabel = () => currentAction.teamCode || "Team";
+  const getSkillLabel = () => currentAction.skillCode || "Skill";
+  const getAreaLabel = () => currentAction.areaCode || "Area";
+  const getResultLabel = () => currentAction.resultCode || "Result";
+
+  const renderChip = (
+    label: string,
+    isSet: boolean,
+    type: "team" | "skill" | "area" | "result",
+  ) => {
+    let colorClass = "bg-black/50 text-white/50 border-white/20";
+    if (isSet) {
+      if (type === "result") {
+        colorClass =
+          label === "Yes"
+            ? "bg-green-500/80 text-white border-green-400"
+            : label === "Out"
+              ? "bg-red-500/80 text-white border-red-400"
+              : "bg-gray-600/80 text-white border-gray-400";
+      } else {
+        colorClass = "bg-sky-600/80 text-white border-sky-400";
+      }
+    }
+
+    return (
+      <div
+        className={`px-2 py-1 md:px-4 md:py-1.5 rounded-lg border backdrop-blur-sm text-[10px] md:text-sm font-bold shadow-lg transition-colors ${colorClass} whitespace-nowrap`}
+      >
+        {label}
+      </div>
+    );
+  };
+
+  const subSkillText =
+    currentAction.descriptors &&
+    Object.keys(currentAction.descriptors).length > 0
+      ? Object.values(currentAction.descriptors).join(", ")
+      : null;
+
+  const canUndo =
+    currentActions.length > 0 || Object.keys(currentAction).length > 0;
+
+  return (
+    <div className="flex flex-col items-center gap-1.5 md:gap-2 drop-shadow-xl max-w-full">
+      {/* Last Saved Event Flash Banner */}
+      {hudLastSavedText && (
+        <div className="flex items-center gap-2 bg-emerald-500/20 px-3 py-1 rounded-full backdrop-blur-md border border-emerald-500/40 text-emerald-300 font-mono text-[10px] md:text-xs font-bold uppercase tracking-wider animate-in fade-in zoom-in duration-300">
+          <span className="opacity-80">Saved:</span>
+          <span>{hudLastSavedText}</span>
+        </div>
+      )}
+
+      {/* Current Actions Rally Chain */}
+      {currentActions.length > 0 && (
+        <div className="flex flex-wrap justify-center gap-1.5 text-[9px] md:text-[11px] text-white/90 font-mono max-w-lg mb-0.5 px-4 overflow-hidden">
+          {currentActions.map((act, i) => (
+            <React.Fragment key={act.id || i}>
+              <span className="bg-black/40 px-2 py-0.5 rounded border border-white/5 backdrop-blur whitespace-nowrap">
+                {[act.teamCode, act.skillCode, act.areaCode, act.resultCode]
+                  .filter(Boolean)
+                  .join("/")}
+              </span>
+              {i < currentActions.length - 1 && (
+                <span className="text-white/40">→</span>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+
+      {/* Current Action Editing Chips */}
+      <div className="flex items-center gap-1.5 md:gap-2 bg-black/40 p-1.5 md:p-2 rounded-xl backdrop-blur-md border border-white/10 flex-nowrap w-full overflow-x-auto justify-center pointer-events-auto">
+        {renderChip(getTeamLabel(), !!currentAction.teamCode, "team")}
+        {renderChip(getSkillLabel(), !!currentAction.skillCode, "skill")}
+
+        {/* Render sub-skill if present */}
+        {subSkillText && (
+          <div className="px-1.5 py-1 md:px-2.5 md:py-1 rounded-lg border border-amber-500/30 bg-amber-500/20 text-amber-300 text-[9px] md:text-xs font-bold whitespace-nowrap">
+            {subSkillText}
+          </div>
+        )}
+
+        {renderChip(getAreaLabel(), !!currentAction.areaCode, "area")}
+        {renderChip(getResultLabel(), !!currentAction.resultCode, "result")}
+
+        {canUndo && (
+          <button
+            onClick={undoLastAction}
+            className="ml-1 p-1.5 md:p-2 bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 rounded-lg border border-rose-500/30 backdrop-blur-sm transition-colors flex items-center justify-center shadow-lg"
+            title="Undo (Backspace / Ctrl+Z)"
+          >
+            <Undo2 size={16} />
+          </button>
+        )}
+      </div>
+
+      {/* Descriptor / Translation text */}
+      {currentAction.skillCode && (
+        <div className="text-xs md:text-sm text-white/90 font-medium drop-shadow-md text-center max-w-sm px-4">
+          {getThaiMeaning(currentAction)}
+        </div>
+      )}
+    </div>
+  );
+}

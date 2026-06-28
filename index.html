@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multi-Sport Scout Logger</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#4f46e5" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <script>
+      (function() {
+        var logs = [];
+        
+        function renderErrorOverlay(title, message, detail, extra) {
+          var root = document.getElementById('root');
+          if (!root) {
+            // Create a fallback div if root doesn't exist
+            root = document.createElement('div');
+            root.id = 'root-fallback';
+            document.body.appendChild(root);
+          }
+          
+          // Only render if it hasn't already rendered a critical error, or append to it
+          var existing = document.getElementById('debug-error-panel');
+          if (existing) {
+            var content = existing.querySelector('.details-container');
+            if (content) {
+              content.innerHTML += '<hr style="border-color: #fca5a5; margin: 12px 0;" /><p style="font-weight: 600; font-size: 14px; margin: 6px 0;">' + title + ': ' + message + '</p>' +
+                '<pre style="white-space: pre-wrap; font-size: 11px; color: #7f1d1d; background: #fef2f2; padding: 8px; border-radius: 6px; border: 1px solid #fecaca; max-height: 150px; overflow: auto;">' + (detail || '') + '</pre>';
+            }
+            return;
+          }
+
+          root.innerHTML = '<div id="debug-error-panel" style="padding: 24px; background: #fee2e2; color: #991b1b; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; border: 2px solid #ef4444; border-radius: 12px; margin: 24px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); z-index: 999999; position: relative;">' +
+            '<h3 style="margin-top: 0; font-size: 18px; font-weight: 700; color: #7f1d1d; border-bottom: 2px solid #fca5a5; padding-bottom: 8px; flex-direction: row; display: flex; align-items: center; justify-content: space-between;">' +
+              '<span>⚠️ Critical Runtime Issue Detected</span>' +
+              '<span style="font-size: 11px; background: #f87171; color: white; padding: 2px 8px; border-radius: 9999px;">AI Studio Safe Mode</span>' +
+            '</h3>' +
+            '<div class="details-container">' +
+              '<p style="font-weight: 600; font-size: 14px; margin: 12px 0;">' + title + ': <span style="font-weight: normal;">' + message + '</span></p>' +
+              '<pre style="white-space: pre-wrap; font-size: 12px; color: #7f1d1d; background: #fef2f2; padding: 12px; border-radius: 6px; border: 1px solid #fecaca; max-height: 250px; overflow: auto; line-height: 1.5;">' + (detail || 'No stack trace available') + '</pre>' +
+              (extra ? '<p style="font-size: 11px; margin-top: 12px; color: #b91c1c;">' + extra + '</p>' : '') +
+            '</div>' +
+            '<div style="margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap;">' +
+              '<button onclick="localStorage.clear(); sessionStorage.clear(); location.reload();" style="padding: 10px 20px; background: #dc2626; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.2); transition: background 0.2s;">🧹 Clear Storage & Reload</button>' +
+              '<button onclick="window.location.reload();" style="padding: 10px 20px; background: #475569; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px;">🔄 Hard Reload</button>' +
+              '<button onclick="navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.unregister()});location.reload();})" style="padding: 10px 20px; background: #0284c7; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px;">⚙️ Unregister SW & Reload</button>' +
+            '</div>' +
+            '</div>';
+        }
+
+        // 1. Capture unhandled runtime exceptions
+        window.addEventListener('error', function(e) {
+          if (e.target && (e.target.src || e.target.href)) {
+            // It's a resource load failure (script, link, stylesheet)
+            var resourceUrl = e.target.src || e.target.href;
+            renderErrorOverlay(
+              'Resource Load Failure',
+              'Failed to load asset: ' + resourceUrl,
+              'Tag name: <' + e.target.tagName.toLowerCase() + '>\nThis might be due to an incorrect build path, a stale cache, or blocked iframe requests.',
+              'Source: ' + window.location.href
+            );
+          } else {
+            // It's a standard JS error
+            renderErrorOverlay(
+              'Uncaught Exception',
+              e.message || 'Unknown Javascript Error',
+              e.error && e.error.stack ? e.error.stack : 'No stack trace available',
+              'Filename: ' + e.filename + ' | Line: ' + e.lineno + ':' + e.colno
+            );
+          }
+        }, true); // Capturing phase to catch script/link load errors!
+
+        // 2. Capture unhandled promise rejections
+        window.addEventListener('unhandledrejection', function(e) {
+          var reason = e.reason || {};
+          var msg = reason.message || String(reason);
+          var stack = reason.stack || 'No stack trace available';
+          renderErrorOverlay(
+            'Unhandled Promise Rejection',
+            msg,
+            stack,
+            'Occurred inside asynchronous execution (Promise)'
+          );
+        });
+
+        // 3. Intercept console.error to show React render / validation issues
+        var originalConsoleError = console.error;
+        console.error = function() {
+          originalConsoleError.apply(console, arguments);
+          var args = Array.prototype.slice.call(arguments);
+          var message = args.map(function(arg) {
+            if (arg instanceof Error) return arg.message;
+            if (typeof arg === 'object') {
+              try { return JSON.stringify(arg); } catch(e) { return String(arg); }
+            }
+            return String(arg);
+          }).join(' ');
+
+          // Skip benign React warnings or standard noise but display real fatal issues
+          if (message.indexOf('benign') !== -1 || message.indexOf('play/pause DOMException') !== -1) {
+            return;
+          }
+          
+          // Render visual indicator for fatal React rendering errors or bundle load errors
+          if (message.indexOf('Error:') !== -1 || message.indexOf('Cannot read properties') !== -1 || message.indexOf('failed') !== -1 || message.indexOf('Exception') !== -1) {
+            renderErrorOverlay(
+              'Console Error Intercepted',
+              message,
+              'Look at browser developer console for the complete log structure.'
+            );
+          }
+        };
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

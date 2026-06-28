@@ -1,0 +1,328 @@
+import React from 'react';
+import { Action, Area, SportType, Team } from '../../types';
+
+type HUDMiniCourtSelectorProps = {
+  sportType: SportType;
+  areas: Area[];
+  currentAction: Action;
+  teams: Team[];
+  onSelectArea: (code: string, courtSide?: 'teamA' | 'teamB' | 'neutral') => void;
+  active: boolean;
+  compact: boolean;
+  flipCourtSide: boolean;
+};
+
+export default function HUDMiniCourtSelector({
+  sportType,
+  areas,
+  currentAction,
+  teams,
+  onSelectArea,
+  active,
+  compact,
+  flipCourtSide,
+}: HUDMiniCourtSelectorProps) {
+  const selectedAreaCode = currentAction.areaCode;
+
+  const AreaBtn = ({
+    code,
+    courtSide,
+    className = '',
+    label,
+    flipContent = false
+  }: {
+    code: string;
+    courtSide?: 'teamA' | 'teamB' | 'neutral';
+    className?: string;
+    label?: string;
+    flipContent?: boolean;
+  }) => {
+    const isSelected =
+      selectedAreaCode === code &&
+      (currentAction.courtSide === courtSide || (!courtSide && !currentAction.courtSide));
+
+    const area = areas.find((a) => a.code === code);
+    const displayText = label || code;
+    
+    // In compact mode, we might want to hide text entirely or just show smaller
+    if (compact) {
+      return (
+        <button
+          className={`flex-1 min-w-[20px] transition-all duration-75 border border-white/5 pointer-events-none ${
+            isSelected
+              ? 'bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)] z-10'
+              : 'bg-white/10'
+          } ${className}`}
+        />
+      );
+    }
+
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); onSelectArea(code, courtSide); }}
+        onPointerEnter={() => {
+          if (active) {
+            (window as any).__hoveredArea = code;
+          }
+        }}
+        onPointerLeave={() => {
+          if (active && (window as any).__hoveredArea === code) {
+            (window as any).__hoveredArea = null;
+          }
+        }}
+        data-scout-hover-area={code}
+        data-scout-hover-court-side={courtSide || ''}
+        className={`flex flex-col items-center justify-center p-0.5 rounded transition-all duration-75 border border-white/10 min-h-[48px] ${
+          isSelected
+            ? 'bg-orange-500 text-white shadow-[0_0_10px_rgba(249,115,22,0.8)] z-10 scale-105'
+            : 'bg-white/10 text-white/70 hover:bg-white/20 hover:text-white'
+        } ${className}`}
+      >
+        <div className={`text-[10px] sm:text-xs font-bold leading-none ${flipContent && flipCourtSide ? 'rotate-180' : ''}`}>
+          {displayText}
+        </div>
+      </button>
+    );
+  };
+
+  const errorAreas = areas.filter((a) => ['OUT', 'LONG_OUT', 'SIDE_OUT', 'NET_ERR', 'UNKNOWN'].includes(a.code));
+
+  if (sportType === 'volleyball') {
+    const teamA = teams[0]?.code || 'Team A';
+    const teamB = teams[1]?.code || 'Team B';
+
+    const leftTeam = flipCourtSide ? teamB : teamA;
+    const rightTeam = flipCourtSide ? teamA : teamB;
+    const leftCourtSide = flipCourtSide ? 'teamB' : 'teamA';
+    const rightCourtSide = flipCourtSide ? 'teamA' : 'teamB';
+
+    return (
+      <div className={`flex flex-col gap-2 ${compact ? 'w-[120px]' : 'w-[280px] sm:w-[320px] max-w-full'} transition-all`}>
+        {!compact && (
+          <div className="flex justify-between text-[10px] text-white/50 font-bold px-2">
+            <span>{leftTeam}</span>
+            <span>{rightTeam}</span>
+          </div>
+        )}
+        
+        <div className={`relative flex flex-row items-stretch bg-black/40 rounded-xl border border-white/20 overflow-hidden ${compact ? 'h-[60px]' : 'h-[140px] sm:h-[160px]'} p-1 gap-0.5`}>
+          {/* Left Court */}
+          <div className="flex-1 grid grid-cols-2 grid-rows-3 gap-0.5">
+            <AreaBtn code="LB" courtSide={leftCourtSide} />
+            <AreaBtn code="LN" courtSide={leftCourtSide} />
+            <AreaBtn code="CB" courtSide={leftCourtSide} />
+            <AreaBtn code="CN" courtSide={leftCourtSide} />
+            <AreaBtn code="RB" courtSide={leftCourtSide} />
+            <AreaBtn code="RN" courtSide={leftCourtSide} />
+          </div>
+
+          {/* NET */}
+          <button
+            onClick={() => onSelectArea('NET', 'neutral')}
+            data-scout-hover-area="NET"
+            data-scout-hover-court-side="neutral"
+            className={`w-4 sm:w-6 flex flex-col items-center justify-center rounded-sm transition-colors z-20 min-h-[48px] ${
+              selectedAreaCode === 'NET'
+                ? 'bg-orange-500 text-white shadow-[0_0_10px_rgba(249,115,22,0.8)]'
+                : 'bg-white/20 text-white/50 hover:bg-white/40'
+            }`}
+          >
+            {!compact && <span className="text-[10px] font-bold rotate-180" style={{ writingMode: 'vertical-rl' }}>NET</span>}
+          </button>
+
+          {/* Right Court */}
+          <div className="flex-1 grid grid-cols-2 grid-rows-3 gap-0.5">
+            <AreaBtn code="RN" courtSide={rightCourtSide} />
+            <AreaBtn code="RB" courtSide={rightCourtSide} />
+            <AreaBtn code="CN" courtSide={rightCourtSide} />
+            <AreaBtn code="CB" courtSide={rightCourtSide} />
+            <AreaBtn code="LN" courtSide={rightCourtSide} />
+            <AreaBtn code="LB" courtSide={rightCourtSide} />
+          </div>
+        </div>
+
+        {!compact && errorAreas.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-1">
+            {errorAreas.map((area) => (
+              <button
+                key={area.code}
+                onClick={() => onSelectArea(area.code)}
+                data-scout-hover-area={area.code}
+                data-scout-hover-court-side=""
+                className={`px-3 py-2 rounded text-[10px] font-bold transition-all min-h-[44px] min-w-[44px] ${
+                  selectedAreaCode === area.code
+                    ? 'bg-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.8)] scale-105'
+                    : 'bg-white/10 text-white/60 hover:bg-white/20'
+                }`}
+              >
+                {area.code}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Football
+  if (sportType === 'football') {
+    return (
+      <div className={`flex flex-col gap-2 ${compact ? 'w-[80px]' : 'w-[200px] sm:w-[240px] max-w-full'} transition-all`}>
+        <div className={`relative flex flex-col bg-green-900/40 rounded-xl border border-white/20 overflow-hidden ${compact ? 'h-[120px]' : 'h-[280px] sm:h-[320px] max-h-full'} p-1 gap-0.5 ${flipCourtSide ? 'rotate-180' : ''}`}>
+          <div className="flex justify-center gap-1 mb-1">
+            <AreaBtn code="GOAL" className="flex-1 h-6 bg-green-800/50" flipContent />
+            <AreaBtn code="BOX" className="flex-1 h-6 bg-green-800/50" flipContent />
+          </div>
+          <div className="flex-1 grid grid-cols-3 gap-0.5">
+            <AreaBtn code="ATT_L" flipContent />
+            <AreaBtn code="ATT_C" flipContent />
+            <AreaBtn code="ATT_R" flipContent />
+            <AreaBtn code="MID_L" flipContent />
+            <AreaBtn code="MID_C" flipContent />
+            <AreaBtn code="MID_R" flipContent />
+            <AreaBtn code="DEF_L" flipContent />
+            <AreaBtn code="DEF_C" flipContent />
+            <AreaBtn code="DEF_R" flipContent />
+          </div>
+        </div>
+        {!compact && errorAreas.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-1">
+            {errorAreas.map((area) => (
+              <button
+                key={area.code}
+                onClick={() => onSelectArea(area.code)}
+                className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${
+                  selectedAreaCode === area.code
+                    ? 'bg-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.8)] scale-105'
+                    : 'bg-white/10 text-white/60 hover:bg-white/20'
+                }`}
+              >
+                {area.code}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Badminton
+  if (sportType === 'badminton') {
+    return (
+      <div className={`flex flex-col gap-2 ${compact ? 'w-[120px]' : 'w-[240px] max-w-full'} transition-all`}>
+        <div className={`relative flex flex-col bg-teal-950/40 rounded-xl border border-white/20 overflow-hidden ${compact ? 'h-[160px]' : 'h-[340px]'} p-1 gap-0.5 ${flipCourtSide ? 'rotate-180' : ''}`}>
+          {/* Opponent Side */}
+          <div className="relative z-10 grid grid-cols-3 gap-0.5 opacity-80 mb-0.5">
+            <AreaBtn code="BR" className="aspect-square" label={compact ? "BR" : "Opp BR"} flipContent />
+            <AreaBtn code="BC" className="aspect-square" label={compact ? "BC" : "Opp BC"} flipContent />
+            <AreaBtn code="BL" className="aspect-square" label={compact ? "BL" : "Opp BL"} flipContent />
+            
+            <AreaBtn code="MR" className="aspect-square" label={compact ? "MR" : "Opp MR"} flipContent />
+            <AreaBtn code="MC" className="aspect-square" label={compact ? "MC" : "Opp MC"} flipContent />
+            <AreaBtn code="ML" className="aspect-square" label={compact ? "ML" : "Opp ML"} flipContent />
+
+            <AreaBtn code="FR" className="aspect-square" label={compact ? "FR" : "Opp FR"} flipContent />
+            <AreaBtn code="FC" className="aspect-square" label={compact ? "FC" : "Opp FC"} flipContent />
+            <AreaBtn code="FL" className="aspect-square" label={compact ? "FL" : "Opp FL"} flipContent />
+          </div>
+
+          {/* NET */}
+          <div className="w-full h-3 mb-0.5 rounded-sm flex items-center justify-center font-bold text-[8px] bg-teal-800/60 text-teal-200 border-b border-white/10 z-10">
+            <div className={`${flipCourtSide ? 'rotate-180' : ''}`}>NET</div>
+          </div>
+
+          {/* Our Side */}
+          <div className="relative z-10 grid grid-cols-3 gap-0.5 mt-0.5">
+            <AreaBtn code="FL" className="aspect-square" label={compact ? "FL" : "Our FL"} flipContent />
+            <AreaBtn code="FC" className="aspect-square" label={compact ? "FC" : "Our FC"} flipContent />
+            <AreaBtn code="FR" className="aspect-square" label={compact ? "FR" : "Our FR"} flipContent />
+            
+            <AreaBtn code="ML" className="aspect-square" label={compact ? "ML" : "Our ML"} flipContent />
+            <AreaBtn code="MC" className="aspect-square" label={compact ? "MC" : "Our MC"} flipContent />
+            <AreaBtn code="MR" className="aspect-square" label={compact ? "MR" : "Our MR"} flipContent />
+
+            <AreaBtn code="BL" className="aspect-square" label={compact ? "BL" : "Our BL"} flipContent />
+            <AreaBtn code="BC" className="aspect-square" label={compact ? "BC" : "Our BC"} flipContent />
+            <AreaBtn code="BR" className="aspect-square" label={compact ? "BR" : "Our BR"} flipContent />
+          </div>
+        </div>
+        {!compact && errorAreas.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-1">
+            {errorAreas.map((area) => (
+              <button
+                key={area.code}
+                onClick={() => onSelectArea(area.code)}
+                className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${
+                  selectedAreaCode === area.code
+                    ? 'bg-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.8)] scale-105'
+                    : 'bg-white/10 text-white/60 hover:bg-white/20'
+                }`}
+              >
+                {area.code}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Basketball
+  if (sportType === 'basketball') {
+    return (
+      <div className={`flex flex-col gap-2 ${compact ? 'w-[120px]' : 'w-[240px] max-w-full'} transition-all`}>
+        <div className={`relative flex flex-col bg-amber-950/40 rounded-xl border border-white/20 overflow-hidden ${compact ? 'h-[160px]' : 'h-[320px]'} p-2 gap-1 items-center ${flipCourtSide ? 'rotate-180' : ''}`}>
+          {/* Hoop / Paint */}
+          <div className="w-full flex justify-center mb-1">
+            <div className="w-1/3 flex flex-col gap-0.5">
+              <div className="w-6 h-1 bg-amber-600 mx-auto rounded-full mb-0.5"></div>
+              <AreaBtn code="PAINT" className="h-10 sm:h-12 bg-amber-800/50" flipContent />
+            </div>
+          </div>
+
+          <div className="w-full relative z-10 grid grid-cols-3 gap-0.5">
+            <AreaBtn code="LEFT_WING" className="aspect-video" flipContent />
+            <AreaBtn code="TOP_KEY" className="aspect-video" flipContent />
+            <AreaBtn code="RIGHT_WING" className="aspect-video" flipContent />
+
+            <AreaBtn code="LEFT_CORNER" className="aspect-video" flipContent />
+            <AreaBtn code="MID_RANGE" className="aspect-video" flipContent />
+            <AreaBtn code="RIGHT_CORNER" className="aspect-video" flipContent />
+          </div>
+          
+          <div className="w-full mt-1">
+            <AreaBtn code="THREE_PT" className="w-full py-1 min-h-[28px]" flipContent />
+          </div>
+        </div>
+        {!compact && errorAreas.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-1">
+            {errorAreas.map((area) => (
+              <button
+                key={area.code}
+                onClick={() => onSelectArea(area.code)}
+                className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${
+                  selectedAreaCode === area.code
+                    ? 'bg-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.8)] scale-105'
+                    : 'bg-white/10 text-white/60 hover:bg-white/20'
+                }`}
+              >
+                {area.code}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Generic Grid fallback
+  return (
+    <div className={`flex flex-col gap-2 ${compact ? 'w-[120px]' : 'w-[240px] max-w-full'} transition-all`}>
+       <div className="grid grid-cols-3 gap-1">
+        {areas.map(area => (
+          <AreaBtn key={area.code} code={area.code} />
+        ))}
+       </div>
+    </div>
+  );
+}
