@@ -12,36 +12,88 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
   });
 }
 
+// Monkeypatch HTMLMediaElement.prototype.play to catch unhandled play() promise rejections
+const originalPlay = HTMLMediaElement.prototype.play;
+HTMLMediaElement.prototype.play = function () {
+  const p = originalPlay.apply(this, arguments as any);
+  if (p && typeof p.catch === 'function') {
+    p.catch((e: any) => {
+      if (e && e.name === 'AbortError') return;
+      if (e && e.message && e.message.includes('The play() request was interrupted')) return;
+      // Do not throw, as that creates a new unhandled rejection
+      // Just ignore or log other play errors (like NotAllowedError)
+    });
+  }
+  return p;
+};
+
 // Suppress the benign play/pause DOMException that bubbles up from ReactPlayer
+const isPlayInterrupted = (arg: any): boolean => {
+  if (!arg) return false;
+  if (typeof arg === 'string') {
+    return arg.includes('The play() request was interrupted') || arg.includes('interrupted by a call to pause');
+  }
+  if (arg instanceof Error) {
+    return !!(arg.message && (arg.message.includes('The play() request was interrupted') || arg.message.includes('interrupted by a call to pause')));
+  }
+  if (typeof arg === 'object') {
+    const msg = String(arg.message || arg.reason || '');
+    const name = String(arg.name || '');
+    return msg.includes('The play() request was interrupted') || msg.includes('interrupted by a call to pause') || name.includes('The play() request was interrupted');
+  }
+  try {
+    const str = String(arg);
+    return str.includes('The play() request was interrupted') || str.includes('interrupted by a call to pause');
+  } catch (e) {}
+  return false;
+};
+
 window.addEventListener('unhandledrejection', (event) => {
   if (
     event.reason && (
       event.reason.name === 'NotAllowedError' || 
       event.reason.name === 'AbortError' || 
-      (event.reason.message && event.reason.message.includes('The play() request was interrupted by a call to pause()'))
+      isPlayInterrupted(event.reason)
     )
   ) {
     event.preventDefault(); // Prevent it from crashing the app/showing error overlay
   }
 });
 
+window.addEventListener('error', (event) => {
+  const msg = event.message || '';
+  const errMessage = event.error?.message || '';
+  if (
+    msg.includes('The play() request was interrupted') ||
+    errMessage.includes('The play() request was interrupted') ||
+    isPlayInterrupted(event.error)
+  ) {
+    event.preventDefault();
+  }
+});
+
 const originalError = console.error;
 console.error = (...args) => {
-  if (
-    args[0] && 
-    typeof args[0] === 'string' && 
-    args[0].includes('The play() request was interrupted by a call to pause()')
-  ) {
-    return; // Suppress this specific ReactPlayer/React warning
+  if (args.some(isPlayInterrupted)) {
+    return; // Suppress play/pause interrupt exceptions
   }
   if (
     args[0] &&
-    args[0] instanceof Error &&
-    args[0].message.includes('The play() request was interrupted by a call to pause()')
+    typeof args[0] === 'string' &&
+    args[0].includes('Unknown event handler property') &&
+    args.some(arg => typeof arg === 'string' && arg.includes('onDuration'))
   ) {
-    return;
+    return; // Suppress React 19 onDuration warning from ReactPlayer
   }
   originalError(...args);
+};
+
+const originalWarn = console.warn;
+console.warn = (...args) => {
+  if (args.some(isPlayInterrupted)) {
+    return;
+  }
+  originalWarn(...args);
 };
 
 const rootElement = document.getElementById('root');

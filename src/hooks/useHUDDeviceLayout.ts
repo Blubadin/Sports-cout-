@@ -1,124 +1,86 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
+import { useScoutContext } from "../context/ScoutContext";
 
 export type HUDDeviceLayout = {
-  device: 'mobile' | 'tablet' | 'desktop';
-  orientation: 'portrait' | 'landscape';
+  device: "phone" | "tablet" | "desktop";
+  orientation: "portrait" | "landscape";
+  experienceMode: "pro" | "phone";
   isCoarsePointer: boolean;
-  skillWheelSize: number;
-  skillButtonSize: number;
-  subSkillButtonSize: number;
   touchTarget: number;
-  areaMode: 'compact' | 'expanded';
-  resultRailMode: 'compact' | 'normal';
-  videoControlsMode: 'compact' | 'expanded';
+  compact: boolean;
 };
 
 export function useHUDDeviceLayout(): HUDDeviceLayout {
+  const { settings } = useScoutContext();
+  const experienceModeSetting = settings?.hudExperienceMode ?? "auto";
+
   const [layout, setLayout] = useState<HUDDeviceLayout>({
-    device: 'desktop',
-    orientation: 'landscape',
+    device: "desktop",
+    orientation: "landscape",
+    experienceMode: "pro",
     isCoarsePointer: false,
-    skillWheelSize: 300,
-    skillButtonSize: 48,
-    subSkillButtonSize: 44,
     touchTarget: 44,
-    areaMode: 'expanded',
-    resultRailMode: 'normal',
-    videoControlsMode: 'expanded',
+    compact: false,
   });
 
   useEffect(() => {
     const handleResize = () => {
       const width = window.innerWidth;
       const height = window.innerHeight;
-      const orientation = width > height ? 'landscape' : 'portrait';
-      
-      // Check for touch pointer
-      const isCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
-      
-      // Determine device category
-      let device: 'mobile' | 'tablet' | 'desktop' = 'desktop';
-      
+      const orientation = width > height ? "landscape" : "portrait";
+
+      const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+      const minDimension = Math.min(width, height);
+
+      let device: "phone" | "tablet" | "desktop" = "desktop";
+
       if (isCoarsePointer) {
-        if (Math.min(width, height) < 500) {
-          device = 'mobile';
-        } else if (Math.min(width, height) < 900) {
-          device = 'tablet';
+        if (minDimension < 600) {
+          device = "phone";
         } else {
-          device = 'desktop';
+          device = "tablet";
         }
       } else {
-        // Fallback to width/height checks if fine pointer
-        if (width < 768 || (orientation === 'landscape' && width < 960 && height < 500)) {
-          device = 'mobile';
-        } else if (width < 1200) {
-          device = 'tablet';
+        if (
+          width < 768 ||
+          (orientation === "landscape" && width < 960 && height < 500)
+        ) {
+          device = "phone";
         } else {
-          device = 'desktop';
+          device = "desktop";
         }
       }
 
-      // Compute sizing parameters based on device & orientation
-      let skillWheelSize = 300;
-      let skillButtonSize = 48;
-      let subSkillButtonSize = 44;
-      let touchTarget = 44;
-      let areaMode: 'compact' | 'expanded' = 'expanded';
-      let resultRailMode: 'compact' | 'normal' = 'normal';
-      let videoControlsMode: 'compact' | 'expanded' = 'expanded';
+      let experienceMode: "pro" | "phone" = "pro";
 
-      if (device === 'mobile') {
-        areaMode = 'compact';
-        resultRailMode = 'compact';
-        videoControlsMode = 'compact';
-        touchTarget = 48;
-
-        if (orientation === 'portrait') {
-          skillWheelSize = 230;
-          skillButtonSize = 58;
-          subSkillButtonSize = 50;
+      if (experienceModeSetting === "auto") {
+        if (device === "phone") {
+          experienceMode = "phone";
         } else {
-          skillWheelSize = 230;
-          skillButtonSize = 54;
-          subSkillButtonSize = 48;
+          experienceMode = "pro"; // tablet and desktop get pro
         }
-      } else if (device === 'tablet') {
-        areaMode = 'expanded';
-        resultRailMode = 'normal';
-        videoControlsMode = 'compact';
-        touchTarget = 48;
-        skillWheelSize = 280;
-        skillButtonSize = 56;
-        subSkillButtonSize = 52;
       } else {
-        // Desktop
-        areaMode = 'expanded';
-        resultRailMode = 'normal';
-        videoControlsMode = 'expanded';
-        touchTarget = 44;
-        skillWheelSize = 310;
-        skillButtonSize = 48;
-        subSkillButtonSize = 46;
+        experienceMode = experienceModeSetting;
       }
 
       setLayout({
         device,
         orientation,
+        experienceMode,
         isCoarsePointer,
-        skillWheelSize,
-        skillButtonSize,
-        subSkillButtonSize,
-        touchTarget,
-        areaMode,
-        resultRailMode,
-        videoControlsMode,
+        touchTarget: isCoarsePointer ? 48 : 44,
+        compact: device === "phone",
       });
     };
 
     handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
+    };
+  }, [experienceModeSetting]);
 
   return layout;
 }

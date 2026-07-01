@@ -7,8 +7,6 @@ import { t } from '../i18n';
 import CourtAreaSelector from './CourtAreaSelector';
 import { useScreenMarkingMode } from '../hooks/useScreenMarkingMode';
 
-import InlineSkillRadialWheel from './InlineSkillRadialWheel';
-
 export default function InputPanel() {
   const {
     teams, skills, areas, results,
@@ -78,6 +76,10 @@ export default function InputPanel() {
       return;
     }
 
+    if (isScreenMarkingActive || document.getElementById('scout-hud-container')) {
+      return;
+    }
+
     const key = e.key.toLowerCase();
     
     if (key === '1' && teams[0]) handleSelect('teamCode', teams[0].code);
@@ -125,12 +127,18 @@ export default function InputPanel() {
         undoLastAction();
       }
     }
-  }, [teams, skills, areas, currentAction, saveEvent, undoLastAction, clearCurrentEvent, resetCurrentAction, handleSelect, handleSelectArea, handleResultSelect]);
+  }, [teams, skills, areas, currentAction, saveEvent, undoLastAction, clearCurrentEvent, resetCurrentAction, handleSelect, handleSelectArea, handleResultSelect, isScreenMarkingActive]);
+
+  const handleKeyDownRef = useRef(handleKeyDown);
+  useEffect(() => {
+    handleKeyDownRef.current = handleKeyDown;
+  }, [handleKeyDown]);
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+    const listener = (e: KeyboardEvent) => handleKeyDownRef.current(e);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
 
   const renderRallyChain = () => {
     if (currentActions.length === 0) return null;
@@ -141,7 +149,7 @@ export default function InputPanel() {
         </div>
         <div className="flex flex-col gap-1 max-h-32 overflow-y-auto custom-scrollbar pr-2">
           {currentActions.map((a, i) => (
-            <div key={a.id || `${i}-${a.teamCode}-${a.skillCode}-${a.areaCode}-${a.resultCode}`} className="text-sm font-mono text-gray-300 bg-gray-800/50 px-2 py-1.5 rounded flex flex-col">
+            <div key={`${a.id || ''}-${i}-${a.teamCode}`} className="text-sm font-mono text-gray-300 bg-gray-800/50 px-2 py-1.5 rounded flex flex-col">
               <span>{i + 1}. {settings.advancedDetailMode ? getExtendedActionText(a) : [a.teamCode, a.skillCode, a.areaCode || (a.resultCode==='Out'?'OUT':''), a.resultCode].filter(Boolean).join(' / ')}</span>
               <span className="text-[10px] text-gray-500 mt-0.5">{getThaiMeaning(a)}</span>
             </div>
@@ -177,57 +185,6 @@ export default function InputPanel() {
         </div>
       )}
       <div className="flex flex-col gap-4">
-      {/* Sport Battery Selector */}
-      <div className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col gap-2">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-          {settings.uiLanguage === 'th' ? 'ชนิดกีฬา (Sport Battery)' : 'Sport Battery'}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {[
-            { id: 'volleyball', name: 'Volleyball', color: 'orange' },
-            { id: 'football', name: 'Football', color: 'green' },
-            { id: 'badminton', name: 'Badminton', color: 'teal' },
-            { id: 'basketball', name: 'Basketball', color: 'amber' }
-          ].map(sport => {
-            const isSelected = sportTemplate.id === sport.id;
-            let bgSelected = "";
-            if (sport.id === 'volleyball') bgSelected = "bg-orange-500 text-white shadow-sm";
-            if (sport.id === 'football') bgSelected = "bg-green-600 text-white shadow-sm";
-            if (sport.id === 'badminton') bgSelected = "bg-teal-500 text-white shadow-sm";
-            if (sport.id === 'basketball') bgSelected = "bg-amber-600 text-white shadow-sm";
-            const bgUnselected = `bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600`;
-            
-            return (
-              <button
-                key={sport.id}
-                onClick={() => changeSportType(sport.id as any)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${isSelected ? bgSelected : bgUnselected}`}
-              >
-                {sport.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Settings Toggle */}
-      <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" className="rounded text-sky-600" checked={settings.fastMode} onChange={(e) => setSettings(prev => ({...prev, fastMode: e.target.checked}))} />
-            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-              {settings.uiLanguage === 'th' ? 'โหมดด่วน (Fast Mode)' : 'Fast Mode'}
-            </span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" className="rounded text-purple-600" checked={settings.advancedDetailMode} onChange={(e) => setSettings(prev => ({...prev, advancedDetailMode: e.target.checked}))} />
-            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
-              {settings.uiLanguage === 'th' ? 'โหมดละเอียด (Detail Mode)' : 'Detail Mode'}
-            </span>
-          </label>
-        </div>
-      </div>
-
       {/* Action Builder Sticky Header */}
       <div className="sticky top-[72px] z-30 bg-gray-900 text-white rounded-xl shadow-lg p-4 border-2 border-sky-500">
         <div className="text-xs text-gray-400 mb-1 flex justify-between">
@@ -317,7 +274,7 @@ export default function InputPanel() {
             <div className="grid grid-cols-2 gap-3 mb-3">
               {teams.map((t, i) => (
                 <button
-                  key={t.id}
+                  key={`${t.id || t.code}-${i}`}
                   onClick={() => handleSelect('teamCode', t.code)}
                   data-scout-selectable="true"
                   data-scout-group="team"
@@ -362,64 +319,50 @@ export default function InputPanel() {
               2. {t('input.skill', settings.uiLanguage)}
             </h3>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-400">
-                {settings.uiLanguage === 'th' ? 'กด Q ค้างเพื่อเปิดเมนู' : "Hold 'Q' for Marking Menu"}
-              </span>
               <button 
                 onClick={() => {
-                  const nextLayout = (!settings.skillInputLayout || settings.skillInputLayout === 'wheel') ? 'grid' : 'wheel';
+                  const nextLayout = (!settings.skillInputLayout || settings.skillInputLayout === 'grid') ? 'compact' : 'grid';
                   setSettings(p => ({ ...p, skillInputLayout: nextLayout }));
                 }}
                 className="text-[10px] px-2 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 ml-1 transition-colors"
               >
-                {(!settings.skillInputLayout || settings.skillInputLayout === 'wheel') 
-                  ? (settings.uiLanguage === 'th' ? 'เปลี่ยนเป็นตาราง' : 'Switch to Grid') 
-                  : (settings.uiLanguage === 'th' ? 'เปลี่ยนเป็นวงล้อ' : 'Switch to Wheel')}
+                {settings.skillInputLayout === 'compact'
+                  ? (settings.uiLanguage === 'th' ? 'เปลี่ยนเป็นตารางปกติ' : 'Switch to Normal Grid') 
+                  : (settings.uiLanguage === 'th' ? 'เปลี่ยนเป็นตารางย่อ' : 'Switch to Compact')}
               </button>
             </div>
           </div>
           
-          {(!settings.skillInputLayout || settings.skillInputLayout === 'wheel') ? (
-            <InlineSkillRadialWheel
-              skills={skills}
-              selectedSkill={currentAction.skillCode}
-              onSelect={(val) => handleSelect('skillCode', val)}
-              descriptors={currentSkillGroups}
-              selectedDescriptors={currentAction.descriptors}
-              onDescriptorSelect={handleDescriptorSelect}
-            />
-          ) : (
-            <div className={classNames("grid gap-2", settings.skillInputLayout === 'compact' ? 'grid-cols-4 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-4')}>
-              {skills.map((s, i) => {
-                const keys = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'];
-                return (
-                  <button
-                    key={s.id}
-                    onClick={() => handleSelect('skillCode', s.code)}
-                    data-scout-selectable="true"
-                    data-scout-group="skill"
-                    data-scout-value={s.code}
-                    className={classNames(
-                      settings.skillInputLayout === 'compact' ? "py-1.5" : "py-3",
-                      "rounded-lg font-bold shadow-sm transition-transform active:scale-95 border-2 flex flex-col items-center justify-center gap-1",
-                      currentAction.skillCode === s.code 
-                        ? "bg-purple-600 text-white border-purple-600" 
-                        : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-200 dark:border-gray-700 hover:border-purple-400"
-                    )}
-                  >
-                    <span className={settings.skillInputLayout === 'compact' ? "text-sm" : "text-base"}>{s.code}</span>
-                    <span className="text-[9px] font-normal opacity-70 whitespace-nowrap overflow-hidden text-ellipsis max-w-full px-1">
-                      {s.thaiName} {keys[i]?`[${keys[i]}]`:''}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <div className={classNames("grid gap-2", settings.skillInputLayout === 'compact' ? 'grid-cols-4 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-4')}>
+            {skills.map((s, i) => {
+              const keys = ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'];
+              return (
+                <button
+                  key={`${s.id || s.code}-${i}`}
+                  onClick={() => handleSelect('skillCode', s.code)}
+                  data-scout-selectable="true"
+                  data-scout-group="skill"
+                  data-scout-value={s.code}
+                  className={classNames(
+                    settings.skillInputLayout === 'compact' ? "py-1.5" : "py-3",
+                    "rounded-lg font-bold shadow-sm transition-transform active:scale-95 border-2 flex flex-col items-center justify-center gap-1",
+                    currentAction.skillCode === s.code 
+                      ? "bg-purple-600 text-white border-purple-600" 
+                      : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-gray-200 dark:border-gray-700 hover:border-purple-400"
+                  )}
+                >
+                  <span className={settings.skillInputLayout === 'compact' ? "text-sm" : "text-base"}>{s.code}</span>
+                  <span className="text-[9px] font-normal opacity-70 whitespace-nowrap overflow-hidden text-ellipsis max-w-full px-1">
+                    {s.thaiName} {keys[i]?`[${keys[i]}]`:''}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </section>
 
         {/* DESCRIPTORS (Advanced Detail Mode) */}
-        {settings.advancedDetailMode && currentSkillGroups.length > 0 && settings.skillInputLayout && settings.skillInputLayout !== 'wheel' && (
+        {settings.advancedDetailMode && currentSkillGroups.length > 0 && (
           <section className="bg-purple-50 dark:bg-purple-900/10 p-3 rounded-xl border border-purple-100 dark:border-purple-800/30">
             <h3 className="text-xs font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wider mb-2 flex items-center gap-1">
               <ChevronDown size={14} /> Detail Descriptors
@@ -489,7 +432,7 @@ export default function InputPanel() {
 
               return (
                 <button
-                  key={r.id}
+                  key={`${r.id || r.code}-${i}`}
                   onClick={() => handleResultSelect(r.code)}
                   data-scout-selectable="true"
                   data-scout-group="result"

@@ -1,6 +1,7 @@
 import React from "react";
 import { useScoutContext } from "../../context/ScoutContext";
 import { Undo2 } from "lucide-react";
+import { getAreaDisplay } from "../../utils/areaHelper";
 
 export default function HUDActionStatus() {
   const {
@@ -10,12 +11,23 @@ export default function HUDActionStatus() {
     getThaiMeaning,
     hudLastSavedText,
     undoLastAction,
+    settings,
   } = useScoutContext();
 
-  const getTeamLabel = () => currentAction.teamCode || "Team";
-  const getSkillLabel = () => currentAction.skillCode || "Skill";
-  const getAreaLabel = () => currentAction.areaCode || "Area";
-  const getResultLabel = () => currentAction.resultCode || "Result";
+  const isThai = settings?.uiLanguage === "th";
+
+  const getTeamLabel = () => currentAction.teamCode || (isThai ? "ทีม (1/2)" : "Team (1/2)");
+  const getAreaLabel = () => {
+    if (!currentAction.areaCode) {
+      return isThai ? "พื้นที่ (Q)" : "Area (Q)";
+    }
+    const code = currentAction.areaCode;
+    const foundArea = sportTemplate.areas.find((a) => a.code === code);
+    const displayInfo = getAreaDisplay(code, isThai, foundArea?.thaiName || "");
+    return displayInfo.sub ? `${displayInfo.main} (${displayInfo.sub})` : displayInfo.main;
+  };
+  const getSkillLabel = () => currentAction.skillCode || (isThai ? "ทักษะ (W)" : "Skill (W)");
+  const getResultLabel = () => currentAction.resultCode || (isThai ? "ผลลัพธ์ (E)" : "Result (E)");
 
   const renderChip = (
     label: string,
@@ -68,7 +80,7 @@ export default function HUDActionStatus() {
       {currentActions.length > 0 && (
         <div className="flex flex-wrap justify-center gap-1.5 text-[9px] md:text-[11px] text-white/90 font-mono max-w-lg mb-0.5 px-4 overflow-hidden">
           {currentActions.map((act, i) => (
-            <React.Fragment key={act.id || i}>
+            <React.Fragment key={`${act.id || ""}-${i}`}>
               <span className="bg-black/40 px-2 py-0.5 rounded border border-white/5 backdrop-blur whitespace-nowrap">
                 {[act.teamCode, act.skillCode, act.areaCode, act.resultCode]
                   .filter(Boolean)
@@ -85,6 +97,7 @@ export default function HUDActionStatus() {
       {/* Current Action Editing Chips */}
       <div className="flex items-center gap-1.5 md:gap-2 bg-black/40 p-1.5 md:p-2 rounded-xl backdrop-blur-md border border-white/10 flex-nowrap w-full overflow-x-auto justify-center pointer-events-auto">
         {renderChip(getTeamLabel(), !!currentAction.teamCode, "team")}
+        {renderChip(getAreaLabel(), !!currentAction.areaCode, "area")}
         {renderChip(getSkillLabel(), !!currentAction.skillCode, "skill")}
 
         {/* Render sub-skill if present */}
@@ -94,13 +107,12 @@ export default function HUDActionStatus() {
           </div>
         )}
 
-        {renderChip(getAreaLabel(), !!currentAction.areaCode, "area")}
         {renderChip(getResultLabel(), !!currentAction.resultCode, "result")}
 
         {canUndo && (
           <button
             onClick={undoLastAction}
-            className="ml-1 p-1.5 md:p-2 bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 rounded-lg border border-rose-500/30 backdrop-blur-sm transition-colors flex items-center justify-center shadow-lg"
+            className="ml-1 p-1.5 md:p-2 bg-rose-500/20 hover:bg-rose-500/40 active:scale-95 active:bg-rose-500/50 text-rose-300 rounded-lg border border-rose-500/30 backdrop-blur-sm transition-colors flex items-center justify-center shadow-lg"
             title="Undo (Backspace / Ctrl+Z)"
           >
             <Undo2 size={16} />

@@ -28,6 +28,15 @@
   }
 }
 
+/* Pseudo-fullscreen fixes for HUD Mode */
+body.hud-active header {
+  z-index: 0 !important;
+  display: none !important;
+}
+body.hud-active .lg\:sticky {
+  z-index: 99999 !important;
+}
+
 /* Screen Marking Mode Styling */
 body.scout-marking-active [data-scout-selectable="true"] {
   cursor: crosshair !important;

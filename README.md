@@ -1,20 +1,10 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Sports Scout
 
-# Run and deploy your AI Studio app
+A video-based scouting app for tracking player and team performance with both Local Video and YouTube support.
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/6e5651b2-6756-465d-8bf9-1a78bd65c73c
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Roadmap:
+- Phase 1: Stable video playback
+- Phase 2: Phone Scout Mode
+- Phase 3: Pro HUD for tablet/desktop
+- Phase 4: Dashboard/KPI
+- Phase 5: Production/PWA hardening

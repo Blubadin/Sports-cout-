@@ -1,16 +1,19 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useScoutContext } from '../../context/ScoutContext';
-import { Maximize, Minimize, X, History, RotateCcw } from 'lucide-react';
-import { useHUDDeviceLayout } from '../../hooks/useHUDDeviceLayout';
+import React, { useState, useEffect, useRef } from "react";
+import { useScoutContext } from "../../context/ScoutContext";
+import { Maximize, Minimize, X, History, RotateCcw } from "lucide-react";
+import { useHUDDeviceLayout } from "../../hooks/useHUDDeviceLayout";
+import { useProHUDMarkingController } from "../../hooks/useProHUDMarkingController";
 
-import HUDTopStatsBar from './HUDTopStatsBar';
-import HUDActionStatus from './HUDActionStatus';
-import HUDTeamSelector from './HUDTeamSelector';
-import HUDSkillRadial from './HUDSkillRadial';
-import HUDAreaSelector from './HUDAreaSelector';
-import HUDResultSelector from './HUDResultSelector';
-import HUDVideoControls from './HUDVideoControls';
-import HUDSequenceHistoryDrawer from './HUDSequenceHistoryDrawer';
+import HUDTopStatsBar from "./HUDTopStatsBar";
+import HUDActionStatus from "./HUDActionStatus";
+import HUDTeamSelector from "./HUDTeamSelector";
+import HUDSkillRadial from "./HUDSkillRadial";
+import HUDAreaSelector from "./HUDAreaSelector";
+import HUDResultSelector from "./HUDResultSelector";
+import HUDVideoControls from "./HUDVideoControls";
+import HUDSequenceHistoryDrawer from "./HUDSequenceHistoryDrawer";
+import HUDMiniCourtSelector from "./HUDMiniCourtSelector";
+import { getAreaDisplay } from "../../utils/areaHelper";
 
 interface ScoutHUDModeProps {
   onClose: () => void;
@@ -32,83 +35,157 @@ interface ScoutHUDModeProps {
   };
 }
 
-export default function ScoutHUDMode({ onClose, containerRef, isPortrait, videoControls }: ScoutHUDModeProps) {
-  const { 
+export default function ScoutHUDMode({
+  onClose,
+  containerRef,
+  isPortrait,
+  videoControls,
+}: ScoutHUDModeProps) {
+  const {
     settings,
-    currentAction, setCurrentAction,
-    currentActions, setCurrentActions,
-    addAction, saveEvent, undoLastAction,
-    events, clearCurrentEvent,
-    updateActionField, teams, commitResult
+    currentAction,
+    setCurrentAction,
+    currentActions,
+    setCurrentActions,
+    addAction,
+    saveEvent,
+    undoLastAction,
+    events,
+    clearCurrentEvent,
+    updateActionField,
+    teams,
+    commitResult,
+    sportTemplate,
+    matchInfo,
+    selectArea,
   } = useScoutContext();
 
   const layout = useHUDDeviceLayout();
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [activeMenu, setActiveMenu] = useState<'none' | 'team' | 'skill' | 'area' | 'result'>('none');
   const [showUI, setShowUI] = useState(true);
-  const [layoutMode, setLayoutMode] = useState<'auto' | 'portrait' | 'landscape'>('auto');
+  const [layoutMode, setLayoutMode] = useState<
+    "auto" | "portrait" | "landscape"
+  >("auto");
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [skillMenuPhase, setSkillMenuPhase] = useState<'skill' | 'descriptor'>('skill');
-  
-  // Hovered states for keyboard marking
-  const [hoveredSkill, setHoveredSkill] = useState<string | null>(null);
-  const [hoveredArea, setHoveredArea] = useState<{code: string, courtSide?: 'teamA'|'teamB'|'neutral'} | null>(null);
-  const [hoveredResult, setHoveredResult] = useState<string | null>(null);
-  
+  const [skillMenuPhase, setSkillMenuPhase] = useState<"skill" | "descriptor">(
+    "skill",
+  );
+
+  const {
+    activeMenu,
+    setActiveMenu,
+    pointerPosition,
+    hoveredSkill,
+    hoveredDescriptor,
+    hoveredArea,
+    hoveredResult,
+    setHoveredSkill,
+    setHoveredDescriptor,
+    setHoveredResult,
+    hoveredTeam,
+    previewSkill,
+    handleKeyDown,
+    handleKeyUp,
+    handlePointerMove,
+    commitMarking,
+    isHoldMode,
+  } = useProHUDMarkingController({
+    settings,
+    teams,
+    selectedSkill: currentAction.skillCode || null,
+    updateActionField,
+    commitResult,
+    onCloseHUD: () => exitHUDModeSafely('escape_key'),
+    layout,
+  });
+
   const uiTimeoutRef = useRef<number | null>(null);
 
-  // Reset skill menu phase when skill menu is closed
+  // Reset skill menu phase when active menu is closed/changed
   useEffect(() => {
-    if (activeMenu !== 'skill') {
-      setSkillMenuPhase('skill');
+    if (activeMenu !== "skill") {
+      setSkillMenuPhase("skill");
     }
   }, [activeMenu]);
 
   // Calculate layout mode
-  const isEffectiveLandscape = layoutMode === 'landscape' 
-    ? true 
-    : (layoutMode === 'portrait' ? false : !isPortrait);
+  const isEffectiveLandscape =
+    layoutMode === "landscape"
+      ? true
+      : layoutMode === "portrait"
+        ? false
+        : !isPortrait;
+
+  const exitHUDModeSafely = async (reason?: string) => {
+    console.log("HUD Exit safely:", reason);
+    setActiveMenu("none");
+    setIsHistoryOpen(false);
+    setShowUI(true);
+    if (uiTimeoutRef.current) {
+      window.clearTimeout(uiTimeoutRef.current);
+    }
+    // Call onClose which will handle fullscreen and isHUDMode
+    onClose();
+  };
 
   // Handle Fullscreen & Orientation
   useEffect(() => {
     const handleFullscreenChange = async () => {
-      const isFs = !!document.fullscreenElement;
+      const isFs = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
       setIsFullscreen(isFs);
-      
+
       if (isFs) {
         try {
-          if (screen.orientation && 'lock' in screen.orientation) {
-            await (screen.orientation as any).lock('landscape');
+          if (screen.orientation && "lock" in screen.orientation) {
+            await (screen.orientation as any).lock("landscape");
           }
         } catch (err) {
-          console.warn('Could not lock orientation:', err);
+          console.warn("Could not lock orientation:", err);
         }
       } else {
         try {
-          if (screen.orientation && 'unlock' in screen.orientation) {
+          if (screen.orientation && "unlock" in screen.orientation) {
             screen.orientation.unlock();
           }
         } catch (err) {
-          console.warn('Could not unlock orientation:', err);
+          console.warn("Could not unlock orientation:", err);
         }
+        // Exited fullscreen by gesture or esc
+        exitHUDModeSafely("fullscreen_exit");
       }
     };
 
-    if (document.fullscreenElement) {
+    if (
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      (document as any).mozFullScreenElement ||
+      (document as any).msFullscreenElement
+    ) {
       handleFullscreenChange();
     } else {
       try {
-        if (screen.orientation && 'lock' in screen.orientation) {
-          (screen.orientation as any).lock('landscape').catch(() => {});
+        if (screen.orientation && "lock" in screen.orientation) {
+          (screen.orientation as any).lock("landscape").catch(() => {});
         }
       } catch (e) {}
     }
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
       try {
-        if (screen.orientation && 'unlock' in screen.orientation) {
+        if (screen.orientation && "unlock" in screen.orientation) {
           screen.orientation.unlock();
         }
       } catch (e) {}
@@ -129,22 +206,27 @@ export default function ScoutHUDMode({ onClose, containerRef, isPortrait, videoC
   };
 
   const handleToggleLayoutMode = () => {
-    setLayoutMode(prev => {
-      if (prev === 'auto') return 'landscape';
-      if (prev === 'landscape') return 'portrait';
-      return 'auto';
+    setLayoutMode((prev) => {
+      if (prev === "auto") return "landscape";
+      if (prev === "landscape") return "portrait";
+      return "auto";
     });
   };
 
   // Auto Hide UI
   useEffect(() => {
     if (!settings.hudAutoHideControls) return;
-    
+
     const resetTimer = () => {
       setShowUI(true);
-      if (uiTimeoutRef.current !== null) window.clearTimeout(uiTimeoutRef.current);
+      if (uiTimeoutRef.current !== null)
+        window.clearTimeout(uiTimeoutRef.current);
       uiTimeoutRef.current = window.setTimeout(() => {
-        if (activeMenu === 'none' && videoControls.isPlaying && !isHistoryOpen) {
+        if (
+          activeMenu === "none" &&
+          videoControls.isPlaying &&
+          !isHistoryOpen
+        ) {
           setShowUI(false);
         }
       }, 3000);
@@ -153,188 +235,172 @@ export default function ScoutHUDMode({ onClose, containerRef, isPortrait, videoC
     resetTimer();
     const el = containerRef.current;
     if (el) {
-      el.addEventListener('mousemove', resetTimer);
-      el.addEventListener('touchstart', resetTimer);
+      el.addEventListener("mousemove", resetTimer);
+      el.addEventListener("touchstart", resetTimer);
       return () => {
-        el.removeEventListener('mousemove', resetTimer);
-        el.removeEventListener('touchstart', resetTimer);
-        if (uiTimeoutRef.current !== null) window.clearTimeout(uiTimeoutRef.current);
+        el.removeEventListener("mousemove", resetTimer);
+        el.removeEventListener("touchstart", resetTimer);
+        if (uiTimeoutRef.current !== null)
+          window.clearTimeout(uiTimeoutRef.current);
       };
     }
-  }, [settings.hudAutoHideControls, activeMenu, videoControls.isPlaying, isHistoryOpen, containerRef]);
+  }, [
+    settings.hudAutoHideControls,
+    activeMenu,
+    videoControls.isPlaying,
+    isHistoryOpen,
+    containerRef,
+  ]);
 
-  // Pointer/Touch Drag Selection Tracking for Marking Menus (Mouse slide and Finger drag)
+  // Pointer/Touch Drag Selection Tracking
   useEffect(() => {
-    if (activeMenu === 'none') return;
-
-    const handleTrackingMove = (clientX: number, clientY: number) => {
-      const element = document.elementFromPoint(clientX, clientY);
-      if (!element) return;
-
-      const hoveredSkill = element.getAttribute('data-scout-hover-skill') || element.closest('[data-scout-hover-skill]')?.getAttribute('data-scout-hover-skill');
-      const descGroup = element.getAttribute('data-scout-hover-descriptor-group') || element.closest('[data-scout-hover-descriptor-group]')?.getAttribute('data-scout-hover-descriptor-group');
-      const descOption = element.getAttribute('data-scout-hover-descriptor-option') || element.closest('[data-scout-hover-descriptor-option]')?.getAttribute('data-scout-hover-descriptor-option');
-      const hoveredArea = element.getAttribute('data-scout-hover-area') || element.closest('[data-scout-hover-area]')?.getAttribute('data-scout-hover-area');
-      const hoveredResult = element.getAttribute('data-scout-hover-result') || element.closest('[data-scout-hover-result]')?.getAttribute('data-scout-hover-result');
-
-      if (hoveredSkill) {
-        (window as any).__hoveredSkill = hoveredSkill;
-      }
-      if (descGroup && descOption) {
-        (window as any).__hoveredDescriptor = { groupId: descGroup, optionCode: descOption };
-      }
-      if (hoveredArea) {
-        (window as any).__hoveredArea = hoveredArea;
-      }
-      if (hoveredResult) {
-        (window as any).__hoveredResult = hoveredResult;
-        setHoveredResult(hoveredResult);
-      }
-    };
-
-    const handlePointerMove = (e: PointerEvent) => {
-      handleTrackingMove(e.clientX, e.clientY);
+    const handlePointerMoveEvent = (e: PointerEvent) => {
+      handlePointerMove(e.clientX, e.clientY);
     };
 
     const handleTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 0) return;
       const touch = e.touches[0];
-      handleTrackingMove(touch.clientX, touch.clientY);
+      handlePointerMove(touch.clientX, touch.clientY);
     };
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('touchmove', handleTouchMove);
+    window.addEventListener("pointermove", handlePointerMoveEvent);
+    window.addEventListener("touchmove", handleTouchMove);
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener("pointermove", handlePointerMoveEvent);
+      window.removeEventListener("touchmove", handleTouchMove);
     };
-  }, [activeMenu]);
+  }, [handlePointerMove]);
 
   // Keyboard Shortcuts
+  const handleKeyDownRef = useRef<any>(null);
+  const handleKeyUpRef = useRef<any>(null);
+
+  const handleKeyDownGlobal = (e: KeyboardEvent) => {
+    if (e.repeat) return;
+    const activeEl = document.activeElement;
+    if (
+      activeEl?.tagName === "INPUT" ||
+      activeEl?.tagName === "TEXTAREA" ||
+      activeEl?.tagName === "SELECT"
+    )
+      return;
+
+    if (e.code === "Escape") {
+      if (isHistoryOpen) {
+        e.preventDefault();
+        setIsHistoryOpen(false);
+        return;
+      }
+      // Esc closes menus or HUD handled by hook
+    }
+
+    // Toggle History Drawer with 'KeyH'
+    if (e.code === "KeyH") {
+      e.preventDefault();
+      setIsHistoryOpen((prev) => !prev);
+      return;
+    }
+
+    // Handled by Pro Marking Controller hook
+    handleKeyDown(e);
+
+    // Video Controls
+    if (e.code === "Space") {
+      e.preventDefault();
+      videoControls.togglePlay();
+    }
+    if (e.code === "KeyA") {
+      e.preventDefault();
+      videoControls.seekBy(-3);
+    }
+    if (e.code === "KeyD") {
+      e.preventDefault();
+      videoControls.seekBy(3);
+    }
+    if (e.code === "KeyS") {
+      e.preventDefault();
+      videoControls.seekBy(-1);
+    }
+    if (e.code === "KeyF") {
+      e.preventDefault();
+      videoControls.seekBy(1);
+    }
+
+    // Save / Undo
+    if (e.code === "Enter") {
+      e.preventDefault();
+      saveEvent();
+    }
+    if (
+      e.code === "Backspace" ||
+      (e.code === "KeyZ" && (e.ctrlKey || e.metaKey))
+    ) {
+      e.preventDefault();
+      undoLastAction();
+    }
+  };
+
+  handleKeyDownRef.current = handleKeyDownGlobal;
+  handleKeyUpRef.current = handleKeyUp;
+
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-      const activeEl = document.activeElement;
-      if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.tagName === 'SELECT') return;
+    const keydownListener = (e: KeyboardEvent) => handleKeyDownRef.current?.(e);
+    const keyupListener = (e: KeyboardEvent) => handleKeyUpRef.current?.(e);
 
-      if (e.code === 'Escape') {
-        e.preventDefault();
-        if (isHistoryOpen) {
-          setIsHistoryOpen(false);
-        } else if (activeMenu !== 'none') {
-          setActiveMenu('none');
-        } else {
-          onClose();
-        }
-        return;
-      }
-
-      // Toggle History Drawer with 'KeyH'
-      if (e.code === 'KeyH') {
-        e.preventDefault();
-        setIsHistoryOpen(prev => !prev);
-        return;
-      }
-
-      // HUD Modals
-      if (e.code === 'KeyQ') setActiveMenu('skill');
-      if (e.code === 'KeyW') setActiveMenu('area');
-      if (e.code === 'KeyE') setActiveMenu('result');
-      
-      // Team Selection
-      if (e.code === 'Digit1') {
-        e.preventDefault();
-        setActiveMenu('team');
-        if (teams[0]) updateActionField('teamCode', teams[0].code);
-      }
-      if (e.code === 'Digit2') {
-        e.preventDefault();
-        setActiveMenu('team');
-        if (teams[1]) updateActionField('teamCode', teams[1].code);
-      }
-      
-      // Video Controls
-      if (e.code === 'Space') {
-        e.preventDefault();
-        videoControls.togglePlay();
-      }
-      if (e.code === 'KeyA') {
-        e.preventDefault();
-        videoControls.seekBy(-3);
-      }
-      if (e.code === 'KeyD') {
-        e.preventDefault();
-        videoControls.seekBy(3);
-      }
-      if (e.code === 'KeyS') {
-        e.preventDefault();
-        videoControls.seekBy(-1);
-      }
-      if (e.code === 'KeyF') {
-        e.preventDefault();
-        videoControls.seekBy(1);
-      }
-      
-      // Save / Undo
-      if (e.code === 'Enter') {
-        e.preventDefault();
-        saveEvent();
-      }
-      if (e.code === 'Backspace' || (e.code === 'KeyZ' && (e.ctrlKey || e.metaKey))) {
-        e.preventDefault();
-        undoLastAction();
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'KeyQ' && activeMenu === 'skill') {
-        setActiveMenu('none');
-        const hSkill = (window as any).__hoveredSkill;
-        const hDesc = (window as any).__hoveredDescriptor;
-        if (hSkill) {
-          updateActionField('skillCode', hSkill);
-        }
-        if (hDesc) {
-          updateActionField('descriptors' as any, hDesc.optionCode, hDesc.groupId);
-        }
-        (window as any).__hoveredSkill = null;
-        (window as any).__hoveredDescriptor = null;
-      }
-      if (e.code === 'KeyW' && activeMenu === 'area') {
-        setActiveMenu('none');
-        const hArea = (window as any).__hoveredArea;
-        if (hArea) {
-          updateActionField('areaCode', hArea);
-        }
-        (window as any).__hoveredArea = null;
-      }
-      if (e.code === 'KeyE' && activeMenu === 'result') {
-        setActiveMenu('none');
-        const hovered = (window as any).__hoveredResult;
-        if (hovered) {
-          commitResult(hovered, settings.fastMode);
-        }
-        (window as any).__hoveredResult = null;
-      }
-      if ((e.code === 'Digit1' || e.code === 'Digit2') && activeMenu === 'team') {
-        setActiveMenu('none');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener("keydown", keydownListener);
+    window.addEventListener("keyup", keyupListener);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener("keydown", keydownListener);
+      window.removeEventListener("keyup", keyupListener);
     };
-  }, [activeMenu, isHistoryOpen, saveEvent, undoLastAction, onClose, videoControls, teams, updateActionField, commitResult, settings.fastMode]);
+  }, []);
 
-  const handlePointerInteraction = (menu: 'none' | 'team' | 'skill' | 'area' | 'result') => {
-    setActiveMenu(activeMenu === menu ? 'none' : menu);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const isTouchHoldActiveRef = useRef<boolean>(false);
+
+  const handleMenuPointerDown = (
+    menu: "skill" | "area" | "result" | "team",
+    e: React.PointerEvent,
+  ) => {
+    if (activeMenu !== "none") return;
+
+    if (isHoldMode) {
+      isTouchHoldActiveRef.current = true;
+      touchStartPosRef.current = { x: e.clientX, y: e.clientY };
+      setActiveMenu(menu);
+      if (menu === "skill") {
+        setSkillMenuPhase("skill");
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleGlobalPointerUp = (e: any) => {
+      if (!isTouchHoldActiveRef.current) return;
+      isTouchHoldActiveRef.current = false;
+      commitMarking(activeMenu);
+    };
+
+    window.addEventListener("pointerup", handleGlobalPointerUp);
+    window.addEventListener("touchend", handleGlobalPointerUp);
+    window.addEventListener("touchcancel", handleGlobalPointerUp);
+    return () => {
+      window.removeEventListener("pointerup", handleGlobalPointerUp);
+      window.removeEventListener("touchend", handleGlobalPointerUp);
+      window.removeEventListener("touchcancel", handleGlobalPointerUp);
+    };
+  }, [commitMarking, activeMenu]);
+
+  const handlePointerInteraction = (
+    menu: "skill" | "area" | "result" | "team",
+  ) => {
+    if (isHoldMode) return;
+    setActiveMenu(activeMenu === menu ? "none" : menu);
   };
 
   const handleCopyEvent = (event: any) => {
-    const text = `[${event.videoTime ? parseFloat(event.videoTime).toFixed(2) : '0.00'}] ${event.teamCode || ''} ${event.skillCode || ''} ${event.areaCode || ''} ${event.resultText || ''}`;
+    const text = `[${event.videoTime ? parseFloat(event.videoTime).toFixed(2) : "0.00"}] ${event.teamCode || ""} ${event.skillCode || ""} ${event.areaCode || ""} ${event.resultText || ""}`;
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(text).catch(() => {});
     } else {
@@ -342,7 +408,9 @@ export default function ScoutHUDMode({ onClose, containerRef, isPortrait, videoC
       textArea.value = text;
       document.body.appendChild(textArea);
       textArea.select();
-      try { document.execCommand('copy'); } catch (e) {}
+      try {
+        document.execCommand("copy");
+      } catch (e) {}
       document.body.removeChild(textArea);
     }
   };
@@ -357,27 +425,30 @@ export default function ScoutHUDMode({ onClose, containerRef, isPortrait, videoC
   };
 
   const handleSkillDone = () => {
-    setActiveMenu('none');
+    setActiveMenu("none");
   };
 
   return (
-    <div 
-      className={`absolute inset-0 z-50 transition-opacity duration-300 pointer-events-none flex flex-col ${showUI ? 'opacity-100' : 'opacity-0'} pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]`}
+    <div
+      id="scout-hud-container"
+      className={`absolute inset-0 z-50 transition-opacity duration-300 pointer-events-none flex flex-col ${showUI ? "opacity-100" : "opacity-0"} pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]`}
     >
       {/* Top Warning for Portrait screen layout */}
-      {isPortrait && layoutMode === 'auto' && (
+      {isPortrait && layoutMode === "auto" && (
         <div className="absolute top-[60px] left-1/2 -translate-x-1/2 bg-amber-500/90 text-white font-bold text-[9px] md:text-xs px-3 py-1 rounded-full pointer-events-none z-50 shadow-md backdrop-blur-sm flex items-center gap-1.5 animate-pulse">
-          <span>แนะนำให้หมุนเครื่องเป็นแนวนอน (Rotate device for landscape)</span>
+          <span>
+            แนะนำให้หมุนเครื่องเป็นแนวนอน (Rotate device for landscape)
+          </span>
         </div>
       )}
 
       {/* Top Bar */}
       {settings.hudShowTopStats && (
         <div className="w-full pointer-events-auto p-2 sm:p-4 bg-gradient-to-b from-black/95 to-transparent">
-          <HUDTopStatsBar 
-            videoControls={videoControls} 
-            onClose={onClose} 
-            isFullscreen={isFullscreen} 
+          <HUDTopStatsBar
+            videoControls={videoControls}
+            onClose={() => exitHUDModeSafely('top_bar_close')}
+            isFullscreen={isFullscreen}
             toggleFullscreen={toggleFullscreen}
             layoutMode={layoutMode}
             onToggleLayoutMode={handleToggleLayoutMode}
@@ -389,13 +460,13 @@ export default function ScoutHUDMode({ onClose, containerRef, isPortrait, videoC
       {/* Main Grid Area */}
       <div className="flex-1 w-full flex flex-col pointer-events-none px-2 sm:px-4 md:px-8 pb-4 relative overflow-hidden justify-between">
         {/* Backdrop for closing active menus by tapping outside */}
-        {activeMenu !== 'none' && (
-          <div 
+        {activeMenu !== "none" && (
+          <div
             className="absolute inset-0 z-10 bg-black/35 backdrop-blur-[2px] pointer-events-auto cursor-pointer animate-fade-in"
-            onClick={() => setActiveMenu('none')}
+            onClick={() => setActiveMenu("none")}
           />
         )}
-        
+
         {/* Center Action Status (Top) */}
         {settings.hudShowActionStatus && (
           <div className="w-full flex justify-center pt-2 pointer-events-none z-10">
@@ -403,44 +474,140 @@ export default function ScoutHUDMode({ onClose, containerRef, isPortrait, videoC
           </div>
         )}
 
+        {/* Pro HUD Area Command Pad Overlay (Desktop/Tablet Left-aligned Overlay) */}
+        {activeMenu === "area" && layout.device !== "phone" && (
+          <div className="absolute inset-0 z-50 pointer-events-none">
+            <div 
+              className="absolute bg-slate-950/85 backdrop-blur-xl rounded-3xl border border-amber-500/35 shadow-[0_20px_50px_rgba(0,0,0,0.85)] p-6 flex flex-col items-center justify-center pointer-events-auto animate-scale-in overflow-y-auto"
+              style={{
+                left: "clamp(16px, 3vw, 48px)",
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: "clamp(360px, 32vw, 560px)",
+                maxHeight: "72vh"
+              }}
+            >
+              {/* Header */}
+              <div className="w-full flex justify-between items-center mb-3 pb-2 border-b border-white/5">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  <span className="text-white font-extrabold text-sm sm:text-base uppercase tracking-wider">
+                    {settings.uiLanguage === 'th' ? 'พื้นที่สนาม (AREA COMMAND PAD)' : 'AREA COMMAND PAD'}
+                  </span>
+                </div>
+                <div className="text-[10px] sm:text-xs text-white/50 font-medium">
+                  {settings.uiLanguage === 'th' ? 'ลากเมาส์ / ปล่อย Q เพื่อเลือก • Esc เพื่อยกเลิก' : 'Drag / Release Q to Select • Esc to Cancel'}
+                </div>
+              </div>
+
+              {/* Central Help indicator representing the "dead zone" start point */}
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30 flex flex-col items-center justify-center">
+                <div className="w-12 h-12 rounded-full bg-amber-500/10 border-2 border-amber-500/40 flex items-center justify-center backdrop-blur-sm animate-ping duration-[3s]"></div>
+                <div className="absolute w-8 h-8 rounded-full bg-black/60 border border-white/20 flex items-center justify-center text-white/40 text-[9px] font-bold">
+                  📍
+                </div>
+              </div>
+
+              {/* Interactive Mini Court Layout scaled-up for Pro Pad */}
+              <div className="relative w-full flex justify-center items-center py-2">
+                <HUDMiniCourtSelector
+                  sportType={matchInfo.sportType}
+                  areas={sportTemplate.areas}
+                  currentAction={currentAction}
+                  teams={teams}
+                  onSelectArea={(payload) => {
+                    selectArea(payload);
+                    setActiveMenu("none");
+                  }}
+                  active={true}
+                  compact={false}
+                  interactive={true}
+                  flipCourtSide={settings.flipCourtSide || false}
+                  hoveredArea={hoveredArea}
+                  enableOutOfBoundsZones={settings.enableOutOfBoundsZones}
+                  isProPad={true}
+                />
+              </div>
+
+              {/* Status footer displaying currently highlighted area code */}
+              <div className="mt-4 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 flex items-center gap-2 text-xs">
+                <span className="text-white/40">{settings.uiLanguage === 'th' ? 'พื้นที่ไฮไลต์:' : 'Highlighted:'}</span>
+                <span className="text-amber-400 font-extrabold font-mono text-sm tracking-wider">
+                  {(() => {
+                    const code = hoveredArea ? hoveredArea.code : currentAction.areaCode;
+                    if (!code) return 'NONE';
+                    const isThai = settings?.uiLanguage === 'th';
+                    const foundArea = sportTemplate.areas.find(a => a.code === code);
+                    const displayInfo = getAreaDisplay(code, isThai, foundArea?.thaiName || '');
+                    return displayInfo.sub ? `${displayInfo.main} (${displayInfo.sub})` : displayInfo.main;
+                  })()}
+                </span>
+                {hoveredArea?.courtSide && (
+                  <span className="text-white/60 text-[10px] uppercase font-bold">
+                    ({hoveredArea.courtSide === 'teamA' ? teams[0]?.code : teams[1]?.code})
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Middle / Bottom dynamic layout */}
-        <div className={`flex-1 flex ${isEffectiveLandscape ? 'flex-row items-end justify-between' : 'flex-col items-center justify-end gap-4'} w-full pointer-events-none z-20 pb-4`}>
-          
+        <div
+          className={`flex-1 flex ${isEffectiveLandscape ? "flex-row items-end justify-between" : "flex-col items-center justify-end gap-4"} w-full pointer-events-none z-20 pb-4`}
+        >
           {/* Left / Top Selector Area */}
           <div className="flex flex-col justify-end items-center sm:items-start pointer-events-auto">
-            <HUDAreaSelector 
-              isActive={activeMenu === 'area'} 
-              onClick={() => handlePointerInteraction('area')}
-              onClose={() => setActiveMenu('none')}
+            <HUDAreaSelector
+              isActive={activeMenu === "area" && layout.device === "phone"}
+              onPointerDown={(e) => handleMenuPointerDown("area", e)}
+              onClick={() => handlePointerInteraction("area")}
+              onClose={() => setActiveMenu("none")}
+              hoveredArea={hoveredArea}
             />
           </div>
 
           {/* Right / Bottom Selector Area */}
-          <div className={`flex flex-col justify-end ${isEffectiveLandscape ? 'items-end' : 'items-center'} gap-2 md:gap-4 pointer-events-auto`}>
+          <div
+            className={`flex flex-col justify-end ${isEffectiveLandscape ? "items-end" : "items-center"} gap-2 md:gap-4 pointer-events-auto`}
+          >
             <div className="flex gap-2 md:gap-4 items-end">
-              <HUDSkillRadial 
-                isActive={activeMenu === 'skill'} 
-                onClick={() => handlePointerInteraction('skill')}
+              <HUDSkillRadial
+                isActive={activeMenu === "skill"}
+                onPointerDown={(e) => handleMenuPointerDown("skill", e)}
+                onClick={() => handlePointerInteraction("skill")}
                 onDone={handleSkillDone}
                 phase={skillMenuPhase}
                 onPhaseChange={setSkillMenuPhase}
+                hoveredSkill={hoveredSkill}
+                hoveredDescriptor={hoveredDescriptor}
+                previewSkill={previewSkill}
+                pointerX={pointerPosition.x}
+                pointerY={pointerPosition.y}
+                onHoverSkill={setHoveredSkill}
+                onHoverDescriptor={setHoveredDescriptor}
               />
             </div>
-            
-            <HUDTeamSelector 
-              isActive={activeMenu === 'team'}
-              onClick={() => handlePointerInteraction('team')}
+
+            <HUDTeamSelector
+              isActive={activeMenu === "team"}
+              onPointerDown={(e) => handleMenuPointerDown("team", e)}
+              onClick={() => handlePointerInteraction("team")}
+              hoveredTeam={hoveredTeam}
             />
           </div>
         </div>
 
         {/* Right-Center for Result Rail */}
         <div className="absolute right-2 sm:right-4 md:right-8 top-1/2 -translate-y-1/2 pointer-events-auto z-40">
-          <HUDResultSelector 
-            isActive={activeMenu === 'result'}
-            onClick={() => handlePointerInteraction('result')}
+          <HUDResultSelector
+            isActive={activeMenu === "result"}
+            onPointerDown={(e) => handleMenuPointerDown("result", e)}
+            onClick={() => handlePointerInteraction("result")}
             hoveredResult={hoveredResult}
             onHover={setHoveredResult}
+            pointerX={pointerPosition.x}
+            pointerY={pointerPosition.y}
           />
         </div>
 
@@ -452,16 +619,20 @@ export default function ScoutHUDMode({ onClose, containerRef, isPortrait, videoC
                 <RotateCcw size={24} />
               </div>
               <div>
-                <h3 className="text-white font-bold text-lg mb-1">Video Error</h3>
-                <p className="text-neutral-400 text-sm mb-4">{videoControls.videoError}</p>
+                <h3 className="text-white font-bold text-lg mb-1">
+                  Video Error
+                </h3>
+                <p className="text-neutral-400 text-sm mb-4">
+                  {videoControls.videoError}
+                </p>
                 <div className="flex flex-col gap-2 w-full">
-                  <button 
+                  <button
                     onClick={videoControls.retryVideo}
                     className="bg-amber-500 hover:bg-amber-600 text-white py-2 px-4 rounded-lg font-medium transition-colors w-full"
                   >
                     Try Reload
                   </button>
-                  <button 
+                  <button
                     onClick={() => {
                       // Hack to clear error from parent state to continue scouting
                       videoControls.retryVideo();
@@ -476,16 +647,28 @@ export default function ScoutHUDMode({ onClose, containerRef, isPortrait, videoC
           </div>
         )}
 
+        {/* Warning if running Pro HUD on mobile */}
+        {layout.device === "phone" && settings.hudExperienceMode === "pro" && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-amber-500/90 text-white px-4 py-2 rounded-xl text-xs font-bold text-center z-50 shadow-lg pointer-events-none w-[90%] max-w-sm">
+            {settings.uiLanguage === "th"
+              ? "Pro HUD เหมาะกับจอใหญ่ แนะนำใช้ Phone Scout Mode บนมือถือ"
+              : "Pro HUD is optimized for larger screens. Consider using Phone Scout Mode."}
+          </div>
+        )}
+
         {/* Video Controls */}
         {settings.hudShowVideoControls && (
           <div className="w-full mt-auto pt-2 pointer-events-auto bg-gradient-to-t from-black/95 via-black/60 to-transparent rounded-b-xl z-30">
-            <HUDVideoControls isPortrait={isPortrait} videoControls={videoControls} />
+            <HUDVideoControls
+              isPortrait={isPortrait}
+              videoControls={videoControls}
+            />
           </div>
         )}
       </div>
 
       {/* Sequence History Drawer Component */}
-      <HUDSequenceHistoryDrawer 
+      <HUDSequenceHistoryDrawer
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
         events={events}

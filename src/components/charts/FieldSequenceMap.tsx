@@ -15,48 +15,68 @@ type FieldSequenceMapProps = {
 
 // Map components for each sport
 const VolleyballField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[600px] aspect-[2/1] bg-[#f0bd7e] border-4 border-white mx-auto overflow-hidden">
-    {/* Midline / Net */}
-    <div className="absolute top-0 bottom-0 left-1/2 w-2 bg-white -translate-x-1/2 z-0 shadow-sm" />
-    <div className="absolute top-[-10%] bottom-[-10%] left-1/2 w-4 bg-gray-800 -translate-x-1/2 z-10 opacity-30" />
-    
-    {/* 3m lines */}
-    <div className="absolute top-0 bottom-0 left-[33.3%] w-1 bg-white opacity-70" />
-    <div className="absolute top-0 bottom-0 right-[33.3%] w-1 bg-white opacity-70" />
-    
-    {children}
+  <div className="relative w-full max-w-[700px] bg-teal-900/40 dark:bg-teal-900/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
+    <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
+      <span className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Out of Bounds</span>
+    </div>
+    <div className="relative w-full aspect-[2/1] bg-[#f0bd7e] border-4 border-white shadow-xl">
+      {/* Midline / Net */}
+      <div className="absolute top-0 bottom-0 left-1/2 w-2 bg-white -translate-x-1/2 z-0 shadow-sm" />
+      <div className="absolute top-[-10%] bottom-[-10%] left-1/2 w-4 bg-gray-800 -translate-x-1/2 z-10 opacity-30" />
+      
+      {/* 3m lines */}
+      <div className="absolute top-0 bottom-0 left-[33.3%] w-1 bg-white opacity-70" />
+      <div className="absolute top-0 bottom-0 right-[33.3%] w-1 bg-white opacity-70" />
+      
+      {children}
+    </div>
   </div>
 );
 
 const FootballField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[400px] aspect-[2/3] bg-emerald-600 border-4 border-white mx-auto overflow-hidden">
-    <div className="absolute top-1/2 left-0 right-0 h-1 bg-white opacity-60" />
-    <div className="absolute top-1/2 left-1/2 w-16 h-16 rounded-full border-2 border-white -translate-x-1/2 -translate-y-1/2 opacity-60" />
-    <div className="absolute top-0 left-1/4 right-1/4 h-1/6 border-2 border-white opacity-60" />
-    <div className="absolute bottom-0 left-1/4 right-1/4 h-1/6 border-2 border-white opacity-60" />
-    {children}
+  <div className="relative w-full max-w-[500px] bg-emerald-900/40 dark:bg-emerald-900/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
+    <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
+      <span className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Out of Bounds</span>
+    </div>
+    <div className="relative w-full aspect-[2/3] bg-emerald-600 border-4 border-white shadow-xl">
+      <div className="absolute top-1/2 left-0 right-0 h-1 bg-white opacity-60" />
+      <div className="absolute top-1/2 left-1/2 w-16 h-16 rounded-full border-2 border-white -translate-x-1/2 -translate-y-1/2 opacity-60" />
+      <div className="absolute top-0 left-1/4 right-1/4 h-1/6 border-2 border-white opacity-60" />
+      <div className="absolute bottom-0 left-1/4 right-1/4 h-1/6 border-2 border-white opacity-60" />
+      {children}
+    </div>
   </div>
 );
 
 const BadmintonField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[400px] aspect-[1/2.2] bg-[#3a8b64] border-4 border-white mx-auto overflow-hidden">
-    <div className="absolute top-1/2 left-0 right-0 h-2 bg-white -translate-y-1/2 shadow-sm" />
-    <div className="absolute top-[40%] left-0 right-0 h-1 bg-white opacity-70" />
-    <div className="absolute bottom-[40%] left-0 right-0 h-1 bg-white opacity-70" />
-    <div className="absolute top-0 bottom-0 left-1/2 w-1 bg-white -translate-x-1/2 opacity-70" />
-    <div className="absolute top-0 bottom-0 left-[10%] w-1 bg-white opacity-70" />
-    <div className="absolute top-0 bottom-0 right-[10%] w-1 bg-white opacity-70" />
-    {children}
+  <div className="relative w-full max-w-[400px] bg-teal-900/40 dark:bg-teal-900/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
+    <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
+      <span className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Out of Bounds</span>
+    </div>
+    <div className="relative w-full aspect-[1/2.2] bg-[#3a8b64] border-4 border-white shadow-xl">
+      <div className="absolute top-1/2 left-0 right-0 h-2 bg-white -translate-y-1/2 shadow-sm" />
+      <div className="absolute top-[40%] left-0 right-0 h-1 bg-white opacity-70" />
+      <div className="absolute bottom-[40%] left-0 right-0 h-1 bg-white opacity-70" />
+      <div className="absolute top-0 bottom-0 left-1/2 w-1 bg-white -translate-x-1/2 opacity-70" />
+      <div className="absolute top-0 bottom-0 left-[10%] w-1 bg-white opacity-70" />
+      <div className="absolute top-0 bottom-0 right-[10%] w-1 bg-white opacity-70" />
+      {children}
+    </div>
   </div>
 );
 
 const BasketballField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[400px] aspect-[4/3] bg-[#dd9f60] border-4 border-white mx-auto overflow-hidden">
-    <div className="absolute top-0 left-1/2 w-[30%] h-[40%] border-4 border-white -translate-x-1/2" />
-    <div className="absolute top-0 left-1/2 w-[60%] aspect-square border-4 border-white rounded-full -translate-x-1/2" />
-    <div className="absolute top-[5%] left-1/2 w-[10%] h-[2%] bg-orange-700 -translate-x-1/2 shadow-sm" />
-    <div className="absolute top-[8%] left-1/2 w-3 h-3 border-2 border-orange-700 rounded-full -translate-x-1/2 bg-transparent z-10" />
-    {children}
+  <div className="relative w-full max-w-[400px] bg-amber-900/20 dark:bg-amber-900/10 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
+    <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
+      <span className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Out of Bounds</span>
+    </div>
+    <div className="relative w-full aspect-[4/3] bg-[#dd9f60] border-4 border-white shadow-xl">
+      <div className="absolute top-0 left-1/2 w-[30%] h-[40%] border-4 border-white -translate-x-1/2" />
+      <div className="absolute top-0 left-1/2 w-[60%] aspect-square border-4 border-white rounded-full -translate-x-1/2" />
+      <div className="absolute top-[5%] left-1/2 w-[10%] h-[2%] bg-orange-700 -translate-x-1/2 shadow-sm" />
+      <div className="absolute top-[8%] left-1/2 w-3 h-3 border-2 border-orange-700 rounded-full -translate-x-1/2 bg-transparent z-10" />
+      {children}
+    </div>
   </div>
 );
 
@@ -76,11 +96,18 @@ const AREA_COORDS: Record<SportType, Record<string, { top: number, left: number 
     'LB': { top: 75, left: 20 },
     'CB': { top: 75, left: 50 },
     'RB': { top: 75, left: 80 },
-    'OUT': { top: 95, left: 50 },
-    'LONG_OUT': { top: 100, left: 50 },
-    'SIDE_OUT': { top: 75, left: 5 },
+    'OUT': { top: 108, left: 50 },
+    'LONG_OUT': { top: 110, left: 50 },
+    'SIDE_OUT': { top: 50, left: -6 },
     'NET_ERR': { top: 50, left: 50 },
-    'UNKNOWN': { top: 50, left: 50 }
+    'UNKNOWN': { top: 50, left: 50 },
+    // Detailed out zones
+    'long_out_opp': { top: -8, left: 50 },
+    'side_out_left_opp': { top: 25, left: -6 },
+    'side_out_right_opp': { top: 25, left: 106 },
+    'long_out_own': { top: 108, left: 50 },
+    'side_out_left_own': { top: 75, left: -6 },
+    'side_out_right_own': { top: 75, left: 106 },
   },
   football: {
     'ATT_L': { top: 20, left: 20 },
@@ -94,8 +121,13 @@ const AREA_COORDS: Record<SportType, Record<string, { top: number, left: number 
     'DEF_R': { top: 80, left: 80 },
     'BOX': { top: 10, left: 50 },
     'GOAL': { top: 5, left: 50 },
-    'OUT': { top: 95, left: 50 },
-    'UNKNOWN': { top: 50, left: 50 }
+    'OUT': { top: 108, left: 50 },
+    'UNKNOWN': { top: 50, left: 50 },
+    // Detailed out zones
+    'opp_endline': { top: -8, left: 50 },
+    'left_touchline_mid': { top: 50, left: -6 },
+    'right_touchline_mid': { top: 50, left: 106 },
+    'own_endline': { top: 108, left: 50 },
   },
   badminton: {
     'NET': { top: 48, left: 50 },
@@ -108,9 +140,14 @@ const AREA_COORDS: Record<SportType, Record<string, { top: number, left: number 
     'BL': { top: 90, left: 25 },
     'BC': { top: 90, left: 50 },
     'BR': { top: 90, left: 75 },
-    'OUT': { top: 98, left: 50 },
+    'OUT': { top: 108, left: 50 },
     'NET_ERR': { top: 50, left: 50 },
-    'UNKNOWN': { top: 50, left: 50 }
+    'UNKNOWN': { top: 50, left: 50 },
+    // Detailed out zones
+    'opp_back_out': { top: -8, left: 50 },
+    'side_left': { top: 50, left: -6 },
+    'side_right': { top: 50, left: 106 },
+    'own_back_out': { top: 108, left: 50 },
   },
   basketball: {
     'HOOP': { top: 15, left: 50 },
@@ -122,8 +159,14 @@ const AREA_COORDS: Record<SportType, Record<string, { top: number, left: number 
     'RIGHT_CORNER': { top: 15, left: 90 },
     'MID_RANGE': { top: 45, left: 50 },
     'THREE_PT': { top: 85, left: 50 },
-    'OUT': { top: 95, left: 50 },
-    'UNKNOWN': { top: 50, left: 50 }
+    'OUT': { top: 108, left: 50 },
+    'UNKNOWN': { top: 50, left: 50 },
+    // Detailed out zones
+    'endline': { top: -8, left: 50 },
+    'left_sideline': { top: 50, left: -6 },
+    'right_sideline': { top: 50, left: 106 },
+    'baseline_left': { top: 108, left: 25 },
+    'baseline_right': { top: 108, left: 75 },
   }
 };
 
@@ -158,35 +201,127 @@ export default function FieldSequenceMap({
         if (skillFilter && a.skillCode !== skillFilter && skillFilter !== 'ALL') return;
         if (resultFilter && a.resultCode !== resultFilter && resultFilter !== 'ALL') return;
 
-        let coords = AREA_COORDS[sportType]?.[a.areaCode || ''] || { top: 50, left: 50 };
-        
-        // Adjust for volleyball horizontal court
-        if (sportType === 'volleyball' && ['LN', 'CN', 'RN', 'LB', 'CB', 'RB'].includes(a.areaCode || '')) {
-          const isTeamA = a.courtSide === 'teamA';
-          const isTeamB = a.courtSide === 'teamB';
-          
-          if (isTeamA || isTeamB) {
-            let top = 50;
-            let left = 50;
-            const code = a.areaCode;
-            
-            // Top row
-            if (['LN', 'CN', 'RN'].includes(code || '')) top = 25;
-            // Bottom row
-            if (['LB', 'CB', 'RB'].includes(code || '')) top = 75;
-            
-            if (isTeamA) {
-              if (['LN', 'LB'].includes(code || '')) left = 16;
-              if (['CN', 'CB'].includes(code || '')) left = 33;
-              if (['RN', 'RB'].includes(code || '')) left = 45;
-            } else {
-              if (['RN', 'RB'].includes(code || '')) left = 55;
-              if (['CN', 'CB'].includes(code || '')) left = 67;
-              if (['LN', 'LB'].includes(code || '')) left = 84;
-            }
-            coords = { top, left };
+        let coords = { top: 50, left: 50 };
+
+        // 1. Point tap:
+        if (a.pointX !== undefined && a.pointY !== undefined) {
+          const clamp = (val: number) => Math.max(0, Math.min(1, val));
+          coords = { top: clamp(a.pointY) * 100, left: clamp(a.pointX) * 100 };
+        }
+        // 2. Out Zone:
+        else if (a.outZone) {
+          const zone = a.outZone;
+          if (sportType === 'volleyball') {
+            if (zone === 'side_left_near') coords = { top: 75, left: -10 };
+            else if (zone === 'side_left_far') coords = { top: 25, left: -10 };
+            else if (zone === 'side_right_near') coords = { top: 75, left: 110 };
+            else if (zone === 'side_right_far') coords = { top: 25, left: 110 };
+            else if (zone === 'back_left') coords = { top: 110, left: 20 };
+            else if (zone === 'back_right') coords = { top: 110, left: 80 };
+            else if (zone === 'opp_back_left') coords = { top: -10, left: 20 };
+            else if (zone === 'opp_back_right') coords = { top: -10, left: 80 };
+            else if (zone === 'net_error' || zone === 'net_err') coords = { top: 50, left: 50 };
+            else coords = AREA_COORDS['volleyball']?.[zone] || { top: 110, left: 50 };
+          } else if (sportType === 'football') {
+            if (zone === 'left_touchline_def') coords = { top: 80, left: -10 };
+            else if (zone === 'left_touchline_mid') coords = { top: 50, left: -10 };
+            else if (zone === 'left_touchline_att') coords = { top: 20, left: -10 };
+            else if (zone === 'right_touchline_def') coords = { top: 80, left: 110 };
+            else if (zone === 'right_touchline_mid') coords = { top: 50, left: 110 };
+            else if (zone === 'right_touchline_att') coords = { top: 20, left: 110 };
+            else if (zone === 'own_endline' || zone === 'goal_kick') coords = { top: 110, left: 50 };
+            else if (zone === 'opp_endline') coords = { top: -10, left: 50 };
+            else if (zone === 'corner_left') coords = { top: -5, left: -5 };
+            else if (zone === 'corner_right') coords = { top: -5, left: 105 };
+            else coords = AREA_COORDS['football']?.[zone] || { top: 110, left: 50 };
+          } else if (sportType === 'badminton') {
+            if (zone === 'opp_back_out') coords = { top: -10, left: 50 };
+            else if (zone === 'own_back_out') coords = { top: 110, left: 50 };
+            else if (zone === 'side_left' || zone === 'side_left_near') coords = { top: 75, left: -10 };
+            else if (zone === 'side_left_far') coords = { top: 25, left: -10 };
+            else if (zone === 'side_right' || zone === 'side_right_near') coords = { top: 75, left: 110 };
+            else if (zone === 'side_right_far') coords = { top: 25, left: 110 };
+            else if (zone === 'back_left') coords = { top: 110, left: 25 };
+            else if (zone === 'back_right') coords = { top: 110, left: 75 };
+            else coords = AREA_COORDS['badminton']?.[zone] || { top: 110, left: 50 };
+          } else if (sportType === 'basketball') {
+            if (zone === 'endline') coords = { top: -10, left: 50 };
+            else if (zone === 'left_sideline') coords = { top: 50, left: -10 };
+            else if (zone === 'right_sideline') coords = { top: 50, left: 110 };
+            else if (zone === 'baseline_left') coords = { top: 110, left: 20 };
+            else if (zone === 'baseline_right') coords = { top: 110, left: 80 };
+            else coords = AREA_COORDS['basketball']?.[zone] || { top: 110, left: 50 };
+          } else {
+            coords = { top: 110, left: 50 };
           }
         }
+        // 3. Detailed grid / areaCode with detailed layout:
+        else if (a.areaMode === 'detailed' || (a.areaCode && a.areaCode.includes('-'))) {
+          if (sportType === 'football' && a.areaCode?.startsWith('F-')) {
+            const [, r, c] = a.areaCode.split('-');
+            coords = { 
+              top: (parseInt(r, 10) + 0.5) * (100 / 4), 
+              left: (parseInt(c, 10) + 0.5) * (100 / 4) 
+            };
+          } else if (sportType === 'volleyball') {
+            const code = a.areaCode || '';
+            const baseCode = code.split('-')[0];
+            const subGrid = code.split('-')[1];
+            
+            const isTeamA = a.courtSide === 'teamA';
+            const isTeamB = a.courtSide === 'teamB';
+            
+            if (['LN', 'CN', 'RN', 'LB', 'CB', 'RB'].includes(baseCode) && (isTeamA || isTeamB)) {
+              let top = 50;
+              let left = 50;
+              
+              if (['LN', 'CN', 'RN'].includes(baseCode)) top = 25;
+              if (['LB', 'CB', 'RB'].includes(baseCode)) top = 75;
+              
+              if (isTeamA) {
+                if (['LN', 'LB'].includes(baseCode)) left = 16;
+                if (['CN', 'CB'].includes(baseCode)) left = 33;
+                if (['RN', 'RB'].includes(baseCode)) left = 45;
+              } else {
+                if (['RN', 'RB'].includes(baseCode)) left = 55;
+                if (['CN', 'CB'].includes(baseCode)) left = 67;
+                if (['LN', 'LB'].includes(baseCode)) left = 84;
+              }
+              
+              if (subGrid) {
+                const subIdx = parseInt(subGrid, 10);
+                if (subIdx === 1) { top -= 10; left -= 5; }
+                if (subIdx === 2) { top -= 10; left += 5; }
+                if (subIdx === 3) { top += 10; left -= 5; }
+                if (subIdx === 4) { top += 10; left += 5; }
+              }
+              
+              coords = { top, left };
+            } else {
+              coords = AREA_COORDS[sportType]?.[a.areaCode || ''] || { top: 50, left: 50 };
+            }
+          } else {
+            if (a.gridX !== undefined && a.gridY !== undefined) {
+              coords = {
+                top: (a.gridY + 0.5) * 25,
+                left: (a.gridX + 0.5) * 25
+              };
+            } else {
+              coords = AREA_COORDS[sportType]?.[a.areaCode || ''] || { top: 50, left: 50 };
+            }
+          }
+        }
+        // 4. Standard areaCode fallback:
+        else {
+          let targetArea = a.areaCode || '';
+          if (targetArea === 'THREE_POINT') targetArea = 'THREE_PT';
+          if (['OUT', 'SIDE_OUT', 'LONG_OUT'].includes(targetArea)) {
+            coords = AREA_COORDS[sportType]?.[targetArea] || { top: 108, left: 50 };
+          } else {
+            coords = AREA_COORDS[sportType]?.[targetArea] || { top: 50, left: 50 };
+          }
+        }
+
         const idHash = Math.abs(hashString(a.id || `${eIdx}-${aIdx}`));
         const topJitter = (idHash % 10) - 5;
         const leftJitter = ((idHash >> 4) % 10) - 5;
@@ -214,22 +349,46 @@ export default function FieldSequenceMap({
             const groups = new Map<string, { count: number, top: number, left: number, label: string, actions: any[] }>();
             
             mapData.forEach(d => {
-              const label = d.courtSide ? `${d.courtSide}:${d.areaCode}` : (d.areaCode || 'UNKNOWN');
-              const key = label;
-              if (!groups.has(key)) {
-                groups.set(key, { count: 0, top: d.coords.top, left: d.coords.left, label, actions: [] });
+              let groupKey = '';
+              let groupLabel = '';
+              
+              if (d.pointX !== undefined && d.pointY !== undefined) {
+                const rx = Math.round(d.pointX * 20) / 20; // group close points
+                const ry = Math.round(d.pointY * 20) / 20;
+                groupKey = `point-${rx}-${ry}`;
+                groupLabel = d.areaLabel || `Point (${d.pointX.toFixed(2)}, ${d.pointY.toFixed(2)})`;
+              } else if (d.outZone) {
+                groupKey = `out-${d.outZone}`;
+                groupLabel = d.areaLabel || d.outZone;
+              } else if (d.areaCode) {
+                groupKey = d.courtSide ? `${d.courtSide}:${d.areaCode}` : d.areaCode;
+                groupLabel = d.areaLabel || d.areaCode;
+              } else {
+                groupKey = 'unknown';
+                groupLabel = 'Unknown Area';
               }
-              const g = groups.get(key)!;
+
+              if (!groups.has(groupKey)) {
+                groups.set(groupKey, { count: 0, top: d.coords.top, left: d.coords.left, label: groupLabel, actions: [] });
+              }
+              const g = groups.get(groupKey)!;
               g.count += 1;
               g.actions.push(d);
             });
 
             return Array.from(groups.entries()).map(([key, g]) => {
               const intensity = Math.min(g.count / 5, 1);
+              const isOutZone = key.startsWith('out-') || g.actions.some(a => !!a.outZone || a.resultCode === 'Out');
+              
+              const ringClass = isOutZone ? 'ring-2 ring-yellow-400 ring-offset-1' : g.actions.some(a => a.resultCode === 'Out') ? 'ring-2 ring-yellow-400 ring-offset-1' : '';
+              const colorClass = isOutZone ? 'bg-orange-500' : 'bg-red-500';
+              const areaRes = g.actions[0]?.areaResolution;
+              const displayLabel = `${g.label}${areaRes ? ` (${areaRes})` : ''}`;
+
               return (
                 <div 
                   key={key}
-                  className="absolute rounded-full bg-red-500 flex items-center justify-center text-white text-xs font-bold hover:scale-110 transition-transform"
+                  className={`absolute rounded-full ${colorClass} flex items-center justify-center text-white text-xs font-bold hover:scale-110 transition-transform ${ringClass}`}
                   style={{
                     top: `${g.top}%`,
                     left: `${g.left}%`,
@@ -239,7 +398,7 @@ export default function FieldSequenceMap({
                     opacity: 0.3 + (intensity * 0.7),
                     cursor: 'pointer'
                   }}
-                  title={`${g.label}: ${g.count} actions`}
+                  title={`${displayLabel}: ${g.count} actions`}
                   onClick={() => setSelectedAreaGroup({ key, label: g.label, actions: g.actions })}
                 >
                   {g.count}
@@ -280,7 +439,7 @@ export default function FieldSequenceMap({
                   transform: 'translate(-50%, -50%)',
                 }}
                 onClick={() => onEventClick && onEventClick(filteredEvents.find(e => e.id === d.eventId)!, d)}
-                title={`${d.teamCode} - ${d.skillCode} (${d.resultCode})`}
+                title={`${d.teamCode} - ${d.skillCode} (${d.resultCode})${d.outZone ? ` [Out: ${d.outZone}]` : ''}${d.areaLabel ? ` - ${d.areaLabel}` : ''}`}
               >
                 {d.sequence}
               </div>
@@ -288,7 +447,7 @@ export default function FieldSequenceMap({
           ))}
 
           {mode === 'result' && mapData.map((d, i) => {
-            const color = d.resultCode === 'Yes' ? 'bg-green-500' : d.resultCode === 'Out' ? 'bg-red-500' : 'bg-gray-500';
+            const color = d.resultCode === 'Yes' ? 'bg-green-500' : d.outZone ? 'bg-orange-500' : d.resultCode === 'Out' ? 'bg-red-500' : 'bg-gray-500';
             return (
               <div 
                 key={i}
@@ -301,7 +460,7 @@ export default function FieldSequenceMap({
                   transform: 'translate(-50%, -50%)',
                 }}
                 onClick={() => onEventClick && onEventClick(filteredEvents.find(e => e.id === d.eventId)!, d)}
-                title={`${d.teamCode} - ${d.skillCode} (${d.resultCode})`}
+                title={`${d.teamCode} - ${d.skillCode} (${d.resultCode})${d.outZone ? ` [Out: ${d.outZone}]` : ''}${d.areaLabel ? ` - ${d.areaLabel}` : ''}`}
               />
             )
           })}
@@ -312,7 +471,10 @@ export default function FieldSequenceMap({
       {selectedAreaGroup && mode === 'heatmap' && (
         <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 mt-2 text-sm">
           <div className="flex justify-between items-center mb-3">
-            <h4 className="font-bold text-gray-800 dark:text-gray-100">Area: {selectedAreaGroup.label}</h4>
+            <h4 className="font-bold text-gray-800 dark:text-gray-100">
+              Area: {selectedAreaGroup.label}
+              {selectedAreaGroup.actions[0]?.areaResolution && ` (${selectedAreaGroup.actions[0].areaResolution})`}
+            </h4>
             <button onClick={() => setSelectedAreaGroup(null)} className="text-gray-400 hover:text-gray-600">&times;</button>
           </div>
           {(() => {

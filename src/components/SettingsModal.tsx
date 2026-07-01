@@ -5,6 +5,7 @@ import { SPORT_TEMPLATES } from '../sports';
 import { X, Save, Trash2, Download, Upload, Settings, RefreshCw } from 'lucide-react';
 import CustomSelect, { Option } from './ui/CustomSelect';
 import { t, SupportedLanguage } from '../i18n';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -21,8 +22,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   } = useScoutContext();
 
   const [confirmConfig, setConfirmConfig] = React.useState<{ message: string, onConfirm: () => void } | null>(null);
-
-  if (!isOpen) return null;
 
   const handleExportData = () => {
     if (events.length === 0) return showToast('ไม่มีข้อมูลให้ Export');
@@ -123,19 +122,36 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }));
 
   return (
-    <div id="settings-modal" className="fixed inset-0 z-[900] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto flex flex-col">
-        <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-800 sticky top-0 bg-white dark:bg-gray-900 z-10">
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          id="settings-modal" 
+          className="fixed inset-0 z-[900] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.95, opacity: 0, y: 20 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col"
+          >
+            <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 z-10 shrink-0">
           <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
             <Settings size={20} /> {t('settings.title', settings.uiLanguage)}
           </h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500">
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 transition-colors">
             <X size={20} />
           </button>
         </div>
 
-        <div className="p-4 flex flex-col gap-6">
-          {/* Active Sport */}
+        <div className="p-4 md:p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 overflow-y-auto flex-1">
+          {/* --- COLUMN 1 --- */}
+          <div className="flex flex-col gap-6">
+            {/* Active Sport */}
           <section>
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
               {settings.uiLanguage === 'th' ? 'ตั้งค่าชนิดกีฬา' : 'Sport Configuration'}
@@ -171,7 +187,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
             <div className="flex flex-col gap-3">
               {teams.map((t, idx) => (
-                <div key={t.id} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+                <div key={`${t.id || t.code}-${idx}`} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col gap-2">
                   <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
                     {settings.uiLanguage === 'th' ? `ทีมที่ ${idx + 1}` : `Team ${idx + 1}`}
                   </div>
@@ -246,11 +262,13 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
               <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                 <div>
-                  <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{t('settings.skillLayout', settings.uiLanguage)}</div>
+                  <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
+                    {settings.uiLanguage === 'th' ? 'รูปแบบปุ่มบันทึก (Normal Mode Input Layout)' : 'Normal Mode Input Layout'}
+                  </div>
                   <div className="text-xs text-gray-500">
                     {settings.uiLanguage === 'th'
-                      ? 'เลือกรูปแบบการจัดวางปุ่มทักษะสกิล (แบบวงล้อ หรือ ตาราง)'
-                      : 'Choose the inline skill layout (Wheel or Grid).'}
+                      ? 'เลือกรูปแบบการจัดวางปุ่มบันทึกทักษะสกิลในโหมดปกติ (แบบวงล้อ หรือ แบบตาราง)'
+                      : 'Choose the inline skill layout in Normal Mode (Wheel or Grid).'}
                   </div>
                 </div>
                 <select 
@@ -263,6 +281,60 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <option value="compact">{t('settings.layoutCompact', settings.uiLanguage)}</option>
                 </select>
               </div>
+            </div>
+          </section>
+
+          {/* Area Precision Settings */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">{settings.uiLanguage === 'th' ? 'พื้นที่และการตอบสนอง (Area & Controls)' : 'Area & Controls'}</h3>
+            <div className="flex flex-col gap-3">
+              <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
+                <div>
+                  <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'ระดับความละเอียดของพื้นที่ (Area Precision)' : 'Area Precision'}</div>
+                  <div className="text-xs text-gray-500">
+                    {settings.uiLanguage === 'th' ? 'เลือกโหมดปกติ โหมดตารางละเอียด หรือเลือกจิ้มพิกเซลเป้าหมายโดยตรง' : 'Select normal zones, detailed grids, or precise tap coordinates.'}
+                  </div>
+                </div>
+                <select 
+                  value={settings.areaPrecisionMode || 'normal'} 
+                  onChange={e => setSettings(p => ({...p, areaPrecisionMode: e.target.value as any}))} 
+                  className="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 text-gray-800 dark:text-gray-200"
+                >
+                  <option value="normal">{settings.uiLanguage === 'th' ? 'ปกติ (Normal Zone)' : 'Normal Zone'}</option>
+                  <option value="detailed">{settings.uiLanguage === 'th' ? 'ละเอียด (Detailed Grid)' : 'Detailed Grid'}</option>
+                  <option value="point">{settings.uiLanguage === 'th' ? 'จุดพิกเซลแม่นยำ (Point Mode)' : 'Point Mode'}</option>
+                </select>
+              </label>
+
+              <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
+                <div>
+                  <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'พื้นที่นอกสนาม (Out-of-bounds)' : 'Show Out-of-bounds'}</div>
+                  <div className="text-xs text-gray-500">
+                    {settings.uiLanguage === 'th' ? 'เปิด/ปิด โหมดบันทึกจุดเสียตำแหน่งนอกขอบสนาม' : 'Toggle logging of actions resulting in out-of-bounds zones.'}
+                  </div>
+                </div>
+                <input type="checkbox" checked={settings.enableOutOfBoundsZones ?? true} onChange={e => setSettings(p => ({...p, enableOutOfBoundsZones: e.target.checked}))} className="rounded text-sky-600 w-5 h-5" />
+              </label>
+
+              <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
+                <div>
+                  <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'เลื่อนพื้นที่ด้วยลูกศร (Arrow Keys)' : 'Arrow Key Navigation'}</div>
+                  <div className="text-xs text-gray-500">
+                    {settings.uiLanguage === 'th' ? 'เปิด/ปิด การกดปุ่มลูกศรเพื่อเลือกพื้นที่สนามบนคีย์บอร์ด' : 'Navigate interactive court zones using keyboard arrow keys.'}
+                  </div>
+                </div>
+                <input type="checkbox" checked={settings.enableArrowAreaNavigation ?? true} onChange={e => setSettings(p => ({...p, enableArrowAreaNavigation: e.target.checked}))} className="rounded text-sky-600 w-5 h-5" />
+              </label>
+              
+              <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
+                <div>
+                  <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'เลือกพื้นที่ทันทีที่เลื่อนลูกศร' : 'Auto-select on Arrow'}</div>
+                  <div className="text-xs text-gray-500">
+                    {settings.uiLanguage === 'th' ? 'บันทึกพื้นที่ทันทีเมื่อเลื่อนลูกศรชี้พื้นที่เป้าหมาย' : 'Automatically submit the area selection when using arrow keys.'}
+                  </div>
+                </div>
+                <input type="checkbox" checked={settings.areaAutoSelectOnArrow ?? true} onChange={e => setSettings(p => ({...p, areaAutoSelectOnArrow: e.target.checked}))} className="rounded text-sky-600 w-5 h-5" />
+              </label>
             </div>
           </section>
 
@@ -313,6 +385,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
           </section>
 
+          </div>
+          
+          {/* --- COLUMN 2 --- */}
+          <div className="flex flex-col gap-6">
+
           {/* Video Settings */}
           <section>
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('settings.video', settings.uiLanguage)}</h3>
@@ -339,6 +416,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </div>
                 </div>
                 <input type="checkbox" checked={settings.liveScrub ?? false} onChange={e => setSettings(p => ({...p, liveScrub: e.target.checked}))} className="rounded text-sky-600 w-5 h-5" />
+              </label>
+
+              <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
+                <div>
+                  <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
+                    {settings.uiLanguage === 'th' ? 'แสดง Overlay ตอนปัดวิดีโอ' : 'Show Gesture Overlay'}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {settings.uiLanguage === 'th'
+                      ? 'แสดงภาพไอคอนและเวลาเมื่อมีการลากนิ้วบนวิดีโอ'
+                      : 'Show icon and scrub time when swiping on video.'}
+                  </div>
+                </div>
+                <input type="checkbox" checked={settings.showGestureOverlay ?? true} onChange={e => setSettings(p => ({...p, showGestureOverlay: e.target.checked}))} className="rounded text-sky-600 w-5 h-5" />
               </label>
 
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col gap-2">
@@ -380,6 +471,27 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <section>
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('settings.scoutHud', settings.uiLanguage)}</h3>
             <div className="flex flex-col gap-3">
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+                <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
+                  {settings.uiLanguage === 'th' ? 'โหมดประสบการณ์ (HUD Experience)' : 'HUD Experience Mode'}
+                </div>
+                <div className="text-xs text-gray-500 mb-1">
+                  {settings.uiLanguage === 'th'
+                    ? 'สลับโหมดการแสดงผล HUD (Auto: จะเลือกให้เหมาะกับอุปกรณ์อัตโนมัติ)'
+                    : 'Switch HUD layout. Auto will pick the best mode for your device.'}
+                </div>
+                <CustomSelect 
+                  value={settings.hudExperienceMode ?? 'auto'} 
+                  onChange={val => setSettings(p => ({...p, hudExperienceMode: val as 'auto' | 'pro' | 'phone'}))}
+                  options={[
+                    { value: 'auto', label: 'Auto (Recommended)' },
+                    { value: 'pro', label: 'Pro HUD Mode (Desktop/Tablet)' },
+                    { value: 'phone', label: 'Phone Scout Mode (Mobile)' }
+                  ]}
+                  placeholder="Select mode"
+                />
+              </div>
+
               <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
                 <div>
                   <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{t('settings.hudMode', settings.uiLanguage)}</div>
@@ -466,6 +578,74 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <input type="checkbox" checked={settings.hudEnableGameFeedback ?? true} onChange={e => setSettings(p => ({...p, hudEnableGameFeedback: e.target.checked}))} className="rounded text-sky-600 w-5 h-5" />
               </label>
 
+              <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
+                <div>
+                  <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
+                    {settings.uiLanguage === 'th' ? 'เสียงตอบรับ (Sound Feedback)' : 'Sound Feedback'}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {settings.uiLanguage === 'th'
+                      ? 'เปิดเสียงติ๊กเมื่อมีการกดปุ่มหรือลากบันทึกผล'
+                      : 'Play a tick sound when buttons are clicked or swiped.'}
+                  </div>
+                </div>
+                <input type="checkbox" checked={settings.hudEnableSoundFeedback ?? false} onChange={e => setSettings(p => ({...p, hudEnableSoundFeedback: e.target.checked}))} className="rounded text-emerald-600 w-5 h-5" />
+              </label>
+
+              <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer">
+                <div>
+                  <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
+                    {settings.uiLanguage === 'th' ? 'การสั่นตอบรับ (Haptic Feedback)' : 'Haptic Feedback'}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {settings.uiLanguage === 'th'
+                      ? 'สั่นอุปกรณ์เมื่อมีการกดปุ่ม (รองรับเฉพาะบางเบราว์เซอร์และมือถือ)'
+                      : 'Vibrate device when buttons are clicked (on supported devices).'}
+                  </div>
+                </div>
+                <input type="checkbox" checked={settings.hudEnableHapticFeedback ?? true} onChange={e => setSettings(p => ({...p, hudEnableHapticFeedback: e.target.checked}))} className="rounded text-orange-600 w-5 h-5" />
+              </label>
+
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+                <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
+                  {settings.uiLanguage === 'th' ? 'โหมดตอบสนองปุ่มวงกลม (Pro HUD Interaction)' : 'Pro HUD Interaction Style'}
+                </div>
+                <div className="text-xs text-gray-500 mb-1">
+                  {settings.uiLanguage === 'th'
+                    ? 'สลับโหมดกดค้างปล่อยกับโหมดคลิกเพื่อเปิดปุ่ม (สำหรับคอมพิวเตอร์/แท็บเล็ต Pro HUD จะเปิดโหมดกดค้างไว้เสมอ ส่วนมือถือจะถูกบังคับใช้โหมดคลิกเพื่อความแม่นยำ)'
+                    : 'Switch hold vs click behavior. Desktop/Tablet Pro HUD defaults to Hold, and mobile phone defaults to Tap & Click.'}
+                </div>
+                <CustomSelect 
+                  value={settings.hudInteractionStyle ?? 'click'} 
+                  onChange={val => setSettings(p => ({...p, hudInteractionStyle: val as 'hold' | 'click'}))}
+                  options={[
+                    { value: 'click', label: settings.uiLanguage === 'th' ? 'จิ้มเลือก / เปิดค้าง (คลิกทีละปุ่ม)' : 'Click / Tap mode' },
+                    { value: 'hold', label: settings.uiLanguage === 'th' ? 'กดค้างแล้วลากปล่อย (Hold & Release)' : 'Hold & Release mode' }
+                  ]}
+                  placeholder="Select mode"
+                />
+              </div>
+
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+                <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
+                  {settings.uiLanguage === 'th' ? 'ความหนาแน่นปุ่ม Phone Scout (Density)' : 'Phone Scout Density'}
+                </div>
+                <div className="text-xs text-gray-500 mb-1">
+                  {settings.uiLanguage === 'th'
+                    ? 'ปรับเปลี่ยนความหนาแน่น/ขนาดปุ่มเมื่อใช้งานโหมดมือถือ (แบบกระชับเหมาะสำหรับจอเล็ก / แบบสบายตาเหมาะสำหรับจอใหญ่)'
+                    : 'Adjust button spacing/sizes in Phone Scout: Compact vs Comfortable.'}
+                </div>
+                <CustomSelect 
+                  value={settings.phoneScoutDensity ?? 'comfortable'} 
+                  onChange={val => setSettings(p => ({...p, phoneScoutDensity: val as 'compact' | 'comfortable'}))}
+                  options={[
+                    { value: 'comfortable', label: settings.uiLanguage === 'th' ? 'สบายตา (Comfortable)' : 'Comfortable (Standard)' },
+                    { value: 'compact', label: settings.uiLanguage === 'th' ? 'กะทัดรัด (Compact)' : 'Compact (Dense grid)' }
+                  ]}
+                  placeholder="Select density"
+                />
+              </div>
+
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-col gap-2">
                 <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
                   {settings.uiLanguage === 'th' ? 'ความทึบแสงของแผง HUD (Overlay Opacity)' : 'HUD Overlay Opacity'}
@@ -503,8 +683,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               </button>
             </div>
           </section>
+          </div>
         </div>
-      </div>
+      </motion.div>
 
       {confirmConfig && (
         <div className="absolute inset-0 z-[1100] bg-black/60 flex items-center justify-center backdrop-blur-sm p-4">
@@ -530,8 +711,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
       )}
-
-    </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

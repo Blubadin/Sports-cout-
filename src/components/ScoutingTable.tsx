@@ -94,7 +94,7 @@ export default function ScoutingTable() {
     setEvents(prev => {
       const newRow = {
         ...row,
-        id: Date.now().toString(),
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
         no: prev.length + 1,
         createdAt: new Date().toISOString(),
       };
@@ -140,8 +140,8 @@ export default function ScoutingTable() {
               </tr>
             </thead>
             <tbody>
-              {events.map((row) => (
-                <tr key={row.id} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+              {events.map((row, index) => (
+                <tr key={`${row.id}-${index}`} className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
                   <td className="px-4 py-2 text-center font-medium text-gray-900 dark:text-white">
                     {row.no}
                   </td>
@@ -177,12 +177,23 @@ export default function ScoutingTable() {
                     />
                   </td>
                   <td className="px-4 py-2 text-center">
-                    <div className="flex items-center justify-center gap-2">
-                      <span className="text-xs font-mono">{row.videoTime !== undefined ? formatTime(row.videoTime) : '-'}</span>
-                      {row.videoTime !== undefined && (
-                        <button onClick={() => replayClip(row.videoTime)} className="text-sky-500 hover:text-sky-700" title="Replay Clip (-3s)">
-                          <Play size={14} className="fill-current" />
-                        </button>
+                    <div className="flex flex-col items-center justify-center gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono">
+                          {row.sequenceStartTime !== undefined && row.sequenceEndTime !== undefined && row.duration !== undefined
+                            ? `${formatTime(row.sequenceStartTime)} - ${formatTime(row.sequenceEndTime)}`
+                            : row.videoTime !== undefined ? formatTime(row.videoTime) : '-'}
+                        </span>
+                        {row.videoTime !== undefined && (
+                          <button onClick={() => replayClip(row.videoTime)} className="text-sky-500 hover:text-sky-700" title="Replay Clip (-3s)">
+                            <Play size={14} className="fill-current" />
+                          </button>
+                        )}
+                      </div>
+                      {row.duration !== undefined && row.duration > 0 && (
+                        <span className="text-[10px] text-gray-400 font-mono">
+                          ({row.duration.toFixed(1)}s)
+                        </span>
                       )}
                     </div>
                   </td>
@@ -191,7 +202,7 @@ export default function ScoutingTable() {
                       type="text"
                       value={row.note || ''}
                       onChange={(e) => handleNoteChange(row.id, 'note', e.target.value)}
-                      placeholder="เพิ่ม note..."
+                      placeholder={settings.uiLanguage === 'th' ? 'เพิ่ม note...' : 'Add note...'}
                       className="w-full bg-transparent border-b border-transparent focus:border-gray-300 dark:focus:border-gray-600 focus:outline-none text-xs"
                     />
                   </td>
@@ -223,8 +234,8 @@ export default function ScoutingTable() {
 
         {/* Mobile / Tablet Card View */}
         <div className="lg:hidden flex flex-col p-2 gap-2">
-          {events.map((row) => (
-            <div key={row.id} className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col gap-2 relative">
+          {events.map((row, index) => (
+            <div key={`${row.id}-${index}`} className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col gap-2 relative">
               <div className="flex justify-between items-start">
                 <div className="flex gap-2 items-center">
                   <span className="font-bold text-gray-800 dark:text-gray-200 text-sm">#{row.no}</span>
@@ -236,11 +247,15 @@ export default function ScoutingTable() {
                   }`}>
                     {row.resultText}
                   </span>
-                  {row.videoTime !== undefined && (
+                  {(row.sequenceStartTime !== undefined && row.sequenceEndTime !== undefined && row.duration !== undefined) ? (
+                    <button onClick={() => replayClip(row.sequenceStartTime)} className="flex items-center gap-1 text-[10px] text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded border border-sky-100 dark:border-sky-800">
+                      <Play size={10} className="fill-current" /> {formatTime(row.sequenceStartTime)} - {formatTime(row.sequenceEndTime)} ({row.duration.toFixed(1)}s)
+                    </button>
+                  ) : row.videoTime !== undefined ? (
                     <button onClick={() => replayClip(row.videoTime)} className="flex items-center gap-1 text-xs text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded">
                       <Play size={12} className="fill-current" /> {formatTime(row.videoTime)}
                     </button>
-                  )}
+                  ) : null}
                 </div>
                 <div className="flex gap-3">
                   <button onClick={() => copyToClipboard(row.extendedEventText || row.eventText, `mob-evt-${row.id}`)} className="text-sky-500" title="Copy Event Text">
@@ -292,7 +307,7 @@ function ExportButtons({ events }: { events: EventRow[] }) {
       e.resultText, 
       e.videoSourceType || '',
       e.youtubeVideoId || '',
-      e.videoTime ? formatTime(e.videoTime) : '',
+      e.videoTime !== undefined && e.videoTime !== null ? formatTime(e.videoTime) : '',
       e.note || '',
       e.createdAt
     ]);

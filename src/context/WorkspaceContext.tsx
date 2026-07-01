@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect } from 'react';
-import { ScoutProject, EventRow, MatchInfo, Team, AppSettings, SportType } from '../types';
+import React, { createContext, useContext, useEffect, useCallback } from 'react';
+import { ScoutProject, EventRow, MatchInfo, Team, AppSettings, SportType, Action } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useScoutContext } from './ScoutContext';
 import { DEFAULT_TEAMS } from '../data';
@@ -14,9 +14,76 @@ interface WorkspaceContextType {
   duplicateProject: (projectId: string) => void;
   renameProject: (projectId: string, newTitle: string) => void;
   importProject: (project: ScoutProject) => void;
+  updateProjectLastVideoTime: (time: number) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
+
+export const sanitizeEvents = (eventsList: any[]): EventRow[] => {
+  if (!Array.isArray(eventsList)) return [];
+  const seenIds = new Set<string>();
+  return eventsList.map((row, index) => {
+    let newRow = { ...row };
+    
+    // Fallback ID if missing
+    if (!newRow.id) {
+      newRow.id = `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 11)}`;
+    }
+    
+    // If ID is purely numeric or already seen (duplicate), make it unique
+    if (/^\d+$/.test(String(newRow.id)) || seenIds.has(String(newRow.id))) {
+      newRow.id = `${newRow.id}-${index}-${Math.random().toString(36).slice(2, 11)}`;
+    }
+    seenIds.add(String(newRow.id));
+
+    if (!newRow.sportType) {
+      newRow.sportType = 'volleyball';
+    }
+
+    if (newRow.actions) {
+      const seenActionIds = new Set<string>();
+      newRow.actions = newRow.actions.map((act: any, i: number) => {
+        let newAct = { ...act };
+        if (!newAct.id) {
+          newAct.id = `${Date.now()}-${index}-${i}-${Math.random().toString(36).slice(2, 11)}`;
+        }
+        if (/^\d+$/.test(String(newAct.id)) || seenActionIds.has(String(newAct.id))) {
+          newAct.id = `${newAct.id}-${i}-${Math.random().toString(36).slice(2, 11)}`;
+        }
+        seenActionIds.add(String(newAct.id));
+        return newAct;
+      });
+    } else {
+      newRow.actions = [];
+      if (newRow.eventText) {
+        const parts = newRow.eventText.split(' / ').map((p: string) => p.trim()).filter(Boolean);
+        const actions: Action[] = [];
+        
+        for (let i = 0; i + 3 < parts.length; i += 4) {
+          let resultCode = parts[i + 3];
+          
+          if (!['Yes', 'Out', 'Pass', '0', '+1', '-1'].includes(resultCode)) {
+            continue;
+          }
+
+          if (resultCode === '+1') resultCode = 'Yes';
+          else if (resultCode === '-1') resultCode = 'Out';
+          else if (resultCode === '0') resultCode = 'Pass';
+          
+          actions.push({
+            id: `${Date.now()}-${index}-${i}-${Math.random().toString(36).slice(2, 11)}`,
+            teamCode: parts[i],
+            skillCode: parts[i + 1],
+            areaCode: parts[i + 2],
+            resultCode,
+          });
+        }
+        newRow.actions = actions;
+      }
+    }
+    return newRow;
+  });
+};
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [projects, setProjects] = useLocalStorage<ScoutProject[]>('scout_projects', []);
@@ -31,7 +98,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     videoSourceType, setVideoSourceType,
     youtubeUrl, setYoutubeUrl,
     youtubeVideoId, setYoutubeVideoId,
-    localFileName, setLocalFileName
+    localFileName, setLocalFileName,
+    showToast
   } = useScoutContext();
 
   // Initial migration & sanitization
@@ -41,23 +109,33 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     // Sanitize corrupted projects
     const validProjs = projs.filter(p => typeof p === 'object' && p !== null && p.id && p.title);
     
-    if (validProjs.length !== projs.length) {
-      console.warn('WorkspaceContext: Removed invalid project entries from local storage.');
-      setProjects(validProjs);
-      projs = validProjs;
+    let changed = false;
+    const sanitizedProjs = validProjs.map(p => {
+      const sanitizedEvs = sanitizeEvents(p.events);
+      if (JSON.stringify(sanitizedEvs) !== JSON.stringify(p.events)) {
+        changed = true;
+        return { ...p, events: sanitizedEvs };
+      }
+      return p;
+    });
+
+    if (changed || validProjs.length !== projs.length) {
+      console.warn('WorkspaceContext: Sanitized duplicate or numeric event IDs.');
+      setProjects(sanitizedProjs);
+      projs = sanitizedProjs;
     }
     
     const evs = Array.isArray(events) ? events : [];
     if (projs.length === 0 && evs.length > 0) {
       // Migrate existing data to a Recovered Scout project
-      const recoveredId = Date.now().toString();
+      const recoveredId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       const newProj: ScoutProject = {
         id: recoveredId,
         title: 'Recovered Scout',
         sportType: matchInfo.sportType,
         matchInfo,
         teams,
-        events,
+        events: sanitizeEvents(events),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -93,15 +171,49 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [events, matchInfo, teams, activeProjectId, setProjects, videoSourceType, youtubeUrl, youtubeVideoId, localFileName]);
 
+  const updateProjectLastVideoTime = useCallback((time: number) => {
+    if (activeProjectId) {
+      setProjects(prev => {
+        const prevArr = Array.isArray(prev) ? prev : [];
+        return prevArr.map(p => {
+          if (p.id === activeProjectId) {
+            return {
+              ...p,
+              videoMeta: {
+                ...(p.videoMeta || {}),
+                sourceType: p.videoMeta?.sourceType || videoSourceType,
+                lastVideoTime: time
+              }
+            };
+          }
+          return p;
+        });
+      });
+    }
+  }, [activeProjectId, setProjects, videoSourceType]);
+
   const saveCurrentProject = () => {
     if (!activeProjectId) {
-      // Create new one if we somehow have unsaved data but no active project
       createNewProject(`Match ${new Date().toLocaleDateString()}`, matchInfo.sportType);
+    } else {
+      setProjects(prev => {
+        const prevArr = Array.isArray(prev) ? prev : [];
+        return prevArr.map(p => {
+          if (p.id === activeProjectId) {
+            return {
+              ...p,
+              updatedAt: new Date().toISOString()
+            };
+          }
+          return p;
+        });
+      });
+      showToast(settings.uiLanguage === 'th' ? 'บันทึกโครงการแล้ว' : 'Project saved successfully');
     }
   };
 
   const createNewProject = (title: string, sportType: SportType) => {
-    const newId = Date.now().toString();
+    const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     const initMatchInfo: MatchInfo = {
       scouterName: matchInfo.scouterName,
       nickname: matchInfo.nickname,
@@ -207,7 +319,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const duplicateProject = (projectId: string) => {
     const proj = projects.find(p => p.id === projectId);
     if (proj) {
-      const newId = Date.now().toString();
+      const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       const copy: ScoutProject = {
         ...proj,
         id: newId,
@@ -239,7 +351,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       deleteProject,
       duplicateProject,
       renameProject,
-      importProject
+      importProject,
+      updateProjectLastVideoTime
     }}>
       {children}
     </WorkspaceContext.Provider>

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, lazy, Suspense } from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { SportType } from '../types';
-import { SPORT_TEMPLATES } from '../sports';
+import { SPORT_TEMPLATES, OUT_ZONE_LABELS, DETAILED_ZONE_LABELS } from '../sports';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { formatPreciseTime } from '../utils';
 import CustomSelect from './ui/CustomSelect';
@@ -75,7 +75,14 @@ export default function Dashboard() {
           totalActions++;
           const team = action.teamCode;
           const skill = action.skillCode;
-          const area = action.areaCode;
+          let area = action.areaLabel || action.outZone || action.areaCode;
+          if (action.outZone && OUT_ZONE_LABELS[action.outZone]) {
+            area = OUT_ZONE_LABELS[action.outZone].label;
+          } else if (action.areaCode && DETAILED_ZONE_LABELS[action.areaCode]) {
+            area = DETAILED_ZONE_LABELS[action.areaCode].label;
+          }
+          if (area === 'THREE_POINT') area = 'THREE_PT';
+          if (!area) area = 'UNKNOWN';
           
           if (team) teamCounts[team] = (teamCounts[team] || 0) + 1;
           if (skill) {
@@ -288,8 +295,8 @@ export default function Dashboard() {
                     onChange={(e) => setSelectedEventId(e.target.value || undefined)}
                   >
                     <option value="">-- เลือก Event เพื่อดู Sequence --</option>
-                    {events.filter(e => filterSport === 'ALL' || e.sportType === filterSport).map(e => (
-                      <option key={e.id} value={e.id}>
+                    {events.filter(e => filterSport === 'ALL' || e.sportType === filterSport).map((e, idx) => (
+                      <option key={`${e.id}-${idx}`} value={e.id}>
                         Event #{e.no} {e.actions.length > 0 ? `(${e.actions[0].teamCode || 'No Team'})` : ''}
                       </option>
                     ))}
@@ -344,14 +351,14 @@ export default function Dashboard() {
                   <div className="text-gray-500">Skill:</div>
                   <div className="font-semibold">{selectedMapAction.action.skillCode}</div>
                   <div className="text-gray-500">Area:</div>
-                  <div className="font-semibold">{selectedMapAction.action.areaCode || '-'}</div>
+                  <div className="font-semibold">{selectedMapAction.action.areaLabel || selectedMapAction.action.outZone || selectedMapAction.action.areaCode || '-'}</div>
                   <div className="text-gray-500">Result:</div>
                   <div className={`font-semibold ${selectedMapAction.action.resultCode === 'Yes' ? 'text-green-600' : selectedMapAction.action.resultCode === 'Out' ? 'text-red-600' : 'text-gray-600'}`}>
                     {selectedMapAction.action.resultCode}
                   </div>
                   {(() => {
-                    const vt = selectedMapAction.action.videoTime || selectedMapAction.event.videoTime;
-                    if (vt && vt > 0) {
+                    const vt = selectedMapAction.action.videoTime ?? selectedMapAction.event.videoTime;
+                    if (vt !== undefined && vt !== null) {
                       return (
                         <>
                           <div className="text-gray-500">Video Time:</div>

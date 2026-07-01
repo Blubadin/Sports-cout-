@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useScoutContext } from '../context/ScoutContext';
 import { Folder, Plus, Save, ChevronDown, Trash2, Copy, Edit2, Download, Upload } from 'lucide-react';
 import { classNames } from '../utils';
 import { ScoutProject, SportType } from '../types';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function WorkspaceMenu() {
   const { projects, activeProjectId, createNewProject, openProject, saveCurrentProject, deleteProject, duplicateProject, renameProject, importProject } = useWorkspace();
@@ -12,6 +13,17 @@ export default function WorkspaceMenu() {
   const [isRenamingId, setIsRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const activeProject = projects.find(p => p.id === activeProjectId);
   const { settings } = useScoutContext();
@@ -55,7 +67,7 @@ export default function WorkspaceMenu() {
           return;
         }
 
-        const newId = Date.now().toString();
+        const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
         const newProj: ScoutProject = {
           ...(imported as ScoutProject),
           id: newId,
@@ -75,31 +87,38 @@ export default function WorkspaceMenu() {
   };
 
   return (
-    <div className="relative z-50">
-      <div className="flex items-center gap-1">
+    <div className="relative z-50" ref={menuRef}>
+      <div className="flex items-center gap-1.5">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors shadow-sm"
+          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors shadow-sm active:scale-95"
         >
-          <Folder size={16} className="text-sky-500" />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate max-w-[120px] sm:max-w-[200px]">
+          <Folder size={18} className="text-sky-500 shrink-0" />
+          <span className="text-sm font-bold text-gray-700 dark:text-gray-200 truncate max-w-[130px] sm:max-w-[240px]">
             {activeProject ? activeProject.title : (settings.uiLanguage === 'th' ? 'ไม่มีโครงการ' : 'No Project')}
           </span>
-          <ChevronDown size={14} className="text-gray-400" />
+          <ChevronDown size={16} className="text-gray-400 shrink-0 ml-1" />
         </button>
         
         <button
           onClick={handleCreate}
-          className="p-1.5 bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 rounded-lg hover:bg-sky-100 dark:hover:bg-sky-800/50 transition-colors"
+          className="p-1.5 sm:p-2 bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400 rounded-lg hover:bg-sky-200 dark:hover:bg-sky-800/60 transition-colors shadow-sm active:scale-95"
           title="New Scout Project"
         >
-          <Plus size={18} />
+          <Plus size={20} />
         </button>
       </div>
 
-      {isOpen && (
-        <div className="absolute top-full right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[70vh]">
-          <div className="p-3 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            className="absolute top-full right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[70vh] origin-top-right"
+          >
+            <div className="p-3 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
               {settings.uiLanguage === 'th' ? 'คลังโครงการ (Workspace Library)' : 'Workspace Library'}
             </h3>
@@ -115,9 +134,9 @@ export default function WorkspaceMenu() {
                 {settings.uiLanguage === 'th' ? 'ไม่พบโครงการ' : 'No projects found.'}
               </div>
             ) : (
-              projects.map(proj => (
+              projects.map((proj, idx) => (
                 <div 
-                  key={proj.id} 
+                  key={`${proj.id}-${idx}`} 
                   className={classNames(
                     "flex flex-col p-2 rounded-lg transition-colors group",
                     activeProjectId === proj.id 
@@ -147,23 +166,23 @@ export default function WorkspaceMenu() {
                       </button>
                     )}
                     
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                       <button onClick={() => {
                         setIsRenamingId(proj.id);
                         setRenameText(proj.title);
-                      }} className="p-1 text-gray-400 hover:text-sky-600 rounded">
-                        <Edit2 size={12} />
+                      }} className="p-2 md:p-1 text-gray-400 hover:text-sky-600 rounded bg-gray-100 md:bg-transparent">
+                        <Edit2 size={14} className="md:w-3 md:h-3" />
                       </button>
-                      <button onClick={() => duplicateProject(proj.id)} className="p-1 text-gray-400 hover:text-blue-600 rounded">
-                        <Copy size={12} />
+                      <button onClick={() => duplicateProject(proj.id)} className="p-2 md:p-1 text-gray-400 hover:text-blue-600 rounded bg-gray-100 md:bg-transparent">
+                        <Copy size={14} className="md:w-3 md:h-3" />
                       </button>
-                      <button onClick={() => handleExport(proj)} className="p-1 text-gray-400 hover:text-green-600 rounded">
-                        <Download size={12} />
+                      <button onClick={() => handleExport(proj)} className="p-2 md:p-1 text-gray-400 hover:text-green-600 rounded bg-gray-100 md:bg-transparent">
+                        <Download size={14} className="md:w-3 md:h-3" />
                       </button>
                       <button onClick={() => {
                         deleteProject(proj.id);
-                      }} className="p-1 text-gray-400 hover:text-red-600 rounded">
-                        <Trash2 size={12} />
+                      }} className="p-2 md:p-1 text-gray-400 hover:text-red-600 rounded bg-gray-100 md:bg-transparent">
+                        <Trash2 size={14} className="md:w-3 md:h-3" />
                       </button>
                     </div>
                   </div>
@@ -178,8 +197,9 @@ export default function WorkspaceMenu() {
               ))
             )}
           </div>
-        </div>
-      )}
+        </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

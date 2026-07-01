@@ -1,6 +1,6 @@
 export type SportType = 'volleyball' | 'football' | 'badminton' | 'basketball';
 
-export type VideoSourceType = 'local' | 'youtube';
+export type VideoSourceType = 'local' | 'youtube' | 'none';
 
 export type Team = {
   id: string;
@@ -10,6 +10,57 @@ export type Team = {
 };
 
 export type AreaRequirement = "always" | "optional" | "never" | "optionalWhenOut";
+
+export type AreaPrecisionMode = 'normal' | 'detailed' | 'point';
+
+export type OutZoneType =
+  | 'side_left_near'
+  | 'side_left_far'
+  | 'side_right_near'
+  | 'side_right_far'
+  | 'back_left'
+  | 'back_right'
+  | 'net_error'
+  | 'unknown'
+  | 'left_touchline_def'
+  | 'left_touchline_mid'
+  | 'left_touchline_att'
+  | 'right_touchline_def'
+  | 'right_touchline_mid'
+  | 'right_touchline_att'
+  | 'own_endline'
+  | 'opp_endline'
+  | 'corner_left'
+  | 'corner_right'
+  | 'goal_kick'
+  | 'left_sideline'
+  | 'right_sideline'
+  | 'baseline_left'
+  | 'baseline_right'
+  | 'endline'
+  | string;
+
+export type AreaSelectionPayload = {
+  areaCode?: string;
+  areaLabel?: string;
+  areaMode?: AreaPrecisionMode;
+  courtSide?: 'teamA' | 'teamB' | 'neutral';
+  gridX?: number;
+  gridY?: number;
+  pointX?: number;
+  pointY?: number;
+  outZone?: OutZoneType;
+  areaResolution?: string;
+};
+
+export type AreaLayoutConfig = {
+  type: 'grid' | 'zones' | 'point' | 'out';
+  resolution?: string;
+  zones?: Array<{ id: string; label: string; code?: string; gridX?: number; gridY?: number; width?: number; height?: number }>;
+  rows?: number;
+  cols?: number;
+  outZones?: OutZoneType[];
+};
 
 export type Skill = {
   id: string;
@@ -55,6 +106,12 @@ export type SportTemplate = {
   teamsEnabled: boolean;
   playersEnabled: boolean;
   areas: Area[];
+  areaLayouts?: {
+    normal: AreaLayoutConfig;
+    detailed?: AreaLayoutConfig;
+    point?: AreaLayoutConfig;
+    outOfBounds?: AreaLayoutConfig;
+  };
   skills: Skill[];
   results: ResultType[];
   descriptors?: Record<string, DescriptorGroup[]>; // Keyed by skill code or "ALL"
@@ -65,13 +122,23 @@ export type Action = {
   teamCode?: string;
   skillCode?: string;
   areaCode?: string;
+  areaLabel?: string;
+  areaMode?: AreaPrecisionMode;
   courtSide?: 'teamA' | 'teamB' | 'neutral';
+  gridX?: number;
+  gridY?: number;
+  pointX?: number; // normalized 0-1
+  pointY?: number; // normalized 0-1
+  outZone?: OutZoneType;
+  areaResolution?: string; // e.g. '6-zone', '9-zone', '4x6', 'shot-14'
   resultCode?: string;
   resultDetailCode?: string;
   descriptors?: Record<string, string>;
   playerNumber?: string;
   playerName?: string;
   videoTime?: number;
+  videoTimeEnd?: number;
+  duration?: number;
   realTime?: number;
 };
 
@@ -88,6 +155,11 @@ export type EventRow = {
   youtubeVideoId?: string;
   videoUrl?: string;
   videoTime?: number;
+  sequenceStartTime?: number;
+  sequenceEndTime?: number;
+  duration?: number;
+  clipStartTime?: number;
+  clipEndTime?: number;
   sportType?: SportType;
   note?: string;
   createdAt: string;
@@ -120,6 +192,14 @@ export type AppSettings = {
   showGestureOverlay?: boolean;
   flipCourtSide?: boolean;
   
+  // Area Precision
+  areaPrecisionMode?: AreaPrecisionMode;
+  enableOutOfBoundsZones?: boolean;
+  autoCollapseAreaSelector?: boolean;
+  enableArrowAreaNavigation?: boolean;
+  areaAutoSelectOnArrow?: boolean;
+  showDetailedAreaInDashboard?: boolean;
+  
   // Screen Marking Mode
   enableScreenMarkingMode?: boolean;
   screenMarkingKey?: string;
@@ -138,6 +218,9 @@ export type AppSettings = {
   hudEnableGameFeedback?: boolean;
   hudEnableSoundFeedback?: boolean;
   hudEnableHapticFeedback?: boolean;
+  hudInteractionStyle?: 'hold' | 'click';
+  hudExperienceMode?: 'auto' | 'pro' | 'phone';
+  phoneScoutDensity?: 'compact' | 'comfortable';
 };
 
 export type ScoutProject = {
@@ -150,10 +233,12 @@ export type ScoutProject = {
   events: EventRow[];
   settingsSnapshot?: AppSettings;
   videoMeta?: {
-    sourceType: 'youtube' | 'local';
+    sourceType: 'youtube' | 'local' | 'none';
     youtubeUrl?: string;
     youtubeVideoId?: string;
     localFileName?: string;
+    lastVideoTime?: number;
+    duration?: number;
   };
   createdAt: string;
   updatedAt: string;

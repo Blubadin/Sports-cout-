@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from "react";
 
 function safeMerge<T>(initial: T, parsed: any): T {
   if (initial === null || initial === undefined) return parsed;
@@ -6,17 +6,21 @@ function safeMerge<T>(initial: T, parsed: any): T {
 
   if (Array.isArray(initial)) {
     if (!Array.isArray(parsed)) return initial;
-    const cleanParsed = parsed.filter(item => item !== null && item !== undefined);
+    const cleanParsed = parsed.filter(
+      (item) => item !== null && item !== undefined,
+    );
     if (initial.length > 0) {
       const template = initial[0];
-      return cleanParsed.map(item => safeMerge(template, item)) as unknown as T;
+      return cleanParsed.map((item) =>
+        safeMerge(template, item),
+      ) as unknown as T;
     }
     return cleanParsed as unknown as T;
   }
 
-  if (typeof initial === 'object') {
-    if (typeof parsed !== 'object' || Array.isArray(parsed)) return initial;
-    
+  if (typeof initial === "object") {
+    if (typeof parsed !== "object" || Array.isArray(parsed)) return initial;
+
     const result = { ...initial } as any;
     for (const key of Object.keys(initial as object)) {
       const val = parsed[key];
@@ -24,16 +28,16 @@ function safeMerge<T>(initial: T, parsed: any): T {
         // Keep initial default value for null/undefined properties
         continue;
       }
-      
+
       const expectedType = typeof (initial as any)[key];
       const actualType = typeof val;
-      
-      if (expectedType !== 'undefined' && actualType !== expectedType) {
+
+      if (expectedType !== "undefined" && actualType !== expectedType) {
         // Keep initial default value on type mismatch
         continue;
       }
-      
-      if (expectedType === 'object' && (initial as any)[key] !== null) {
+
+      if (expectedType === "object" && (initial as any)[key] !== null) {
         result[key] = safeMerge((initial as any)[key], val);
       } else {
         result[key] = val;
@@ -51,7 +55,7 @@ function safeMerge<T>(initial: T, parsed: any): T {
 
 export function useLocalStorage<T>(key: string, initialValue: T) {
   const [storedValue, setStoredValue] = useState<T>(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       return initialValue;
     }
     try {
@@ -59,12 +63,15 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
       if (item === null) {
         return initialValue;
       }
-      
+
       let parsed: any;
       try {
         parsed = JSON.parse(item);
       } catch (parseErr) {
-        console.warn(`Error parsing localStorage key "${key}", clearing:`, parseErr);
+        console.warn(
+          `Error parsing localStorage key "${key}", clearing:`,
+          parseErr,
+        );
         try {
           window.localStorage.removeItem(key);
         } catch (e) {}
@@ -78,19 +85,23 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
     }
   });
 
-  const setValue = useCallback((value: T | ((val: T) => T)) => {
-    try {
-      setStoredValue((currentStoredValue) => {
-        const valueToStore = value instanceof Function ? value(currentStoredValue) : value;
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(key, JSON.stringify(valueToStore));
-        }
-        return valueToStore;
-      });
-    } catch (error) {
-      console.warn(`Error setting localStorage key "${key}":`, error);
-    }
-  }, [key]);
+  const setValue = useCallback(
+    (value: T | ((val: T) => T)) => {
+      try {
+        setStoredValue((currentStoredValue) => {
+          const valueToStore =
+            value instanceof Function ? value(currentStoredValue) : value;
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(key, JSON.stringify(valueToStore));
+          }
+          return valueToStore;
+        });
+      } catch (error) {
+        console.warn(`Error setting localStorage key "${key}":`, error);
+      }
+    },
+    [key],
+  );
 
   return [storedValue, setValue] as const;
 }
