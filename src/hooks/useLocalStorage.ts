@@ -87,18 +87,21 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
 
   const setValue = useCallback(
     (value: T | ((val: T) => T)) => {
-      try {
-        setStoredValue((currentStoredValue) => {
-          const valueToStore =
-            value instanceof Function ? value(currentStoredValue) : value;
-          if (typeof window !== "undefined") {
+      setStoredValue((currentStoredValue) => {
+        const valueToStore =
+          value instanceof Function ? value(currentStoredValue) : value;
+        if (typeof window !== "undefined") {
+          try {
             window.localStorage.setItem(key, JSON.stringify(valueToStore));
+          } catch (error) {
+            console.warn(`Error setting localStorage key "${key}":`, error);
+            if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+              window.dispatchEvent(new CustomEvent('localStorageQuotaExceeded', { detail: { key } }));
+            }
           }
-          return valueToStore;
-        });
-      } catch (error) {
-        console.warn(`Error setting localStorage key "${key}":`, error);
-      }
+        }
+        return valueToStore;
+      });
     },
     [key],
   );

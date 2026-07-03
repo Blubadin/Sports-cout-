@@ -21,46 +21,28 @@ import {
 } from "lucide-react";
 import { formatPreciseTime } from "../utils";
 import ScoutHUDWrapper from "./hud/ScoutHUDWrapper";
+import { useVideoResize } from "../hooks/useVideoResize";
+import { useVideoGestures } from "../hooks/useVideoGestures";
+import { useVideoPlayback } from "../hooks/useVideoPlayback";
 
 export default function VideoPlayer() {
   const playerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [playbackRate, setPlaybackRate] = useState(1);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState("");
 
-  const [requestedPlaying, setRequestedPlaying] = useState(false);
-  const [actualPlaying, setActualPlaying] = useState(false);
-  const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false);
-
-  const [playerReady, setPlayerReady] = useState(false);
-  const [playerError, setPlayerError] = useState<string | null>(null);
-  const [playerErrorType, setPlayerErrorType] = useState<string | null>(null);
-  const [playerErrorCode, setPlayerErrorCode] = useState<number | null>(null);
-  const [isLoadingVideo, setIsLoadingVideo] = useState(false);
-  const [useNativeIframe, setUseNativeIframe] = useState(false);
-
-  // Use requestedPlaying for the Player component.
-  const isPlaying = requestedPlaying;
-
-  const setIsPlaying = useCallback((play: boolean) => {
-    setRequestedPlaying(play);
-    if (!play) {
-      setActualPlaying(false);
-    }
-  }, []);
-
-  const [isHUDMode, setIsHUDMode] = useState(false);
-  const [isPortrait, setIsPortrait] = useState(false);
-
-  useEffect(() => {
-    const checkOrientation = () =>
-      setIsPortrait(window.innerHeight > window.innerWidth);
-    checkOrientation();
-    window.addEventListener("resize", checkOrientation);
-    return () => window.removeEventListener("resize", checkOrientation);
-  }, []);
+  const {
+    isHUDMode,
+    isPortrait,
+    videoHeight,
+    setVideoHeight,
+    isResizing,
+    setIsResizing,
+    containerRef,
+    enterHUDMode,
+    closeHUDMode,
+  } = useVideoResize();
 
   const {
     setVideoTime,
@@ -81,297 +63,76 @@ export default function VideoPlayer() {
 
   const { updateProjectLastVideoTime } = useWorkspace();
 
-  // Timeline State
-  const [currentTimeDisplay, setCurrentTimeDisplay] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isScrubbing, setIsScrubbing] = useState(false);
-  const [draftSeekTime, setDraftSeekTime] = useState<number | null>(null);
-  const draftSeekTimeRef = useRef<number | null>(null);
-  const [volume, setVolume] = useState(1);
-  const [brightness, setBrightness] = useState(1);
-  const [gestureOverlayText, setGestureOverlayText] = useState<string | null>(
-    null,
-  );
-  const [showFineControls, setShowFineControls] = useState(false);
-
-  const [videoHeight, setVideoHeight] = useState<number | "auto">("auto");
-  const [isResizing, setIsResizing] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Helper functions
-  const getPlayer = useCallback(() => playerRef.current as any, []);
-  const getInternalPlayer = useCallback(
-    () => getPlayer()?.getInternalPlayer?.(),
-    [getPlayer],
-  );
-
-  const getCurrentTimeSafe = useCallback((): number => {
-    const player = getPlayer();
-    const internal = getInternalPlayer();
-
-    if (typeof player?.currentTime === "number") return player.currentTime;
-    if (typeof player?.getCurrentTime === "function")
-      return player.getCurrentTime();
-    if (typeof internal?.getCurrentTime === "function")
-      return internal.getCurrentTime();
-
-    return currentTimeDisplay || 0;
-  }, [getPlayer, getInternalPlayer, currentTimeDisplay]);
-
-  useEffect(() => {
-    getCurrentTimeRef.current = getCurrentTimeSafe;
-    return () => {
-      const lastTime = currentTimeDisplay;
-      getCurrentTimeRef.current = () => lastTime;
-    };
-  }, [getCurrentTimeSafe, getCurrentTimeRef, currentTimeDisplay]);
-
-  const getDurationSafe = useCallback((): number => {
-    const player = getPlayer();
-    const internal = getInternalPlayer();
-
-    if (
-      typeof player?.duration === "number" &&
-      Number.isFinite(player.duration)
-    )
-      return player.duration;
-    if (typeof player?.getDuration === "function") return player.getDuration();
-    if (typeof internal?.getDuration === "function")
-      return internal.getDuration();
-
-    return duration || 0;
-  }, [getPlayer, getInternalPlayer, duration]);
-
-  const seekToSafe = useCallback(
-    (seconds: number) => {
-      const player = getPlayer();
-      const internal = getInternalPlayer();
-
-      const maxDuration = getDurationSafe();
-      const safeTarget = Math.max(
-        0,
-        maxDuration ? Math.min(seconds, maxDuration) : seconds,
-      );
-
-      try {
-        if (player && "currentTime" in player) {
-          player.currentTime = safeTarget;
-        } else if (typeof player?.seekTo === "function") {
-          player.seekTo(safeTarget, "seconds");
-        } else if (typeof internal?.seekTo === "function") {
-          internal.seekTo(safeTarget, true);
-        }
-
-        setCurrentTimeDisplay(safeTarget);
-        setVideoTime(safeTarget);
-      } catch (error) {
-        console.warn("Seek failed:", error);
-      }
-    },
-    [getPlayer, getInternalPlayer, getDurationSafe, setVideoTime],
-  );
-
-  const seekBySafe = useCallback(
-    (delta: number) => {
-      seekToSafe(getCurrentTimeSafe() + delta);
-    },
-    [getCurrentTimeSafe, seekToSafe],
-  );
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      const isFs = !!(
-        document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        (document as any).mozFullScreenElement ||
-        (document as any).msFullscreenElement
-      );
-      if (!isFs && isHUDMode) {
-        closeHUDMode("fullscreen_exit");
-      }
-    };
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
-    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
-    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
-    return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
-      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
-      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
-    };
-  }, [isHUDMode]);
-
-  const enterHUDMode = () => {
-    setIsHUDMode(true);
-    document.body.style.overflow = "hidden";
-    document.documentElement.style.overflow = "hidden";
-    document.body.classList.add("hud-active");
-    containerRef.current?.requestFullscreen?.().catch(() => {});
-  };
-
-  const closeHUDMode = async (reason?: string) => {
-    console.log(`Exiting HUD Mode${reason ? ": " + reason : ""}`);
-    setIsHUDMode(false);
-
-    // Clear any potential HUD-specific overlay styles
-
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      }
-    } catch (e) {
-      console.warn("Failed to exit fullscreen", e);
-    }
-
-    try {
-      if (screen.orientation && "unlock" in screen.orientation) {
-        (screen.orientation as any).unlock?.();
-      }
-    } catch (e) {}
-
-    document.body.style.overflow = "";
-    document.documentElement.style.overflow = "";
-    document.body.classList.remove("hud-active");
-
-    requestAnimationFrame(() => {
-      window.dispatchEvent(new Event("resize"));
-    });
-  };
-
-  const playSafe = useCallback(() => {
-    const player = getPlayer();
-    const internal = getInternalPlayer();
-    try {
-      if (typeof player?.play === "function") {
-        const p = player.play();
-        if (p && typeof p.catch === "function") p.catch(() => {});
-      } else if (typeof internal?.playVideo === "function") {
-        const p = internal.playVideo();
-        if (p && typeof p.catch === "function") p.catch(() => {});
-      } else if (typeof internal?.play === "function") {
-        const p = internal.play();
-        if (p && typeof p.catch === "function") p.catch(() => {});
-      }
-      setIsPlaying(true);
-    } catch (error) {
-      console.warn("Play failed:", error);
-      setIsPlaying(true); // optimistically
-    }
-  }, [getPlayer, getInternalPlayer, setIsPlaying]);
-
-  const pauseSafe = useCallback(() => {
-    const player = getPlayer();
-    const internal = getInternalPlayer();
-    try {
-      if (typeof player?.pause === "function") player.pause();
-      else if (typeof internal?.pauseVideo === "function")
-        internal.pauseVideo();
-      setIsPlaying(false);
-      
-      const currentTime = getCurrentTimeSafe();
-      updateProjectLastVideoTime(currentTime);
-    } catch (error) {
-      console.warn("Pause failed:", error);
-      setIsPlaying(false);
-    }
-  }, [getPlayer, getInternalPlayer, setIsPlaying, getCurrentTimeSafe, updateProjectLastVideoTime]);
-
-  const setVolumeSafe = useCallback(
-    (nextVolume: number) => {
-      const clamped = Math.max(0, Math.min(1, nextVolume));
-      const player = getPlayer();
-      const internal = getInternalPlayer();
-
-      try {
-        if (player && "volume" in player) {
-          player.volume = clamped;
-        }
-        if (typeof internal?.setVolume === "function") {
-          internal.setVolume(Math.round(clamped * 100));
-        }
-        setVolume(clamped);
-      } catch (error) {
-        console.warn("Volume failed:", error);
-        setVolume(clamped);
-      }
-    },
-    [getPlayer, getInternalPlayer],
-  );
-
-  const setSpeedSafe = useCallback(
-    (rate: number) => {
-      const player = getPlayer();
-      const internal = getInternalPlayer();
-      try {
-        if (player && "playbackRate" in player) {
-          player.playbackRate = rate;
-        }
-        if (typeof internal?.setPlaybackRate === "function") {
-          internal.setPlaybackRate(rate);
-        }
-        setPlaybackRate(rate);
-      } catch (error) {
-        console.warn("Playback rate failed:", error);
-        setPlaybackRate(rate);
-      }
-    },
-    [getPlayer, getInternalPlayer],
-  );
-
-  const togglePlay = () => {
-    if (isPlaying) pauseSafe();
-    else playSafe();
-  };
-
-  useEffect(() => {
-    if (seekRequest !== null) {
-      seekToSafe(seekRequest);
-      if (settings.autoPlayAfterSeek !== false) {
-        playSafe();
-      }
-      setSeekRequest(null);
-    }
-  }, [
+  const {
+    playbackRate,
+    setPlaybackRate,
+    requestedPlaying,
+    setRequestedPlaying,
+    actualPlaying,
+    setActualPlaying,
+    isAutoplayBlocked,
+    setIsAutoplayBlocked,
+    playerReady,
+    setPlayerReady,
+    playerError,
+    setPlayerError,
+    playerErrorType,
+    setPlayerErrorType,
+    playerErrorCode,
+    setPlayerErrorCode,
+    isLoadingVideo,
+    setIsLoadingVideo,
+    useNativeIframe,
+    setUseNativeIframe,
+    currentTimeDisplay,
+    setCurrentTimeDisplay,
+    duration,
+    setDuration,
+    isScrubbing,
+    setIsScrubbing,
+    draftSeekTime,
+    setDraftSeekTime,
+    draftSeekTimeRef,
+    volume,
+    setVolume,
+    brightness,
+    setBrightness,
+    isPlaying,
+    setIsPlaying,
+    getPlayer,
+    getInternalPlayer,
+    getCurrentTimeSafe,
+    getDurationSafe,
+    seekToSafe,
+    seekBySafe,
+    playSafe,
+    pauseSafe,
+    setVolumeSafe,
+    setSpeedSafe,
+    togglePlay,
+    handleTimeUpdate,
+    handleDuration,
+    handleSeekPointerDown,
+    handleSeekInput,
+    handleSeekPointerUp,
+    handleSeekCancel,
+    handlePlayerError,
+    handlePlayerReady,
+  } = useVideoPlayback({
+    playerRef,
+    videoSrc,
+    youtubeUrl,
+    videoSourceType,
+    setVideoTime,
+    settings,
     seekRequest,
     setSeekRequest,
-    seekToSafe,
-    playSafe,
-    settings.autoPlayAfterSeek,
-  ]);
+    getCurrentTimeRef,
+    updateProjectLastVideoTime,
+  });
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent | TouchEvent) => {
-      if (!isResizing) return;
-      const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const newHeight = clientY - rect.top;
-        if (newHeight >= 100 && newHeight <= window.innerHeight * 0.8) {
-          setVideoHeight(newHeight);
-        }
-      }
-    };
-    const handleMouseUp = () => setIsResizing(false);
-    if (isResizing) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("touchmove", handleMouseMove, {
-        passive: false,
-      });
-      document.addEventListener("mouseup", handleMouseUp);
-      document.addEventListener("touchend", handleMouseUp);
-      document.body.style.userSelect = "none";
-    } else {
-      document.body.style.userSelect = "";
-    }
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("touchmove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.removeEventListener("touchend", handleMouseUp);
-      document.body.style.userSelect = "";
-    };
-  }, [isResizing]);
+  // Timeline State
+  const [showFineControls, setShowFineControls] = useState(false);
 
   const extractYouTubeId = (input: string): string | null => {
     const value = input.trim();
@@ -461,305 +222,30 @@ export default function VideoPlayer() {
       }
     }, 15000);
     return () => window.clearTimeout(timer);
-  }, [isLoadingVideo, playerReady]);
+  }, [isLoadingVideo, playerReady, setIsLoadingVideo, setPlayerErrorType, setPlayerError]);
 
-  const handlePlayerReady = () => {
-    setPlayerReady(true);
-    setIsLoadingVideo(false);
-    setPlayerError(null);
-    setPlayerErrorType(null);
-    setPlayerErrorCode(null);
-  };
-
-  const handlePlayerError = (error: any) => {
-    console.warn("ReactPlayer / YouTube Error:", error);
-    let message = "ไม่สามารถโหลดวิดีโอได้";
-    let type = "unknown";
-    let code: number | null = null;
-
-    if (error && typeof error === "number") {
-      code = error;
-      if (error === 2) {
-        type = "invalid_parameter";
-        message = "พารามิเตอร์ที่ส่งไปยัง YouTube player ไม่ถูกต้อง";
-      } else if (error === 5) {
-        type = "html5_error";
-        message = "เกิดข้อผิดพลาดกับ HTML5 player";
-      } else if (error === 100) {
-        type = "private_or_removed";
-        message = "วิดีโอนี้เป็นวิดีโอส่วนตัว หรือถูกลบออกไปแล้ว";
-      } else if (error === 101 || error === 150) {
-        type = "embed_disabled";
-        message =
-          "เจ้าของวิดีโอไม่อนุญาตให้ฝังเล่นบนเว็บไซต์อื่นภายนอก YouTube";
-      } else if (error === 153) {
-        type = "preview_iframe_restricted";
-        message =
-          "ไม่พบสิทธิ์ Referer หรือ client identity ใน Preview iframe นี้";
-      } else {
-        type = "unknown";
-        message = `YouTube Error (Error Code: ${error})`;
-      }
-    } else if (videoSourceType === "youtube") {
-      type = "browser_blocked";
-      message =
-        "ไม่สามารถเล่น YouTube นี้ได้ อาจเกิดจากคลิปไม่อนุญาตให้ฝัง, คลิปเป็น private/removed, browser block third-party embed, หรือเปิดผ่าน preview iframe ที่จำกัดสิทธิ์";
-    }
-
-    setPlayerError(message);
-    setPlayerErrorType(type);
-    setPlayerErrorCode(code);
-    setIsLoadingVideo(false);
-    setIsPlaying(false);
-  };
-
-  function handleTimeUpdate(event: any) {
-    if (isScrubbing) return;
-    const time = event?.currentTarget?.currentTime ?? getCurrentTimeSafe();
-    if (Number.isFinite(time)) {
-      setCurrentTimeDisplay(time);
-      setVideoTime(time);
-    }
-    const safeDuration = getDurationSafe();
-    if (safeDuration && safeDuration !== duration) {
-      setDuration(safeDuration);
-    }
-  }
-
-  function handleDuration(nextDuration: number) {
-    if (Number.isFinite(nextDuration) && nextDuration > 0) {
-      setDuration(nextDuration);
-    }
-  }
-
-  useEffect(() => {
-    if (requestedPlaying && !actualPlaying && videoSourceType === "youtube") {
-      const timer = window.setTimeout(() => {
-        setIsAutoplayBlocked(true);
-      }, 4000);
-      return () => window.clearTimeout(timer);
-    }
-  }, [requestedPlaying, actualPlaying, videoSourceType]);
-
-  // Polling fallback
-  useEffect(() => {
-    if (!isPlaying || isScrubbing) return;
-    const timer = window.setInterval(() => {
-      const time = getCurrentTimeSafe();
-      const dur = getDurationSafe();
-      if (Number.isFinite(time)) {
-        setCurrentTimeDisplay(time);
-        setVideoTime(time);
-      }
-      if (dur && Number.isFinite(dur)) {
-        setDuration(dur);
-      }
-    }, 200);
-    return () => window.clearInterval(timer);
-  }, [
-    isPlaying,
-    isScrubbing,
-    videoSourceType,
-    youtubeUrl,
-    videoSrc,
+  const {
+    gestureOverlayText,
+    handleVideoPointerDown,
+    handleVideoPointerMove,
+    handleVideoPointerUp,
+    handleVideoPointerCancel,
+  } = useVideoGestures({
+    settings,
+    volume,
+    brightness,
     getCurrentTimeSafe,
     getDurationSafe,
-    setVideoTime,
-  ]);
-
-  const handleSeekPointerDown = () => setIsScrubbing(true);
-
-  const handleSeekInput = (e: React.FormEvent<HTMLInputElement>) => {
-    const nextTime = Number((e.currentTarget as HTMLInputElement).value);
-    if (!Number.isFinite(nextTime)) return;
-    draftSeekTimeRef.current = nextTime;
-    setDraftSeekTime(nextTime);
-    setCurrentTimeDisplay(nextTime);
-  };
-
-  const handleSeekPointerUp = () => {
-    const finalTime = draftSeekTimeRef.current;
-    if (finalTime !== null) {
-      seekToSafe(finalTime);
-    }
-    setIsScrubbing(false);
-    draftSeekTimeRef.current = null;
-    setDraftSeekTime(null);
-  };
-
-  const handleSeekCancel = () => {
-    setIsScrubbing(false);
-    draftSeekTimeRef.current = null;
-    setDraftSeekTime(null);
-  };
-
-  // Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      if (
-        activeEl?.tagName === "INPUT" ||
-        activeEl?.tagName === "TEXTAREA" ||
-        activeEl?.tagName === "SELECT"
-      ) {
-        return;
-      }
-      if (e.code === "Space") {
-        e.preventDefault();
-        togglePlay();
-      } else if (e.code === "ArrowLeft") {
-        e.preventDefault();
-        seekBySafe(e.shiftKey ? -1 : -3);
-      } else if (e.code === "ArrowRight") {
-        e.preventDefault();
-        seekBySafe(e.shiftKey ? 1 : 3);
-      } else if (e.key === "[") {
-        e.preventDefault();
-        seekBySafe(-1);
-      } else if (e.key === "]") {
-        e.preventDefault();
-        seekBySafe(1);
-      } else if (e.key === ",") {
-        setSpeedSafe(Math.max(0.25, playbackRate - 0.25));
-      } else if (e.key === ".") {
-        setSpeedSafe(Math.min(2, playbackRate + 0.25));
-      } else if (e.key === "0") {
-        setSpeedSafe(1);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    isPlaying,
-    videoSrc,
-    youtubeUrl,
-    videoSourceType,
-    playbackRate,
     seekBySafe,
-    setSpeedSafe,
-  ]);
-
-  // Gestures
-  const [gestureStart, setGestureStart] = useState<{
-    x: number;
-    y: number;
-    time: number;
-    vol: number;
-    bright: number;
-  } | null>(null);
-  const [lastTapTime, setLastTapTime] = useState(0);
-
-  const handleVideoPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (settings.enableVideoGestures === false) return;
-
-    // Check Double Tap
-    const now = Date.now();
-    if (now - lastTapTime < 300) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const isLeft = e.clientX < rect.left + rect.width / 2;
-      const step = settings.doubleTapSeekStep || 3;
-      seekBySafe(isLeft ? -step : step);
-      showGestureOverlayText(isLeft ? `-${step}s` : `+${step}s`);
-      setLastTapTime(0);
-      return;
-    }
-    setLastTapTime(now);
-
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setGestureStart({
-      x: e.clientX,
-      y: e.clientY,
-      time: getCurrentTimeSafe(),
-      vol: volume,
-      bright: brightness,
-    });
-  };
-
-  const handleVideoPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!gestureStart || settings.enableVideoGestures === false) return;
-
-    const dx = e.clientX - gestureStart.x;
-    const dy = e.clientY - gestureStart.y;
-
-    // Determine gesture type based on primary movement axis
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
-      // Horizontal swipe = scrub
-      const sensitivity = settings.swipeSensitivity || 0.03;
-      const deltaSec = dx * sensitivity;
-      const targetTime = gestureStart.time + deltaSec;
-      const maxDur = getDurationSafe();
-      const safeTime = Math.max(0, Math.min(targetTime, maxDur || targetTime));
-
-      showGestureOverlayText(
-        `${deltaSec > 0 ? "+" : ""}${deltaSec.toFixed(1)}s`,
-      );
-
-      if (settings.liveScrub) {
-        seekToSafe(safeTime);
-      } else {
-        draftSeekTimeRef.current = safeTime;
-        setDraftSeekTime(safeTime);
-        setCurrentTimeDisplay(safeTime);
-      }
-    } else if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) {
-      // Vertical swipe
-      const rect = e.currentTarget.getBoundingClientRect();
-      const isRightSide = gestureStart.x > rect.left + rect.width / 2;
-
-      // dy negative means swipe UP (increase)
-      const delta = -(dy / rect.height) * 1.5;
-
-      if (isRightSide) {
-        const newVol = Math.max(0, Math.min(1, gestureStart.vol + delta));
-        setVolumeSafe(newVol);
-        showGestureOverlayText(`Volume ${Math.round(newVol * 100)}%`);
-      } else {
-        const newBright = Math.max(
-          0.5,
-          Math.min(2, gestureStart.bright + delta),
-        );
-        setBrightness(newBright);
-        showGestureOverlayText(`Brightness ${Math.round(newBright * 100)}%`);
-      }
-    }
-  };
-
-  const handleVideoPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    const finalTime = draftSeekTimeRef.current;
-    if (finalTime !== null && !settings.liveScrub) {
-      seekToSafe(finalTime);
-    }
-    draftSeekTimeRef.current = null;
-    setDraftSeekTime(null);
-    setGestureStart(null);
-    e.currentTarget.releasePointerCapture(e.pointerId);
-    hideGestureOverlayText();
-  };
-
-  const handleVideoPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
-    draftSeekTimeRef.current = null;
-    setDraftSeekTime(null);
-    setGestureStart(null);
-    e.currentTarget.releasePointerCapture(e.pointerId);
-    hideGestureOverlayText();
-  };
-
-  const overlayTimerRef = useRef<number | null>(null);
-  const showGestureOverlayText = (text: string) => {
-    if (settings.showGestureOverlay === false) return;
-    setGestureOverlayText(text);
-    if (overlayTimerRef.current !== null)
-      window.clearTimeout(overlayTimerRef.current);
-    overlayTimerRef.current = window.setTimeout(
-      () => setGestureOverlayText(null),
-      800,
-    );
-  };
-  const hideGestureOverlayText = () => {
-    if (overlayTimerRef.current !== null)
-      window.clearTimeout(overlayTimerRef.current);
-    setGestureOverlayText(null);
-  };
+    seekToSafe,
+    setVolumeSafe,
+    setBrightness,
+    draftSeekTimeRef,
+    setDraftSeekTime,
+    setCurrentTimeDisplay,
+    playSafe,
+    pauseSafe,
+  });
 
   const hasVideo =
     (videoSourceType === "local" && videoSrc) ||
@@ -800,7 +286,7 @@ export default function VideoPlayer() {
               />
             </label>
             {localFileName && !videoSrc && (
-              <div className="text-xs text-orange-500 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 p-2 rounded-lg text-center">
+              <div className="text-xs text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800 p-2 rounded-lg text-center">
                 Project นี้มีการบันทึกไฟล์ <b>{localFileName}</b>
                 <br />
                 กรุณาเลือกไฟล์วิดีโอเดิมเพื่อเล่นต่อ
@@ -1122,7 +608,7 @@ export default function VideoPlayer() {
                             fileInputRef.current?.click();
                           }, 100);
                         }}
-                        className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5"
+                        className="px-3.5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-bold text-xs transition-all active:scale-95 shadow-sm flex items-center justify-center gap-1.5"
                       >
                         Local Video
                       </button>

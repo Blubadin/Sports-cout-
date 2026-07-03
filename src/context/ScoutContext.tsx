@@ -5,7 +5,16 @@ import { SPORT_TEMPLATES, OUT_ZONE_LABELS, DETAILED_ZONE_LABELS } from '../sport
 import { useLocalStorage } from '../hooks/useLocalStorage';
 
 export type InputHistoryItem = 
-  | { type: 'field'; category: keyof Action; previousValue?: string; value?: string; previousCourtSide?: 'teamA'|'teamB'|'neutral'; courtSide?: 'teamA'|'teamB'|'neutral' }
+  | { 
+      type: 'field'; 
+      category: keyof Action; 
+      previousValue?: string; 
+      value?: string; 
+      previousCourtSide?: 'teamA'|'teamB'|'neutral'; 
+      courtSide?: 'teamA'|'teamB'|'neutral';
+      previousAreaPayload?: Partial<Action>;
+      areaPayload?: Partial<Action>;
+    }
   | { type: 'descriptor'; groupId: string; previousValue?: string; value?: string };
 
 interface ScoutContextType {
@@ -225,90 +234,104 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   const [hudLastSavedText, setHudLastSavedText] = useState<string | null>(null);
   const [hudLastSavedAt, setHudLastSavedAt] = useState<number>(0);
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
-  };
+  }, []);
+
+  useEffect(() => {
+    const handleQuotaExceeded = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      console.error(`localStorage quota exceeded for key: ${customEvent.detail?.key}`);
+      showToast(settings.uiLanguage === 'th' 
+        ? 'พื้นที่เก็บข้อมูลเต็ม! ไม่สามารถบันทึกข้อมูลได้ กรุณาลบโครงการที่ไม่ได้ใช้งาน' 
+        : 'Storage quota exceeded! Cannot save data. Please delete unused projects.');
+    };
+    
+    window.addEventListener('localStorageQuotaExceeded', handleQuotaExceeded);
+    return () => window.removeEventListener('localStorageQuotaExceeded', handleQuotaExceeded);
+  }, [showToast, settings.uiLanguage]);
 
   const updateActionField = useCallback((field: keyof Action, value: any, descriptorGroupId?: string) => {
-    let previousValue: any;
-    let nextValue: any;
+    const isSame = descriptorGroupId 
+      ? currentAction.descriptors?.[descriptorGroupId] === value 
+      : currentAction[field] === value;
+      
+    const nextValue = isSame ? undefined : value;
+    const previousValue = descriptorGroupId ? currentAction.descriptors?.[descriptorGroupId] : currentAction[field];
     
-    setCurrentAction(prev => {
-      const isSame = descriptorGroupId 
-        ? prev.descriptors?.[descriptorGroupId] === value 
-        : prev[field] === value;
-        
-      nextValue = isSame ? undefined : value;
-      previousValue = descriptorGroupId ? prev.descriptors?.[descriptorGroupId] : prev[field];
-      
-      const next = { 
-        ...prev,
-        descriptors: prev.descriptors ? { ...prev.descriptors } : {}
-      };
-      
-      if (descriptorGroupId) {
-        if (isSame) {
-          delete next.descriptors[descriptorGroupId];
-        } else {
-          next.descriptors[descriptorGroupId] = value;
-        }
+    const next = { 
+      ...currentAction,
+      descriptors: currentAction.descriptors ? { ...currentAction.descriptors } : {}
+    };
+    
+    if (descriptorGroupId) {
+      if (isSame) {
+        delete next.descriptors[descriptorGroupId];
       } else {
-        (next as any)[field] = nextValue;
-        if (field === 'skillCode') {
-          next.descriptors = {};
-          next.resultDetailCode = undefined;
-        }
+        next.descriptors[descriptorGroupId] = value;
       }
+    } else {
+      (next as any)[field] = nextValue;
+      if (field === 'skillCode') {
+        next.descriptors = {};
+        next.resultDetailCode = undefined;
+      }
+    }
 
-      setTimeout(() => {
-        setCurrentInputHistory(hist => [...hist, {
-          type: descriptorGroupId ? 'descriptor' : 'field',
-          category: !descriptorGroupId ? field : undefined,
-          groupId: descriptorGroupId,
-          previousValue,
-          value: nextValue
-        } as any]);
-      }, 0);
+    setCurrentAction(next);
 
-      return next;
-    });
-  }, []);
+    setCurrentInputHistory(hist => [...hist, {
+      type: descriptorGroupId ? 'descriptor' : 'field',
+      category: !descriptorGroupId ? field : undefined,
+      groupId: descriptorGroupId,
+      previousValue,
+      value: nextValue
+    } as any]);
+  }, [currentAction]);
 
   const selectArea = useCallback((payload: AreaSelectionPayload) => {
-    setCurrentAction(prev => {
-      const isSame = prev.areaCode === payload.areaCode && prev.outZone === payload.outZone && prev.courtSide === payload.courtSide;
-      
-      const nextValueCode = isSame ? undefined : payload.areaCode;
-      
-      const next: Action = {
-        ...prev,
-        areaCode: nextValueCode,
-        areaLabel: isSame ? undefined : payload.areaLabel,
-        areaMode: isSame ? undefined : (payload.areaMode || 'normal'),
-        courtSide: isSame ? undefined : payload.courtSide,
-        gridX: isSame ? undefined : payload.gridX,
-        gridY: isSame ? undefined : payload.gridY,
-        pointX: isSame ? undefined : payload.pointX,
-        pointY: isSame ? undefined : payload.pointY,
-        outZone: isSame ? undefined : payload.outZone,
-        areaResolution: isSame ? undefined : payload.areaResolution,
-      };
-      
-      setTimeout(() => {
-        setCurrentInputHistory(hist => [...hist, {
-          type: 'field',
-          category: 'areaCode',
-          previousValue: prev.areaCode,
-          value: nextValueCode,
-          previousCourtSide: prev.courtSide,
-          courtSide: next.courtSide
-        }]);
-      }, 0);
+    const isSame = currentAction.areaCode === payload.areaCode && currentAction.outZone === payload.outZone && currentAction.courtSide === payload.courtSide;
+    
+    const nextValueCode = isSame ? undefined : payload.areaCode;
+    
+    const next: Action = {
+      ...currentAction,
+      areaCode: nextValueCode,
+      areaLabel: isSame ? undefined : payload.areaLabel,
+      areaMode: isSame ? undefined : (payload.areaMode || 'normal'),
+      courtSide: isSame ? undefined : payload.courtSide,
+      gridX: isSame ? undefined : payload.gridX,
+      gridY: isSame ? undefined : payload.gridY,
+      pointX: isSame ? undefined : payload.pointX,
+      pointY: isSame ? undefined : payload.pointY,
+      outZone: isSame ? undefined : payload.outZone,
+      areaResolution: isSame ? undefined : payload.areaResolution,
+    };
+    
+    setCurrentAction(next);
 
-      return next;
-    });
-  }, []);
+    setCurrentInputHistory(hist => [...hist, {
+      type: 'field',
+      category: 'areaCode',
+      previousValue: currentAction.areaCode,
+      value: nextValueCode,
+      previousCourtSide: currentAction.courtSide,
+      courtSide: next.courtSide,
+      previousAreaPayload: {
+        areaCode: currentAction.areaCode,
+        areaLabel: currentAction.areaLabel,
+        areaMode: currentAction.areaMode,
+        courtSide: currentAction.courtSide,
+        gridX: currentAction.gridX,
+        gridY: currentAction.gridY,
+        pointX: currentAction.pointX,
+        pointY: currentAction.pointY,
+        outZone: currentAction.outZone,
+        areaResolution: currentAction.areaResolution
+      }
+    }]);
+  }, [currentAction]);
 
   const clearCurrentEvent = () => {
     setCurrentActions([]);
@@ -508,10 +531,24 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
           }
           
           if (last.category === 'areaCode') {
-            if (last.previousCourtSide === undefined) {
-              delete next.courtSide;
+            if (last.previousAreaPayload) {
+              const p = last.previousAreaPayload;
+              if (p.areaCode === undefined) delete next.areaCode; else next.areaCode = p.areaCode;
+              if (p.areaLabel === undefined) delete next.areaLabel; else next.areaLabel = p.areaLabel;
+              if (p.areaMode === undefined) delete next.areaMode; else next.areaMode = p.areaMode;
+              if (p.courtSide === undefined) delete next.courtSide; else next.courtSide = p.courtSide;
+              if (p.gridX === undefined) delete next.gridX; else next.gridX = p.gridX;
+              if (p.gridY === undefined) delete next.gridY; else next.gridY = p.gridY;
+              if (p.pointX === undefined) delete next.pointX; else next.pointX = p.pointX;
+              if (p.pointY === undefined) delete next.pointY; else next.pointY = p.pointY;
+              if (p.outZone === undefined) delete next.outZone; else next.outZone = p.outZone;
+              if (p.areaResolution === undefined) delete next.areaResolution; else next.areaResolution = p.areaResolution;
             } else {
-              next.courtSide = last.previousCourtSide;
+              if (last.previousCourtSide === undefined) {
+                delete next.courtSide;
+              } else {
+                next.courtSide = last.previousCourtSide;
+              }
             }
           }
           
@@ -633,40 +670,43 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   };
 
   const commitResult = useCallback((resultCode: string, isFastMode: boolean = false) => {
-    setCurrentAction(prev => {
-      let nextAction = { ...prev, resultCode };
+    const nextAction = { ...currentAction, resultCode };
+    const missingMessage = getMissingActionMessage(nextAction);
+    
+    // Auto OUT logic
+    if (missingMessage && resultCode === 'Out' && !nextAction.areaCode) {
+      const finalNextAction: Action = {
+        ...nextAction,
+        areaCode: 'OUT',
+        courtSide: 'neutral'
+      };
       
-      const missingMessage = getMissingActionMessage(nextAction);
+      setCurrentAction(finalNextAction);
       
-      // Auto OUT logic
-      if (missingMessage && resultCode === 'Out' && !nextAction.areaCode) {
-        nextAction.areaCode = 'OUT';
-        nextAction.courtSide = 'neutral';
-        
-        if (isFastMode || isActionComplete(nextAction)) {
-           setTimeout(() => saveEvent(nextAction), 0);
-           return nextAction;
-        }
+      if (isFastMode || isActionComplete(finalNextAction)) {
+        saveEvent(finalNextAction);
       }
+      return;
+    }
 
-      if (missingMessage && isFastMode) {
-        showToast(missingMessage);
-        return nextAction;
-      }
+    if (missingMessage && isFastMode) {
+      setCurrentAction(nextAction);
+      showToast(missingMessage);
+      return;
+    }
 
-      if (!isFastMode && missingMessage) {
-        return nextAction; 
-      }
-      
-      if (resultCode === 'Pass') {
-        setTimeout(() => addAction(nextAction), 0);
-      } else {
-        setTimeout(() => saveEvent(nextAction), 0);
-      }
-      
-      return nextAction;
-    });
-  }, [getMissingActionMessage, isActionComplete]);
+    if (!isFastMode && missingMessage) {
+      setCurrentAction(nextAction);
+      return; 
+    }
+    
+    setCurrentAction(nextAction);
+    if (resultCode === 'Pass') {
+      addAction(nextAction);
+    } else {
+      saveEvent(nextAction);
+    }
+  }, [currentAction, getMissingActionMessage, isActionComplete, saveEvent, addAction, showToast]);
 
   const deleteEventRow = (id: string) => {
     setEvents(prev => 

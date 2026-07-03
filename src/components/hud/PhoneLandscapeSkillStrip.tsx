@@ -64,13 +64,13 @@ export default function PhoneLandscapeSkillStrip({
             {phase === "descriptor" && (
               <button
                 onClick={() => setPhase("skill")}
-                className="flex items-center gap-1 text-xs text-indigo-400 font-bold bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-0.5 rounded"
+                className="flex items-center gap-1 text-xs text-sky-400 font-bold bg-sky-500/10 hover:bg-sky-500/20 px-2 py-0.5 rounded-lg"
               >
                 <ChevronLeft size={14} />
                 <span>Back</span>
               </button>
             )}
-            <span className="text-white font-black text-[10px] tracking-wider uppercase">
+            <span className="text-white font-black text-xs tracking-wider uppercase">
               {phase === "skill"
                 ? "Select Skill"
                 : `${currentAction.skillCode} options`}
@@ -94,16 +94,16 @@ export default function PhoneLandscapeSkillStrip({
                   <button
                     key={s.code}
                     onClick={() => handleSelectSkill(s.code)}
-                    className={`h-[48px] px-4 rounded-xl flex flex-col items-center justify-center border transition-all active:scale-95 ${
+                    className={`h-[48px] px-4 rounded-lg flex flex-col items-center justify-center border transition-all active:scale-95 ${
                       isSelected
-                        ? "bg-indigo-600 border-indigo-400 text-white font-black shadow-lg shadow-indigo-600/20"
+                        ? "bg-sky-600 border-sky-400 text-white font-black shadow-lg shadow-sky-600/20"
                         : "bg-gray-900 border-gray-800 text-gray-200 hover:border-gray-700"
                     }`}
                   >
                     <span className="font-black text-xs uppercase tracking-wider">
                       {s.code}
                     </span>
-                    <span className="text-[8px] opacity-75 truncate max-w-[80px] uppercase font-bold">
+                    <span className="text-xs opacity-75 truncate max-w-[80px] uppercase font-bold">
                       {s.name}
                     </span>
                   </button>
@@ -114,7 +114,7 @@ export default function PhoneLandscapeSkillStrip({
             <div className="flex gap-4 px-2 items-center min-w-max">
               {descriptorGroups.map((group) => (
                 <div key={group.id} className="flex items-center gap-1.5">
-                  <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest bg-gray-900 px-1.5 py-2.5 rounded border border-gray-800">
+                  <span className="text-xs font-black text-gray-400 uppercase tracking-widest bg-gray-900 px-1.5 py-2.5 rounded-lg border border-gray-800">
                     {group.label}:
                   </span>
                   {group.options.map((opt) => (
@@ -130,7 +130,7 @@ export default function PhoneLandscapeSkillStrip({
               ))}
               <button
                 onClick={onClose}
-                className="h-[42px] px-3 bg-emerald-700/80 border border-emerald-500 text-white rounded-lg flex items-center justify-center gap-1 text-xs font-black active:scale-95 transition-all"
+                className="h-[42px] px-3 bg-green-700/80 border border-green-500 text-white rounded-lg flex items-center justify-center gap-1 text-xs font-black active:scale-95 transition-all"
               >
                 <Check size={14} />
                 <span>Skip (Done)</span>

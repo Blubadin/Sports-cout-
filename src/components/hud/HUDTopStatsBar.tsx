@@ -71,23 +71,26 @@ export default function HUDTopStatsBar({
       id: "volleyball",
       code: "VOLL",
       label: "Volleyball",
-      bg: "bg-indigo-600",
+      bg: "bg-sky-600",
     },
     { id: "football", code: "FOOT", label: "Football", bg: "bg-green-600" },
-    { id: "badminton", code: "BAD", label: "Badminton", bg: "bg-teal-600" },
+    { id: "badminton", code: "BAD", label: "Badminton", bg: "bg-sky-600" },
     { id: "basketball", code: "BASK", label: "BASK", bg: "bg-amber-600" },
   ];
   const currentSport =
     sportsList.find((s) => s.id === matchInfo.sportType) || sportsList[0];
 
+  const isLocked = events.length > 0;
+
   return (
     <div className="flex items-center justify-between text-white drop-shadow-md w-full gap-2 relative">
       {/* Left: Stats */}
-      <div className="flex items-center gap-2 text-[10px] sm:text-xs font-medium flex-1 overflow-visible relative">
+      <div className="flex items-center gap-2 text-xs font-medium flex-1 overflow-visible relative">
         <button
-          onClick={() => setShowSportSelector(!showSportSelector)}
-          className={`flex items-center gap-1 ${currentSport.bg}/80 hover:opacity-90 active:scale-95 backdrop-blur px-2.5 sm:px-3 py-1.5 rounded-full border border-white/20 shadow-md transition-all font-black uppercase text-[9px] sm:text-[10px] tracking-wider`}
-          title="Change Sport"
+          onClick={() => !isLocked && setShowSportSelector(!showSportSelector)}
+          disabled={isLocked}
+          className={`flex items-center gap-1 ${currentSport.bg}/80 hover:opacity-90 active:scale-95 backdrop-blur px-2.5 sm:px-3 py-1.5 rounded-full border border-white/20 shadow-md transition-all font-black uppercase text-xs tracking-wider ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+          title={isLocked ? (settings.uiLanguage === 'th' ? `ล็อกกีฬาไว้แล้วเพราะมีข้อมูลบันทึกอยู่ ${events.length} รายการ ต้องการเปลี่ยนกีฬา ให้สร้างโปรเจคใหม่` : `Sport locked because ${events.length} events are recorded. Create a new project to change sport.`) : "Change Sport"}
         >
           <span>{currentSport.code}</span>
         </button>
@@ -154,10 +157,10 @@ export default function HUDTopStatsBar({
                 prev.hudInteractionStyle === "hold" ? "click" : "hold",
             }));
           }}
-          className={`px-2.5 py-1.5 rounded-full backdrop-blur transition-all text-[10px] sm:text-xs font-bold tracking-wider uppercase flex items-center gap-1 shadow-md active:scale-95 border ${
+          className={`px-2.5 py-1.5 rounded-full backdrop-blur transition-all text-xs font-bold tracking-wider uppercase flex items-center gap-1 shadow-md active:scale-95 border ${
             settings.hudInteractionStyle === "hold"
-              ? "bg-purple-600/90 hover:bg-purple-500 border-purple-400 text-white"
-              : "bg-emerald-600/90 hover:bg-emerald-500 border-emerald-400 text-white"
+              ? "bg-sky-600/90 hover:bg-sky-500 border-sky-400 text-white"
+              : "bg-green-600/90 hover:bg-green-500 border-green-400 text-white"
           }`}
           title={
             settings.uiLanguage === "th"
@@ -185,7 +188,7 @@ export default function HUDTopStatsBar({
         {/* Sequence History Drawer Button */}
         <button
           onClick={onOpenHistoryDrawer}
-          className="px-2.5 py-1.5 rounded-full bg-sky-600 hover:bg-sky-500 active:scale-95 active:bg-sky-700 backdrop-blur transition-colors text-[10px] sm:text-xs font-bold tracking-wider uppercase flex items-center gap-1 shadow-md"
+          className="px-2.5 py-1.5 rounded-full bg-sky-600 hover:bg-sky-500 active:scale-95 active:bg-sky-700 backdrop-blur transition-colors text-xs font-bold tracking-wider uppercase flex items-center gap-1 shadow-md"
           title="Open Sequence History Drawer"
         >
           <History size={12} />
@@ -203,7 +206,7 @@ export default function HUDTopStatsBar({
           title={`Layout Mode: ${layoutMode} (Click to toggle)`}
         >
           <RotateCcw size={14} className="animate-spin-slow" />
-          <span className="hidden sm:inline text-[9px] uppercase">
+          <span className="hidden sm:inline text-xs uppercase">
             {layoutMode}
           </span>
         </button>

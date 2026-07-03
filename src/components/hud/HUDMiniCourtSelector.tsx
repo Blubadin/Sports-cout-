@@ -91,7 +91,7 @@ export default function HUDMiniCourtSelector({
           style={style}
           className={`flex-1 ${!isOut ? 'min-w-[12px]' : 'min-w-0 min-h-0'} transition-all duration-75 border border-white/5 pointer-events-none ${
             isSelected
-              ? (isOut ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] z-10" : "bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)] z-10")
+              ? (isOut ? "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] z-10" : "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)] z-10")
               : (isOut ? "bg-red-500/20" : "bg-white/10")
           } ${className}`}
         />
@@ -138,9 +138,9 @@ export default function HUDMiniCourtSelector({
         }}
         className={`flex flex-col items-center justify-center p-0.5 rounded transition-all duration-75 border border-white/10 ${compact ? 'flex-1 min-w-[12px] min-h-[12px]' : (!isOut ? 'min-h-[48px]' : '')} ${
           isSelected
-            ? (isOut ? "bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.8)] z-10 scale-105 active:scale-95 active:bg-red-600" : "bg-orange-500 text-white shadow-[0_0_10px_rgba(249,115,22,0.8)] z-10 scale-105 active:scale-95 active:bg-orange-600")
+            ? (isOut ? "bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.8)] z-10 scale-105 active:scale-95 active:bg-red-600" : "bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.8)] z-10 scale-105 active:scale-95 active:bg-amber-600")
             : isHovered
-              ? (isOut ? "bg-red-600/60 border-red-400 text-white shadow-[0_0_10px_rgba(239,68,68,0.4)] z-10 scale-105" : "bg-orange-600/60 border-orange-400 text-white shadow-[0_0_10px_rgba(249,115,22,0.4)] z-10 scale-105")
+              ? (isOut ? "bg-red-600/60 border-red-400 text-white shadow-[0_0_10px_rgba(239,68,68,0.4)] z-10 scale-105" : "bg-amber-600/60 border-amber-400 text-white shadow-[0_0_10px_rgba(245,158,11,0.4)] z-10 scale-105")
               : (isOut ? "bg-red-500/20 text-red-200 hover:bg-red-500/40 hover:text-white active:scale-95 active:bg-red-500/50" : "bg-white/10 text-white/70 hover:bg-white/20 hover:text-white active:scale-95 active:bg-white/30")
         } ${className}`}
       >
@@ -148,7 +148,7 @@ export default function HUDMiniCourtSelector({
           <div className={`flex flex-col items-center justify-center w-full h-full text-center ${flipContent && flipCourtSide ? "rotate-180" : ""}`}>
             <span className="font-black text-[15px] sm:text-[17px] leading-tight tracking-tight text-white">{displayInfo.main}</span>
             {displayInfo.sub && (
-              <span className={`text-[11.5px] sm:text-[13px] mt-0.5 font-black leading-none ${isSelected ? "text-orange-100" : "text-white/80"}`}>
+              <span className={`text-[11.5px] sm:text-[13px] mt-0.5 font-black leading-none ${isSelected ? "text-amber-100" : "text-white/80"}`}>
                 {displayInfo.sub}
               </span>
             )}
@@ -260,7 +260,7 @@ export default function HUDMiniCourtSelector({
                 data-scout-hover-court-side="neutral"
                 className={`w-4 sm:w-6 flex flex-col items-center justify-center rounded-sm transition-colors z-20 min-h-[48px] ${
                   selectedAreaCode === "NET"
-                    ? "bg-orange-500 text-white shadow-[0_0_10px_rgba(249,115,22,0.8)]"
+                    ? "bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.8)]"
                     : "bg-white/20 text-white/50 hover:bg-white/40"
                 }`}
               >
@@ -392,7 +392,7 @@ export default function HUDMiniCourtSelector({
         <div className={`flex flex-col items-center w-full gap-0.5 ${compact ? "h-[160px]" : (isProPad ? "h-[380px] sm:h-[460px]" : "h-[340px]")}`}>
           <div className="flex flex-row items-stretch w-full gap-0.5 min-h-0 flex-1">
             <div
-              className={`relative flex-1 flex flex-col bg-teal-950/40 rounded-xl border border-white/20 overflow-hidden p-1 gap-0.5 ${flipCourtSide ? "rotate-180" : ""}`}
+              className={`relative flex-1 flex flex-col bg-sky-950/40 rounded-xl border border-white/20 overflow-hidden p-1 gap-0.5 ${flipCourtSide ? "rotate-180" : ""}`}
             >
           {/* Opponent Side */}
           <div className="relative z-10 grid grid-cols-3 gap-0.5 opacity-80 mb-0.5">
@@ -455,7 +455,7 @@ export default function HUDMiniCourtSelector({
           </div>
 
           {/* NET */}
-          <div className="w-full h-3 mb-0.5 rounded-sm flex items-center justify-center font-bold text-[8px] bg-teal-800/60 text-teal-200 border-b border-white/10 z-10">
+          <div className="w-full h-3 mb-0.5 rounded-sm flex items-center justify-center font-bold text-[8px] bg-sky-800/60 text-sky-200 border-b border-white/10 z-10">
             <div className={`${flipCourtSide ? "rotate-180" : ""}`}>NET</div>
           </div>
 

@@ -37,24 +37,24 @@ export default function HUDResultSelector({
       title: "YES",
       label: "YES",
       sub: "ได้แต้ม",
-      color: "bg-emerald-600 border-emerald-400",
-      shadow: "shadow-[0_0_15px_rgba(16,185,129,0.3)]",
+      color: "bg-green-600 border-green-400",
+      shadow: "shadow-[0_0_15px_rgba(34,197,94,0.3)]",
     },
     {
       code: "Pass",
       title: "PASS",
       label: "PASS",
       sub: "เล่นต่อ",
-      color: "bg-cyan-600 border-cyan-400",
-      shadow: "shadow-[0_0_15px_rgba(8,145,178,0.3)]",
+      color: "bg-sky-600 border-sky-400",
+      shadow: "shadow-[0_0_15px_rgba(56,189,248,0.3)]",
     },
     {
       code: "Out",
       title: "OUT",
       label: "OUT",
       sub: "เสียแต้ม",
-      color: "bg-rose-600 border-rose-400",
-      shadow: "shadow-[0_0_15px_rgba(225,29,72,0.3)]",
+      color: "bg-red-600 border-red-400",
+      shadow: "shadow-[0_0_15px_rgba(239,68,68,0.3)]",
     },
   ];
 
@@ -89,13 +89,13 @@ export default function HUDResultSelector({
       }}
     >
       {isActive && !settings.hudInteractionStyle && (
-        <div className="text-[10px] text-white/50 font-bold uppercase tracking-wider text-right px-2">
+        <div className="text-xs text-white/50 font-bold uppercase tracking-wider text-right px-2">
           Result (E)
         </div>
       )}
 
       {isActive ? (
-        <div className="bg-black/60 backdrop-blur-xl rounded-full border border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.2)] p-4 relative flex items-center justify-center min-w-[64px] min-h-[64px]">
+        <div className="bg-black/60 backdrop-blur-xl rounded-full border border-sky-500/50 shadow-[0_0_20px_rgba(56,189,248,0.2)] p-4 relative flex items-center justify-center min-w-[64px] min-h-[64px]">
           <ProDonutCommandWheel
             menuType="result"
             results={results}
@@ -133,7 +133,7 @@ export default function HUDResultSelector({
                   e.stopPropagation();
                   handleResultSelect(r.code);
                 }}
-                className={`flex flex-col items-center justify-center rounded-xl font-bold transition-all border ${buttonSizeClass} ${
+                className={`flex flex-col items-center justify-center rounded-lg font-bold transition-all border ${buttonSizeClass} ${
                   isSelected
                     ? `${r.color} text-white ${r.shadow} scale-105 active:scale-95`
                     : "bg-black/60 border-white/10 text-white/90 hover:border-white/30 hover:bg-white/10 active:scale-95 active:bg-white/20 backdrop-blur-md"
@@ -141,7 +141,7 @@ export default function HUDResultSelector({
               >
                 <span>{r.title}</span>
                 {isActive && (
-                  <span className="text-[9px] font-normal opacity-80 mt-0.5 leading-none">
+                  <span className="text-xs font-normal opacity-80 mt-0.5 leading-none">
                     {r.sub}
                   </span>
                 )}

@@ -1,15 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useScoutContext } from '../context/ScoutContext';
-import { Folder, Plus, Save, ChevronDown, Trash2, Copy, Edit2, Download, Upload } from 'lucide-react';
+import { Folder, Plus, Save, ChevronDown, Trash2, Copy, Edit2, Download, Upload, X } from 'lucide-react';
 import { classNames } from '../utils';
 import { ScoutProject, SportType } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import CustomSelect from './ui/CustomSelect';
+import { SPORT_TEMPLATES } from '../sports';
 
 export default function WorkspaceMenu() {
   const { projects, activeProjectId, createNewProject, openProject, saveCurrentProject, deleteProject, duplicateProject, renameProject, importProject } = useWorkspace();
-  const { matchInfo, showToast } = useScoutContext();
+  const { matchInfo, showToast, settings } = useScoutContext();
   const [isOpen, setIsOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedSport, setSelectedSport] = useState<SportType>(matchInfo.sportType || 'volleyball');
   const [isRenamingId, setIsRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -26,12 +30,23 @@ export default function WorkspaceMenu() {
   }, []);
 
   const activeProject = projects.find(p => p.id === activeProjectId);
-  const { settings } = useScoutContext();
 
-  const handleCreate = () => {
-    const title = `New Match ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    createNewProject(title, matchInfo.sportType);
+  const sportOptions = Object.values(SPORT_TEMPLATES).map(t => ({
+    value: t.id,
+    label: t.name,
+    subLabel: t.thaiName
+  }));
+
+  const openCreateModal = () => {
+    setSelectedSport(matchInfo.sportType || 'volleyball');
+    setIsCreateModalOpen(true);
     setIsOpen(false);
+  };
+
+  const handleCreateConfirm = () => {
+    const title = `New Match ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    createNewProject(title, selectedSport);
+    setIsCreateModalOpen(false);
   };
 
   const handleRenameSubmit = (id: string) => {
@@ -101,13 +116,69 @@ export default function WorkspaceMenu() {
         </button>
         
         <button
-          onClick={handleCreate}
+          onClick={openCreateModal}
           className="p-1.5 sm:p-2 bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400 rounded-lg hover:bg-sky-200 dark:hover:bg-sky-800/60 transition-colors shadow-sm active:scale-95"
           title="New Scout Project"
         >
           <Plus size={20} />
         </button>
       </div>
+
+      <AnimatePresence>
+        {isCreateModalOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsCreateModalOpen(false)}
+              className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="relative w-full max-w-sm bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden"
+            >
+              <div className="flex justify-between items-center p-4 border-b border-gray-100 dark:border-gray-700">
+                <h3 className="font-bold text-gray-800 dark:text-gray-100">
+                  {settings.uiLanguage === 'th' ? 'สร้างโครงการใหม่' : 'Create New Project'}
+                </h3>
+                <button
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-4">
+                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase">
+                  {settings.uiLanguage === 'th' ? 'เลือกประเภทกีฬา' : 'Select Sport Type'}
+                </label>
+                <CustomSelect
+                  value={selectedSport}
+                  onChange={(v) => setSelectedSport(v as SportType)}
+                  options={sportOptions}
+                />
+              </div>
+              <div className="p-4 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2 bg-gray-50 dark:bg-gray-800/50">
+                <button
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="px-4 py-2 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  {settings.uiLanguage === 'th' ? 'ยกเลิก' : 'Cancel'}
+                </button>
+                <button
+                  onClick={handleCreateConfirm}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors"
+                >
+                  {settings.uiLanguage === 'th' ? 'สร้างโครงการ' : 'Create Project'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {isOpen && (
@@ -170,25 +241,25 @@ export default function WorkspaceMenu() {
                       <button onClick={() => {
                         setIsRenamingId(proj.id);
                         setRenameText(proj.title);
-                      }} className="p-2 md:p-1 text-gray-400 hover:text-sky-600 rounded bg-gray-100 md:bg-transparent">
+                      }} className="p-2 md:p-1 text-gray-400 hover:text-sky-600 rounded-lg bg-gray-100 md:bg-transparent">
                         <Edit2 size={14} className="md:w-3 md:h-3" />
                       </button>
-                      <button onClick={() => duplicateProject(proj.id)} className="p-2 md:p-1 text-gray-400 hover:text-blue-600 rounded bg-gray-100 md:bg-transparent">
+                      <button onClick={() => duplicateProject(proj.id)} className="p-2 md:p-1 text-gray-400 hover:text-sky-600 rounded-lg bg-gray-100 md:bg-transparent">
                         <Copy size={14} className="md:w-3 md:h-3" />
                       </button>
-                      <button onClick={() => handleExport(proj)} className="p-2 md:p-1 text-gray-400 hover:text-green-600 rounded bg-gray-100 md:bg-transparent">
+                      <button onClick={() => handleExport(proj)} className="p-2 md:p-1 text-gray-400 hover:text-green-600 rounded-lg bg-gray-100 md:bg-transparent">
                         <Download size={14} className="md:w-3 md:h-3" />
                       </button>
                       <button onClick={() => {
                         deleteProject(proj.id);
-                      }} className="p-2 md:p-1 text-gray-400 hover:text-red-600 rounded bg-gray-100 md:bg-transparent">
+                      }} className="p-2 md:p-1 text-gray-400 hover:text-red-600 rounded-lg bg-gray-100 md:bg-transparent">
                         <Trash2 size={14} className="md:w-3 md:h-3" />
                       </button>
                     </div>
                   </div>
                   
                   {!isRenamingId && (
-                    <div className="flex items-center justify-between mt-1 text-[10px] text-gray-500">
+                    <div className="flex items-center justify-between mt-1 text-xs text-gray-500">
                       <span>{proj.events.length} {settings.uiLanguage === 'th' ? 'เหตุการณ์ (actions)' : 'actions'}</span>
                       <span>{new Date(proj.updatedAt).toLocaleDateString()}</span>
                     </div>

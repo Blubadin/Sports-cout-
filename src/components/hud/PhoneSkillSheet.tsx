@@ -87,13 +87,13 @@ export default function PhoneSkillSheet({ onClose }: PhoneSkillSheetProps) {
                 <button
                   key={s.code}
                   onClick={() => handleSelectSkill(s.code)}
-                  className={`${isCompact ? 'h-[46px] sm:h-[40px] rounded-lg' : 'h-[64px] sm:h-[52px] rounded-xl'} flex flex-col items-center justify-center shadow-md active:scale-95 transition-transform p-1 border border-white/10 bg-indigo-600 hover:bg-indigo-500`}
+                  className={`${isCompact ? 'h-[46px] sm:h-[40px] rounded-lg' : 'h-[64px] sm:h-[52px] rounded-lg'} flex flex-col items-center justify-center shadow-md active:scale-95 transition-transform p-1 border border-white/10 bg-sky-600 hover:bg-sky-500`}
                 >
                   <span className={`${isCompact ? 'text-xs' : 'text-sm sm:text-base'} text-white font-black drop-shadow-sm`}>
                     {s.code}
                   </span>
                   {!isCompact && (
-                    <span className="text-white/80 text-[9px] sm:text-[10px] uppercase font-bold tracking-wider mt-0.5 truncate w-full text-center px-1">
+                    <span className="text-white/80 text-xs uppercase font-bold tracking-wider mt-0.5 truncate w-full text-center px-1">
                       {s.name}
                     </span>
                   )}
@@ -106,7 +106,7 @@ export default function PhoneSkillSheet({ onClose }: PhoneSkillSheetProps) {
             <div className={`flex flex-col ${isCompact ? 'gap-2' : 'gap-4'}`}>
               {descriptorGroups.map((group) => (
                 <div key={group.id} className="flex flex-col gap-1.5">
-                  <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                     {group.label}
                   </span>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -114,7 +114,7 @@ export default function PhoneSkillSheet({ onClose }: PhoneSkillSheetProps) {
                       <button
                         key={opt.code}
                         onClick={() => handleSelectDesc(group.id, opt.code)}
-                        className={`${isCompact ? 'h-[40px] rounded-lg' : 'h-[52px] sm:h-[46px] rounded-xl'} flex flex-col items-center justify-center shadow-md active:scale-95 transition-transform border border-white/10 bg-gray-700 hover:bg-gray-600`}
+                        className={`${isCompact ? 'h-[40px] rounded-lg' : 'h-[52px] sm:h-[46px] rounded-lg'} flex flex-col items-center justify-center shadow-md active:scale-95 transition-transform border border-white/10 bg-gray-700 hover:bg-gray-600`}
                       >
                         <span className="text-white font-bold text-sm sm:text-base drop-shadow-md">
                           {opt.code}
@@ -126,7 +126,7 @@ export default function PhoneSkillSheet({ onClose }: PhoneSkillSheetProps) {
               ))}
               <button
                 onClick={() => onClose()}
-                className={`w-full ${isCompact ? 'py-1.5 text-xs' : 'py-3'} mt-2 bg-gray-800 rounded-xl text-gray-300 font-bold active:bg-gray-700 active:scale-[0.98] transition-all border border-gray-700 flex items-center justify-center gap-2`}
+                className={`w-full ${isCompact ? 'py-1.5 text-xs' : 'py-3'} mt-2 bg-gray-800 rounded-lg text-gray-300 font-bold active:bg-gray-700 active:scale-[0.98] transition-all border border-gray-700 flex items-center justify-center gap-2`}
               >
                 <Check size={18} />
                 <span>Skip Detail (Done)</span>

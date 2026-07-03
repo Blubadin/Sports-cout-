@@ -13,6 +13,7 @@ import HUDResultSelector from "./HUDResultSelector";
 import HUDVideoControls from "./HUDVideoControls";
 import HUDSequenceHistoryDrawer from "./HUDSequenceHistoryDrawer";
 import HUDMiniCourtSelector from "./HUDMiniCourtSelector";
+import ProAreaCommandPad from "./ProAreaCommandPad";
 import { getAreaDisplay } from "../../utils/areaHelper";
 
 interface ScoutHUDModeProps {
@@ -81,6 +82,7 @@ export default function ScoutHUDMode({
     hoveredResult,
     setHoveredSkill,
     setHoveredDescriptor,
+    setHoveredArea,
     setHoveredResult,
     hoveredTeam,
     previewSkill,
@@ -97,6 +99,7 @@ export default function ScoutHUDMode({
     commitResult,
     onCloseHUD: () => exitHUDModeSafely('escape_key'),
     layout,
+    selectArea,
   });
 
   const uiTimeoutRef = useRef<number | null>(null);
@@ -510,7 +513,7 @@ export default function ScoutHUDMode({
 
               {/* Interactive Mini Court Layout scaled-up for Pro Pad */}
               <div className="relative w-full flex justify-center items-center py-2">
-                <HUDMiniCourtSelector
+                <ProAreaCommandPad
                   sportType={matchInfo.sportType}
                   areas={sportTemplate.areas}
                   currentAction={currentAction}
@@ -520,12 +523,14 @@ export default function ScoutHUDMode({
                     setActiveMenu("none");
                   }}
                   active={true}
-                  compact={false}
-                  interactive={true}
+                  pointerX={pointerPosition.x}
+                  pointerY={pointerPosition.y}
                   flipCourtSide={settings.flipCourtSide || false}
-                  hoveredArea={hoveredArea}
+                  onHoverArea={(payload) => {
+                    setHoveredArea(payload);
+                  }}
                   enableOutOfBoundsZones={settings.enableOutOfBoundsZones}
-                  isProPad={true}
+                  hoveredArea={hoveredArea}
                 />
               </div>
 

@@ -177,32 +177,32 @@ export default function PhoneLandscapeGamepadMode({
       >
         <button
           onClick={() => setActiveOverlay("team")}
-          className={`w-[58px] h-[58px] rounded-xl flex flex-col items-center justify-center border transition-all active:scale-90 ${
+          className={`w-[58px] h-[58px] rounded-lg flex flex-col items-center justify-center border transition-all active:scale-90 ${
             activeOverlay === "team"
-              ? "bg-indigo-600 border-indigo-400 text-white shadow-lg"
+              ? "bg-sky-600 border-sky-400 text-white shadow-lg"
               : currentAction.teamCode
-                ? "bg-indigo-950/80 border-indigo-500 text-indigo-200"
+                ? "bg-sky-950/80 border-sky-500 text-sky-200"
                 : "bg-gray-900/85 border-gray-700 text-gray-300"
           }`}
         >
           <Users size={20} />
-          <span className="text-[8px] font-black tracking-widest uppercase mt-0.5">
+          <span className="text-xs font-black tracking-widest uppercase mt-0.5">
             {currentAction.teamCode || "TEAM"}
           </span>
         </button>
 
         <button
           onClick={() => setActiveOverlay("area")}
-          className={`w-[58px] h-[58px] rounded-xl flex flex-col items-center justify-center border transition-all active:scale-90 ${
+          className={`w-[58px] h-[58px] rounded-lg flex flex-col items-center justify-center border transition-all active:scale-90 ${
             activeOverlay === "area"
-              ? "bg-orange-600 border-orange-400 text-white shadow-lg"
+              ? "bg-amber-600 border-amber-400 text-white shadow-lg"
               : currentAction.areaCode
-                ? "bg-orange-950/80 border-orange-500 text-orange-200"
+                ? "bg-amber-950/80 border-amber-500 text-amber-200"
                 : "bg-gray-900/85 border-gray-700 text-gray-300"
           }`}
         >
           <Map size={20} />
-          <span className="text-[8px] font-black tracking-widest uppercase mt-0.5">
+          <span className="text-xs font-black tracking-widest uppercase mt-0.5">
             {currentAction.areaCode || "AREA"}
           </span>
         </button>
@@ -216,7 +216,7 @@ export default function PhoneLandscapeGamepadMode({
           title="Undo Last"
         >
           <UndoIcon size={14} />
-          <span className="text-[8px] font-black">UNDO</span>
+          <span className="text-xs font-black">UNDO</span>
         </button>
       </div>
 
@@ -227,16 +227,16 @@ export default function PhoneLandscapeGamepadMode({
         {/* SKILL triggering button */}
         <button
           onClick={() => setActiveOverlay("skill")}
-          className={`w-[58px] h-[58px] rounded-xl flex flex-col items-center justify-center border transition-all active:scale-90 ${
+          className={`w-[58px] h-[58px] rounded-lg flex flex-col items-center justify-center border transition-all active:scale-90 ${
             activeOverlay === "skill"
-              ? "bg-emerald-600 border-emerald-400 text-white shadow-lg"
+              ? "bg-green-600 border-green-400 text-white shadow-lg"
               : currentAction.skillCode
-                ? "bg-emerald-950/80 border-emerald-500 text-emerald-200"
+                ? "bg-green-950/80 border-green-500 text-green-200"
                 : "bg-gray-900/85 border-gray-700 text-gray-300"
           }`}
         >
           <Crosshair size={22} />
-          <span className="text-[8px] font-black tracking-widest uppercase mt-0.5">
+          <span className="text-xs font-black tracking-widest uppercase mt-0.5">
             {currentAction.skillCode || "SKILL"}
           </span>
         </button>
@@ -245,8 +245,8 @@ export default function PhoneLandscapeGamepadMode({
         <div className="flex flex-col gap-2 border-t border-white/5 pt-2">
           {results.slice(0, 3).map((res, idx) => {
             const bgColors = [
-              "bg-indigo-600 border-indigo-500",
-              "bg-emerald-600 border-emerald-500",
+              "bg-sky-600 border-sky-500",
+              "bg-green-600 border-green-500",
               "bg-amber-600 border-amber-500",
             ];
             const bgColor = bgColors[idx % bgColors.length];
@@ -257,7 +257,7 @@ export default function PhoneLandscapeGamepadMode({
                   setControlsVisible(true);
                   commitResult(res.code);
                 }}
-                className={`w-[58px] h-[38px] rounded-lg text-white font-black text-[10px] uppercase shadow-lg active:scale-90 transition-all border ${bgColor}`}
+                className={`w-[58px] h-[38px] rounded-lg text-white font-black text-xs uppercase shadow-lg active:scale-90 transition-all border ${bgColor}`}
               >
                 {res.code}
               </button>
@@ -331,7 +331,7 @@ export default function PhoneLandscapeGamepadMode({
                 setShowMoreVideo(!showMoreVideo);
                 setControlsVisible(true);
               }}
-              className={`p-1 rounded transition-all active:scale-90 ${showMoreVideo ? "text-indigo-400" : "text-gray-400"}`}
+              className={`p-1 rounded-lg transition-all active:scale-90 ${showMoreVideo ? "text-sky-400" : "text-gray-400"}`}
             >
               <MoreHorizontal size={16} />
             </button>
@@ -341,38 +341,38 @@ export default function PhoneLandscapeGamepadMode({
           {showMoreVideo && (
             <div className="pt-1.5 mt-1 border-t border-white/5 flex flex-col gap-2.5 animate-in fade-in slide-in-from-bottom duration-150">
               <div className="flex justify-between items-center">
-                <span className="text-[9px] text-gray-400 font-bold tracking-wider">
+                <span className="text-xs text-gray-400 font-bold tracking-wider">
                   FINE SEEK
                 </span>
                 <div className="flex gap-1">
                   <button
                     onClick={() => videoControls.seekBy(-0.1)}
-                    className="px-1.5 py-0.5 bg-white/5 rounded text-[9px] font-mono hover:bg-white/10"
+                    className="px-1.5 py-0.5 bg-white/5 rounded-lg text-xs font-mono hover:bg-white/10"
                   >
                     -0.1s
                   </button>
                   <button
                     onClick={() => videoControls.seekBy(-1)}
-                    className="px-1.5 py-0.5 bg-white/5 rounded text-[9px] font-mono hover:bg-white/10"
+                    className="px-1.5 py-0.5 bg-white/5 rounded-lg text-xs font-mono hover:bg-white/10"
                   >
                     -1s
                   </button>
                   <button
                     onClick={() => videoControls.seekBy(1)}
-                    className="px-1.5 py-0.5 bg-white/5 rounded text-[9px] font-mono hover:bg-white/10"
+                    className="px-1.5 py-0.5 bg-white/5 rounded-lg text-xs font-mono hover:bg-white/10"
                   >
                     +1s
                   </button>
                   <button
                     onClick={() => videoControls.seekBy(0.1)}
-                    className="px-1.5 py-0.5 bg-white/5 rounded text-[9px] font-mono hover:bg-white/10"
+                    className="px-1.5 py-0.5 bg-white/5 rounded-lg text-xs font-mono hover:bg-white/10"
                   >
                     +0.1s
                   </button>
                 </div>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-[9px] text-gray-400 font-bold tracking-wider">
+                <span className="text-xs text-gray-400 font-bold tracking-wider">
                   SPEED
                 </span>
                 <div className="flex gap-1">
@@ -380,7 +380,7 @@ export default function PhoneLandscapeGamepadMode({
                     <button
                       key={speed}
                       onClick={() => videoControls.setSpeed(speed)}
-                      className={`px-2 py-0.5 rounded text-[9px] font-mono ${videoControls.playbackRate === speed ? "bg-indigo-600 text-white font-bold" : "bg-white/5 text-gray-300 hover:bg-white/10"}`}
+                      className={`px-2 py-0.5 rounded-lg text-xs font-mono ${videoControls.playbackRate === speed ? "bg-sky-600 text-white font-bold" : "bg-white/5 text-gray-300 hover:bg-white/10"}`}
                     >
                       {speed}x
                     </button>

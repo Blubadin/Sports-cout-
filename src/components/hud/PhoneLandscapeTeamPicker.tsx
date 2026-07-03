@@ -44,14 +44,14 @@ export default function PhoneLandscapeTeamPicker({
               <button
                 key={t.code}
                 onClick={() => handleSelectTeam(t.code)}
-                className={`flex-1 py-3 px-2 rounded-xl border text-center font-black transition-all active:scale-95 ${
+                className={`flex-1 py-3 px-2 rounded-lg border text-center font-black transition-all active:scale-95 ${
                   isSelected
-                    ? "bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-600/30"
+                    ? "bg-sky-600 border-sky-400 text-white shadow-lg shadow-sky-600/30"
                     : "bg-gray-800 border-gray-700 hover:border-gray-600 text-gray-300"
                 }`}
               >
                 <div className="text-sm tracking-wider uppercase">{t.code}</div>
-                <div className="text-[9px] font-bold text-gray-400 truncate uppercase mt-0.5">
+                <div className="text-xs font-bold text-gray-400 truncate uppercase mt-0.5">
                   {t.name}
                 </div>
               </button>

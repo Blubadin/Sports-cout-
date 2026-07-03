@@ -41,7 +41,7 @@ export default function HUDSequenceHistoryDrawer({
   onReplayClip,
   onCopyEvent,
 }: HUDSequenceHistoryDrawerProps) {
-  const { getActionText, sportTemplate, teams } = useScoutContext();
+  const { getActionText, sportTemplate, teams, deleteEventRow, settings } = useScoutContext();
   const [activeTab, setActiveTab] = useState<"rally" | "recent" | "filter">(
     "rally",
   );
@@ -261,14 +261,14 @@ export default function HUDSequenceHistoryDrawer({
                               .filter(Boolean)
                               .join(" / ")}
                           </span>
-                          <span className="text-[10px] text-white/40 font-mono">
+                          <span className="text-xs text-white/40 font-mono">
                             {act.videoTime !== undefined
                               ? formatPreciseTime(act.videoTime)
                               : "00:00.00"}
                           </span>
                         </div>
                       </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full border border-white/20 bg-white/5 text-white/60">
+                      <span className="text-xs px-2 py-0.5 rounded-full border border-white/20 bg-white/5 text-white/60">
                         {act.resultCode || "Pass"}
                       </span>
                     </div>
@@ -278,28 +278,28 @@ export default function HUDSequenceHistoryDrawer({
                   {(currentAction.teamCode ||
                     currentAction.skillCode ||
                     currentAction.areaCode) && (
-                    <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-3 space-y-2 animate-pulse">
-                      <div className="text-[10px] uppercase font-bold text-orange-400">
+                    <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-3 space-y-2 animate-pulse">
+                      <div className="text-xs uppercase font-bold text-sky-400">
                         Composing Current Action
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${currentAction.teamCode ? "bg-orange-500 text-white" : "bg-black/40 text-white/30 border border-white/5"}`}
+                          className={`px-2 py-0.5 rounded-lg text-xs font-bold ${currentAction.teamCode ? "bg-sky-500 text-white" : "bg-black/40 text-white/30 border border-white/5"}`}
                         >
                           {currentAction.teamCode || "Team"}
                         </span>
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${currentAction.skillCode ? "bg-orange-500 text-white" : "bg-black/40 text-white/30 border border-white/5"}`}
+                          className={`px-2 py-0.5 rounded-lg text-xs font-bold ${currentAction.skillCode ? "bg-sky-500 text-white" : "bg-black/40 text-white/30 border border-white/5"}`}
                         >
                           {currentAction.skillCode || "Skill"}
                         </span>
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${currentAction.areaCode ? "bg-orange-500 text-white" : "bg-black/40 text-white/30 border border-white/5"}`}
+                          className={`px-2 py-0.5 rounded-lg text-xs font-bold ${currentAction.areaCode ? "bg-sky-500 text-white" : "bg-black/40 text-white/30 border border-white/5"}`}
                         >
                           {currentAction.areaCode || "Area"}
                         </span>
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${currentAction.resultCode ? "bg-orange-500 text-white" : "bg-black/40 text-white/30 border border-white/5"}`}
+                          className={`px-2 py-0.5 rounded-lg text-xs font-bold ${currentAction.resultCode ? "bg-sky-500 text-white" : "bg-black/40 text-white/30 border border-white/5"}`}
                         >
                           {currentAction.resultCode || "Result"}
                         </span>
@@ -317,7 +317,7 @@ export default function HUDSequenceHistoryDrawer({
               <div className="pt-4 border-t border-white/10 grid grid-cols-3 gap-2">
                 <button
                   onClick={onUndo}
-                  className="py-2.5 px-2 bg-white/5 border border-white/10 rounded-xl text-xs font-bold flex flex-col items-center gap-1 hover:bg-white/10 active:scale-95 transition-all text-white/80 hover:text-white"
+                  className="py-2.5 px-2 bg-white/5 border border-white/10 rounded-lg text-xs font-bold flex flex-col items-center gap-1 hover:bg-white/10 active:scale-95 transition-all text-white/80 hover:text-white"
                   title="Undo last action"
                 >
                   <Undo2 size={16} />
@@ -325,7 +325,7 @@ export default function HUDSequenceHistoryDrawer({
                 </button>
                 <button
                   onClick={onClearCurrent}
-                  className="py-2.5 px-2 bg-red-500/10 border border-red-500/20 rounded-xl text-xs font-bold flex flex-col items-center gap-1 hover:bg-red-500/20 active:scale-95 transition-all text-red-400"
+                  className="py-2.5 px-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs font-bold flex flex-col items-center gap-1 hover:bg-red-500/20 active:scale-95 transition-all text-red-400"
                   title="Clear rally"
                 >
                   <Trash2 size={16} />
@@ -333,7 +333,7 @@ export default function HUDSequenceHistoryDrawer({
                 </button>
                 <button
                   onClick={onSaveCurrent}
-                  className="py-2.5 px-2 bg-green-500/20 border border-green-500/30 rounded-xl text-xs font-bold flex flex-col items-center gap-1 hover:bg-green-500/30 active:scale-95 transition-all text-green-400"
+                  className="py-2.5 px-2 bg-green-500/20 border border-green-500/30 rounded-lg text-xs font-bold flex flex-col items-center gap-1 hover:bg-green-500/30 active:scale-95 transition-all text-green-400"
                   title="Save Event"
                 >
                   <Save size={16} />
@@ -356,7 +356,7 @@ export default function HUDSequenceHistoryDrawer({
                     <button
                       key={opt.id}
                       onClick={() => setSelectedFilter(opt.id)}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all active:scale-95 ${
+                      className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-all active:scale-95 ${
                         selectedFilter === opt.id
                           ? "bg-sky-500 border-sky-400 text-white"
                           : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10 active:bg-white/20"
@@ -394,7 +394,7 @@ export default function HUDSequenceHistoryDrawer({
                     {/* Event top info */}
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-bold bg-white/10 text-white/80 px-1.5 py-0.5 rounded">
+                        <span className="text-xs font-mono font-bold bg-white/10 text-white/80 px-1.5 py-0.5 rounded-lg">
                           No.{evt.no}
                         </span>
                         {(() => {
@@ -403,7 +403,7 @@ export default function HUDSequenceHistoryDrawer({
                               ? evt.actions[evt.actions.length - 1]
                               : null;
                           const rCode = lastAction
-                            ? lastAction.resultCode
+                             ? lastAction.resultCode
                             : evt.resultText === "+1"
                               ? "Yes"
                               : evt.resultText === "-1"
@@ -411,17 +411,17 @@ export default function HUDSequenceHistoryDrawer({
                                 : "Pass";
                           return (
                             <span
-                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${getResultBadgeColor(rCode)}`}
+                              className={`text-xs font-bold px-1.5 py-0.5 rounded-full border ${getResultBadgeColor(rCode)}`}
                             >
                               {rCode || "Pass"}
                             </span>
                           );
                         })()}
-                        <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                        <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-lg">
                           Point: {getEventPointLabel(evt)}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1 text-[11px] font-mono text-white/50">
+                      <div className="flex items-center gap-1 text-xs font-mono text-white/50">
                         <Clock size={12} />
                         <span>
                           {evt.videoTime !== undefined
@@ -437,7 +437,7 @@ export default function HUDSequenceHistoryDrawer({
                     </div>
 
                     {evt.note && (
-                      <p className="text-[10px] text-white/40 italic pl-1 border-l border-white/20">
+                      <p className="text-xs text-white/40 italic pl-1 border-l border-white/20">
                         Note: {evt.note}
                       </p>
                     )}
@@ -446,7 +446,7 @@ export default function HUDSequenceHistoryDrawer({
                     <div className="flex gap-2 justify-end pt-1">
                       <button
                         onClick={() => onReplayClip(evt.videoTime ?? 0)}
-                        className="p-1.5 rounded bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 active:scale-95 active:bg-sky-500/40 transition-all flex items-center gap-1 text-[10px] font-bold"
+                        className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 active:scale-95 active:bg-sky-500/40 transition-all flex items-center gap-1 text-xs font-bold"
                         title="Replay from -3 seconds"
                       >
                         <Play size={10} className="fill-current" />
@@ -454,7 +454,7 @@ export default function HUDSequenceHistoryDrawer({
                       </button>
                       <button
                         onClick={() => onGoToTime(evt.videoTime ?? 0)}
-                        className="p-1.5 rounded bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all flex items-center gap-1 text-[10px] font-bold"
+                        className="p-1.5 rounded-lg bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all flex items-center gap-1 text-xs font-bold"
                         title="Go to exact time"
                       >
                         <Clock size={10} />
@@ -462,11 +462,23 @@ export default function HUDSequenceHistoryDrawer({
                       </button>
                       <button
                         onClick={() => onCopyEvent(evt)}
-                        className="p-1.5 rounded bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all flex items-center gap-1 text-[10px] font-bold"
+                        className="p-1.5 rounded-lg bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all flex items-center gap-1 text-xs font-bold"
                         title="Copy Event description"
                       >
                         <Copy size={10} />
                         Copy
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(settings?.uiLanguage === 'th' ? `ต้องการลบซีเควนซ์ที่ ${evt.no} หรือไม่?` : `Do you want to delete sequence #${evt.no}?`)) {
+                            deleteEventRow(evt.id);
+                          }
+                        }}
+                        className="p-1.5 rounded-lg bg-red-500/25 text-red-300 hover:bg-red-500/40 active:scale-95 transition-all flex items-center gap-1 text-xs font-bold border border-red-500/30 cursor-pointer"
+                        title="Delete Sequence"
+                      >
+                        <Trash2 size={10} />
+                        Delete
                       </button>
                     </div>
                   </div>

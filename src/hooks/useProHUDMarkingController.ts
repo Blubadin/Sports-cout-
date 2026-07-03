@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { AppSettings, Team } from "../types";
+import { AppSettings, Team, AreaSelectionPayload } from "../types";
 
 export type MarkingMenuType = "none" | "team" | "skill" | "area" | "result";
 
-export interface HoveredArea {
+export interface HoveredArea extends AreaSelectionPayload {
   code: string;
-  courtSide?: "teamA" | "teamB" | "neutral";
 }
 
 export interface HoveredDescriptor {
@@ -21,6 +20,7 @@ interface UseProHUDMarkingControllerProps {
   commitResult: (resultCode: string, fastMode?: boolean) => void;
   onCloseHUD: () => void;
   layout: any;
+  selectArea?: (payload: AreaSelectionPayload) => void;
 }
 
 export function useProHUDMarkingController({
@@ -31,6 +31,7 @@ export function useProHUDMarkingController({
   commitResult,
   onCloseHUD,
   layout,
+  selectArea,
 }: UseProHUDMarkingControllerProps) {
   const [activeMenu, setActiveMenuState] = useState<MarkingMenuType>("none");
   const activeMenuRef = useRef<MarkingMenuType>("none");
@@ -74,9 +75,18 @@ export function useProHUDMarkingController({
     hoveredDescriptorRef.current = val;
   }, []);
 
-  const setHoveredArea = useCallback((val: HoveredArea | null) => {
-    setHoveredAreaState(val);
-    hoveredAreaRef.current = val;
+  const setHoveredArea = useCallback((val: AreaSelectionPayload | null) => {
+    let finalVal: HoveredArea | null = null;
+    if (val) {
+      const codeValue = val.areaCode || (val as any).code || "";
+      finalVal = {
+        ...val,
+        code: codeValue,
+        areaCode: val.areaCode || codeValue
+      };
+    }
+    setHoveredAreaState(finalVal);
+    hoveredAreaRef.current = finalVal;
   }, []);
 
   const setHoveredResult = useCallback((val: string | null) => {
@@ -154,7 +164,10 @@ export function useProHUDMarkingController({
       if (activeMenuRef.current === "none") return;
       
       // Bypass elementFromPoint DOM hover tracking for geometry-based wheels
-      if (activeMenuRef.current === "skill" || activeMenuRef.current === "result") {
+      if (
+        activeMenuRef.current === "skill" ||
+        activeMenuRef.current === "result"
+      ) {
         return;
       }
 
@@ -189,6 +202,11 @@ export function useProHUDMarkingController({
         element
           .closest("[data-scout-hover-court-side]")
           ?.getAttribute("data-scout-hover-court-side");
+      const outZone =
+        element.getAttribute("data-scout-hover-out-zone") ||
+        element
+          .closest("[data-scout-hover-out-zone]")
+          ?.getAttribute("data-scout-hover-out-zone");
       const hResult =
         element.getAttribute("data-scout-hover-result") ||
         element
@@ -214,8 +232,9 @@ export function useProHUDMarkingController({
 
       if (hArea) {
         setHoveredArea({
-          code: hArea,
+          areaCode: hArea,
           courtSide: (courtSide as any) || undefined,
+          outZone: (outZone as any) || undefined,
         });
       } else {
         setHoveredArea(null);
@@ -261,12 +280,8 @@ export function useProHUDMarkingController({
         }
       } else if (menu === "area") {
         const hArea = hoveredAreaRef.current;
-        if (hArea) {
-          // keyup W must commit areaCode and courtSide
-          updateActionField("areaCode", hArea.code);
-          if (hArea.courtSide) {
-            updateActionField("courtSide", hArea.courtSide);
-          }
+        if (hArea && selectArea) {
+          selectArea(hArea);
         }
       } else if (menu === "result") {
         const hResult = hoveredResultRef.current;
@@ -309,18 +324,18 @@ export function useProHUDMarkingController({
       if (e.code === "KeyQ") {
         e.preventDefault();
         if (isHoldMode) {
-          setActiveMenu("area");
+          setActiveMenu("skill");
         } else {
-          setActiveMenu(activeMenuRef.current === "area" ? "none" : "area");
+          setActiveMenu(activeMenuRef.current === "skill" ? "none" : "skill");
         }
       }
 
       if (e.code === "KeyW") {
         e.preventDefault();
         if (isHoldMode) {
-          setActiveMenu("skill");
+          setActiveMenu("area");
         } else {
-          setActiveMenu(activeMenuRef.current === "skill" ? "none" : "skill");
+          setActiveMenu(activeMenuRef.current === "area" ? "none" : "area");
         }
       }
 
@@ -342,10 +357,14 @@ export function useProHUDMarkingController({
                 if (targetBtn) {
                    const code = targetBtn.getAttribute("data-scout-hover-area")!;
                    const courtSide = targetBtn.getAttribute("data-scout-hover-court-side") || undefined;
-                   setHoveredArea({ code, courtSide: courtSide as any });
+                   setHoveredArea({ areaCode: code, courtSide: courtSide as any });
                    if (settings.areaAutoSelectOnArrow) {
-                      updateActionField("areaCode", code);
-                      if (courtSide) updateActionField("courtSide", courtSide);
+                      if (selectArea) {
+                        selectArea({ areaCode: code, courtSide: courtSide as any });
+                      } else {
+                        updateActionField("areaCode", code);
+                        if (courtSide) updateActionField("courtSide", courtSide);
+                      }
                    }
                 }
             }
@@ -401,10 +420,10 @@ export function useProHUDMarkingController({
 
       if (!isHoldMode) return;
 
-      if (e.code === "KeyQ" && activeMenuRef.current === "area") {
-        commitMarking("area");
-      } else if (e.code === "KeyW" && activeMenuRef.current === "skill") {
+      if (e.code === "KeyQ" && activeMenuRef.current === "skill") {
         commitMarking("skill");
+      } else if (e.code === "KeyW" && activeMenuRef.current === "area") {
+        commitMarking("area");
       } else if (e.code === "KeyE" && activeMenuRef.current === "result") {
         commitMarking("result");
       } else if (
@@ -428,6 +447,7 @@ export function useProHUDMarkingController({
     hoveredTeam,
     setHoveredSkill,
     setHoveredDescriptor,
+    setHoveredArea,
     setHoveredResult,
     previewSkill,
     bindHoverItem,

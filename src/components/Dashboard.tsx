@@ -18,12 +18,12 @@ export default function Dashboard() {
   const [filterSport, setFilterSport] = useState<SportType | 'ALL'>('ALL');
   const [mapMode, setMapMode] = useState<'heatmap' | 'sequence' | 'result'>('heatmap');
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>();
+  const [teamFilter, setTeamFilter] = useState<'ALL' | 'teamA' | 'teamB'>('ALL');
 
 
   const [selectedMapAction, setSelectedMapAction] = useState<{event: any, action: any} | null>(null);
 
   const stats = useMemo(() => {
-    // ... rest of useMemo ...
     let filteredEvents = events;
     if (filterSport !== 'ALL') {
       filteredEvents = events.filter(e => e.sportType === filterSport);
@@ -33,7 +33,7 @@ export default function Dashboard() {
     let yes = 0, out = 0, pass = 0;
     
     const teamCounts: Record<string, number> = {};
-    const skillCounts: Record<string, number> = {};
+    const skillCounts: Record<string, { teamA: number, teamB: number }> = {};
     const areaCounts: Record<string, number> = {};
     
     let totalActions = 0;
@@ -44,6 +44,39 @@ export default function Dashboard() {
     let teamBScore = 0;
     const teamA = teams[0]?.code;
     const teamB = teams[1]?.code;
+
+    // Detailed points breakdown by team
+    let teamAEarned = 0;
+    let teamAErrorPoints = 0;
+    let teamAErrors = 0;
+    let teamAOpponentEarned = 0;
+
+    let teamBEarned = 0;
+    let teamBErrorPoints = 0;
+    let teamBErrors = 0;
+    let teamBOpponentEarned = 0;
+
+    // Team A specific aggregates for radar/pie charts
+    let teamATotalEvents = 0;
+    let teamAYes = 0;
+    let teamAOut = 0;
+    let teamAPass = 0;
+    const teamASkills = new Set<string>();
+    const teamAAreas = new Set<string>();
+    let teamATotalActions = 0;
+    let teamAAttackingSkills = 0;
+    let teamADefensiveSkills = 0;
+
+    // Team B specific aggregates for radar/pie charts
+    let teamBTotalEvents = 0;
+    let teamBYes = 0;
+    let teamBOut = 0;
+    let teamBPass = 0;
+    const teamBSkills = new Set<string>();
+    const teamBAreas = new Set<string>();
+    let teamBTotalActions = 0;
+    let teamBAttackingSkills = 0;
+    let teamBDefensiveSkills = 0;
 
     filteredEvents.forEach(e => {
       if (e.resultText === '+1') yes++;
@@ -61,12 +94,36 @@ export default function Dashboard() {
       }
 
       if (lastTeam) {
-        if (e.resultText === '+1') {
-          if (lastTeam === teamA) teamAScore++;
-          else if (lastTeam === teamB) teamBScore++;
-        } else if (e.resultText === '-1') {
-          if (lastTeam === teamA) teamBScore++;
-          else if (lastTeam === teamB) teamAScore++;
+        if (lastTeam === teamA) {
+          teamATotalEvents++;
+          if (e.resultText === '+1') {
+            teamAScore++;
+            teamAYes++;
+            teamAEarned++;
+            teamBOpponentEarned++;
+          } else if (e.resultText === '-1') {
+            teamBScore++;
+            teamAOut++;
+            teamAErrors++;
+            teamBErrorPoints++;
+          } else {
+            teamAPass++;
+          }
+        } else if (lastTeam === teamB) {
+          teamBTotalEvents++;
+          if (e.resultText === '+1') {
+            teamBScore++;
+            teamBYes++;
+            teamBEarned++;
+            teamAOpponentEarned++;
+          } else if (e.resultText === '-1') {
+            teamAScore++;
+            teamBOut++;
+            teamBErrors++;
+            teamAErrorPoints++;
+          } else {
+            teamBPass++;
+          }
         }
       }
       
@@ -86,7 +143,10 @@ export default function Dashboard() {
           
           if (team) teamCounts[team] = (teamCounts[team] || 0) + 1;
           if (skill) {
-            skillCounts[skill] = (skillCounts[skill] || 0) + 1;
+            if (!skillCounts[skill]) skillCounts[skill] = { teamA: 0, teamB: 0 };
+            if (team === teamA) skillCounts[skill].teamA++;
+            else if (team === teamB) skillCounts[skill].teamB++;
+            
             const currentSport = e.sportType;
             let isAttack = false, isDefense = false;
             
@@ -106,8 +166,24 @@ export default function Dashboard() {
 
             if (isAttack) attackingSkills++;
             if (isDefense) defensiveSkills++;
+
+            if (team === teamA) {
+              teamASkills.add(skill);
+              teamATotalActions++;
+              if (isAttack) teamAAttackingSkills++;
+              if (isDefense) teamADefensiveSkills++;
+            } else if (team === teamB) {
+              teamBSkills.add(skill);
+              teamBTotalActions++;
+              if (isAttack) teamBAttackingSkills++;
+              if (isDefense) teamBDefensiveSkills++;
+            }
           }
-          if (area) areaCounts[area] = (areaCounts[area] || 0) + 1;
+          if (area) {
+            areaCounts[area] = (areaCounts[area] || 0) + 1;
+            if (team === teamA) teamAAreas.add(area);
+            else if (team === teamB) teamBAreas.add(area);
+          }
         });
       } else if (e.eventText) {
         // Fallback for old data
@@ -122,7 +198,10 @@ export default function Dashboard() {
             teamCounts[team] = (teamCounts[team] || 0) + 1;
           }
           if (skill && !['Yes', 'Out', 'Pass'].includes(skill)) {
-            skillCounts[skill] = (skillCounts[skill] || 0) + 1;
+            if (!skillCounts[skill]) skillCounts[skill] = { teamA: 0, teamB: 0 };
+            if (team === teamA) skillCounts[skill].teamA++;
+            else if (team === teamB) skillCounts[skill].teamB++;
+            
             const currentSport = e.sportType;
             let isAttack = false, isDefense = false;
             
@@ -142,9 +221,23 @@ export default function Dashboard() {
 
             if (isAttack) attackingSkills++;
             if (isDefense) defensiveSkills++;
+
+            if (team === teamA) {
+              teamASkills.add(skill);
+              teamATotalActions++;
+              if (isAttack) teamAAttackingSkills++;
+              if (isDefense) teamADefensiveSkills++;
+            } else if (team === teamB) {
+              teamBSkills.add(skill);
+              teamBTotalActions++;
+              if (isAttack) teamBAttackingSkills++;
+              if (isDefense) teamBDefensiveSkills++;
+            }
           }
           if (area && !['Yes', 'Out', 'Pass'].includes(area)) {
             areaCounts[area] = (areaCounts[area] || 0) + 1;
+            if (team === teamA) teamAAreas.add(area);
+            else if (team === teamB) teamBAreas.add(area);
           }
         }
       }
@@ -153,28 +246,87 @@ export default function Dashboard() {
     const uniqueSkills = Object.keys(skillCounts).length;
     const uniqueAreas = Object.keys(areaCounts).length;
 
-    // Derived metrics for radar
-    const radarData = [
+    // Derived metrics for radar (Global)
+    const radarDataGlobal = [
       { name: 'Success', value: total > 0 ? (yes / total) * 100 : 0 },
       { name: 'Error Control', value: total > 0 ? 100 - (out / total) * 100 : 0 },
       { name: 'Diversity', value: Math.min((uniqueSkills / 6) * 100, 100) },
       { name: 'Coverage', value: Math.min((uniqueAreas / 6) * 100, 100) },
       { name: 'Attack', value: totalActions > 0 ? (attackingSkills / totalActions) * 100 * 2 : 0 },
       { name: 'Defense', value: totalActions > 0 ? (defensiveSkills / totalActions) * 100 * 2 : 0 },
-    ].map(d => ({ ...d, value: Math.min(Math.max(d.value, 0), 100) })); // clamp 0-100
+    ].map(d => ({ ...d, value: Math.min(Math.max(d.value, 0), 100) }));
 
-    const barData = Object.entries(skillCounts)
-      .sort((a, b) => b[1] - a[1])
+    // Derived metrics for radar (Team A)
+    const radarDataTeamA = [
+      { name: 'Success', value: teamATotalEvents > 0 ? (teamAYes / teamATotalEvents) * 100 : 0 },
+      { name: 'Error Control', value: teamATotalEvents > 0 ? 100 - (teamAOut / teamATotalEvents) * 100 : 0 },
+      { name: 'Diversity', value: Math.min((teamASkills.size / 6) * 100, 100) },
+      { name: 'Coverage', value: Math.min((teamAAreas.size / 6) * 100, 100) },
+      { name: 'Attack', value: teamATotalActions > 0 ? (teamAAttackingSkills / teamATotalActions) * 100 * 2 : 0 },
+      { name: 'Defense', value: teamATotalActions > 0 ? (teamADefensiveSkills / teamATotalActions) * 100 * 2 : 0 },
+    ].map(d => ({ ...d, value: Math.min(Math.max(d.value, 0), 100) }));
+
+    // Derived metrics for radar (Team B)
+    const radarDataTeamB = [
+      { name: 'Success', value: teamBTotalEvents > 0 ? (teamBYes / teamBTotalEvents) * 100 : 0 },
+      { name: 'Error Control', value: teamBTotalEvents > 0 ? 100 - (teamBOut / teamBTotalEvents) * 100 : 0 },
+      { name: 'Diversity', value: Math.min((teamBSkills.size / 6) * 100, 100) },
+      { name: 'Coverage', value: Math.min((teamBAreas.size / 6) * 100, 100) },
+      { name: 'Attack', value: teamBTotalActions > 0 ? (teamBAttackingSkills / teamBTotalActions) * 100 * 2 : 0 },
+      { name: 'Defense', value: teamBTotalActions > 0 ? (teamBDefensiveSkills / teamBTotalActions) * 100 * 2 : 0 },
+    ].map(d => ({ ...d, value: Math.min(Math.max(d.value, 0), 100) }));
+
+    // Bar Data (Skill Frequency)
+    const barDataGlobal = Object.entries(skillCounts)
+      .sort((a, b) => (b[1].teamA + b[1].teamB) - (a[1].teamA + a[1].teamB))
       .slice(0, 5)
-      .map(([name, value]) => ({ name, value }));
+      .map(([name, counts]) => ({ name, teamA: counts.teamA, teamB: counts.teamB }));
 
-    const pieData = [
-      { name: 'Yes (+1)', value: yes, color: '#10b981' },
+    const barDataTeamA = Object.entries(skillCounts)
+      .filter(([_, counts]) => counts.teamA > 0)
+      .sort((a, b) => b[1].teamA - a[1].teamA)
+      .slice(0, 5)
+      .map(([name, counts]) => ({ name, teamA: counts.teamA, teamB: 0 }));
+
+    const barDataTeamB = Object.entries(skillCounts)
+      .filter(([_, counts]) => counts.teamB > 0)
+      .sort((a, b) => b[1].teamB - a[1].teamB)
+      .slice(0, 5)
+      .map(([name, counts]) => ({ name, teamA: 0, teamB: counts.teamB }));
+
+    // Pie Data (Result Distribution)
+    const pieDataGlobal = [
+      { name: 'Yes (+1)', value: yes, color: '#22c55e' },
       { name: 'Out (-1)', value: out, color: '#ef4444' },
       { name: 'Pass (0)', value: pass, color: '#6b7280' },
     ].filter(d => d.value > 0);
 
-    return { total, yes, out, pass, teamAScore, teamBScore, teamCounts, skillCounts, areaCounts, radarData, barData, pieData };
+    const pieDataTeamA = [
+      { name: 'Yes (+1)', value: teamAYes, color: '#22c55e' },
+      { name: 'Out (-1)', value: teamAOut, color: '#ef4444' },
+      { name: 'Pass (0)', value: teamAPass, color: '#6b7280' },
+    ].filter(d => d.value > 0);
+
+    const pieDataTeamB = [
+      { name: 'Yes (+1)', value: teamBYes, color: '#22c55e' },
+      { name: 'Out (-1)', value: teamBOut, color: '#ef4444' },
+      { name: 'Pass (0)', value: teamBPass, color: '#6b7280' },
+    ].filter(d => d.value > 0);
+
+    return {
+      total, yes, out, pass,
+      teamAScore, teamBScore,
+      teamCounts, skillCounts, areaCounts,
+      
+      // Point Summary Breakdown values
+      teamAEarned, teamAErrorPoints, teamAErrors, teamAOpponentEarned,
+      teamBEarned, teamBErrorPoints, teamBErrors, teamBOpponentEarned,
+
+      // Filtered Chart datasets
+      radarDataGlobal, radarDataTeamA, radarDataTeamB,
+      barDataGlobal, barDataTeamA, barDataTeamB,
+      pieDataGlobal, pieDataTeamA, pieDataTeamB
+    };
   }, [events, filterSport, teams]);
 
   const successRate = stats.total > 0 ? ((stats.yes / stats.total) * 100).toFixed(1) : '0.0';
@@ -183,8 +335,14 @@ export default function Dashboard() {
     return Object.entries(record).sort((a, b) => b[1] - a[1])[0] ?? ["-", 0];
   };
 
+  const getTopSkill = (): [string, number] => {
+    return Object.entries(stats.skillCounts)
+      .map(([k, v]) => [k, v.teamA + v.teamB] as [string, number])
+      .sort((a, b) => b[1] - a[1])[0] ?? ["-", 0];
+  };
+
   const topTeam = getTopEntry(stats.teamCounts);
-  const topSkill = getTopEntry(stats.skillCounts);
+  const topSkill = getTopSkill();
   const topArea = getTopEntry(stats.areaCounts);
 
   const filterOptions = [
@@ -202,26 +360,101 @@ export default function Dashboard() {
     subLabel: t.thaiName
   }));
 
+  const activeRadarData = teamFilter === 'ALL'
+    ? stats.radarDataGlobal
+    : teamFilter === 'teamA'
+      ? stats.radarDataTeamA
+      : stats.radarDataTeamB;
+
+  const activeBarData = teamFilter === 'ALL'
+    ? stats.barDataGlobal
+    : teamFilter === 'teamA'
+      ? stats.barDataTeamA
+      : stats.barDataTeamB;
+
+  const activePieData = teamFilter === 'ALL'
+    ? stats.pieDataGlobal
+    : teamFilter === 'teamA'
+      ? stats.pieDataTeamA
+      : stats.pieDataTeamB;
+
   return (
     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-        <div className="flex items-center gap-6">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-            {settings.uiLanguage === 'th' ? 'แดชบอร์ดสรุปผล (Summary Dashboard)' : 'Summary Dashboard'}
-          </h2>
-          {teams.length >= 2 && (
-            <div className="flex items-center gap-3 bg-gray-100 dark:bg-gray-900 px-4 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700">
-              <span className="font-bold text-gray-800 dark:text-gray-200">{teams[0]?.code}</span>
-              <span className="text-xl font-black text-sky-600 dark:text-sky-400">{stats.teamAScore}</span>
-              <span className="text-gray-400 font-medium">-</span>
-              <span className="text-xl font-black text-sky-600 dark:text-sky-400">{stats.teamBScore}</span>
-              <span className="font-bold text-gray-800 dark:text-gray-200">{teams[1]?.code}</span>
+      {/* Header Container */}
+      <div className="flex flex-col gap-4 mb-6 pb-4 border-b border-gray-100 dark:border-gray-700/50">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-6">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              {settings.uiLanguage === 'th' ? 'แดชบอร์ดสรุปผล (Summary Dashboard)' : 'Summary Dashboard'}
+            </h2>
+            {teams.length >= 2 && (
+              <div className="flex items-center gap-3 bg-gray-100 dark:bg-gray-900 px-4 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700">
+                <span className="font-bold text-gray-800 dark:text-gray-200">{teams[0]?.code}</span>
+                <span className="text-xl font-black text-sky-600 dark:text-sky-400">{stats.teamAScore}</span>
+                <span className="text-gray-400 font-medium">-</span>
+                <span className="text-xl font-black text-sky-600 dark:text-sky-400">{stats.teamBScore}</span>
+                <span className="font-bold text-gray-800 dark:text-gray-200">{teams[1]?.code}</span>
+              </div>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-2 text-sm z-50">
+            <span className="text-xs text-sky-700 dark:text-sky-400 font-semibold">
+              {settings.uiLanguage === 'th' ? 'กีฬาที่บันทึก:' : 'Active Sport:'}
+            </span>
+            <div className="w-40">
+              <CustomSelect 
+                value={matchInfo.sportType || 'volleyball'} 
+                onChange={(v) => changeSportType(v as SportType)}
+                options={sportOptions}
+                disabled={events.length > 0}
+                title={events.length > 0 ? (settings.uiLanguage === 'th' ? `ล็อกกีฬาไว้แล้วเพราะมีข้อมูลบันทึกอยู่ ${events.length} รายการ ต้องการเปลี่ยนกีฬา ให้สร้างโปรเจคใหม่` : `Sport locked because ${events.length} events are recorded. Create a new project to change sport.`) : undefined}
+              />
             </div>
-          )}
+          </div>
         </div>
-        
-        <div className="flex items-center gap-4 text-sm z-50">
-          <div className="flex items-center gap-2">
+
+        {/* Segmented Control & Sport filter */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50/50 dark:bg-gray-900/10 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              {settings.uiLanguage === 'th' ? 'วิเคราะห์เฉพาะฝั่ง:' : 'Analyze Side:'}
+            </span>
+            <div className="flex bg-gray-200 dark:bg-gray-800 rounded-lg p-0.5 border border-gray-300/30 dark:border-gray-700/30 shadow-xs">
+              <button
+                onClick={() => setTeamFilter('ALL')}
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                  teamFilter === 'ALL'
+                    ? 'bg-sky-500 text-white shadow-xs'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white'
+                }`}
+              >
+                {settings.uiLanguage === 'th' ? 'ทั้งหมด' : 'All Teams'}
+              </button>
+              <button
+                onClick={() => setTeamFilter('teamA')}
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                  teamFilter === 'teamA'
+                    ? 'bg-sky-500 text-white shadow-xs'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white'
+                }`}
+              >
+                {teams[0]?.code ?? 'Team A'}
+              </button>
+              <button
+                onClick={() => setTeamFilter('teamB')}
+                className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                  teamFilter === 'teamB'
+                    ? 'bg-sky-500 text-white shadow-xs'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white'
+                }`}
+              >
+                {teams[1]?.code ?? 'Team B'}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-sm">
             <span className="text-xs text-gray-500 font-medium">
               {settings.uiLanguage === 'th' ? 'กรองสถิติ:' : 'Filter Stats:'}
             </span>
@@ -233,26 +466,13 @@ export default function Dashboard() {
               />
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-sky-700 dark:text-sky-400 font-semibold">
-              {settings.uiLanguage === 'th' ? 'กีฬาที่บันทึก:' : 'Active Sport:'}
-            </span>
-            <div className="w-40">
-              <CustomSelect 
-                value={matchInfo.sportType || 'volleyball'} 
-                onChange={(v) => changeSportType(v as SportType)}
-                options={sportOptions}
-              />
-            </div>
-          </div>
         </div>
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-2 mb-6 hide-scrollbar">
-        <StatCard title={settings.uiLanguage === 'th' ? 'จำนวนเหตุการณ์ทั้งหมด' : 'Total Events'} value={stats.total} color="bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400" />
-        <StatCard title={settings.uiLanguage === 'th' ? 'ได้แต้ม (+1)' : 'Success (+1)'} value={stats.yes} color="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" />
-        <StatCard title={settings.uiLanguage === 'th' ? 'เสียแต้ม (-1)' : 'Errors (-1)'} value={stats.out} color="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400" />
+        <StatCard title={settings.uiLanguage === 'th' ? 'จำนวนเหตุการณ์ทั้งหมด' : 'Total Events'} value={stats.total} color="bg-gray-100 text-gray-700 dark:bg-gray-800/40 dark:text-gray-300" />
+        <StatCard title={settings.uiLanguage === 'th' ? 'ได้แต้ม (+1)' : 'Success (+1)'} value={stats.yes} color="bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400" />
+        <StatCard title={settings.uiLanguage === 'th' ? 'เสียแต้ม (-1)' : 'Errors (-1)'} value={stats.out} color="bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400" />
         <StatCard title={settings.uiLanguage === 'th' ? 'อัตราความสำเร็จ' : 'Success Rate'} value={`${successRate}%`} color="bg-sky-50 text-sky-700 dark:bg-sky-900/20 dark:text-sky-400" />
         <StatCard title={settings.uiLanguage === 'th' ? 'ทีมเด่น' : 'Top Team'} value={`${topTeam[0]} (${topTeam[1]})`} color="bg-gray-50 text-gray-700 dark:bg-gray-700 dark:text-gray-300" />
         <StatCard title={settings.uiLanguage === 'th' ? 'ทักษะเด่น' : 'Top Skill'} value={`${topSkill[0]} (${topSkill[1]})`} color="bg-gray-50 text-gray-700 dark:bg-gray-700 dark:text-gray-300" />
@@ -262,22 +482,127 @@ export default function Dashboard() {
       {stats.total > 0 ? (
         <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading charts...</div>}>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <SkillFrequencyChart data={stats.barData} />
+            <SkillFrequencyChart data={activeBarData} teamAName={teams[0]?.code ?? 'Team A'} teamBName={teams[1]?.code ?? 'Team B'} />
 
-            <ResultDistributionChart data={stats.pieData} />
+            <ResultDistributionChart data={activePieData} />
 
             <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl flex flex-col items-center">
               <h3 className="text-xs font-bold text-gray-500 mb-2 uppercase w-full text-left">
                 {settings.uiLanguage === 'th' ? 'เรดาร์สมรรถภาพ (Performance Radar)' : 'Performance Radar'}
               </h3>
               {stats.total < 5 && (
-                <div className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded w-full text-center mb-2">
+                <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-lg w-full text-center mb-2">
                   {settings.uiLanguage === 'th' 
                     ? 'ข้อมูลยังน้อย กราฟอาจยังไม่สะท้อนภาพรวมจริง' 
                     : 'Few data points, radar might not reflect the full picture yet.'}
                 </div>
               )}
-              <RadarChart data={stats.radarData} size={180} />
+              <RadarChart data={activeRadarData} size={180} />
+            </div>
+
+            {/* Detailed Points won/lost breakdown */}
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-xl lg:col-span-3 flex flex-col gap-5 border border-gray-100 dark:border-gray-800 shadow-xs">
+              <div className="flex justify-between items-center border-b border-gray-100 dark:border-gray-800 pb-3">
+                <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  {settings.uiLanguage === 'th' ? 'ตารางสรุปการได้/เสียคะแนนรายฝั่ง' : 'Points Won/Lost Detailed Summary'}
+                </h3>
+                <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500">
+                  {settings.uiLanguage === 'th' ? '*คำนวณจากผลลัพธ์ของเซ็ตผู้เล่นล่าสุด' : '*Computed from last active sequence plays'}
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-800 text-xs text-gray-400 uppercase tracking-wider">
+                      <th className="pb-3 font-semibold text-gray-400">{settings.uiLanguage === 'th' ? 'ประเภทคะแนน' : 'Point Type'}</th>
+                      <th className="pb-3 text-center font-bold text-sky-600 dark:text-sky-400 w-1/4">{teams[0]?.code ?? 'Team A'} ({settings.uiLanguage === 'th' ? teams[0]?.thaiName : teams[0]?.name})</th>
+                      <th className="pb-3 text-center font-bold text-orange-600 dark:text-orange-400 w-1/4">{teams[1]?.code ?? 'Team B'} ({settings.uiLanguage === 'th' ? teams[1]?.thaiName : teams[1]?.name})</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800/40">
+                    {/* Earned Points */}
+                    <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/10 transition-colors">
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-700 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'ได้แต้มจากการเล่นของตนเอง (+1)' : 'Earned Points (+1)'}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{settings.uiLanguage === 'th' ? 'ทำคะแนนได้เอง เช่น การตบ, การเสิร์ฟเอซ' : 'Points scored directly via active skills'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 text-center font-mono font-bold text-gray-800 dark:text-gray-100">{stats.teamAEarned}</td>
+                      <td className="py-3 text-center font-mono font-bold text-gray-800 dark:text-gray-100">{stats.teamBEarned}</td>
+                    </tr>
+
+                    {/* Opponent Error Points */}
+                    <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/10 transition-colors">
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-700 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'ได้แต้มจากคู่แข่งทำเสีย (+1)' : 'Points from Opponent Errors (+1)'}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{settings.uiLanguage === 'th' ? 'คู่แข่งทำเสียเองในจังหวะสุดท้าย' : 'Points received due to opponent out/error'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 text-center font-mono font-bold text-gray-800 dark:text-gray-100">{stats.teamAErrorPoints}</td>
+                      <td className="py-3 text-center font-mono font-bold text-gray-800 dark:text-gray-100">{stats.teamBErrorPoints}</td>
+                    </tr>
+
+                    {/* Total Points Won (Score) */}
+                    <tr className="bg-gray-50/50 dark:bg-gray-900/30 transition-colors">
+                      <td className="py-3.5 pr-4 font-bold text-gray-900 dark:text-white pl-2">
+                        <div className="flex flex-col">
+                          <span>{settings.uiLanguage === 'th' ? 'รวมคะแนนที่ได้ทั้งหมด' : 'Total Points Won (Score)'}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">{settings.uiLanguage === 'th' ? 'คะแนนรวมปัจจุบันตามบอร์ด' : 'Combined scoreboard matches'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 text-center font-mono text-base font-black text-sky-600 dark:text-sky-400 border-t border-gray-100 dark:border-gray-800">
+                        {stats.teamAEarned + stats.teamAErrorPoints}
+                      </td>
+                      <td className="py-3.5 text-center font-mono text-base font-black text-orange-600 dark:text-orange-400 border-t border-gray-100 dark:border-gray-800">
+                        {stats.teamBEarned + stats.teamBErrorPoints}
+                      </td>
+                    </tr>
+
+                    {/* Own Errors */}
+                    <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/10 transition-colors">
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-700 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'เสียแต้มจากการทำเสียเอง (-1)' : 'Own Errors Conceded (-1)'}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{settings.uiLanguage === 'th' ? 'ทำเสียเองทำให้ฝั่งตรงข้ามได้แต้ม' : 'Points given away due to own error/out'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 text-center font-mono text-gray-600 dark:text-gray-300">{stats.teamAErrors}</td>
+                      <td className="py-3 text-center font-mono text-gray-600 dark:text-gray-300">{stats.teamBErrors}</td>
+                    </tr>
+
+                    {/* Opponent Earned */}
+                    <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/10 transition-colors">
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-700 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'เสียแต้มจากฝีมือคู่แข่ง (-1)' : 'Opponent Earned Points Conceded (-1)'}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{settings.uiLanguage === 'th' ? 'คู่แข่งเล่นจังหวะได้แต้ม' : 'Opponent scored a direct point'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 text-center font-mono text-gray-600 dark:text-gray-300">{stats.teamAOpponentEarned}</td>
+                      <td className="py-3 text-center font-mono text-gray-600 dark:text-gray-300">{stats.teamBOpponentEarned}</td>
+                    </tr>
+
+                    {/* Total Points Lost */}
+                    <tr className="bg-gray-50/50 dark:bg-gray-900/30 transition-colors">
+                      <td className="py-3.5 pr-4 font-bold text-gray-900 dark:text-white pl-2">
+                        <div className="flex flex-col">
+                          <span>{settings.uiLanguage === 'th' ? 'รวมคะแนนที่เสียทั้งหมด' : 'Total Points Lost'}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">{settings.uiLanguage === 'th' ? 'จำนวนคะแนนที่เสียให้ฝั่งตรงข้าม' : 'Combined total points lost'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 text-center font-mono text-base font-bold text-red-500 dark:text-red-400 border-t border-gray-100 dark:border-gray-800">
+                        {stats.teamAErrors + stats.teamAOpponentEarned}
+                      </td>
+                      <td className="py-3.5 text-center font-mono text-base font-bold text-red-500 dark:text-red-400 border-t border-gray-100 dark:border-gray-800">
+                        {stats.teamBErrors + stats.teamBOpponentEarned}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
             
             <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl lg:col-span-3 flex flex-col gap-4">
@@ -288,32 +613,37 @@ export default function Dashboard() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full mb-4 gap-2">
               <h3 className="text-xs font-bold text-gray-500 uppercase">Field Intelligence Map</h3>
               <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-                {mapMode === 'sequence' && (
-                  <select 
-                    className="px-2 py-1 border rounded bg-white dark:bg-gray-800 dark:border-gray-700 dark:text-white text-xs max-w-xs"
-                    value={selectedEventId || ''}
-                    onChange={(e) => setSelectedEventId(e.target.value || undefined)}
-                  >
-                    <option value="">-- เลือก Event เพื่อดู Sequence --</option>
-                    {events.filter(e => filterSport === 'ALL' || e.sportType === filterSport).map((e, idx) => (
-                      <option key={`${e.id}-${idx}`} value={e.id}>
-                        Event #{e.no} {e.actions.length > 0 ? `(${e.actions[0].teamCode || 'No Team'})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <div className="flex gap-2 bg-white dark:bg-gray-800 p-1 rounded-md border border-gray-200 dark:border-gray-700">
+                {mapMode === 'sequence' && (() => {
+                  const eventOptions = events
+                    .filter(e => filterSport === 'ALL' || e.sportType === filterSport)
+                    .map((e, idx) => ({
+                      value: e.id,
+                      label: `Event #${e.no}`,
+                      subLabel: e.actions.length > 0 ? (e.actions[0].teamCode || 'No Team') : undefined,
+                    }));
+
+                  return (
+                    <CustomSelect
+                      value={selectedEventId || ''}
+                      options={eventOptions}
+                      onChange={(v) => setSelectedEventId(v || undefined)}
+                      placeholder="-- เลือก Event เพื่อดู Sequence --"
+                      className="max-w-xs"
+                    />
+                  );
+                })()}
+                <div className="flex gap-2 bg-white dark:bg-gray-800 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
                   <button 
                     onClick={() => setMapMode('heatmap')}
-                    className={`px-3 py-1 text-xs font-medium rounded ${mapMode === 'heatmap' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    className={`px-3 py-1 text-xs font-medium rounded-lg ${mapMode === 'heatmap' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                   >Heatmap</button>
                   <button 
                     onClick={() => setMapMode('sequence')}
-                    className={`px-3 py-1 text-xs font-medium rounded ${mapMode === 'sequence' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    className={`px-3 py-1 text-xs font-medium rounded-lg ${mapMode === 'sequence' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                   >Sequence</button>
                   <button 
                     onClick={() => setMapMode('result')}
-                    className={`px-3 py-1 text-xs font-medium rounded ${mapMode === 'result' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    className={`px-3 py-1 text-xs font-medium rounded-lg ${mapMode === 'result' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                   >Result</button>
                 </div>
               </div>
@@ -325,6 +655,8 @@ export default function Dashboard() {
                 events={events}
                 mode={mapMode}
                 selectedEventId={selectedEventId}
+                teamAName={teams[0]?.code ?? 'Team A'}
+                teamBName={teams[1]?.code ?? 'Team B'}
                 onEventClick={(event, action) => {
                   setSelectedMapAction({ event, action });
                   setSelectedEventId(event.id);
@@ -362,7 +694,7 @@ export default function Dashboard() {
                       return (
                         <>
                           <div className="text-gray-500">Video Time:</div>
-                          <div className="font-semibold text-blue-600 cursor-pointer hover:underline" onClick={() => {
+                          <div className="font-semibold text-sky-600 cursor-pointer hover:underline" onClick={() => {
                             setSeekRequest(Math.max(0, vt - 3));
                           }}>
                             {formatPreciseTime(vt)} (Click to Go)
@@ -389,7 +721,7 @@ export default function Dashboard() {
 
 function StatCard({ title, value, color }: { title: string, value: string | number, color: string }) {
   return (
-    <div className={`p-3 rounded-lg border border-transparent min-w-[120px] flex-shrink-0 ${color}`}>
+    <div className={`p-3 rounded-xl border border-transparent min-w-[120px] flex-shrink-0 ${color}`}>
       <div className="text-xs uppercase font-semibold opacity-80">{title}</div>
       <div className="text-2xl font-bold mt-1">{value}</div>
     </div>

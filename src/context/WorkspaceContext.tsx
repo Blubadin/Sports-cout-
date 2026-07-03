@@ -88,6 +88,7 @@ export const sanitizeEvents = (eventsList: any[]): EventRow[] => {
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [projects, setProjects] = useLocalStorage<ScoutProject[]>('scout_projects', []);
   const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>('active_scout_project_id', null);
+  const isProjectLoading = React.useRef(false);
   
   const { 
     events, setEvents, 
@@ -146,28 +147,41 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   // Auto-save logic
   useEffect(() => {
+    if (isProjectLoading.current) return;
+    
     if (activeProjectId) {
-      setProjects(prev => {
-        const prevArr = Array.isArray(prev) ? prev : [];
-        return prevArr.map(p => {
-          if (p.id === activeProjectId) {
-            return {
-              ...p,
-              events,
-              matchInfo,
-              teams,
-              videoMeta: {
-                sourceType: videoSourceType,
-                youtubeUrl,
-                youtubeVideoId: youtubeVideoId || undefined,
-                localFileName: localFileName || undefined
-              },
-              updatedAt: new Date().toISOString()
-            };
-          }
-          return p;
+      const timeoutId = setTimeout(() => {
+        if (isProjectLoading.current) return;
+        setProjects(prev => {
+          const prevArr = Array.isArray(prev) ? prev : [];
+          return prevArr.map(p => {
+            if (p.id === activeProjectId) {
+              // Guard: Prevent overwriting populated events with an empty array
+              // during project switching transitions to avoid data loss.
+              if (p.events.length > 0 && events.length === 0) {
+                console.warn('WorkspaceContext auto-save guard: Prevented overwriting existing events with an empty array.');
+                return p;
+              }
+              return {
+                ...p,
+                events,
+                matchInfo,
+                teams,
+                videoMeta: {
+                  sourceType: videoSourceType,
+                  youtubeUrl,
+                  youtubeVideoId: youtubeVideoId || undefined,
+                  localFileName: localFileName || undefined
+                },
+                updatedAt: new Date().toISOString()
+              };
+            }
+            return p;
+          });
         });
-      });
+      }, 800);
+      
+      return () => clearTimeout(timeoutId);
     }
   }, [events, matchInfo, teams, activeProjectId, setProjects, videoSourceType, youtubeUrl, youtubeVideoId, localFileName]);
 
@@ -213,6 +227,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const createNewProject = (title: string, sportType: SportType) => {
+    isProjectLoading.current = true;
     const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     const initMatchInfo: MatchInfo = {
       scouterName: matchInfo.scouterName,
@@ -246,11 +261,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setVideoSourceType('local');
     setLocalFileName(null);
     setYoutubeUrl('');
+    
+    setTimeout(() => { isProjectLoading.current = false; }, 100);
   };
 
   const openProject = (projectId: string) => {
     const proj = projects.find(p => p.id === projectId);
     if (proj) {
+      isProjectLoading.current = true;
       setActiveProjectId(proj.id);
       setMatchInfo(proj.matchInfo);
       setTeams(proj.teams);
@@ -272,12 +290,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setLocalFileName(null);
         setYoutubeUrl('');
       }
+      setTimeout(() => { isProjectLoading.current = false; }, 100);
     }
   };
 
   const deleteProject = (projectId: string) => {
     setProjects(prev => prev.filter(p => p.id !== projectId));
     if (activeProjectId === projectId) {
+      isProjectLoading.current = true;
       const remaining = projects.filter(p => p.id !== projectId);
       if (remaining.length > 0) {
         // Will be called with previous `projects` context, wait... actually calling it here uses closure projects which is fine.
@@ -313,6 +333,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setLocalFileName(null);
         setYoutubeUrl('');
       }
+      setTimeout(() => { isProjectLoading.current = false; }, 100);
     }
   };
 

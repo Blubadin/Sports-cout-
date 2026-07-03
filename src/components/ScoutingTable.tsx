@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { EventRow } from '../types';
 import { formatPreciseTime as formatTime } from '../utils';
-import { Trash2, Copy, Download, FileJson, CopyCheck, Type, Play } from 'lucide-react';
+import { Trash2, Copy, Download, FileJson, CopyCheck, Type, Play, Pencil } from 'lucide-react';
 import { t } from '../i18n';
+import EditEventModal from './EditEventModal';
 
 function ResultSelect({ value, onChange }: { value: string, onChange: (v: string) => void }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -31,12 +32,12 @@ function ResultSelect({ value, onChange }: { value: string, onChange: (v: string
     <div className="relative inline-block text-left" ref={containerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`px-2 py-1 rounded text-xs font-bold cursor-pointer focus:outline-none focus:ring-1 focus:ring-sky-500 ${getStyle(value)}`}
+        className={`px-2 py-1 rounded-lg text-xs font-bold cursor-pointer focus:outline-none focus:ring-1 focus:ring-sky-500 ${getStyle(value)}`}
       >
         {value}
       </button>
       {isOpen && (
-        <div className="absolute z-[100] mt-1 w-16 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg right-1/2 translate-x-1/2">
+        <div className="absolute z-[100] mt-1 w-16 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm right-1/2 translate-x-1/2">
           {options.map(opt => (
             <button
               key={opt}
@@ -56,8 +57,10 @@ function ResultSelect({ value, onChange }: { value: string, onChange: (v: string
 }
 
 export default function ScoutingTable() {
-  const { events, setEvents, deleteEventRow, updateEventRow, setSeekRequest, settings } = useScoutContext();
+  const { events, setEvents, deleteEventRow, updateEventRow, setSeekRequest, settings, showToast } = useScoutContext();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<EventRow | null>(null);
 
   const handleNoteChange = (id: string, field: keyof EventRow, value: string | number) => {
     const row = events.find(e => e.id === id);
@@ -119,8 +122,18 @@ export default function ScoutingTable() {
         <h2 className="font-semibold text-gray-700 dark:text-gray-300">
           {settings.uiLanguage === 'th' ? 'ตารางบันทึกข้อมูล (Scouting Table)' : 'Scouting Table'}
         </h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <ExportButtons events={events} />
+          {events.length > 0 && (
+            <button 
+              onClick={() => setShowDeleteAllModal(true)}
+              className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/30 px-2.5 py-1 rounded-lg hover:bg-red-500 hover:text-white dark:hover:bg-red-900 transition-all cursor-pointer font-bold shadow-sm"
+              title={settings.uiLanguage === 'th' ? 'ลบซีเควนซ์ทั้งหมดในตาราง' : 'Delete All Sequences'}
+            >
+              <Trash2 size={11} />
+              <span>{settings.uiLanguage === 'th' ? 'ลบทั้งหมด' : 'Delete All'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -153,21 +166,19 @@ export default function ScoutingTable() {
                       className="w-12 bg-transparent text-center border-b border-transparent focus:border-gray-300 dark:focus:border-gray-600 focus:outline-none"
                     />
                   </td>
-                  <td className="px-4 py-2">
-                    {row.actions && row.actions.length > 0 ? (
-                      <div className="w-full bg-transparent font-mono text-xs text-sky-600 dark:text-sky-400 font-semibold tracking-tight py-1">
+                  <td 
+                    className="px-4 py-2 hover:bg-sky-50/40 dark:hover:bg-sky-950/20 cursor-pointer rounded-lg transition-colors group/cell"
+                    onClick={() => setEditingEvent(row)}
+                    title={settings.uiLanguage === 'th' ? 'คลิกเพื่อแก้ไขชุดเหตุการณ์นี้' : 'Click to edit this event sequence'}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="flex-1 font-mono text-xs text-sky-600 dark:text-sky-400 font-semibold tracking-tight py-1">
                         {row.extendedEventText || row.eventText}
                       </div>
-                    ) : (
-                      <input
-                        type="text"
-                        value={row.extendedEventText || row.eventText}
-                        onChange={(e) => handleNoteChange(row.id, row.extendedEventText ? 'extendedEventText' : 'eventText', e.target.value)}
-                        className="w-full bg-transparent border-b border-transparent focus:border-gray-300 dark:focus:border-gray-600 focus:outline-none font-mono text-xs text-sky-600 dark:text-sky-400 font-semibold tracking-tight"
-                      />
-                    )}
+                      <Pencil size={11} className="opacity-0 group-hover/cell:opacity-60 text-sky-500 transition-opacity shrink-0" />
+                    </div>
                     {row.thaiMeaningText && (
-                      <div className="text-[10px] text-gray-400 mt-1 truncate max-w-xs xl:max-w-md">{row.thaiMeaningText}</div>
+                      <div className="text-xs text-gray-400 mt-0.5 truncate max-w-xs xl:max-w-md">{row.thaiMeaningText}</div>
                     )}
                   </td>
                   <td className="px-4 py-2 text-center relative overflow-visible">
@@ -191,7 +202,7 @@ export default function ScoutingTable() {
                         )}
                       </div>
                       {row.duration !== undefined && row.duration > 0 && (
-                        <span className="text-[10px] text-gray-400 font-mono">
+                        <span className="text-xs text-gray-400 font-mono">
                           ({row.duration.toFixed(1)}s)
                         </span>
                       )}
@@ -206,16 +217,38 @@ export default function ScoutingTable() {
                       className="w-full bg-transparent border-b border-transparent focus:border-gray-300 dark:focus:border-gray-600 focus:outline-none text-xs"
                     />
                   </td>
-                  <td className="px-4 py-2 text-center">
-                    <div className="flex items-center justify-center gap-2">
-                      <button onClick={() => copyToClipboard(row.extendedEventText || row.eventText, `event-${row.id}`)} className="text-gray-500 hover:text-sky-600 transition-colors" title="Copy Extended Text">
-                        {copiedId === `event-${row.id}` ? <CopyCheck size={16} className="text-green-500" /> : <Copy size={16} />}
+                   <td className="px-4 py-2 text-center">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <button 
+                        onClick={() => setEditingEvent(row)} 
+                        className="p-1.5 text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:hover:bg-gray-700/50 rounded-lg transition-all cursor-pointer" 
+                        title={settings.uiLanguage === 'th' ? 'แก้ไขซีเควนซ์' : 'Edit Sequence'}
+                      >
+                        <Pencil size={15} />
                       </button>
-                      <button onClick={() => duplicateRow(row)} className="text-gray-500 hover:text-sky-600 transition-colors" title="Duplicate Row">
-                        <Copy size={16} className="opacity-50" />
+                      <button 
+                        onClick={() => copyToClipboard(row.extendedEventText || row.eventText, `event-${row.id}`)} 
+                        className="p-1.5 text-gray-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-gray-700/50 rounded-lg transition-all" 
+                        title="Copy Extended Text"
+                      >
+                        {copiedId === `event-${row.id}` ? <CopyCheck size={15} className="text-green-500" /> : <Copy size={15} />}
                       </button>
-                      <button onClick={() => deleteEventRow(row.id)} className="text-red-500 hover:text-red-700 transition-colors" title="Delete">
-                        <Trash2 size={16} />
+                      <button 
+                        onClick={() => duplicateRow(row)} 
+                        className="p-1.5 text-gray-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-gray-700/50 rounded-lg transition-all" 
+                        title="Duplicate Row"
+                      >
+                        <Copy size={15} className="opacity-60" />
+                      </button>
+                      <button 
+                        onClick={() => {
+                          deleteEventRow(row.id);
+                          showToast(settings.uiLanguage === 'th' ? `ลบซีเควนซ์ที่ ${row.no} เรียบร้อยแล้ว` : `Sequence #${row.no} has been deleted`);
+                        }} 
+                        className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-all cursor-pointer" 
+                        title={settings.uiLanguage === 'th' ? 'ลบซีเควนซ์' : 'Delete Sequence'}
+                      >
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   </td>
@@ -239,8 +272,8 @@ export default function ScoutingTable() {
               <div className="flex justify-between items-start">
                 <div className="flex gap-2 items-center">
                   <span className="font-bold text-gray-800 dark:text-gray-200 text-sm">#{row.no}</span>
-                  <span className="text-xs text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">PT: {row.point}</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                  <span className="text-xs text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-lg">PT: {row.point}</span>
+                  <span className={`px-2 py-0.5 rounded-lg text-xs font-bold ${
                     row.resultText === '+1' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
                     row.resultText === '-1' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
                     'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
@@ -248,31 +281,60 @@ export default function ScoutingTable() {
                     {row.resultText}
                   </span>
                   {(row.sequenceStartTime !== undefined && row.sequenceEndTime !== undefined && row.duration !== undefined) ? (
-                    <button onClick={() => replayClip(row.sequenceStartTime)} className="flex items-center gap-1 text-[10px] text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded border border-sky-100 dark:border-sky-800">
+                    <button onClick={() => replayClip(row.sequenceStartTime)} className="flex items-center gap-1 text-xs text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded-lg border border-sky-100 dark:border-sky-800">
                       <Play size={10} className="fill-current" /> {formatTime(row.sequenceStartTime)} - {formatTime(row.sequenceEndTime)} ({row.duration.toFixed(1)}s)
                     </button>
                   ) : row.videoTime !== undefined ? (
-                    <button onClick={() => replayClip(row.videoTime)} className="flex items-center gap-1 text-xs text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded">
+                    <button onClick={() => replayClip(row.videoTime)} className="flex items-center gap-1 text-xs text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded-lg">
                       <Play size={12} className="fill-current" /> {formatTime(row.videoTime)}
                     </button>
                   ) : null}
                 </div>
-                <div className="flex gap-3">
-                  <button onClick={() => copyToClipboard(row.extendedEventText || row.eventText, `mob-evt-${row.id}`)} className="text-sky-500" title="Copy Event Text">
+                <div className="flex gap-2 items-center">
+                  <button 
+                    onClick={() => setEditingEvent(row)} 
+                    className="p-1.5 text-sky-600 hover:bg-sky-50 dark:hover:bg-gray-700/50 rounded-lg transition-all cursor-pointer" 
+                    title={settings.uiLanguage === 'th' ? 'แก้ไขซีเควนซ์' : 'Edit Sequence'}
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button 
+                    onClick={() => copyToClipboard(row.extendedEventText || row.eventText, `mob-evt-${row.id}`)} 
+                    className="p-1.5 text-sky-500 hover:bg-sky-50 dark:hover:bg-gray-700/50 rounded-lg transition-all" 
+                    title="Copy Event Text"
+                  >
                     {copiedId === `mob-evt-${row.id}` ? <CopyCheck size={16} className="text-green-500" /> : <Copy size={16} />}
                   </button>
-                  <button onClick={() => copyToClipboard(row.thaiMeaningText || '', `mob-th-${row.id}`)} className="text-orange-500" title="Copy Thai Meaning">
+                  <button 
+                    onClick={() => copyToClipboard(row.thaiMeaningText || '', `mob-th-${row.id}`)} 
+                    className="p-1.5 text-sky-500 hover:bg-sky-50 dark:hover:bg-gray-700/50 rounded-lg transition-all" 
+                    title="Copy Thai Meaning"
+                  >
                     {copiedId === `mob-th-${row.id}` ? <CopyCheck size={16} className="text-green-500" /> : <Type size={16} />}
                   </button>
-                  <button onClick={() => deleteEventRow(row.id)} className="text-red-500" title="Delete">
+                  <button 
+                    onClick={() => {
+                      deleteEventRow(row.id);
+                      showToast(settings.uiLanguage === 'th' ? `ลบซีเควนซ์ที่ ${row.no} เรียบร้อยแล้ว` : `Sequence #${row.no} has been deleted`);
+                    }} 
+                    className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-all cursor-pointer" 
+                    title={settings.uiLanguage === 'th' ? 'ลบซีเควนซ์' : 'Delete'}
+                  >
                     <Trash2 size={16} />
                   </button>
                 </div>
               </div>
               
-              <div className="flex flex-col gap-1 mt-1">
-                <div className="font-mono text-sm text-sky-600 dark:text-sky-400 font-semibold break-words">
-                  {row.extendedEventText || row.eventText}
+              <div 
+                className="flex flex-col gap-1 mt-1 p-2 rounded-lg bg-sky-50/30 dark:bg-sky-950/10 border border-sky-100/50 dark:border-sky-950/5 hover:bg-sky-50/60 dark:hover:bg-sky-950/20 cursor-pointer transition-colors"
+                onClick={() => setEditingEvent(row)}
+                title={settings.uiLanguage === 'th' ? 'คลิกเพื่อแก้ไขชุดเหตุการณ์นี้' : 'Click to edit this event sequence'}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="font-mono text-sm text-sky-600 dark:text-sky-400 font-semibold break-words">
+                    {row.extendedEventText || row.eventText}
+                  </div>
+                  <Pencil size={12} className="text-sky-500 opacity-60 shrink-0" />
                 </div>
                 {row.thaiMeaningText && (
                   <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -289,6 +351,54 @@ export default function ScoutingTable() {
           )}
         </div>
       </div>
+
+      {showDeleteAllModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6 shadow-sm border border-gray-100 dark:border-gray-700 transform scale-100 transition-all animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 text-red-600 dark:text-red-400 mb-4">
+              <div className="p-3 bg-red-100 dark:bg-red-950/40 rounded-full">
+                <Trash2 size={24} />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                {settings.uiLanguage === 'th' ? 'ยืนยันการลบข้อมูลทั้งหมด' : 'Confirm Delete All'}
+              </h3>
+            </div>
+            
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
+              {settings.uiLanguage === 'th' 
+                ? 'คุณแน่ใจหรือไม่ว่าต้องการลบซีเควนซ์ทั้งหมดในตาราง? ข้อมูลที่เคยบันทึกไว้จะหายไปทั้งหมดและไม่สามารถกู้คืนได้!' 
+                : 'Are you sure you want to delete all sequences in the table? All recorded data will be permanently lost and cannot be recovered!'}
+            </p>
+            
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeleteAllModal(false)}
+                className="px-4 py-2.5 text-xs sm:text-sm font-semibold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg cursor-pointer transition-colors"
+              >
+                {settings.uiLanguage === 'th' ? 'ยกเลิก' : 'Cancel'}
+              </button>
+              <button
+                onClick={() => {
+                  setEvents([]);
+                  showToast(settings.uiLanguage === 'th' ? 'ลบข้อมูลทั้งหมดเรียบร้อยแล้ว' : 'All sequences have been deleted successfully');
+                  setShowDeleteAllModal(false);
+                }}
+                className="px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg cursor-pointer transition-colors shadow-sm"
+              >
+                {settings.uiLanguage === 'th' ? 'ยืนยันการลบ' : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingEvent && (
+        <EditEventModal
+          isOpen={!!editingEvent}
+          onClose={() => setEditingEvent(null)}
+          event={editingEvent}
+        />
+      )}
     </div>
   );
 }
@@ -337,10 +447,10 @@ function ExportButtons({ events }: { events: EventRow[] }) {
 
   return (
     <>
-      <button onClick={exportCSV} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+      <button onClick={exportCSV} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
         <Download size={14} /> CSV
       </button>
-      <button onClick={exportJSON} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+      <button onClick={exportJSON} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
         <FileJson size={14} /> JSON
       </button>
     </>

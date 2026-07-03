@@ -227,18 +227,18 @@ export default function ProDonutCommandWheel({
         skills.find((s) => s.code === hoveredSkill)?.name || hoveredSkill;
       centerTitle = `${hoveredSkill} + ${hoveredDescriptor.optionCode}`;
       centerSub = `${parentName} (${hoveredDescriptor.optionCode})`;
-      centerColor = "text-indigo-400";
+      centerColor = "text-sky-400";
     } else if (hoveredSkill) {
       const s = skills.find((sk) => sk.code === hoveredSkill);
       centerTitle = hoveredSkill;
       centerSub = s ? (uiLanguage === "th" ? s.thaiName : s.name) : "";
-      centerColor = "text-cyan-400";
+      centerColor = "text-sky-400";
     }
   } else if (menuType === "result" && hoveredResult) {
     const res = results.find((r) => r.code === hoveredResult);
     centerTitle = hoveredResult.toUpperCase();
     centerSub = res ? res.sub : "";
-    centerColor = hoveredResult === "Yes" ? "text-emerald-400" : hoveredResult === "Out" ? "text-rose-400" : "text-cyan-400";
+    centerColor = hoveredResult === "Yes" ? "text-green-400" : hoveredResult === "Out" ? "text-red-400" : "text-sky-400";
   }
 
   return (
@@ -292,15 +292,15 @@ export default function ProDonutCommandWheel({
             if (menuType === "result") {
               sectorColor =
                 item.code === "Yes"
-                  ? "fill-emerald-600/80 stroke-emerald-300"
+                  ? "fill-green-600/80 stroke-green-300"
                   : item.code === "Out"
-                    ? "fill-rose-600/80 stroke-rose-300"
-                    : "fill-cyan-600/80 stroke-cyan-300";
+                    ? "fill-red-600/80 stroke-red-300"
+                    : "fill-sky-600/80 stroke-sky-300";
             } else {
-              sectorColor = "fill-cyan-600/85 stroke-cyan-300";
+              sectorColor = "fill-sky-600/85 stroke-sky-300";
             }
           } else if (isSelected) {
-            sectorColor = "fill-cyan-950/40 stroke-cyan-500/50";
+            sectorColor = "fill-sky-950/40 stroke-sky-500/50";
           }
 
           // Label coordinates
@@ -342,7 +342,7 @@ export default function ProDonutCommandWheel({
                   x={lx}
                   y={ly + 10}
                   textAnchor="middle"
-                  className={`text-[9px] select-none pointer-events-none transition-opacity ${
+                  className={`text-xs select-none pointer-events-none transition-opacity ${
                     isHighlighted ? "fill-white/90" : "fill-white/40"
                   }`}
                 >
@@ -363,14 +363,14 @@ export default function ProDonutCommandWheel({
               const isHighlighted =
                 hoveredDescIndex === index && distance >= innerRadiusMax;
 
-              let sectorColor = "fill-black/75 stroke-indigo-500/20";
+              let sectorColor = "fill-black/75 stroke-sky-500/20";
               if (isHighlighted) {
-                sectorColor = "fill-indigo-600/90 stroke-indigo-300";
+                sectorColor = "fill-sky-600/90 stroke-sky-300";
               } else if (
                 selectedDescriptors[descriptors[0].id] === desc.code ||
                 hoveredDescriptor?.optionCode === desc.code
               ) {
-                sectorColor = "fill-indigo-950/40 stroke-indigo-500/50";
+                sectorColor = "fill-sky-950/40 stroke-sky-500/50";
               }
 
               // Outer Ring Label Coordinates
@@ -399,7 +399,7 @@ export default function ProDonutCommandWheel({
                     x={lx}
                     y={ly - 1}
                     textAnchor="middle"
-                    className={`text-[10px] sm:text-[11px] font-bold select-none pointer-events-none ${
+                    className={`text-xs font-bold select-none pointer-events-none ${
                       isHighlighted ? "fill-white font-extrabold" : "fill-white/70"
                     }`}
                   >
@@ -409,9 +409,7 @@ export default function ProDonutCommandWheel({
                     x={lx}
                     y={ly + 9}
                     textAnchor="middle"
-                    className={`text-[8px] select-none pointer-events-none ${
-                      isHighlighted ? "fill-white/95" : "fill-white/35"
-                    }`}
+                    className="text-xs select-none pointer-events-none"
                   >
                     {uiLanguage === "th" ? desc.thaiLabel : desc.label}
                   </text>
@@ -438,7 +436,7 @@ export default function ProDonutCommandWheel({
               y1={cy}
               x2={cx + Math.min(distance, size / 2) * Math.cos(pointerRad(pointerAngle))}
               y2={cy + Math.min(distance, size / 2) * Math.sin(pointerRad(pointerAngle))}
-              className="stroke-cyan-500/50"
+              className="stroke-sky-500/50"
               strokeWidth={2}
               strokeDasharray="2 2"
             />
@@ -448,7 +446,7 @@ export default function ProDonutCommandWheel({
             x={cx}
             y={cy - 4}
             textAnchor="middle"
-            className={`text-[11px] font-black uppercase tracking-widest ${centerColor}`}
+            className={`text-xs font-black uppercase tracking-widest ${centerColor}`}
           >
             {centerTitle}
           </text>
@@ -456,7 +454,7 @@ export default function ProDonutCommandWheel({
             x={cx}
             y={cy + 10}
             textAnchor="middle"
-            className="text-[8px] fill-white/40 tracking-normal font-medium"
+            className="text-xs fill-white/40 tracking-normal font-medium"
           >
             {centerSub}
           </text>

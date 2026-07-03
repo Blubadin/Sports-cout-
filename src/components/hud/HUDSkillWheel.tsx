@@ -46,7 +46,7 @@ export default function HUDSkillWheel({
         <span className="font-bold text-white/90 text-sm">
           {selectedSkill || "SKILL"}
         </span>
-        <span className="text-[10px] text-white/50 font-bold">(W)</span>
+        <span className="text-xs text-white/50 font-bold">(Q)</span>
       </div>
     );
   }
@@ -130,12 +130,12 @@ export default function HUDSkillWheel({
             className={`transition-all duration-200 ${
               isSelected
                 ? isDescriptor
-                  ? "fill-indigo-500 stroke-white"
-                  : "fill-cyan-500 stroke-white"
+                  ? "fill-sky-500 stroke-white"
+                  : "fill-sky-500 stroke-white"
                 : isHovered
                   ? isDescriptor
-                    ? "fill-indigo-600/90 stroke-white scale-105"
-                    : "fill-cyan-600/90 stroke-white scale-105"
+                    ? "fill-sky-600/90 stroke-white scale-105"
+                    : "fill-sky-600/90 stroke-white scale-105"
                   : "fill-black/80 stroke-white/20 group-hover:fill-white/20"
             }`}
             strokeWidth={isSelected || isHovered ? 2 : 1}
@@ -143,11 +143,7 @@ export default function HUDSkillWheel({
           <text
             textAnchor="middle"
             dy=".3em"
-            className={`font-bold transition-all pointer-events-none select-none ${
-              isDescriptor
-                ? "text-[9px] sm:text-[11px]"
-                : "text-[11px] sm:text-xs"
-            } ${
+            className={`font-bold transition-all pointer-events-none select-none text-xs ${
               isSelected || isHovered
                 ? "fill-white"
                 : "fill-white/80 group-hover:fill-white"
@@ -192,7 +188,7 @@ export default function HUDSkillWheel({
             r={size * 0.14}
             className={`transition-all duration-200 ${
               selectedSkill
-                ? "fill-emerald-500/80 stroke-white/40 group-hover/center:fill-emerald-400"
+                ? "fill-green-500/80 stroke-white/40 group-hover/center:fill-green-400"
                 : "fill-black/40 stroke-white/10 group-hover/center:fill-white/10"
             }`}
           />
@@ -201,7 +197,7 @@ export default function HUDSkillWheel({
             y={center}
             textAnchor="middle"
             dy=".3em"
-            className={`font-bold uppercase tracking-wider text-[10px] select-none pointer-events-none ${
+            className={`font-bold uppercase tracking-wider text-xs select-none pointer-events-none ${
               selectedSkill ? "fill-white" : "fill-white/50"
             }`}
           >

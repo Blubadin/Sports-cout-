@@ -17,9 +17,11 @@ type CustomSelectProps = {
   label?: string;
   className?: string;
   withinPortal?: boolean;
+  disabled?: boolean;
+  title?: string;
 };
 
-export default function CustomSelect({ value, options, onChange, placeholder = 'Select...', label, className = '', withinPortal = true }: CustomSelectProps) {
+export default function CustomSelect({ value, options, onChange, placeholder = 'Select...', label, className = '', withinPortal = true, disabled = false, title }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -100,7 +102,7 @@ export default function CustomSelect({ value, options, onChange, placeholder = '
               placeholder="Search..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded focus:outline-none"
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none"
               autoFocus
             />
           </div>
@@ -118,7 +120,7 @@ export default function CustomSelect({ value, options, onChange, placeholder = '
                 setIsOpen(false);
                 setSearch('');
               }}
-              className={`w-full text-left flex items-center justify-between px-3 py-2 text-sm rounded-md transition-colors ${
+              className={`w-full text-left flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-colors ${
                 value === option.value
                   ? 'bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 font-medium'
                   : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
@@ -140,12 +142,13 @@ export default function CustomSelect({ value, options, onChange, placeholder = '
   );
 
   return (
-    <div className={`relative flex flex-col gap-1 ${className}`} ref={containerRef}>
+    <div className={`relative flex flex-col gap-1 ${className}`} ref={containerRef} title={title}>
       {label && <label className="text-xs font-semibold text-gray-600 dark:text-gray-400">{label}</label>}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-between w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`flex items-center justify-between w-full p-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <span className="truncate text-gray-800 dark:text-gray-200">
           {selectedOption ? (

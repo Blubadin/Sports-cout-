@@ -33,7 +33,7 @@ export default function TeamComparisonChart({ events, team1, team2 }: { events: 
       <div className="grid grid-cols-3 gap-2 text-sm text-center">
         <div className="font-bold text-sky-600">{team1}</div>
         <div className="text-gray-400">vs</div>
-        <div className="font-bold text-emerald-600">{team2}</div>
+        <div className="font-bold text-green-600">{team2}</div>
         
         <div>{stats.t1Total}</div>
         <div className="text-xs text-gray-500">Actions</div>

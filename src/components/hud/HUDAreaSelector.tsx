@@ -78,7 +78,7 @@ export default function HUDAreaSelector({
           <div
             className={`text-white/50 font-bold uppercase tracking-wider ${isActive ? "text-[10px] sm:text-xs" : "text-[9px]"} pl-1`}
           >
-            Area (Q)
+            Area (W)
           </div>
           {isActive && onClose && (
             <button

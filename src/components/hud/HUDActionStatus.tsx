@@ -19,14 +19,14 @@ export default function HUDActionStatus() {
   const getTeamLabel = () => currentAction.teamCode || (isThai ? "ทีม (1/2)" : "Team (1/2)");
   const getAreaLabel = () => {
     if (!currentAction.areaCode) {
-      return isThai ? "พื้นที่ (Q)" : "Area (Q)";
+      return isThai ? "พื้นที่ (W)" : "Area (W)";
     }
     const code = currentAction.areaCode;
     const foundArea = sportTemplate.areas.find((a) => a.code === code);
     const displayInfo = getAreaDisplay(code, isThai, foundArea?.thaiName || "");
     return displayInfo.sub ? `${displayInfo.main} (${displayInfo.sub})` : displayInfo.main;
   };
-  const getSkillLabel = () => currentAction.skillCode || (isThai ? "ทักษะ (W)" : "Skill (W)");
+  const getSkillLabel = () => currentAction.skillCode || (isThai ? "ทักษะ (Q)" : "Skill (Q)");
   const getResultLabel = () => currentAction.resultCode || (isThai ? "ผลลัพธ์ (E)" : "Result (E)");
 
   const renderChip = (
@@ -70,7 +70,7 @@ export default function HUDActionStatus() {
     <div className="flex flex-col items-center gap-1.5 md:gap-2 drop-shadow-xl max-w-full">
       {/* Last Saved Event Flash Banner */}
       {hudLastSavedText && (
-        <div className="flex items-center gap-2 bg-emerald-500/20 px-3 py-1 rounded-full backdrop-blur-md border border-emerald-500/40 text-emerald-300 font-mono text-[10px] md:text-xs font-bold uppercase tracking-wider animate-in fade-in zoom-in duration-300">
+        <div className="flex items-center gap-2 bg-green-500/20 px-3 py-1 rounded-full backdrop-blur-md border border-green-500/40 text-green-300 font-mono text-xs md:text-xs font-bold uppercase tracking-wider animate-in fade-in zoom-in duration-300">
           <span className="opacity-80">Saved:</span>
           <span>{hudLastSavedText}</span>
         </div>
@@ -78,10 +78,10 @@ export default function HUDActionStatus() {
 
       {/* Current Actions Rally Chain */}
       {currentActions.length > 0 && (
-        <div className="flex flex-wrap justify-center gap-1.5 text-[9px] md:text-[11px] text-white/90 font-mono max-w-lg mb-0.5 px-4 overflow-hidden">
+        <div className="flex flex-wrap justify-center gap-1.5 text-xs text-white/90 font-mono max-w-lg mb-0.5 px-4 overflow-hidden">
           {currentActions.map((act, i) => (
             <React.Fragment key={`${act.id || ""}-${i}`}>
-              <span className="bg-black/40 px-2 py-0.5 rounded border border-white/5 backdrop-blur whitespace-nowrap">
+              <span className="bg-black/40 px-2 py-0.5 rounded-lg border border-white/5 backdrop-blur whitespace-nowrap">
                 {[act.teamCode, act.skillCode, act.areaCode, act.resultCode]
                   .filter(Boolean)
                   .join("/")}
@@ -112,7 +112,7 @@ export default function HUDActionStatus() {
         {canUndo && (
           <button
             onClick={undoLastAction}
-            className="ml-1 p-1.5 md:p-2 bg-rose-500/20 hover:bg-rose-500/40 active:scale-95 active:bg-rose-500/50 text-rose-300 rounded-lg border border-rose-500/30 backdrop-blur-sm transition-colors flex items-center justify-center shadow-lg"
+            className="ml-1 p-1.5 md:p-2 bg-red-500/20 hover:bg-red-500/40 active:scale-95 active:bg-red-500/50 text-red-300 rounded-lg border border-red-500/30 backdrop-blur-sm transition-colors flex items-center justify-center shadow-lg"
             title="Undo (Backspace / Ctrl+Z)"
           >
             <Undo2 size={16} />

@@ -9,11 +9,10 @@ import SettingsModal from './components/SettingsModal';
 import WorkspaceMenu from './components/WorkspaceMenu';
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import MatchInfoModal from './components/MatchInfoModal';
-import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Folder, Plus, Upload, Edit2 } from 'lucide-react';
+import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2 } from 'lucide-react';
 import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
 
-import Sidebar from './components/Sidebar';
 import VideoPlayer from './components/VideoPlayer';
 import Dashboard from './components/Dashboard';
 
@@ -55,10 +54,21 @@ function PwaIndicator() {
   );
 }
 
+import { SPORT_TEMPLATES } from './sports';
+import type { SportType } from './types';
+import CustomSelect from './components/ui/CustomSelect';
+
 function EmptyProjectState() {
   const { createNewProject, importProject } = useWorkspace();
   const { matchInfo, showToast, setSettings, settings } = useScoutContext();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [selectedSport, setSelectedSport] = useState<SportType>(matchInfo.sportType || 'volleyball');
+
+  const sportOptions = Object.values(SPORT_TEMPLATES).map(t => ({
+    value: t.id,
+    label: t.name,
+    subLabel: t.thaiName
+  }));
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -97,13 +107,24 @@ function EmptyProjectState() {
           <Folder size={32} />
         </div>
         <h2 className="text-2xl font-black text-gray-800 dark:text-gray-100 mb-2">ยังไม่มีโครงการ</h2>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
+        <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
           สร้างโครงการใหม่เพื่อเริ่มต้นเก็บสถิติการแข่งขัน หรือนำเข้าโครงการที่มีอยู่แล้ว
         </p>
+
+        <div className="mb-6 text-left">
+          <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase">
+            {settings.uiLanguage === 'th' ? 'เลือกประเภทกีฬา' : 'Select Sport Type'}
+          </label>
+          <CustomSelect 
+            value={selectedSport} 
+            onChange={(v) => setSelectedSport(v as SportType)}
+            options={sportOptions}
+          />
+        </div>
         
         <div className="flex flex-col gap-3">
           <button 
-            onClick={() => createNewProject(`Match ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, matchInfo.sportType)}
+            onClick={() => createNewProject(`Match ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, selectedSport)}
             className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
           >
             <Plus size={18} /> สร้างโครงการใหม่
@@ -117,7 +138,7 @@ function EmptyProjectState() {
           <button 
             onClick={() => {
               // start without saving (create a draft)
-              createNewProject(`Draft ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, matchInfo.sportType);
+              createNewProject(`Draft ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, selectedSport);
             }}
             className="w-full py-3 mt-4 text-sky-600 dark:text-sky-400 font-semibold hover:underline"
           >
@@ -136,6 +157,7 @@ function AppContent() {
   const [isKeyboardShortcutsOpen, setIsKeyboardShortcutsOpen] = useState(false);
   const [isMatchInfoOpen, setIsMatchInfoOpen] = useState(false);
   const { isInstallable, promptInstall } = usePWAInstall();
+  const [activeTab, setActiveTab] = useState<'input' | 'dashboard' | 'table'>('input');
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden">
@@ -147,10 +169,10 @@ function AppContent() {
             S
           </div>
           <div className="hidden min-[400px]:block mr-2">
-            <h1 className="text-base sm:text-xl font-black tracking-wider bg-gradient-to-r from-sky-500 to-blue-600 dark:from-sky-400 dark:to-blue-400 bg-clip-text text-transparent leading-none uppercase">
+            <h1 className="text-base sm:text-xl font-black tracking-wider bg-gradient-to-r from-sky-500 to-sky-600 dark:from-sky-400 dark:to-sky-500 bg-clip-text text-transparent leading-none uppercase">
               {t('app.title', settings.uiLanguage)}
             </h1>
-            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 font-semibold tracking-wide uppercase mt-0.5">{matchInfo.sportType || 'Volleyball'} mode</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 font-semibold tracking-wide uppercase mt-0.5">{matchInfo.sportType || 'Volleyball'} mode</p>
           </div>
         </div>
 
@@ -162,8 +184,8 @@ function AppContent() {
             title={settings.uiLanguage === 'th' ? 'คลิกเพื่อแก้ไขข้อมูลการแข่งขัน' : 'Click to edit match info'}
           >
             <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
             </span>
             <div className="flex items-center gap-1.5 sm:gap-2.5 text-xs font-bold truncate">
               <span className="text-sky-700 dark:text-sky-300 tracking-wide uppercase font-black truncate max-w-[50px] sm:max-w-[80px]">
@@ -174,7 +196,7 @@ function AppContent() {
                 {teams[1]?.code || 'T2'}
               </span>
               <div className="h-3 w-px bg-sky-200 dark:bg-sky-800 shrink-0" />
-              <span className="text-gray-600 dark:text-gray-400 font-semibold text-[10px] sm:text-[11px] whitespace-nowrap">
+              <span className="text-gray-600 dark:text-gray-400 font-semibold text-xs whitespace-nowrap">
                 {settings.uiLanguage === 'th' 
                   ? `เซต ${matchInfo.setOrGame} • แต้ม ${matchInfo.currentPoint}` 
                   : `Set ${matchInfo.setOrGame} • PT ${matchInfo.currentPoint}`}
@@ -238,31 +260,75 @@ function AppContent() {
       {!activeProjectId ? (
         <EmptyProjectState />
       ) : (
-        <main className="mx-auto max-w-[1800px] p-2 sm:p-4 lg:p-6 flex flex-col lg:flex-row gap-4 lg:gap-6">
-          {/* Sidebar controls */}
-          <Sidebar />
-
+        <main className="mx-auto w-full max-w-[1800px] p-2 sm:p-4 lg:p-6 flex flex-col lg:flex-row gap-4 lg:gap-6 lg:h-[calc(100vh-76px)] lg:overflow-hidden">
           {/* Main scouting workspace */}
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 lg:h-full lg:overflow-hidden">
             
             {/* Top/Left Workspace: Video Player */}
-            <section className="lg:col-span-5 lg:sticky lg:top-[76px] lg:self-start flex flex-col gap-4 bg-gray-50 dark:bg-gray-900 pb-2">
+            <section className="lg:col-span-5 flex flex-col gap-4 bg-gray-50 dark:bg-gray-900 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar">
               <React.Suspense fallback={<div className="w-full aspect-video bg-gray-800 animate-pulse rounded-lg flex items-center justify-center text-gray-400">Loading Player...</div>}>
                 <VideoPlayer />
               </React.Suspense>
             </section>
 
-            {/* Top/Right Workspace: Input Panel & Dashboard */}
-            <section className="lg:col-span-7 flex flex-col gap-6">
-              <InputPanel />
-              <React.Suspense fallback={<div className="h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-xl"></div>}>
-                <Dashboard />
-              </React.Suspense>
-            </section>
+            {/* Top/Right Workspace: Tabs Interface */}
+            <section className="lg:col-span-7 flex flex-col gap-4 lg:h-full lg:overflow-hidden">
+              {/* Modern tabs navigation */}
+              <div className="flex border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-xl p-1 gap-1 shrink-0 shadow-sm">
+                <button
+                  onClick={() => setActiveTab('input')}
+                  onPointerDown={() => setActiveTab('input')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                    activeTab === 'input'
+                      ? 'bg-sky-600 text-white shadow-md'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <Gamepad2 size={18} />
+                  <span>{settings.uiLanguage === 'th' ? 'แผงบันทึก (Scout)' : 'Scout Input'}</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  onPointerDown={() => setActiveTab('dashboard')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                    activeTab === 'dashboard'
+                      ? 'bg-sky-600 text-white shadow-md'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <BarChart3 size={18} />
+                  <span>{settings.uiLanguage === 'th' ? 'สถิติ / ชาร์ต' : 'Dashboard'}</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('table')}
+                  onPointerDown={() => setActiveTab('table')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                    activeTab === 'table'
+                      ? 'bg-sky-600 text-white shadow-md'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <Table2 size={18} />
+                  <span>{settings.uiLanguage === 'th' ? 'ตารางเหตุการณ์' : 'Events Table'}</span>
+                </button>
+              </div>
 
-            {/* Bottom Section: Table */}
-            <section className="lg:col-span-12 mt-4 pt-4 border-t border-gray-200 dark:border-gray-800">
-              <ScoutingTable />
+              {/* Dynamic scrollable views wrapper */}
+              <div className="flex-1 overflow-y-auto pr-1 pb-4 custom-scrollbar">
+                {activeTab === 'input' && (
+                  <InputPanel />
+                )}
+                {activeTab === 'dashboard' && (
+                  <React.Suspense fallback={<div className="h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-xl"></div>}>
+                    <Dashboard />
+                  </React.Suspense>
+                )}
+                {activeTab === 'table' && (
+                  <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+                    <ScoutingTable />
+                  </section>
+                )}
+              </div>
             </section>
 
           </div>

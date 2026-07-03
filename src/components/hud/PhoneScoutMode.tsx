@@ -169,7 +169,7 @@ export default function PhoneScoutMode({
         className={`absolute right-2 top-[15%] sm:top-[20%] flex flex-col gap-2 pointer-events-auto z-20 transition-all duration-300 ${controlsVisible ? "opacity-100" : "opacity-15"}`}
       >
         {results.map((res, idx) => {
-          const bgColors = ["#4F46E5", "#10B981", "#F59E0B", "#EF4444"];
+          const bgColors = ["#0ea5e9", "#22c55e", "#6b7280", "#ef4444"];
           const bgColor = bgColors[idx % bgColors.length];
           return (
             <button
@@ -179,7 +179,7 @@ export default function PhoneScoutMode({
                 commitResult(res.code);
               }}
               style={{ backgroundColor: bgColor }}
-              className={`w-11 h-11 sm:w-14 sm:h-14 rounded-xl shadow-lg flex items-center justify-center text-white font-bold text-[10px] sm:text-xs shadow-[0_4px_12px_rgba(0,0,0,0.5)] active:scale-95 transition-all border border-white/20 ${activeSheet !== "none" ? "scale-90 opacity-70" : "scale-100"}`}
+              className={`w-11 h-11 sm:w-14 sm:h-14 rounded-xl shadow-lg flex items-center justify-center text-white font-bold text-xs shadow-[0_4px_12px_rgba(0,0,0,0.5)] active:scale-95 transition-all border border-white/20 ${activeSheet !== "none" ? "scale-90 opacity-70" : "scale-100"}`}
             >
               {res.code}
             </button>
@@ -198,10 +198,10 @@ export default function PhoneScoutMode({
               setControlsVisible(true);
               setActiveSheet("team");
             }}
-            className={`w-14 h-14 rounded-full flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform ${activeSheet === "team" ? "bg-indigo-600 text-white" : "bg-gray-800/90 border border-gray-600 text-gray-200"}`}
+            className={`w-14 h-14 rounded-full flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform ${activeSheet === "team" ? "bg-sky-600 text-white" : "bg-gray-800/90 border border-gray-600 text-gray-200"}`}
           >
             <Users size={20} className="mb-0.5" />
-            <span className="text-[9px] font-bold tracking-wider">TEAM</span>
+            <span className="text-xs font-bold tracking-wider">TEAM</span>
           </button>
 
           <button
@@ -209,10 +209,10 @@ export default function PhoneScoutMode({
               setControlsVisible(true);
               setActiveSheet("skill");
             }}
-            className={`w-16 h-16 rounded-full flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform ${activeSheet === "skill" ? "bg-emerald-600 text-white" : "bg-gray-800/90 border border-gray-600 text-gray-200"}`}
+            className={`w-16 h-16 rounded-full flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform ${activeSheet === "skill" ? "bg-green-600 text-white" : "bg-gray-800/90 border border-gray-600 text-gray-200"}`}
           >
             <Crosshair size={24} className="mb-0.5" />
-            <span className="text-[10px] font-bold tracking-wider">SKILL</span>
+            <span className="text-xs font-bold tracking-wider">SKILL</span>
           </button>
 
           <button
@@ -220,10 +220,10 @@ export default function PhoneScoutMode({
               setControlsVisible(true);
               setActiveSheet("area");
             }}
-            className={`w-14 h-14 rounded-full flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform ${activeSheet === "area" ? "bg-orange-600 text-white" : "bg-gray-800/90 border border-gray-600 text-gray-200"}`}
+            className={`w-14 h-14 rounded-full flex flex-col items-center justify-center shadow-lg active:scale-95 transition-transform ${activeSheet === "area" ? "bg-gray-600 text-white" : "bg-gray-800/90 border border-gray-600 text-gray-200"}`}
           >
             <Map size={20} className="mb-0.5" />
-            <span className="text-[9px] font-bold tracking-wider">AREA</span>
+            <span className="text-xs font-bold tracking-wider">AREA</span>
           </button>
         </div>
 

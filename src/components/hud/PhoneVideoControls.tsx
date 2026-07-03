@@ -62,7 +62,7 @@ export default function PhoneVideoControls({
     <div className="flex flex-col w-full bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 p-2 sm:p-3 overflow-hidden shadow-2xl relative">
       {/* Timeline */}
       <div className="flex items-center gap-2 mb-2 px-1">
-        <span className="text-[10px] text-gray-300 font-mono w-12 text-right">
+        <span className="text-xs text-gray-300 font-mono w-12 text-right">
           {currentTimeStr}
         </span>
         <input
@@ -74,7 +74,7 @@ export default function PhoneVideoControls({
           onChange={handleSeek}
           className="flex-1 h-1.5 sm:h-2 bg-white/20 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
         />
-        <span className="text-[10px] text-gray-500 font-mono w-12">
+        <span className="text-xs text-gray-500 font-mono w-12">
           {formatPreciseTime(duration)}
         </span>
       </div>
@@ -114,7 +114,7 @@ export default function PhoneVideoControls({
 
         <button
           onClick={() => setShowMore(!showMore)}
-          className={`p-2 sm:p-3 rounded-full transition-all active:scale-90 ${showMore ? "bg-indigo-600 text-white" : "text-gray-400 bg-white/5 hover:text-white"}`}
+          className={`p-2 sm:p-3 rounded-full transition-all active:scale-90 ${showMore ? "bg-sky-600 text-white" : "text-gray-400 bg-white/5 hover:text-white"}`}
         >
           <MoreHorizontal size={20} />
         </button>
@@ -163,7 +163,7 @@ export default function PhoneVideoControls({
                 <button
                   key={speed}
                   onClick={() => videoControls.setSpeed(speed)}
-                  className={`px-3 py-1 rounded-lg text-xs font-mono active:scale-95 ${videoControls.playbackRate === speed ? "bg-indigo-600 text-white font-bold" : "bg-white/10 text-gray-300"}`}
+                  className={`px-3 py-1 rounded-lg text-xs font-mono active:scale-95 ${videoControls.playbackRate === speed ? "bg-sky-600 text-white font-bold" : "bg-white/10 text-gray-300"}`}
                 >
                   {speed}x
                 </button>

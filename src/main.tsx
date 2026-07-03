@@ -19,7 +19,10 @@ HTMLMediaElement.prototype.play = function () {
   if (p && typeof p.catch === 'function') {
     p.catch((e: any) => {
       if (e && e.name === 'AbortError') return;
-      if (e && e.message && e.message.includes('The play() request was interrupted')) return;
+      if (e && e.message && e.message.includes('The play() request was interrupted')) {
+        console.debug('[Suppressed] The play() request was interrupted by a call to pause() - from HTMLMediaElement monkeypatch');
+        return;
+      }
       // Do not throw, as that creates a new unhandled rejection
       // Just ignore or log other play errors (like NotAllowedError)
     });
@@ -56,6 +59,9 @@ window.addEventListener('unhandledrejection', (event) => {
       isPlayInterrupted(event.reason)
     )
   ) {
+    if (isPlayInterrupted(event.reason)) {
+      console.debug('[Suppressed] The play() request was interrupted by a call to pause() - from unhandledrejection');
+    }
     event.preventDefault(); // Prevent it from crashing the app/showing error overlay
   }
 });
@@ -68,6 +74,7 @@ window.addEventListener('error', (event) => {
     errMessage.includes('The play() request was interrupted') ||
     isPlayInterrupted(event.error)
   ) {
+    console.debug('[Suppressed] The play() request was interrupted by a call to pause() - from error event');
     event.preventDefault();
   }
 });
@@ -75,6 +82,7 @@ window.addEventListener('error', (event) => {
 const originalError = console.error;
 console.error = (...args) => {
   if (args.some(isPlayInterrupted)) {
+    console.debug('[Suppressed] The play() request was interrupted by a call to pause() - from console.error');
     return; // Suppress play/pause interrupt exceptions
   }
   if (
@@ -91,6 +99,7 @@ console.error = (...args) => {
 const originalWarn = console.warn;
 console.warn = (...args) => {
   if (args.some(isPlayInterrupted)) {
+    console.debug('[Suppressed] The play() request was interrupted by a call to pause() - from console.warn');
     return;
   }
   originalWarn(...args);

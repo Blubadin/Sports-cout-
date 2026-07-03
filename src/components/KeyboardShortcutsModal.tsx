@@ -195,11 +195,11 @@ export default function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShor
                 </div>
                 <div className="flex justify-between items-center col-span-2 grid grid-cols-2 gap-2 text-xs text-gray-500 dark:text-gray-400 pl-2">
                   <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/30 p-1.5 rounded-lg">
-                    <span>{isThai ? 'Q : เลือกพื้นที่สนาม (Area Pad)' : 'Q : Select Court Area (Area Pad)'}</span>
+                    <span>{isThai ? 'Q : เลือกทักษะ (Skill Wheel)' : 'Q : Select Skill (Skill Wheel)'}</span>
                     <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded font-bold font-mono">Q</kbd>
                   </div>
                   <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/30 p-1.5 rounded-lg">
-                    <span>{isThai ? 'W : เลือกทักษะ (Skill Wheel)' : 'W : Select Skill (Skill Wheel)'}</span>
+                    <span>{isThai ? 'W : เลือกพื้นที่สนาม (Area Pad)' : 'W : Select Court Area (Area Pad)'}</span>
                     <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded font-bold font-mono">W</kbd>
                   </div>
                   <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/30 p-1.5 rounded-lg">

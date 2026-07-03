@@ -9,15 +9,17 @@ type FieldSequenceMapProps = {
   teamFilter?: string;
   skillFilter?: string;
   resultFilter?: string;
+  teamAName?: string;
+  teamBName?: string;
   onEventClick?: (event: EventRow, action: Action) => void;
   onGoToVideoTime?: (videoTime: number) => void;
 };
 
 // Map components for each sport
 const VolleyballField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[700px] bg-teal-900/40 dark:bg-teal-900/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
+  <div className="relative w-full max-w-[700px] bg-sky-950/40 dark:bg-sky-950/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
     <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
-      <span className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Out of Bounds</span>
+      <span className="text-white/30 text-xs font-bold uppercase tracking-widest">Out of Bounds</span>
     </div>
     <div className="relative w-full aspect-[2/1] bg-[#f0bd7e] border-4 border-white shadow-xl">
       {/* Midline / Net */}
@@ -34,11 +36,11 @@ const VolleyballField = ({ children }: { children: React.ReactNode }) => (
 );
 
 const FootballField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[500px] bg-emerald-900/40 dark:bg-emerald-900/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
+  <div className="relative w-full max-w-[500px] bg-green-950/40 dark:bg-green-950/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
     <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
-      <span className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Out of Bounds</span>
+      <span className="text-white/30 text-xs font-bold uppercase tracking-widest">Out of Bounds</span>
     </div>
-    <div className="relative w-full aspect-[2/3] bg-emerald-600 border-4 border-white shadow-xl">
+    <div className="relative w-full aspect-[2/3] bg-green-600 border-4 border-white shadow-xl">
       <div className="absolute top-1/2 left-0 right-0 h-1 bg-white opacity-60" />
       <div className="absolute top-1/2 left-1/2 w-16 h-16 rounded-full border-2 border-white -translate-x-1/2 -translate-y-1/2 opacity-60" />
       <div className="absolute top-0 left-1/4 right-1/4 h-1/6 border-2 border-white opacity-60" />
@@ -49,9 +51,9 @@ const FootballField = ({ children }: { children: React.ReactNode }) => (
 );
 
 const BadmintonField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[400px] bg-teal-900/40 dark:bg-teal-900/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
+  <div className="relative w-full max-w-[400px] bg-sky-950/40 dark:bg-sky-950/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
     <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
-      <span className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Out of Bounds</span>
+      <span className="text-white/30 text-xs font-bold uppercase tracking-widest">Out of Bounds</span>
     </div>
     <div className="relative w-full aspect-[1/2.2] bg-[#3a8b64] border-4 border-white shadow-xl">
       <div className="absolute top-1/2 left-0 right-0 h-2 bg-white -translate-y-1/2 shadow-sm" />
@@ -68,13 +70,13 @@ const BadmintonField = ({ children }: { children: React.ReactNode }) => (
 const BasketballField = ({ children }: { children: React.ReactNode }) => (
   <div className="relative w-full max-w-[400px] bg-amber-900/20 dark:bg-amber-900/10 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
     <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
-      <span className="text-white/30 text-[10px] font-bold uppercase tracking-widest">Out of Bounds</span>
+      <span className="text-white/30 text-xs font-bold uppercase tracking-widest">Out of Bounds</span>
     </div>
     <div className="relative w-full aspect-[4/3] bg-[#dd9f60] border-4 border-white shadow-xl">
       <div className="absolute top-0 left-1/2 w-[30%] h-[40%] border-4 border-white -translate-x-1/2" />
       <div className="absolute top-0 left-1/2 w-[60%] aspect-square border-4 border-white rounded-full -translate-x-1/2" />
-      <div className="absolute top-[5%] left-1/2 w-[10%] h-[2%] bg-orange-700 -translate-x-1/2 shadow-sm" />
-      <div className="absolute top-[8%] left-1/2 w-3 h-3 border-2 border-orange-700 rounded-full -translate-x-1/2 bg-transparent z-10" />
+      <div className="absolute top-[5%] left-1/2 w-[10%] h-[2%] bg-red-700 -translate-x-1/2 shadow-sm" />
+      <div className="absolute top-[8%] left-1/2 w-3 h-3 border-2 border-red-700 rounded-full -translate-x-1/2 bg-transparent z-10" />
       {children}
     </div>
   </div>
@@ -183,6 +185,7 @@ const hashString = (str: string) => {
 export default function FieldSequenceMap({ 
   sportType, events, selectedEventId, mode, 
   teamFilter, skillFilter, resultFilter, 
+  teamAName, teamBName,
   onEventClick 
 }: FieldSequenceMapProps) {
   const [selectedAreaGroup, setSelectedAreaGroup] = React.useState<{ key: string; label: string; actions: any[] } | null>(null);
@@ -343,33 +346,40 @@ export default function FieldSequenceMap({
 
   return (
     <div className="w-full flex flex-col gap-4">
-      <div className="relative w-full flex justify-center">
+      <div className="relative w-full flex flex-col justify-center items-center">
+        {(teamAName || teamBName) && (
+          <div className="flex gap-4 text-xs font-bold mb-1 mt-2 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+            {teamAName && <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-sky-500 shadow-sm border border-white dark:border-gray-800"></span> <span className="text-gray-700 dark:text-gray-300">{teamAName}</span></div>}
+            {teamBName && <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-orange-500 shadow-sm border border-white dark:border-gray-800"></span> <span className="text-gray-700 dark:text-gray-300">{teamBName}</span></div>}
+          </div>
+        )}
         <FieldComponent>
           {mode === 'heatmap' && (() => {
-            const groups = new Map<string, { count: number, top: number, left: number, label: string, actions: any[] }>();
+            const groups = new Map<string, { count: number, top: number, left: number, label: string, actions: any[], teamCode?: string }>();
             
             mapData.forEach(d => {
               let groupKey = '';
               let groupLabel = '';
+              const teamId = d.teamCode || '';
               
               if (d.pointX !== undefined && d.pointY !== undefined) {
                 const rx = Math.round(d.pointX * 20) / 20; // group close points
                 const ry = Math.round(d.pointY * 20) / 20;
-                groupKey = `point-${rx}-${ry}`;
+                groupKey = `point-${rx}-${ry}-${teamId}`;
                 groupLabel = d.areaLabel || `Point (${d.pointX.toFixed(2)}, ${d.pointY.toFixed(2)})`;
               } else if (d.outZone) {
-                groupKey = `out-${d.outZone}`;
+                groupKey = `out-${d.outZone}-${teamId}`;
                 groupLabel = d.areaLabel || d.outZone;
               } else if (d.areaCode) {
-                groupKey = d.courtSide ? `${d.courtSide}:${d.areaCode}` : d.areaCode;
+                groupKey = d.courtSide ? `${d.courtSide}:${d.areaCode}-${teamId}` : `${d.areaCode}-${teamId}`;
                 groupLabel = d.areaLabel || d.areaCode;
               } else {
-                groupKey = 'unknown';
+                groupKey = `unknown-${teamId}`;
                 groupLabel = 'Unknown Area';
               }
 
               if (!groups.has(groupKey)) {
-                groups.set(groupKey, { count: 0, top: d.coords.top, left: d.coords.left, label: groupLabel, actions: [] });
+                groups.set(groupKey, { count: 0, top: d.coords.top, left: d.coords.left, label: groupLabel, actions: [], teamCode: teamId });
               }
               const g = groups.get(groupKey)!;
               g.count += 1;
@@ -381,21 +391,34 @@ export default function FieldSequenceMap({
               const isOutZone = key.startsWith('out-') || g.actions.some(a => !!a.outZone || a.resultCode === 'Out');
               
               const ringClass = isOutZone ? 'ring-2 ring-yellow-400 ring-offset-1' : g.actions.some(a => a.resultCode === 'Out') ? 'ring-2 ring-yellow-400 ring-offset-1' : '';
-              const colorClass = isOutZone ? 'bg-orange-500' : 'bg-red-500';
+              let colorClass = isOutZone ? 'bg-amber-500' : 'bg-gray-500';
+              if (!isOutZone) {
+                 if (g.teamCode === teamAName) {
+                    colorClass = 'bg-sky-500';
+                 } else if (g.teamCode === teamBName) {
+                    colorClass = 'bg-orange-500';
+                 } else {
+                    colorClass = 'bg-red-500';
+                 }
+              }
+
+              let offsetLeft = 0;
+              if (g.teamCode === teamAName) offsetLeft = -10;
+              else if (g.teamCode === teamBName) offsetLeft = 10;
+
               const areaRes = g.actions[0]?.areaResolution;
-              const displayLabel = `${g.label}${areaRes ? ` (${areaRes})` : ''}`;
+              const displayLabel = `${g.label}${areaRes ? ` (${areaRes})` : ''} [${g.teamCode || 'No Team'}]`;
 
               return (
                 <div 
                   key={key}
                   className={`absolute rounded-full ${colorClass} flex items-center justify-center text-white text-xs font-bold hover:scale-110 transition-transform ${ringClass}`}
                   style={{
-                    top: `${g.top}%`,
-                    left: `${g.left}%`,
+                    top: `calc(${g.top}% - 15px)`,
+                    left: `calc(${g.left}% + ${offsetLeft}px - 15px)`,
                     width: '30px',
                     height: '30px',
-                    transform: 'translate(-50%, -50%)',
-                    opacity: 0.3 + (intensity * 0.7),
+                    opacity: 0.4 + (intensity * 0.6),
                     cursor: 'pointer'
                   }}
                   title={`${displayLabel}: ${g.count} actions`}
@@ -414,7 +437,11 @@ export default function FieldSequenceMap({
               </span>
             </div>
           )}
-          {mode === 'sequence' && selectedEventId && mapData.map((d, i) => (
+          {mode === 'sequence' && selectedEventId && mapData.map((d, i) => {
+            let sequenceColorClass = 'bg-gray-500';
+            if (d.teamCode === teamAName) sequenceColorClass = 'bg-sky-500';
+            else if (d.teamCode === teamBName) sequenceColorClass = 'bg-orange-500';
+            return (
             <React.Fragment key={i}>
               {i > 0 && d.eventId === mapData[i-1].eventId && (
                 <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 10 }}>
@@ -430,7 +457,7 @@ export default function FieldSequenceMap({
                 </svg>
               )}
               <div 
-                className="absolute rounded-full bg-sky-600 text-white text-[10px] font-bold flex items-center justify-center shadow-md z-20 cursor-pointer hover:scale-125 transition-transform"
+                className={`absolute rounded-full ${sequenceColorClass} text-white text-xs font-bold flex items-center justify-center shadow-md z-20 cursor-pointer hover:scale-125 transition-transform`}
                 style={{
                   top: `${d.coords.top}%`,
                   left: `${d.coords.left}%`,
@@ -444,14 +471,18 @@ export default function FieldSequenceMap({
                 {d.sequence}
               </div>
             </React.Fragment>
-          ))}
+          )})}
 
           {mode === 'result' && mapData.map((d, i) => {
-            const color = d.resultCode === 'Yes' ? 'bg-green-500' : d.outZone ? 'bg-orange-500' : d.resultCode === 'Out' ? 'bg-red-500' : 'bg-gray-500';
+            const color = d.resultCode === 'Yes' ? 'bg-green-500' : d.outZone ? 'bg-amber-500' : d.resultCode === 'Out' ? 'bg-red-500' : 'bg-gray-500';
+            let ringColor = 'ring-gray-400';
+            if (d.teamCode === teamAName) ringColor = 'ring-sky-500';
+            else if (d.teamCode === teamBName) ringColor = 'ring-orange-500';
+            
             return (
               <div 
                 key={i}
-                className={`absolute rounded-full ${color} shadow-sm z-10 opacity-70 cursor-pointer hover:opacity-100 hover:scale-150 transition-all`}
+                className={`absolute rounded-full ${color} ring-2 ring-offset-1 ${ringColor} shadow-sm z-10 opacity-70 cursor-pointer hover:opacity-100 hover:scale-150 transition-all`}
                 style={{
                   top: `${d.coords.top + d.jitter.top}%`,
                   left: `${d.coords.left + d.jitter.left}%`,

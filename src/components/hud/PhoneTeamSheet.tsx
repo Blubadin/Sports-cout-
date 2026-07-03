@@ -43,7 +43,7 @@ export default function PhoneTeamSheet({ onClose }: PhoneTeamSheetProps) {
             <button
               key={`${team.id || ""}-${idx}`}
               onClick={() => handleSelectTeam(team.code)}
-              className={`w-full py-5 rounded-2xl shadow-lg flex items-center justify-center active:scale-[0.98] transition-transform border border-white/20 ${idx === 0 ? "bg-indigo-600" : "bg-emerald-600"}`}
+              className={`w-full py-5 rounded-lg shadow-lg flex items-center justify-center active:scale-[0.98] transition-transform border border-white/20 ${idx === 0 ? "bg-sky-600" : "bg-green-600"}`}
             >
               <span className="text-white font-black text-xl tracking-wider drop-shadow-md">
                 {team.code}

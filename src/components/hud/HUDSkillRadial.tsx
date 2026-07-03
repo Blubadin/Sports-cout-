@@ -96,7 +96,7 @@ export default function HUDSkillRadial({
       onClick={!isActive ? onClick : undefined}
     >
       <div
-        className={`bg-black/60 backdrop-blur-xl rounded-full border ${isActive ? "border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.2)]" : "border-white/10 shadow-2xl p-4"} relative flex items-center justify-center min-w-[64px] min-h-[64px]`}
+        className={`bg-black/60 backdrop-blur-xl rounded-full border ${isActive ? "border-sky-500/50 shadow-[0_0_20px_rgba(14,165,233,0.2)]" : "border-white/10 shadow-sm p-4"} relative flex items-center justify-center min-w-[64px] min-h-[64px]`}
       >
         {isActive ? (
           <ProDonutCommandWheel
