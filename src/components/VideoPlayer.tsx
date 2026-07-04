@@ -9,6 +9,7 @@ import React, {
 import ReactPlayer from "react-player";
 import { useScoutContext } from "../context/ScoutContext";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { get, set } from 'idb-keyval';
 import {
   Play,
   Pause,
@@ -166,6 +167,62 @@ export default function VideoPlayer() {
     return null;
   };
 
+  const [canRestoreAccess, setCanRestoreAccess] = useState(false);
+
+  useEffect(() => {
+    if (videoSourceType === 'local' && localFileName && !videoSrc) {
+       get(`videoFileHandle-${localFileName}`).then(handle => {
+          if (handle) {
+             setCanRestoreAccess(true);
+          }
+       });
+    } else {
+       setCanRestoreAccess(false);
+    }
+  }, [videoSourceType, localFileName, videoSrc]);
+
+  const handleRestoreAccess = async () => {
+    try {
+      const handle = await get(`videoFileHandle-${localFileName}`);
+      if (handle) {
+         const perm = await (handle as any).requestPermission({ mode: 'read' });
+         if (perm === 'granted') {
+            const file = await (handle as any).getFile();
+            const url = URL.createObjectURL(file);
+            setVideoSrc(url);
+         }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handlePickLocalVideo = async () => {
+    if ('showOpenFilePicker' in window) {
+      try {
+        const [fileHandle] = await (window as any).showOpenFilePicker({
+          types: [{ description: 'Video Files', accept: { 'video/*': [] } }]
+        });
+        const file = await fileHandle.getFile();
+        
+        if (videoSrc && videoSourceType === "local") {
+          URL.revokeObjectURL(videoSrc);
+        }
+        const url = URL.createObjectURL(file);
+        setVideoSrc(url);
+        setLocalFileName(file.name);
+        setVideoSourceType("local");
+        setIsPlaying(false);
+        
+        await set(`videoFileHandle-${file.name}`, fileHandle);
+      } catch (err) {
+        console.log("User cancelled or file access failed");
+      }
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -274,22 +331,37 @@ export default function VideoPlayer() {
 
         {videoSourceType === "local" && (
           <div className="flex flex-col gap-1">
-            <label className="cursor-pointer flex items-center justify-center gap-1 text-xs bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 px-3 py-2 rounded-lg hover:bg-sky-100 transition-colors border border-sky-100 dark:border-sky-800/50">
+            <button 
+              onClick={handlePickLocalVideo}
+              className="cursor-pointer flex items-center justify-center gap-1 text-xs bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 px-3 py-2 rounded-lg hover:bg-sky-100 transition-colors border border-sky-100 dark:border-sky-800/50"
+            >
               <Upload size={14} />
-              <span>เลือกไฟล์วิดีโอจากเครื่อง</span>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="video/*"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-            </label>
+              <span>{settings.uiLanguage === 'th' ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select Local Video'}</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              className="hidden"
+              onChange={handleFileChange}
+            />
             {localFileName && !videoSrc && (
-              <div className="text-xs text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800 p-2 rounded-lg text-center">
-                Project นี้มีการบันทึกไฟล์ <b>{localFileName}</b>
-                <br />
-                กรุณาเลือกไฟล์วิดีโอเดิมเพื่อเล่นต่อ
+              <div className="text-xs text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800 p-3 rounded-lg text-center flex flex-col gap-2">
+                <div>
+                  {settings.uiLanguage === 'th' ? 'Project นี้มีการบันทึกไฟล์' : 'Project recorded video file'} <b>{localFileName}</b>
+                </div>
+                {canRestoreAccess ? (
+                   <button 
+                     onClick={handleRestoreAccess}
+                     className="bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-md font-medium transition-colors"
+                   >
+                     {settings.uiLanguage === 'th' ? 'อนุญาตให้เข้าถึงไฟล์นี้อีกครั้ง (Restore Access)' : 'Restore Access'}
+                   </button>
+                ) : (
+                   <div className="opacity-80">
+                     {settings.uiLanguage === 'th' ? 'กรุณาเลือกไฟล์วิดีโอเดิมเพื่อเล่นต่อ' : 'Please re-select this file to continue playing.'}
+                   </div>
+                )}
               </div>
             )}
           </div>

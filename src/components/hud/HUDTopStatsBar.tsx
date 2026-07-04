@@ -82,6 +82,12 @@ export default function HUDTopStatsBar({
 
   const isLocked = events.length > 0;
 
+  React.useEffect(() => {
+    if (isLocked && showSportSelector) {
+      setShowSportSelector(false);
+    }
+  }, [isLocked, showSportSelector]);
+
   return (
     <div className="flex items-center justify-between text-white drop-shadow-md w-full gap-2 relative">
       {/* Left: Stats */}

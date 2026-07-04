@@ -5,6 +5,7 @@ import { Folder, Plus, Save, ChevronDown, Trash2, Copy, Edit2, Download, Upload,
 import { classNames } from '../utils';
 import { ScoutProject, SportType } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import CreateProjectWizard from './CreateProjectWizard';
 import CustomSelect from './ui/CustomSelect';
 import { SPORT_TEMPLATES } from '../sports';
 
@@ -43,9 +44,15 @@ export default function WorkspaceMenu() {
     setIsOpen(false);
   };
 
-  const handleCreateConfirm = () => {
-    const title = `New Match ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    createNewProject(title, selectedSport);
+  const handleWizardCreate = (
+    title: string, 
+    sportType: any, 
+    matchInfo: any, 
+    teams: any,
+    settingsSnapshot?: any,
+    videoMeta?: any
+  ) => {
+    createNewProject(title, sportType, matchInfo, teams, settingsSnapshot, videoMeta);
     setIsCreateModalOpen(false);
   };
 
@@ -74,25 +81,17 @@ export default function WorkspaceMenu() {
     reader.onload = (e) => {
       try {
         const content = e.target?.result as string;
-        const imported = JSON.parse(content) as Partial<ScoutProject>;
+        const imported = JSON.parse(content);
         
-        // Validation
-        if (!imported.id || !imported.title || !Array.isArray(imported.events) || !imported.sportType) {
-          showToast('Invalid Project JSON format');
-          return;
+        const originalTitle = imported.title || 'Imported Project';
+        imported.title = `${originalTitle} (Imported)`;
+
+        const success = importProject(imported);
+        if (success) {
+          showToast(`Imported: ${originalTitle}`);
+        } else {
+          showToast('Invalid Project JSON format or schema');
         }
-
-        const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-        const newProj: ScoutProject = {
-          ...(imported as ScoutProject),
-          id: newId,
-          title: `${imported.title} (Imported)`,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-
-        importProject(newProj);
-        showToast(`Imported: ${newProj.title}`);
       } catch (err) {
         showToast('Failed to parse JSON');
       }
@@ -124,61 +123,11 @@ export default function WorkspaceMenu() {
         </button>
       </div>
 
-      <AnimatePresence>
-        {isCreateModalOpen && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsCreateModalOpen(false)}
-              className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="relative w-full max-w-sm bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden"
-            >
-              <div className="flex justify-between items-center p-4 border-b border-gray-100 dark:border-gray-700">
-                <h3 className="font-bold text-gray-800 dark:text-gray-100">
-                  {settings.uiLanguage === 'th' ? 'สร้างโครงการใหม่' : 'Create New Project'}
-                </h3>
-                <button
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="p-4">
-                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase">
-                  {settings.uiLanguage === 'th' ? 'เลือกประเภทกีฬา' : 'Select Sport Type'}
-                </label>
-                <CustomSelect
-                  value={selectedSport}
-                  onChange={(v) => setSelectedSport(v as SportType)}
-                  options={sportOptions}
-                />
-              </div>
-              <div className="p-4 border-t border-gray-100 dark:border-gray-700 flex justify-end gap-2 bg-gray-50 dark:bg-gray-800/50">
-                <button
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-2 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                >
-                  {settings.uiLanguage === 'th' ? 'ยกเลิก' : 'Cancel'}
-                </button>
-                <button
-                  onClick={handleCreateConfirm}
-                  className="px-4 py-2 text-sm font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors"
-                >
-                  {settings.uiLanguage === 'th' ? 'สร้างโครงการ' : 'Create Project'}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <CreateProjectWizard 
+        isOpen={isCreateModalOpen} 
+        onClose={() => setIsCreateModalOpen(false)} 
+        onCreate={handleWizardCreate} 
+      />
 
       <AnimatePresence>
         {isOpen && (
@@ -193,7 +142,7 @@ export default function WorkspaceMenu() {
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
               {settings.uiLanguage === 'th' ? 'คลังโครงการ (Workspace Library)' : 'Workspace Library'}
             </h3>
-            <label className="cursor-pointer p-1 text-gray-500 hover:text-sky-600 transition-colors" title="Import Project JSON">
+            <label className="cursor-pointer p-1 text-gray-500 hover:text-sky-600 transition-colors" title={settings.uiLanguage === 'th' ? 'นำเข้าโปรเจกต์ (Restore Project)' : 'Restore Project (Import JSON)'}>
               <Upload size={14} />
               <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImport} />
             </label>
@@ -247,11 +196,14 @@ export default function WorkspaceMenu() {
                       <button onClick={() => duplicateProject(proj.id)} className="p-2 md:p-1 text-gray-400 hover:text-sky-600 rounded-lg bg-gray-100 md:bg-transparent">
                         <Copy size={14} className="md:w-3 md:h-3" />
                       </button>
-                      <button onClick={() => handleExport(proj)} className="p-2 md:p-1 text-gray-400 hover:text-green-600 rounded-lg bg-gray-100 md:bg-transparent">
+                      <button onClick={() => handleExport(proj)} className="p-2 md:p-1 text-gray-400 hover:text-green-600 rounded-lg bg-gray-100 md:bg-transparent" title={settings.uiLanguage === 'th' ? 'สำรองข้อมูลโปรเจกต์ (Backup Project)' : 'Backup Project (Export JSON)'}>
                         <Download size={14} className="md:w-3 md:h-3" />
                       </button>
                       <button onClick={() => {
-                        deleteProject(proj.id);
+                        const confirmMsg = settings.uiLanguage === 'th' ? 'ต้องการลบโปรเจคนี้ใช่หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้' : 'Delete this project? This action cannot be undone.';
+                        if (window.confirm(confirmMsg)) {
+                          deleteProject(proj.id);
+                        }
                       }} className="p-2 md:p-1 text-gray-400 hover:text-red-600 rounded-lg bg-gray-100 md:bg-transparent">
                         <Trash2 size={14} className="md:w-3 md:h-3" />
                       </button>

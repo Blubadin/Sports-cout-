@@ -52,7 +52,7 @@ export default function HUDSequenceHistoryDrawer({
     if (event.actions && event.actions.length > 0) {
       return event.actions
         .map((act) => {
-          return [act.teamCode, act.skillCode, act.areaCode, act.resultCode]
+          return [act.teamCode, act.skillCode, ...(act.descriptors ? Object.values(act.descriptors) : []), act.areaCode, act.resultCode, act.foulCode]
             .filter(Boolean)
             .join("/");
         })
@@ -255,8 +255,9 @@ export default function HUDSequenceHistoryDrawer({
                             {[
                               act.teamCode,
                               act.skillCode,
+                              ...(act.descriptors ? Object.values(act.descriptors) : []),
                               act.areaCode,
-                              act.resultCode,
+                              act.resultCode, act.foulCode,
                             ]
                               .filter(Boolean)
                               .join(" / ")}
@@ -277,7 +278,8 @@ export default function HUDSequenceHistoryDrawer({
                   {/* Current ongoing composing action */}
                   {(currentAction.teamCode ||
                     currentAction.skillCode ||
-                    currentAction.areaCode) && (
+                    currentAction.areaCode ||
+                    currentAction.foulCode) && (
                     <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-3 space-y-2 animate-pulse">
                       <div className="text-xs uppercase font-bold text-sky-400">
                         Composing Current Action
@@ -303,6 +305,13 @@ export default function HUDSequenceHistoryDrawer({
                         >
                           {currentAction.resultCode || "Result"}
                         </span>
+                        {currentAction.foulCode && (
+                          <span
+                            className="px-2 py-0.5 rounded-lg text-xs font-bold bg-amber-500 text-white shadow"
+                          >
+                            {currentAction.foulCode}
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}

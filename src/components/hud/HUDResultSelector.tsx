@@ -24,39 +24,33 @@ export default function HUDResultSelector({
   pointerX = 0,
   pointerY = 0,
 }: Props) {
-  const { currentAction, commitResult, settings } = useScoutContext();
+  const { currentAction, commitResult, settings, sportTemplate } = useScoutContext();
   const layout = useHUDDeviceLayout();
 
   const handleResultSelect = (value: string) => {
     commitResult(value, settings.fastMode);
   };
 
-  const results = [
-    {
-      code: "Yes",
-      title: "YES",
-      label: "YES",
-      sub: "ได้แต้ม",
-      color: "bg-green-600 border-green-400",
-      shadow: "shadow-[0_0_15px_rgba(34,197,94,0.3)]",
-    },
-    {
-      code: "Pass",
-      title: "PASS",
-      label: "PASS",
-      sub: "เล่นต่อ",
-      color: "bg-sky-600 border-sky-400",
-      shadow: "shadow-[0_0_15px_rgba(56,189,248,0.3)]",
-    },
-    {
-      code: "Out",
-      title: "OUT",
-      label: "OUT",
-      sub: "เสียแต้ม",
-      color: "bg-red-600 border-red-400",
-      shadow: "shadow-[0_0_15px_rgba(239,68,68,0.3)]",
-    },
-  ];
+  const results = (sportTemplate?.results || []).map((r) => {
+    let color = "bg-sky-600 border-sky-400";
+    let shadow = "shadow-[0_0_15px_rgba(56,189,248,0.3)]";
+    if (r.code === "Yes" || r.score === 1) {
+      color = "bg-green-600 border-green-400";
+      shadow = "shadow-[0_0_15px_rgba(34,197,94,0.3)]";
+    } else if (r.code === "Out" || r.score === -1) {
+      color = "bg-red-600 border-red-400";
+      shadow = "shadow-[0_0_15px_rgba(239,68,68,0.3)]";
+    }
+
+    return {
+      code: r.code,
+      title: r.code.toUpperCase(),
+      label: r.code,
+      sub: settings.uiLanguage === "th" ? r.thaiName : r.code,
+      color,
+      shadow,
+    };
+  });
 
   const handleHoverItem = (payload: {
     type: "skill" | "descriptor" | "result";

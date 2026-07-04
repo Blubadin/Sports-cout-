@@ -2,9 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { EventRow } from '../types';
 import { formatPreciseTime as formatTime } from '../utils';
-import { Trash2, Copy, Download, FileJson, CopyCheck, Type, Play, Pencil } from 'lucide-react';
+import { Trash2, Copy, Download, FileJson, CopyCheck, Type, Play, Pencil, Undo2, Redo2 } from 'lucide-react';
 import { t } from '../i18n';
 import EditEventModal from './EditEventModal';
+import { SPORT_TEMPLATES } from '../sports';
 
 function ResultSelect({ value, onChange }: { value: string, onChange: (v: string) => void }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -57,7 +58,7 @@ function ResultSelect({ value, onChange }: { value: string, onChange: (v: string
 }
 
 export default function ScoutingTable() {
-  const { events, setEvents, deleteEventRow, updateEventRow, setSeekRequest, settings, showToast } = useScoutContext();
+  const { events, setEvents, saveEventsWithHistory, deleteEventRow, updateEventRow, setSeekRequest, settings, showToast, canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction } = useScoutContext();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<EventRow | null>(null);
@@ -94,7 +95,7 @@ export default function ScoutingTable() {
   };
 
   const duplicateRow = (row: EventRow) => {
-    setEvents(prev => {
+    saveEventsWithHistory(prev => {
       const newRow = {
         ...row,
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
@@ -123,6 +124,24 @@ export default function ScoutingTable() {
           {settings.uiLanguage === 'th' ? 'ตารางบันทึกข้อมูล (Scouting Table)' : 'Scouting Table'}
         </h2>
         <div className="flex gap-2 items-center">
+          <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5 border border-gray-200 dark:border-gray-700">
+            <button 
+              onClick={undoEventAction} 
+              disabled={!canUndoEventAction}
+              className={`p-1.5 rounded-md transition-colors ${canUndoEventAction ? 'text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 cursor-pointer shadow-sm' : 'text-gray-400 dark:text-gray-600 cursor-not-allowed'}`}
+              title="Undo Event Action"
+            >
+              <Undo2 size={14} />
+            </button>
+            <button 
+              onClick={redoEventAction} 
+              disabled={!canRedoEventAction}
+              className={`p-1.5 rounded-md transition-colors ${canRedoEventAction ? 'text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 cursor-pointer shadow-sm' : 'text-gray-400 dark:text-gray-600 cursor-not-allowed'}`}
+              title="Redo Event Action"
+            >
+              <Redo2 size={14} />
+            </button>
+          </div>
           <ExportButtons events={events} />
           {events.length > 0 && (
             <button 
@@ -180,6 +199,32 @@ export default function ScoutingTable() {
                     {row.thaiMeaningText && (
                       <div className="text-xs text-gray-400 mt-0.5 truncate max-w-xs xl:max-w-md">{row.thaiMeaningText}</div>
                     )}
+                    {(() => {
+                      const rowFouls = row.actions?.filter(a => !!a.foulCode) || [];
+                      if (rowFouls.length === 0) return null;
+                      return (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {rowFouls.map((foulAction, fIdx) => {
+                            const template = SPORT_TEMPLATES[row.sportType];
+                            const fDef = template?.fouls?.find(x => x.code === foulAction.foulCode);
+                            const fLabel = fDef ? (settings.uiLanguage === 'th' ? (fDef.labelTh || fDef.label) : fDef.label) : foulAction.foulCode;
+                            const severityColor = foulAction.foulSeverity === 'card' 
+                              ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 border border-red-200 dark:border-red-900/30' 
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-900/30';
+                            
+                            return (
+                              <span 
+                                key={fIdx} 
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${severityColor}`}
+                                title={`Foul: ${foulAction.foulCode} (${fLabel}) - Role: ${foulAction.foulRole || 'violation'}`}
+                              >
+                                ⚠️ {foulAction.foulCode}: {fLabel}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-2 text-center relative overflow-visible">
                     <ResultSelect 
@@ -242,8 +287,11 @@ export default function ScoutingTable() {
                       </button>
                       <button 
                         onClick={() => {
-                          deleteEventRow(row.id);
-                          showToast(settings.uiLanguage === 'th' ? `ลบซีเควนซ์ที่ ${row.no} เรียบร้อยแล้ว` : `Sequence #${row.no} has been deleted`);
+                          const confirmDelete = window.confirm(settings.uiLanguage === 'th' ? 'ต้องการลบรายการนี้ใช่หรือไม่? การกระทำนี้สามารถ Undo ได้' : 'Delete this event? You can undo this action.');
+                          if (confirmDelete) {
+                            deleteEventRow(row.id);
+                            showToast(settings.uiLanguage === 'th' ? `ลบซีเควนซ์ที่ ${row.no} เรียบร้อยแล้ว` : `Sequence #${row.no} has been deleted`);
+                          }
                         }} 
                         className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-all cursor-pointer" 
                         title={settings.uiLanguage === 'th' ? 'ลบซีเควนซ์' : 'Delete Sequence'}
@@ -314,8 +362,11 @@ export default function ScoutingTable() {
                   </button>
                   <button 
                     onClick={() => {
-                      deleteEventRow(row.id);
-                      showToast(settings.uiLanguage === 'th' ? `ลบซีเควนซ์ที่ ${row.no} เรียบร้อยแล้ว` : `Sequence #${row.no} has been deleted`);
+                      const confirmDelete = window.confirm(settings.uiLanguage === 'th' ? 'ต้องการลบรายการนี้ใช่หรือไม่? การกระทำนี้สามารถ Undo ได้' : 'Delete this event? You can undo this action.');
+                      if (confirmDelete) {
+                        deleteEventRow(row.id);
+                        showToast(settings.uiLanguage === 'th' ? `ลบซีเควนซ์ที่ ${row.no} เรียบร้อยแล้ว` : `Sequence #${row.no} has been deleted`);
+                      }
                     }} 
                     className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-all cursor-pointer" 
                     title={settings.uiLanguage === 'th' ? 'ลบซีเควนซ์' : 'Delete'}
@@ -341,6 +392,32 @@ export default function ScoutingTable() {
                     {row.thaiMeaningText}
                   </div>
                 )}
+                {(() => {
+                  const rowFouls = row.actions?.filter(a => !!a.foulCode) || [];
+                  if (rowFouls.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {rowFouls.map((foulAction, fIdx) => {
+                        const template = SPORT_TEMPLATES[row.sportType];
+                        const fDef = template?.fouls?.find(x => x.code === foulAction.foulCode);
+                        const fLabel = fDef ? (settings.uiLanguage === 'th' ? (fDef.labelTh || fDef.label) : fDef.label) : foulAction.foulCode;
+                        const severityColor = foulAction.foulSeverity === 'card' 
+                          ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 border border-red-200 dark:border-red-900/30' 
+                          : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-900/30';
+                        
+                        return (
+                          <div 
+                            key={fIdx} 
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${severityColor}`}
+                            title={`Foul: ${foulAction.foulCode} (${fLabel}) - Role: ${foulAction.foulRole || 'violation'}`}
+                          >
+                            ⚠️ {foulAction.foulCode}: {fLabel}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ))}
@@ -404,9 +481,14 @@ export default function ScoutingTable() {
 }
 
 function ExportButtons({ events }: { events: EventRow[] }) {
+  const { settings } = useScoutContext();
   const exportCSV = () => {
     if (events.length === 0) return;
-    const headers = ['NO', 'Sport', 'PT', 'Basic Code', 'Extended Code', 'Thai Meaning', 'Result', 'Video Source', 'Video ID', 'Video Time', 'Note', 'Created At'];
+    const headers = [
+      'NO', 'Sport', 'PT', 'Basic Code', 'Extended Code', 'Thai Meaning', 'Result', 
+      'Video Source', 'Video ID', 'Video Time', 'Note', 'Created At',
+      'foulCode', 'foulRole', 'foulSeverity', 'foulLabel', 'areaLabel', 'outZone', 'areaMode', 'areaResolution'
+    ];
     const rows = events.map(e => [
       e.no,
       e.sportType || '',
@@ -419,7 +501,20 @@ function ExportButtons({ events }: { events: EventRow[] }) {
       e.youtubeVideoId || '',
       e.videoTime !== undefined && e.videoTime !== null ? formatTime(e.videoTime) : '',
       e.note || '',
-      e.createdAt
+      e.createdAt,
+      e.actions?.map(a => a.foulCode || '').filter(Boolean).join('; ') || '',
+      e.actions?.map(a => a.foulRole || '').filter(Boolean).join('; ') || '',
+      e.actions?.map(a => a.foulSeverity || '').filter(Boolean).join('; ') || '',
+      e.actions?.map(a => {
+        if (!a.foulCode) return '';
+        const template = SPORT_TEMPLATES[e.sportType];
+        const f = template?.fouls?.find(x => x.code === a.foulCode);
+        return f ? f.label : a.foulCode;
+      }).filter(Boolean).join('; ') || '',
+      e.actions?.map(a => a.areaLabel || '').filter(Boolean).join('; ') || '',
+      e.actions?.map(a => a.outZone || '').filter(Boolean).join('; ') || '',
+      e.actions?.map(a => a.areaMode || '').filter(Boolean).join('; ') || '',
+      e.actions?.map(a => a.areaResolution || '').filter(Boolean).join('; ') || '',
     ]);
     
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
@@ -436,7 +531,14 @@ function ExportButtons({ events }: { events: EventRow[] }) {
 
   const exportJSON = () => {
     if (events.length === 0) return;
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(events, null, 2));
+    const exportData = {
+      schemaVersion: "1.0",
+      app: "Sports Scout Logger",
+      exportedAt: new Date().toISOString(),
+      type: "events",
+      events: events
+    };
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
     const link = document.createElement("a");
     link.setAttribute("href", dataStr);
     link.setAttribute("download", `scout_export_${new Date().toISOString().split('T')[0]}.json`);
@@ -448,10 +550,10 @@ function ExportButtons({ events }: { events: EventRow[] }) {
   return (
     <>
       <button onClick={exportCSV} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-        <Download size={14} /> CSV
+        <Download size={14} /> {settings.uiLanguage === 'th' ? 'นำออกรายงาน (CSV)' : 'Export Report (CSV)'}
       </button>
       <button onClick={exportJSON} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-        <FileJson size={14} /> JSON
+        <FileJson size={14} /> {settings.uiLanguage === 'th' ? 'นำออกข้อมูลดิบ (JSON)' : 'Export Raw Data (JSON)'}
       </button>
     </>
   );

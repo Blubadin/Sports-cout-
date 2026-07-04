@@ -61,6 +61,8 @@ export default function ProAreaCommandPad({
   }, [active]);
 
   // We run geometry hit testing on pointer coordinate changes
+  const [localRx, setLocalRx] = useState(0.5);
+  const [localRy, setLocalRy] = useState(0.5);
   const [hoveredPayload, setHoveredPayload] = useState<AreaSelectionPayload | null>(null);
 
   useEffect(() => {
@@ -69,6 +71,10 @@ export default function ProAreaCommandPad({
     // Relative mouse coordinate in [0, 1]
     let rx = (pointerX - containerRect.left) / containerRect.width;
     let ry = (pointerY - containerRect.top) / containerRect.height;
+    
+    setLocalRx(rx);
+    setLocalRy(ry);
+
 
     // Handle rotation/flip court side
     if (flipCourtSide) {
@@ -150,6 +156,8 @@ export default function ProAreaCommandPad({
       // Left/Right margin = 0.15, Top/Bottom margin = 0.15
       const cx = Math.max(0, Math.min(1, (rx - 0.15) / 0.70));
       const cy = Math.max(0, Math.min(1, (ry - 0.15) / 0.70));
+      
+      const isDetailed = settings?.areaPrecisionMode === 'detailed' || settings?.areaPrecisionMode === 'point'; // Point mode not fully supported yet, fallback to detailed
 
       if (sportType === "volleyball") {
         const teamA = "teamA";
@@ -161,128 +169,85 @@ export default function ProAreaCommandPad({
         if (cx < 0.46) {
           // Left side
           const colX = cx / 0.46;
-          const colCode = colX < 0.5 ? "B" : "N"; // Back or Net
-          const rowCode = cy < 0.33 ? "L" : cy < 0.66 ? "C" : "R"; // Left, Center, Right
-          const areaCode = rowCode + colCode;
-          payload = {
-            areaCode,
-            courtSide: leftCourtSide,
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          const rowCode = cy < 0.33 ? "L" : cy < 0.66 ? "C" : "R";
+          let areaCode = "";
+          if (isDetailed) {
+             const colIdx = colX < 0.33 ? "1" : colX < 0.66 ? "2" : "1";
+             const baseCol = colX < 0.66 ? "B" : "N";
+             areaCode = rowCode + baseCol + "-" + colIdx;
+          } else {
+             const colCode = colX < 0.5 ? "B" : "N";
+             areaCode = rowCode + colCode;
+          }
+          payload = { areaCode, courtSide: leftCourtSide, areaResolution: isDetailed ? "detailed" : "normal", areaMode: isDetailed ? "detailed" : "normal" };
         } else if (cx > 0.54) {
           // Right side
           const colX = (cx - 0.54) / 0.46;
-          const colCode = colX < 0.5 ? "N" : "B"; // Net or Back
-          // Mirrored row index
-          const rowCode = cy < 0.33 ? "R" : cy < 0.66 ? "C" : "L";
-          const areaCode = rowCode + colCode;
-          payload = {
-            areaCode,
-            courtSide: rightCourtSide,
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          const rowCode = cy < 0.33 ? "R" : cy < 0.66 ? "C" : "L"; // Mirrored
+          let areaCode = "";
+          if (isDetailed) {
+             const colIdx = colX < 0.33 ? "2" : colX < 0.66 ? "3" : "4";
+             const baseCol = colX < 0.33 ? "N" : "B";
+             areaCode = rowCode + baseCol + "-" + colIdx;
+          } else {
+             const colCode = colX < 0.5 ? "N" : "B";
+             areaCode = rowCode + colCode;
+          }
+          payload = { areaCode, courtSide: rightCourtSide, areaResolution: isDetailed ? "detailed" : "normal", areaMode: isDetailed ? "detailed" : "normal" };
         } else {
           // NET
-          payload = {
-            areaCode: "NET",
-            courtSide: "neutral",
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          payload = { areaCode: "NET", courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
         }
       } else if (sportType === "football") {
-        if (cy < 0.22) {
-          // Goal/Box
-          const areaCode = cx > 0.33 && cx < 0.67 ? "GOAL" : "BOX";
-          payload = {
-            areaCode,
-            courtSide: "neutral",
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+        if (isDetailed) {
+           const r = Math.min(3, Math.floor(cy * 4));
+           const c = Math.min(3, Math.floor(cx * 4));
+           payload = { areaCode: `F-${r}-${c}`, courtSide: "neutral", areaResolution: "detailed", areaMode: "detailed" };
         } else {
-          // Main 3x3 Grid
-          const gridY = (cy - 0.22) / 0.78;
-          const rowLabel = gridY < 0.33 ? "ATT" : gridY < 0.66 ? "MID" : "DEF";
-          const colLabel = cx < 0.33 ? "L" : cx < 0.66 ? "C" : "R";
-          payload = {
-            areaCode: `${rowLabel}_${colLabel}`,
-            courtSide: "neutral",
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          if (cy < 0.22) {
+            const areaCode = cx > 0.33 && cx < 0.67 ? "GOAL" : "BOX";
+            payload = { areaCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+          } else {
+            const gridY = (cy - 0.22) / 0.78;
+            const rowLabel = gridY < 0.33 ? "ATT" : gridY < 0.66 ? "MID" : "DEF";
+            const colLabel = cx < 0.33 ? "L" : cx < 0.66 ? "C" : "R";
+            payload = { areaCode: `${rowLabel}_${colLabel}`, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+          }
         }
       } else if (sportType === "badminton") {
         if (cy < 0.46) {
-          // Opponent Side
           const gridY = cy / 0.46;
           const rowCode = gridY < 0.33 ? "B" : gridY < 0.66 ? "M" : "F";
           const colCode = cx < 0.33 ? "R" : cx < 0.66 ? "C" : "L";
-          payload = {
-            areaCode: rowCode + colCode,
-            courtSide: "neutral",
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          payload = { areaCode: rowCode + colCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
         } else if (cy > 0.54) {
-          // Our Side
           const gridY = (cy - 0.54) / 0.46;
           const rowCode = gridY < 0.33 ? "F" : gridY < 0.66 ? "M" : "B";
           const colCode = cx < 0.33 ? "L" : cx < 0.66 ? "C" : "R";
-          payload = {
-            areaCode: rowCode + colCode,
-            courtSide: "neutral",
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          payload = { areaCode: rowCode + colCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
         } else {
-          // NET
-          payload = {
-            areaCode: "NET_ERR",
-            courtSide: "neutral",
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          payload = { areaCode: "NET_ERR", courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
         }
       } else if (sportType === "basketball") {
         if (cy < 0.25) {
           const areaCode = cx > 0.33 && cx < 0.67 ? "PAINT" : cx < 0.33 ? "LEFT_WING" : "RIGHT_WING";
-          payload = {
-            areaCode,
-            courtSide: "neutral",
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          payload = { areaCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
         } else if (cy >= 0.75) {
-          payload = {
-            areaCode: "THREE_PT",
-            courtSide: "neutral",
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          payload = { areaCode: "THREE_PT", courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
         } else {
           const gridY = (cy - 0.25) / 0.50;
           const isTopRow = gridY < 0.5;
           let areaCode = "MID_RANGE";
-
           if (isTopRow) {
             areaCode = cx < 0.33 ? "LEFT_WING" : cx < 0.66 ? "TOP_KEY" : "RIGHT_WING";
           } else {
             areaCode = cx < 0.33 ? "LEFT_CORNER" : cx < 0.66 ? "MID_RANGE" : "RIGHT_CORNER";
           }
-
-          payload = {
-            areaCode,
-            courtSide: "neutral",
-            areaResolution: "normal",
-            areaMode: "normal",
-          };
+          payload = { areaCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
         }
       }
     }
-
+    
     if (payload && payload.areaCode) {
       const areaObj = areas.find((a) => a.code === payload!.areaCode);
       const isThai = settings?.uiLanguage === "th";
@@ -294,8 +259,8 @@ export default function ProAreaCommandPad({
     }
 
     // Geometry hit-testing is bypassed in favor of DOM tracking from the parent.
-    // setHoveredPayload(payload);
-    // onHoverArea(payload);
+    setHoveredPayload(payload);
+    onHoverArea(payload);
   }, [pointerX, pointerY, containerRect, active, sportType, flipCourtSide, enableOutOfBoundsZones]);
 
   if (!active) return null;
@@ -356,6 +321,13 @@ export default function ProAreaCommandPad({
       ref={containerRef}
       className={`relative w-full aspect-[4/3] sm:aspect-[1.4/1] bg-slate-900/60 border border-white/10 rounded-2xl p-4 flex flex-col justify-between overflow-hidden select-none`}
     >
+      {/* Pointer Highlight */}
+      <div 
+        className="absolute w-8 h-8 rounded-full bg-amber-500/20 border-2 border-amber-400/60 pointer-events-none z-50 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center shadow-[0_0_10px_rgba(245,158,11,0.5)] backdrop-blur-[2px]"
+        style={{ left: `${localRx * 100}%`, top: `${localRy * 100}%` }}
+      >
+        <div className="w-1 h-1 bg-amber-300 rounded-full" />
+      </div>
       {/* 1. OUT OF BOUNDS - TOP EDGE */}
       <div className="absolute top-0 left-0 right-0 h-[14%] flex">
         {enableOutOfBoundsZones ? (

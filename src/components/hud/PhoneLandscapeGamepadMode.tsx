@@ -51,10 +51,13 @@ export default function PhoneLandscapeGamepadMode({
     currentActions,
     events,
     commitResult,
+    updateActionField,
     sportTemplate,
     undoLastAction,
     clearCurrentEvent,
     saveEvent,
+    selectFoul,
+    clearFoul,
   } = useScoutContext();
 
   const [activeOverlay, setActiveOverlay] = useState<
@@ -243,6 +246,26 @@ export default function PhoneLandscapeGamepadMode({
 
         {/* Dynamic Results column from current sport template */}
         <div className="flex flex-col gap-2 border-t border-white/5 pt-2">
+          {(sportTemplate.fouls || []).map(f => {
+            const isSelected = currentAction.foulCode === f.code;
+            const isCard = f.severity === 'card' || f.severity === 'technical';
+            return (
+              <button
+                key={f.code}
+                onClick={() => {
+                  setControlsVisible(true);
+                  if (isSelected) {
+                    clearFoul();
+                  } else {
+                    selectFoul(f);
+                  }
+                }}
+                className={`w-[58px] h-[38px] rounded-lg text-white font-black text-[10px] uppercase shadow-lg active:scale-90 transition-all border break-words leading-tight px-1 ${isSelected ? (isCard ? 'bg-red-500 border-red-400' : 'bg-amber-500 border-amber-400') : (isCard ? 'bg-black/50 border-red-900/50 text-red-200' : 'bg-black/50 border-amber-900/50 text-amber-200')}`}
+              >
+                {f.code}
+              </button>
+            );
+          })}
           {results.slice(0, 3).map((res, idx) => {
             const bgColors = [
               "bg-sky-600 border-sky-500",

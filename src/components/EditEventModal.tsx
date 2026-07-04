@@ -22,6 +22,7 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
     sportTemplate,
     settings,
     showToast,
+    getMissingActionMessage,
   } = useScoutContext();
 
   const isThai = settings.uiLanguage === 'th';
@@ -75,12 +76,9 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
       // Check if all actions are complete
       for (let i = 0; i < actions.length; i++) {
         const act = actions[i];
-        if (!act.skillCode) {
-          showToast(isThai ? `กรุณาระบุทักษะสำหรับ Action ที่ ${i + 1}` : `Please specify skill for Action #${i + 1}`);
-          return;
-        }
-        if (!act.resultCode) {
-          showToast(isThai ? `กรุณาระบุผลลัพธ์สำหรับ Action ที่ ${i + 1}` : `Please specify result for Action #${i + 1}`);
+        const missingMessage = getMissingActionMessage(act);
+        if (missingMessage) {
+          showToast(isThai ? `Action ที่ ${i + 1}: ${missingMessage}` : `Action #${i + 1}: ${missingMessage}`);
           return;
         }
       }
@@ -366,7 +364,7 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
                     {/* Skill */}
                     <div>
                       <label className="block text-[11px] font-bold text-gray-400 dark:text-gray-500 mb-1">
-                        {isThai ? 'ทักษะ *' : 'Skill *'}
+                        {isThai ? 'ทักษะ' : 'Skill'}{!currentEditingAction.foulCode && ' *'}
                       </label>
                       <select
                         value={currentEditingAction.skillCode || ''}
@@ -383,7 +381,7 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
                     {/* Result */}
                     <div>
                       <label className="block text-[11px] font-bold text-gray-400 dark:text-gray-500 mb-1">
-                        {isThai ? 'ผลลัพธ์ *' : 'Result *'}
+                        {isThai ? 'ผลลัพธ์' : 'Result'}{!currentEditingAction.foulCode && ' *'}
                       </label>
                       <select
                         value={currentEditingAction.resultCode || ''}
@@ -398,7 +396,7 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {/* Court Area */}
                     <div>
                       <label className="block text-[11px] font-bold text-gray-400 dark:text-gray-500 mb-1">
@@ -430,6 +428,37 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
                         <option value="teamA">{isThai ? 'ฝั่งเรา / ทีม A' : 'Our Side / Team A'}</option>
                         <option value="teamB">{isThai ? 'ฝั่งตรงข้าม / ทีม B' : 'Opponent Side / Team B'}</option>
                         <option value="neutral">{isThai ? 'เป็นกลาง' : 'Neutral'}</option>
+                      </select>
+                    </div>
+
+                    {/* Foul / Violation */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-400 dark:text-gray-500 mb-1">
+                        {isThai ? 'ฟาล์ว / ละเมิดกติกา' : 'Foul / Violation'}
+                      </label>
+                      <select
+                        value={currentEditingAction.foulCode || ''}
+                        onChange={e => {
+                          const fCode = e.target.value;
+                          const fDef = sportTemplate.fouls?.find((x: any) => x.code === fCode);
+                          setActions(prev => {
+                            const next = [...prev];
+                            const target = { ...next[selectedActionIndex] };
+                            target.foulCode = fCode || undefined;
+                            target.foulRole = fDef ? fDef.role : undefined;
+                            target.foulSeverity = fDef ? fDef.severity : undefined;
+                            next[selectedActionIndex] = target;
+                            return next;
+                          });
+                        }}
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 font-medium"
+                      >
+                        <option value="">-- {isThai ? 'ไม่มีฟาล์ว' : 'No Foul'} --</option>
+                        {sportTemplate.fouls?.map((f: any) => (
+                          <option key={f.code} value={f.code}>
+                            {f.code} - {isThai ? (f.labelTh || f.label) : f.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>

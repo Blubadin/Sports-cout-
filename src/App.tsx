@@ -1,3 +1,4 @@
+import { motion } from 'motion/react';
 import React, { useState, useEffect } from 'react';
 import { ScoutProvider, useScoutContext } from './context/ScoutContext';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
@@ -9,7 +10,7 @@ import SettingsModal from './components/SettingsModal';
 import WorkspaceMenu from './components/WorkspaceMenu';
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import MatchInfoModal from './components/MatchInfoModal';
-import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2 } from 'lucide-react';
+import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2 } from 'lucide-react';
 import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
 
@@ -79,19 +80,17 @@ function EmptyProjectState() {
       try {
         const content = e.target?.result as string;
         const imported = JSON.parse(content);
-        if (!imported.id || !imported.title || !Array.isArray(imported.events) || !imported.sportType) {
-          showToast('Invalid Project JSON format');
-          return;
+        
+        // Generate a clean imported name
+        const originalTitle = imported.title || 'Imported Project';
+        imported.title = `${originalTitle} (Imported)`;
+
+        const success = importProject(imported);
+        if (success) {
+          showToast(`Imported: ${originalTitle}`);
+        } else {
+          showToast('Invalid Project JSON format or schema');
         }
-        const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-        importProject({
-          ...imported,
-          id: newId,
-          title: `${imported.title} (Imported)`,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        });
-        showToast(`Imported: ${imported.title}`);
       } catch (err) {
         showToast('Failed to parse JSON');
       }
@@ -165,8 +164,8 @@ function AppContent() {
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-3 flex justify-between items-center gap-2 sticky top-0 z-[100]">
         <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-sky-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-black text-lg sm:text-xl shadow-md shadow-sky-500/20">
-            S
+          <div className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center shrink-0">
+            <img src="/icons/SP_logo_black_white_transparent_512.png" alt="App Logo" className="w-full h-full object-contain drop-shadow-sm" />
           </div>
           <div className="hidden min-[400px]:block mr-2">
             <h1 className="text-base sm:text-xl font-black tracking-wider bg-gradient-to-r from-sky-500 to-sky-600 dark:from-sky-400 dark:to-sky-500 bg-clip-text text-transparent leading-none uppercase">
@@ -189,14 +188,14 @@ function AppContent() {
             </span>
             <div className="flex items-center gap-1.5 sm:gap-2.5 text-xs font-bold truncate">
               <span className="text-sky-700 dark:text-sky-300 tracking-wide uppercase font-black truncate max-w-[50px] sm:max-w-[80px]">
-                {teams[0]?.code || 'T1'}
+                {teams[0]?.icon && <span className="mr-0.5">{teams[0].icon}</span>}{teams[0]?.code || 'T1'}
               </span>
               <span className="text-gray-400 font-normal">vs</span>
               <span className="text-sky-700 dark:text-sky-300 tracking-wide uppercase font-black truncate max-w-[50px] sm:max-w-[80px]">
-                {teams[1]?.code || 'T2'}
+                {teams[1]?.icon && <span className="mr-0.5">{teams[1].icon}</span>}{teams[1]?.code || 'T2'}
               </span>
               <div className="h-3 w-px bg-sky-200 dark:bg-sky-800 shrink-0" />
-              <span className="text-gray-600 dark:text-gray-400 font-semibold text-xs whitespace-nowrap">
+              <span className="hidden min-[380px]:inline text-gray-600 dark:text-gray-400 font-semibold text-xs whitespace-nowrap">
                 {settings.uiLanguage === 'th' 
                   ? `เซต ${matchInfo.setOrGame} • แต้ม ${matchInfo.currentPoint}` 
                   : `Set ${matchInfo.setOrGame} • PT ${matchInfo.currentPoint}`}
@@ -221,11 +220,26 @@ function AppContent() {
               {settings.uiLanguage === 'en' ? 'EN' : 'TH'}
             </button>
             <button
-              onClick={() => setSettings(prev => ({ ...prev, darkMode: !prev.darkMode }))}
-              className="p-1.5 sm:p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors"
-              title="Toggle Dark Mode"
+              onClick={() => setSettings(prev => {
+                const currentTheme = prev.theme || (prev.darkMode ? 'dark' : 'light');
+                const nextTheme = currentTheme === 'light' ? 'dark' : currentTheme === 'dark' ? 'monochrome' : 'light';
+                return { ...prev, theme: nextTheme, darkMode: nextTheme === 'dark' || nextTheme === 'monochrome' };
+              })}
+              className="p-1.5 sm:p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors relative overflow-hidden flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10"
+              title="Toggle Theme"
             >
-              {settings.darkMode ? <Moon size={16} className="sm:w-[18px] sm:h-[18px]" /> : <Sun size={16} className="sm:w-[18px] sm:h-[18px]" />}
+              <motion.div
+                key={settings.theme || (settings.darkMode ? 'dark' : 'light')}
+                initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
+                animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
+                transition={{ duration: 0.3, type: 'spring', stiffness: 200, damping: 15 }}
+                className="absolute"
+              >
+                {(settings.theme || (settings.darkMode ? 'dark' : 'light')) === 'light' && <Sun size={16} className="sm:w-[18px] sm:h-[18px]" />}
+                {(settings.theme || (settings.darkMode ? 'dark' : 'light')) === 'dark' && <Moon size={16} className="sm:w-[18px] sm:h-[18px]" />}
+                {settings.theme === 'monochrome' && <Contrast size={16} className="sm:w-[18px] sm:h-[18px]" />}
+              </motion.div>
             </button>
             {isInstallable && (
               <button
@@ -240,7 +254,7 @@ function AppContent() {
             <WorkspaceMenu />
             <button 
               onClick={() => setIsKeyboardShortcutsOpen(true)}
-              className="p-1.5 sm:p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors"
+              className="hidden sm:flex p-1.5 sm:p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors"
               title="Keyboard Shortcuts"
             >
               <Keyboard size={16} className="sm:w-[20px] sm:h-[20px]" />

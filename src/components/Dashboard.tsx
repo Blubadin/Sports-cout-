@@ -12,9 +12,10 @@ import FieldSequenceMap from './charts/FieldSequenceMap';
 import TeamComparisonChart from './charts/TeamComparisonChart';
 import SkillFrequencyChart from './charts/SkillFrequencyChart';
 import ResultDistributionChart from './charts/ResultDistributionChart';
+import SportSpecificKPIs from './charts/SportSpecificKPIs';
 
 export default function Dashboard() {
-  const { events, matchInfo, changeSportType, teams, setSeekRequest, settings } = useScoutContext();
+  const { events, matchInfo, changeSportType, teams, setSeekRequest, settings, sportTemplate } = useScoutContext();
   const [filterSport, setFilterSport] = useState<SportType | 'ALL'>('ALL');
   const [mapMode, setMapMode] = useState<'heatmap' | 'sequence' | 'result'>('heatmap');
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>();
@@ -61,6 +62,7 @@ export default function Dashboard() {
     let teamAYes = 0;
     let teamAOut = 0;
     let teamAPass = 0;
+    let teamAFouls = 0;
     const teamASkills = new Set<string>();
     const teamAAreas = new Set<string>();
     let teamATotalActions = 0;
@@ -72,11 +74,25 @@ export default function Dashboard() {
     let teamBYes = 0;
     let teamBOut = 0;
     let teamBPass = 0;
+    let teamBFouls = 0;
     const teamBSkills = new Set<string>();
     const teamBAreas = new Set<string>();
     let teamBTotalActions = 0;
     let teamBAttackingSkills = 0;
     let teamBDefensiveSkills = 0;
+
+    const foulsList: Array<{
+      foulCode: string;
+      foulRole?: string;
+      foulSeverity?: string;
+      teamCode?: string;
+      videoTime?: number;
+      eventNo: number;
+    }> = [];
+
+    const foulCountByTeam: Record<string, number> = {};
+    const foulTypeFrequency: Record<string, number> = {};
+    const foulSeverityCount: Record<string, number> = {};
 
     filteredEvents.forEach(e => {
       if (e.resultText === '+1') yes++;
@@ -131,6 +147,26 @@ export default function Dashboard() {
         e.actions.forEach(action => {
           totalActions++;
           const team = action.teamCode;
+          if (action.foulCode) {
+            if (team === teamA) teamAFouls++;
+            if (team === teamB) teamBFouls++;
+
+            foulsList.push({
+              foulCode: action.foulCode,
+              foulRole: action.foulRole,
+              foulSeverity: action.foulSeverity || 'normal',
+              teamCode: team,
+              videoTime: action.videoTime !== undefined ? action.videoTime : e.videoTime,
+              eventNo: e.no,
+            });
+
+            if (team) {
+              foulCountByTeam[team] = (foulCountByTeam[team] || 0) + 1;
+            }
+            foulTypeFrequency[action.foulCode] = (foulTypeFrequency[action.foulCode] || 0) + 1;
+            const severity = action.foulSeverity || 'normal';
+            foulSeverityCount[severity] = (foulSeverityCount[severity] || 0) + 1;
+          }
           const skill = action.skillCode;
           let area = action.areaLabel || action.outZone || action.areaCode;
           if (action.outZone && OUT_ZONE_LABELS[action.outZone]) {
@@ -325,7 +361,14 @@ export default function Dashboard() {
       // Filtered Chart datasets
       radarDataGlobal, radarDataTeamA, radarDataTeamB,
       barDataGlobal, barDataTeamA, barDataTeamB,
-      pieDataGlobal, pieDataTeamA, pieDataTeamB
+      pieDataGlobal, pieDataTeamA, pieDataTeamB,
+      teamAFouls, teamBFouls,
+      foulsList,
+      foulCountByTeam,
+      foulTypeFrequency,
+      foulSeverityCount,
+      topFoulType: Object.entries(foulTypeFrequency).sort((a,b)=>b[1]-a[1])[0]?.[0] ?? "-",
+      topFoulCount: Object.entries(foulTypeFrequency).sort((a,b)=>b[1]-a[1])[0]?.[1] ?? 0
     };
   }, [events, filterSport, teams]);
 
@@ -378,6 +421,12 @@ export default function Dashboard() {
       ? stats.pieDataTeamA
       : stats.pieDataTeamB;
 
+  const getFoulLabel = (code: string) => {
+    const foulDef = sportTemplate?.fouls?.find(f => f.code === code);
+    if (!foulDef) return code;
+    return settings.uiLanguage === 'th' ? (foulDef.labelTh || foulDef.label) : foulDef.label;
+  };
+
   return (
     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
       {/* Header Container */}
@@ -389,11 +438,11 @@ export default function Dashboard() {
             </h2>
             {teams.length >= 2 && (
               <div className="flex items-center gap-3 bg-gray-100 dark:bg-gray-900 px-4 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700">
-                <span className="font-bold text-gray-800 dark:text-gray-200">{teams[0]?.code}</span>
+                <span className="font-bold text-gray-800 dark:text-gray-200">{teams[0]?.icon && <span className="mr-1">{teams[0].icon}</span>}{teams[0]?.code}</span>
                 <span className="text-xl font-black text-sky-600 dark:text-sky-400">{stats.teamAScore}</span>
                 <span className="text-gray-400 font-medium">-</span>
                 <span className="text-xl font-black text-sky-600 dark:text-sky-400">{stats.teamBScore}</span>
-                <span className="font-bold text-gray-800 dark:text-gray-200">{teams[1]?.code}</span>
+                <span className="font-bold text-gray-800 dark:text-gray-200">{teams[1]?.icon && <span className="mr-1">{teams[1].icon}</span>}{teams[1]?.code}</span>
               </div>
             )}
           </div>
@@ -439,7 +488,7 @@ export default function Dashboard() {
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white'
                 }`}
               >
-                {teams[0]?.code ?? 'Team A'}
+                {teams[0]?.icon && <span className="mr-1">{teams[0].icon}</span>}{teams[0]?.code ?? 'Team A'}
               </button>
               <button
                 onClick={() => setTeamFilter('teamB')}
@@ -449,7 +498,7 @@ export default function Dashboard() {
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white'
                 }`}
               >
-                {teams[1]?.code ?? 'Team B'}
+                {teams[1]?.icon && <span className="mr-1">{teams[1].icon}</span>}{teams[1]?.code ?? 'Team B'}
               </button>
             </div>
           </div>
@@ -481,6 +530,13 @@ export default function Dashboard() {
 
       {stats.total > 0 ? (
         <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading charts...</div>}>
+          <SportSpecificKPIs 
+            events={events} 
+            teams={teams} 
+            matchInfo={matchInfo} 
+            teamFilter={teamFilter} 
+            uiLanguage={settings.uiLanguage} 
+          />
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <SkillFrequencyChart data={activeBarData} teamAName={teams[0]?.code ?? 'Team A'} teamBName={teams[1]?.code ?? 'Team B'} />
 
@@ -516,8 +572,8 @@ export default function Dashboard() {
                   <thead>
                     <tr className="border-b border-gray-200 dark:border-gray-800 text-xs text-gray-400 uppercase tracking-wider">
                       <th className="pb-3 font-semibold text-gray-400">{settings.uiLanguage === 'th' ? 'ประเภทคะแนน' : 'Point Type'}</th>
-                      <th className="pb-3 text-center font-bold text-sky-600 dark:text-sky-400 w-1/4">{teams[0]?.code ?? 'Team A'} ({settings.uiLanguage === 'th' ? teams[0]?.thaiName : teams[0]?.name})</th>
-                      <th className="pb-3 text-center font-bold text-orange-600 dark:text-orange-400 w-1/4">{teams[1]?.code ?? 'Team B'} ({settings.uiLanguage === 'th' ? teams[1]?.thaiName : teams[1]?.name})</th>
+                      <th className="pb-3 text-center font-bold text-sky-600 dark:text-sky-400 w-1/4">{teams[0]?.icon && <span className="mr-1">{teams[0].icon}</span>}{teams[0]?.code ?? 'Team A'} ({settings.uiLanguage === 'th' ? teams[0]?.thaiName : teams[0]?.name})</th>
+                      <th className="pb-3 text-center font-bold text-orange-600 dark:text-orange-400 w-1/4">{teams[1]?.icon && <span className="mr-1">{teams[1].icon}</span>}{teams[1]?.code ?? 'Team B'} ({settings.uiLanguage === 'th' ? teams[1]?.thaiName : teams[1]?.name})</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-800/40">
@@ -561,6 +617,17 @@ export default function Dashboard() {
                       </td>
                     </tr>
 
+                    {/* Fouls */}
+                    <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/10 transition-colors">
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-700 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'ทำฟาวล์ / ผิดกติกา' : 'Fouls / Violations'}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{settings.uiLanguage === 'th' ? 'จำนวนครั้งที่ทำฟาวล์หรือผิดกติกา' : 'Total fouls and violations committed'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 text-center font-mono text-gray-600 dark:text-gray-300">{stats.teamAFouls}</td>
+                      <td className="py-3 text-center font-mono text-gray-600 dark:text-gray-300">{stats.teamBFouls}</td>
+                    </tr>
                     {/* Own Errors */}
                     <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/10 transition-colors">
                       <td className="py-3 pr-4">
@@ -607,6 +674,135 @@ export default function Dashboard() {
             
             <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl lg:col-span-3 flex flex-col gap-4">
               <TeamComparisonChart events={filterSport === 'ALL' ? events : events.filter(e => e.sportType === filterSport)} team1={teams[0]?.code} team2={teams[1]?.code} />
+            </div>
+
+            {/* Fouls & Violations Section */}
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-xl lg:col-span-3 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col gap-4">
+              <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-800 pb-3">
+                <span className="text-amber-500">⚠️</span>
+                <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  {settings.uiLanguage === 'th' ? 'สถิติการฟาวล์และการผิดกติกา (Fouls & Violations)' : 'Fouls & Violations Analytics'}
+                </h3>
+              </div>
+              
+              {stats.foulsList.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">
+                  {settings.uiLanguage === 'th' ? 'ไม่มีข้อมูลการทำฟาวล์ในการแข่งนี้' : 'No fouls or violations recorded for this match.'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Summary / Top Stats */}
+                  <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl flex flex-col justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                        {settings.uiLanguage === 'th' ? 'ภาพรวมการฟาวล์' : 'Foul Overview'}
+                      </h4>
+                      <div className="flex justify-between items-baseline mb-1">
+                        <span className="text-sm text-gray-500">{settings.uiLanguage === 'th' ? 'จำนวนฟาวล์ทั้งหมด:' : 'Total Fouls:'}</span>
+                        <span className="text-2xl font-bold text-amber-600 dark:text-amber-400">{stats.foulsList.length}</span>
+                      </div>
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-sm text-gray-500">{settings.uiLanguage === 'th' ? 'ประเภทที่เกิดบ่อยสุด:' : 'Top Foul Type:'}</span>
+                        <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 truncate max-w-[120px]">{getFoulLabel(stats.topFoulType)} ({stats.topFoulCount})</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Foul Count by Team */}
+                  <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                      {settings.uiLanguage === 'th' ? 'ฟาวล์รายทีม' : 'Fouls by Team'}
+                    </h4>
+                    <div className="flex flex-col gap-3">
+                      {teams.map((t) => {
+                        const count = stats.foulCountByTeam[t.code] || 0;
+                        const pct = stats.foulsList.length > 0 ? (count / stats.foulsList.length) * 100 : 0;
+                        return (
+                          <div key={t.code} className="text-sm">
+                            <div className="flex justify-between font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                              <span>{t.icon} {t.code}</span>
+                              <span>{count}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 h-2 rounded-full overflow-hidden">
+                              <div className="bg-amber-500 h-full rounded-full" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Foul Type Frequency */}
+                  <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl md:col-span-2 lg:col-span-2">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                      {settings.uiLanguage === 'th' ? 'ความถี่ประเภทฟาวล์' : 'Foul Type Frequency'}
+                    </h4>
+                    <div className="max-h-[140px] overflow-y-auto pr-1 flex flex-col gap-2">
+                      {Object.entries(stats.foulTypeFrequency).sort((a,b)=>b[1]-a[1]).map(([code, count]) => {
+                        const pct = stats.foulsList.length > 0 ? (count / stats.foulsList.length) * 100 : 0;
+                        return (
+                          <div key={code} className="text-xs">
+                            <div className="flex justify-between text-gray-600 dark:text-gray-300 mb-0.5">
+                              <span className="font-medium truncate max-w-[200px]">{getFoulLabel(code)}</span>
+                              <span className="font-mono font-bold">{count} ({pct.toFixed(0)}%)</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-red-400 h-full rounded-full" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Foul Severity Breakdown */}
+                  <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl md:col-span-2">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                      {settings.uiLanguage === 'th' ? 'ระดับความรุนแรง (Severity Breakdown)' : 'Foul Severity Breakdown'}
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(stats.foulSeverityCount).map(([sev, count]) => {
+                        let badgeColor = "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
+                        if (sev === 'card') badgeColor = "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+                        if (sev === 'warning') badgeColor = "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+                        if (sev === 'technical') badgeColor = "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400";
+                        return (
+                          <div key={sev} className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold ${badgeColor} flex items-center gap-2`}>
+                            <span className="capitalize">{sev}</span>
+                            <span className="font-mono font-bold text-sm bg-black/5 px-1.5 py-0.5 rounded">{count}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Foul Timeline */}
+                  <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl md:col-span-2">
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                      {settings.uiLanguage === 'th' ? 'ลำดับเหตุการณ์ฟาวล์ (Foul Timeline)' : 'Foul Timeline'}
+                    </h4>
+                    <div className="max-h-[140px] overflow-y-auto pr-1 flex flex-col gap-1.5 font-mono text-[11px]">
+                      {stats.foulsList.map((f, idx) => (
+                        <div key={idx} className="flex items-center justify-between py-1 border-b border-gray-100 dark:border-gray-800/60 hover:bg-black/5 dark:hover:bg-white/5 px-1.5 rounded transition-colors">
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="text-gray-400">#{f.eventNo}</span>
+                            <span className="font-bold text-sky-600 dark:text-sky-400">{f.teamCode}</span>
+                            <span className="text-gray-700 dark:text-gray-200 truncate">{getFoulLabel(f.foulCode)}</span>
+                          </div>
+                          {f.videoTime !== undefined && (
+                            <button
+                              onClick={() => setSeekRequest(Math.max(0, f.videoTime - 3))}
+                              className="text-sky-500 hover:underline flex-shrink-0 cursor-pointer"
+                            >
+                              {formatPreciseTime(f.videoTime)}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
           <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl lg:col-span-3 flex flex-col items-center">

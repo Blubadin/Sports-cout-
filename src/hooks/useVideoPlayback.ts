@@ -399,10 +399,10 @@ export function useVideoPlayback({
       if (e.code === "Space") {
         e.preventDefault();
         togglePlay();
-      } else if (e.code === "ArrowLeft") {
+      } else if (e.code === "ArrowLeft" || e.code === "KeyA") {
         e.preventDefault();
         seekBySafe(e.shiftKey ? -1 : -3);
-      } else if (e.code === "ArrowRight") {
+      } else if (e.code === "ArrowRight" || e.code === "KeyD") {
         e.preventDefault();
         seekBySafe(e.shiftKey ? 1 : 3);
       } else if (e.key === "[") {

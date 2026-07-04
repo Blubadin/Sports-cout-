@@ -7,6 +7,8 @@ export type Team = {
   code: string;
   name: string;
   thaiName: string;
+  teamType?: 'country' | 'club';
+  icon?: string;
 };
 
 export type AreaRequirement = "always" | "optional" | "never" | "optionalWhenOut";
@@ -99,6 +101,18 @@ export type DescriptorGroup = {
   options: DescriptorOption[];
 };
 
+export type FoulRole = 'committed' | 'drawn' | 'violation' | 'technical';
+
+export type FoulSeverity = 'normal' | 'warning' | 'card' | 'technical';
+
+export interface FoulOption {
+  code: string;
+  label: string;
+  labelTh?: string;
+  role?: FoulRole;
+  severity?: FoulSeverity;
+}
+
 export type SportTemplate = {
   id: SportType;
   name: string;
@@ -115,6 +129,7 @@ export type SportTemplate = {
   skills: Skill[];
   results: ResultType[];
   descriptors?: Record<string, DescriptorGroup[]>; // Keyed by skill code or "ALL"
+  fouls?: FoulOption[];
 };
 
 export type Action = {
@@ -133,6 +148,9 @@ export type Action = {
   areaResolution?: string; // e.g. '6-zone', '9-zone', '4x6', 'shot-14'
   resultCode?: string;
   resultDetailCode?: string;
+  foulCode?: string;
+  foulRole?: FoulRole;
+  foulSeverity?: FoulSeverity;
   descriptors?: Record<string, string>;
   playerNumber?: string;
   playerName?: string;
@@ -173,11 +191,14 @@ export type MatchInfo = {
   setOrGame: string;
   currentPoint: number;
   sportType: SportType;
+  courtConfig?: string;
+  gameFormat?: string;
 };
 
 export type AppSettings = {
   autoNextPoint: boolean;
-  darkMode: boolean;
+  theme?: 'light' | 'dark' | 'monochrome';
+  darkMode: boolean; // keep for backwards compatibility
   maxPoints: number;
   fastMode: boolean;
   advancedDetailMode: boolean;

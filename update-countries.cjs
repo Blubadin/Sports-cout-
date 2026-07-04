@@ -1,0 +1,33 @@
+const fs = require('fs');
+
+const data = `export const COUNTRIES = [
+  { code: 'AFG', name: 'Afghanistan', icon: '🇦🇫' },
+  { code: 'ARG', name: 'Argentina', icon: '🇦🇷' },
+  { code: 'AUS', name: 'Australia', icon: '🇦🇺' },
+  { code: 'BEL', name: 'Belgium', icon: '🇧🇪' },
+  { code: 'BRA', name: 'Brazil', icon: '🇧🇷' },
+  { code: 'BUL', name: 'Bulgaria', icon: '🇧🇬' },
+  { code: 'CAN', name: 'Canada', icon: '🇨🇦' },
+  { code: 'CHN', name: 'China', thaiName: 'จีน', icon: '🇨🇳' },
+  { code: 'COL', name: 'Colombia', icon: '🇨🇴' },
+  { code: 'CUB', name: 'Cuba', icon: '🇨🇺' },
+  { code: 'DOM', name: 'Dominican Republic', thaiName: 'โดมินิกัน', icon: '🇩🇴' },
+  { code: 'EGY', name: 'Egypt', icon: '🇪🇬' },
+  { code: 'FRA', name: 'France', icon: '🇫🇷' },
+  { code: 'GER', name: 'Germany', icon: '🇩🇪' },
+  { code: 'IRI', name: 'Iran', icon: '🇮🇷' },
+  { code: 'ITA', name: 'Italy', thaiName: 'อิตาลี', icon: '🇮🇹' },
+  { code: 'JPN', name: 'Japan', thaiName: 'ญี่ปุ่น', icon: '🇯🇵' },
+  { code: 'KOR', name: 'South Korea', thaiName: 'เกาหลีใต้', icon: '🇰🇷' },
+  { code: 'NED', name: 'Netherlands', thaiName: 'เนเธอร์แลนด์', icon: '🇳🇱' },
+  { code: 'POL', name: 'Poland', icon: '🇵🇱' },
+  { code: 'PUR', name: 'Puerto Rico', icon: '🇵🇷' },
+  { code: 'SRB', name: 'Serbia', thaiName: 'เซอร์เบีย', icon: '🇷🇸' },
+  { code: 'SLO', name: 'Slovenia', icon: '🇸🇮' },
+  { code: 'THA', name: 'Thailand', thaiName: 'ไทย', icon: '🇹🇭' },
+  { code: 'TUR', name: 'Turkey', thaiName: 'ตุรกี', icon: '🇹🇷' },
+  { code: 'USA', name: 'United States', thaiName: 'สหรัฐอเมริกา', icon: '🇺🇸' },
+  { code: 'VIE', name: 'Vietnam', thaiName: 'เวียดนาม', icon: '🇻🇳' },
+];`;
+
+fs.writeFileSync('src/countries.ts', data);

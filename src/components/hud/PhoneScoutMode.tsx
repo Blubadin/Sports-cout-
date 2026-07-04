@@ -22,6 +22,7 @@ import HUDSequenceHistoryDrawer from "./HUDSequenceHistoryDrawer";
 import PhoneSkillSheet from "./PhoneSkillSheet";
 import PhoneAreaSheet from "./PhoneAreaSheet";
 import PhoneTeamSheet from "./PhoneTeamSheet";
+import PhoneFoulSheet from "./PhoneFoulSheet";
 import PhoneVideoControls from "./PhoneVideoControls";
 import PhoneLandscapeGamepadMode from "./PhoneLandscapeGamepadMode";
 
@@ -57,15 +58,18 @@ export default function PhoneScoutMode({
     currentActions,
     events,
     commitResult,
+    updateActionField,
     sportTemplate,
     undoLastAction,
     clearCurrentEvent,
     saveEvent,
+    selectFoul,
+    clearFoul,
   } = useScoutContext();
 
   const layout = useHUDDeviceLayout();
   const [activeSheet, setActiveSheet] = useState<
-    "none" | "team" | "skill" | "area"
+    "none" | "team" | "skill" | "area" | "foul"
   >("none");
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -168,6 +172,21 @@ export default function PhoneScoutMode({
       <div
         className={`absolute right-2 top-[15%] sm:top-[20%] flex flex-col gap-2 pointer-events-auto z-20 transition-all duration-300 ${controlsVisible ? "opacity-100" : "opacity-15"}`}
       >
+        {sportTemplate.fouls && sportTemplate.fouls.length > 0 && (
+          <button
+            onClick={() => {
+              setControlsVisible(true);
+              setActiveSheet(activeSheet === "foul" ? "none" : "foul");
+            }}
+            className={`w-14 h-9 sm:w-16 sm:h-10 rounded-xl font-black text-[10px] sm:text-xs uppercase shadow-lg active:scale-90 transition-all border-2 flex items-center justify-center break-words leading-tight px-1 ${
+              currentAction.foulCode 
+                ? "bg-amber-500 border-amber-400 text-white shadow-[0_0_15px_rgba(245,158,11,0.5)]" 
+                : "bg-black/60 border-amber-900/50 text-amber-500 hover:bg-black/80"
+            }`}
+          >
+            {currentAction.foulCode ? currentAction.foulCode : "FOUL"}
+          </button>
+        )}
         {results.map((res, idx) => {
           const bgColors = ["#0ea5e9", "#22c55e", "#6b7280", "#ef4444"];
           const bgColor = bgColors[idx % bgColors.length];
@@ -244,6 +263,9 @@ export default function PhoneScoutMode({
       )}
       {activeSheet === "team" && (
         <PhoneTeamSheet onClose={() => setActiveSheet("none")} />
+      )}
+      {activeSheet === "foul" && (
+        <PhoneFoulSheet onClose={() => setActiveSheet("none")} />
       )}
 
       {/* --- DRAWER --- */}

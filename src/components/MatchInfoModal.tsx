@@ -1,6 +1,7 @@
 import React from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { X, Minus, Plus } from 'lucide-react';
+import TeamEditor from "./TeamEditor";
 import { COUNTRIES } from '../countries';
 import CustomSelect, { Option } from './ui/CustomSelect';
 import { motion, AnimatePresence } from 'motion/react';
@@ -19,26 +20,6 @@ export default function MatchInfoModal({ isOpen, onClose }: MatchInfoModalProps)
     setMatchInfo(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleTeamChange = (index: number, newCode: string) => {
-    setTeams(prev => {
-      const next = [...prev];
-      if (!next[index]) {
-        next[index] = { id: `t${index + 1}`, code: '', name: '', thaiName: '' };
-      }
-      
-      const upperCode = newCode.toUpperCase();
-      const country = COUNTRIES.find(c => c.code === upperCode);
-      
-      next[index] = {
-        ...next[index],
-        code: upperCode,
-        name: country ? country.name : upperCode,
-        thaiName: country?.thaiName || ''
-      };
-      return next;
-    });
-  };
-
   const updatePoint = (delta: number) => {
     setMatchInfo(prev => ({ 
       ...prev, 
@@ -46,11 +27,25 @@ export default function MatchInfoModal({ isOpen, onClose }: MatchInfoModalProps)
     }));
   };
 
-  const countryOptions: Option[] = COUNTRIES.map(c => ({
-    value: c.code,
-    label: c.code,
-    subLabel: `${c.name} ${c.thaiName ? `(${c.thaiName})` : ''}`
-  }));
+  const getCourtOptions = () => {
+    switch (matchInfo.sportType) {
+      case 'volleyball': return [{ value: 'standard', label: isThai ? 'มาตรฐาน 3x3 (9 โซน)' : 'Standard 3x3 (9 Zones)' }, { value: 'basic', label: isThai ? 'พื้นฐาน 2x2 (4 โซน)' : 'Basic 2x2 (4 Zones)' }];
+      case 'football': return [{ value: 'standard', label: isThai ? 'สนามเต็ม (รุก/กลาง/รับ)' : 'Full Field (Att/Mid/Def)' }, { value: 'futsal', label: isThai ? 'ฟุตซอล (ครึ่งสนาม)' : 'Futsal (Half)' }];
+      case 'badminton': return [{ value: 'standard', label: isThai ? 'คอร์ทเดี่ยว' : 'Singles Court' }, { value: 'doubles', label: isThai ? 'คอร์ทคู่' : 'Doubles Court' }];
+      case 'basketball': return [{ value: 'standard', label: isThai ? 'เต็มสนาม' : 'Full Court' }, { value: 'half', label: isThai ? 'ครึ่งสนาม (3x3)' : 'Half Court (3x3)' }];
+      default: return [{ value: 'standard', label: 'Standard' }];
+    }
+  };
+
+  const getFormatOptions = () => {
+    switch (matchInfo.sportType) {
+      case 'volleyball': return [{ value: 'standard', label: isThai ? '3 ใน 5 เซ็ต' : 'Best of 5 Sets' }, { value: 'short', label: isThai ? '2 ใน 3 เซ็ต' : 'Best of 3 Sets' }];
+      case 'football': return [{ value: 'standard', label: isThai ? '2 ครึ่ง (45 นาที)' : '2 Halves (45 mins)' }, { value: 'custom', label: isThai ? 'กำหนดเอง' : 'Custom' }];
+      case 'badminton': return [{ value: 'standard', label: isThai ? '2 ใน 3 เกม (21 แต้ม)' : 'Best of 3 Games (21 pts)' }];
+      case 'basketball': return [{ value: 'standard', label: isThai ? '4 ควอเตอร์' : '4 Quarters' }, { value: '3x3', label: isThai ? 'FIBA 3x3 (10 นาที)' : 'FIBA 3x3 (10 mins)' }];
+      default: return [{ value: 'standard', label: 'Standard' }];
+    }
+  };
 
   const matchTypeOptions: Option[] = [
     { value: 'Team', label: isThai ? 'ทีม (Team)' : 'Team' },
@@ -69,7 +64,6 @@ export default function MatchInfoModal({ isOpen, onClose }: MatchInfoModalProps)
             onClick={onClose}
             className="absolute inset-0 bg-black/55 backdrop-blur-sm"
           />
-
           {/* Modal Container */}
           <motion.div
             initial={{ scale: 0.95, opacity: 0, y: 15 }}
@@ -97,25 +91,13 @@ export default function MatchInfoModal({ isOpen, onClose }: MatchInfoModalProps)
             {/* Content */}
             <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
               {/* Teams Selection */}
-              <div className="grid grid-cols-2 gap-4">
-                <CustomSelect
-                  label={isThai ? 'ทีม A (Team 1)' : 'Team 1'}
-                  value={teams[0]?.code || ''}
-                  onChange={(val) => handleTeamChange(0, val)}
-                  options={countryOptions}
-                  placeholder={isThai ? 'เลือกประเทศ / พิมพ์โค้ด' : 'Select Country / Type Code'}
-                />
-                <CustomSelect
-                  label={isThai ? 'ทีม B (Team 2)' : 'Team 2'}
-                  value={teams[1]?.code || ''}
-                  onChange={(val) => handleTeamChange(1, val)}
-                  options={countryOptions}
-                  placeholder={isThai ? 'เลือกประเทศ / พิมพ์โค้ด' : 'Select Country / Type Code'}
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <TeamEditor teamIndex={0} />
+                <TeamEditor teamIndex={1} />
               </div>
 
               {/* Scouter Info */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-600 dark:text-gray-400 mb-1.5">
                     {isThai ? 'ผู้บันทึก (Scouter)' : 'Scouter'}
@@ -159,8 +141,23 @@ export default function MatchInfoModal({ isOpen, onClose }: MatchInfoModalProps)
                 />
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <CustomSelect
+                  label={isThai ? 'รูปแบบสนาม (Court Layout)' : 'Court Layout'}
+                  value={matchInfo.courtConfig || 'standard'}
+                  onChange={(val) => setMatchInfo(prev => ({ ...prev, courtConfig: val as any }))}
+                  options={getCourtOptions()}
+                />
+                <CustomSelect
+                  label={isThai ? 'รูปแบบการแข่งขัน (Game Format)' : 'Game Format'}
+                  value={matchInfo.gameFormat || 'standard'}
+                  onChange={(val) => setMatchInfo(prev => ({ ...prev, gameFormat: val as any }))}
+                  options={getFormatOptions()}
+                />
+              </div>
+
               {/* Type, Set, Points */}
-              <div className="grid grid-cols-3 gap-4 items-end">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
                 <CustomSelect
                   label={isThai ? 'ประเภท (Type)' : 'Type'}
                   value={matchInfo.matchType}

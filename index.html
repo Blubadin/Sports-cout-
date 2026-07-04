@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: https://*.youtube.com https://*.ytimg.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://s.ytimg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://*.ytimg.com https://images.unsplash.com https://cdn.jsdelivr.net; media-src 'self' blob:; connect-src 'self' https://*.googleapis.com https://*.youtube.com https://cdn.jsdelivr.net; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; child-src 'self' blob:; object-src 'none';" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Multi-Sport Scout Logger</title>
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -54,10 +55,37 @@
           if (e.target && (e.target.src || e.target.href)) {
             // It's a resource load failure (script, link, stylesheet)
             var resourceUrl = e.target.src || e.target.href;
+            var tagName = (e.target.tagName || '').toLowerCase();
+            
+            // IGNORE benign resource failures (images, media, etc.)
+            if (tagName === 'img' || tagName === 'video' || tagName === 'audio' || tagName === 'source') {
+              return;
+            }
+            
+            // IGNORE external resources (Google, YouTube, jsdelivr, etc.)
+            if (
+              resourceUrl.indexOf('youtube.com') !== -1 ||
+              resourceUrl.indexOf('youtube-nocookie.com') !== -1 ||
+              resourceUrl.indexOf('s.ytimg.com') !== -1 ||
+              resourceUrl.indexOf('google.com') !== -1 ||
+              resourceUrl.indexOf('googleapis.com') !== -1 ||
+              resourceUrl.indexOf('gstatic.com') !== -1 ||
+              resourceUrl.indexOf('jsdelivr.net') !== -1 ||
+              resourceUrl.indexOf('unsplash.com') !== -1
+            ) {
+              return;
+            }
+
+            // Only show overlay for critical scripts/stylesheets from our own host/origin
+            var isRelativeOrOwnOrigin = resourceUrl.indexOf('http') !== 0 || resourceUrl.indexOf(window.location.origin) === 0;
+            if (!isRelativeOrOwnOrigin) {
+              return;
+            }
+
             renderErrorOverlay(
               'Resource Load Failure',
               'Failed to load asset: ' + resourceUrl,
-              'Tag name: <' + e.target.tagName.toLowerCase() + '>\nThis might be due to an incorrect build path, a stale cache, or blocked iframe requests.',
+              'Tag name: <' + tagName + '>\nThis might be due to an incorrect build path, a stale cache, or blocked iframe requests.',
               'Source: ' + window.location.href
             );
           } else {
@@ -97,15 +125,26 @@
             return String(arg);
           }).join(' ');
 
-          // Skip benign React warnings or standard noise but display real fatal issues
-          if (message.indexOf('benign') !== -1 || message.indexOf('play/pause DOMException') !== -1) {
+          // Skip standard benign warnings, play errors, and typical noise
+          if (
+            message.indexOf('benign') !== -1 || 
+            message.indexOf('play/pause DOMException') !== -1 || 
+            message.indexOf('YouTube') !== -1 || 
+            message.indexOf('YT') !== -1 || 
+            message.indexOf('Widget') !== -1
+          ) {
             return;
           }
           
-          // Render visual indicator for fatal React rendering errors or bundle load errors
-          if (message.indexOf('Error:') !== -1 || message.indexOf('Cannot read properties') !== -1 || message.indexOf('failed') !== -1 || message.indexOf('Exception') !== -1) {
+          // Render visual indicator only for fatal React rendering crashes or invariant breakdowns
+          if (
+            message.indexOf('Minified React error') !== -1 || 
+            message.indexOf('React will try to recreate') !== -1 || 
+            message.indexOf('Invariant Violation') !== -1 || 
+            message.indexOf('uncaught exception') !== -1
+          ) {
             renderErrorOverlay(
-              'Console Error Intercepted',
+              'Fatal React Render Exception',
               message,
               'Look at browser developer console for the complete log structure.'
             );

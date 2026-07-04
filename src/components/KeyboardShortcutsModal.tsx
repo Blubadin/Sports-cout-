@@ -43,258 +43,181 @@ export default function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShor
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto custom-scrollbar bg-white dark:bg-gray-800">
+        <div className="p-6 overflow-y-auto custom-scrollbar bg-gray-50 dark:bg-gray-900/50">
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+          <div className="space-y-6">
             
-            {/* Action Group 1 */}
-            <div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-3 border-b border-gray-100 dark:border-gray-700 pb-2">
-                {isThai ? 'ทีม (Teams)' : 'Teams'}
+            {/* Global Controls */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <div className="w-1.5 h-4 bg-sky-500 rounded-full"></div>
+                {isThai ? 'การควบคุมทั่วไป (Global Controls)' : 'Global Controls'}
               </h3>
-              <ul className="space-y-2">
-                <li className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'ทีมที่ 1 (ซ้าย)' : 'Team 1 (Left)'}
-                  </span>
-                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold min-w-[28px] text-center">1</kbd>
-                </li>
-                <li className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'ทีมที่ 2 (ขวา)' : 'Team 2 (Right)'}
-                  </span>
-                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold min-w-[28px] text-center">2</kbd>
-                </li>
-              </ul>
-            </div>
-
-            {/* Action Group 2 */}
-            <div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-3 border-b border-gray-100 dark:border-gray-700 pb-2">
-                {isThai ? 'ผลลัพธ์ (Results)' : 'Results'}
-              </h3>
-              <ul className="space-y-2">
-                <li className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'ได้แต้ม (Yes)' : 'Point Won (Yes)'}
-                  </span>
-                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold min-w-[28px] text-center">Z</kbd>
-                </li>
-                <li className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เสียแต้ม (Out)' : 'Point Lost (Out)'}
-                  </span>
-                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold min-w-[28px] text-center">X</kbd>
-                </li>
-                <li className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เล่นต่อ (Pass)' : 'Play Continuous (Pass)'}
-                  </span>
-                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold min-w-[28px] text-center">C</kbd>
-                </li>
-              </ul>
-            </div>
-
-            {/* Action Group 3 */}
-            <div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-3 border-b border-gray-100 dark:border-gray-700 pb-2">
-                {isThai ? 'ทักษะ (Skills)' : 'Skills'}
-              </h3>
-              <ul className="space-y-2">
-                <li className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เรียงตามลำดับทักษะ (1-10)' : 'Order of skills (1-10)'}
-                  </span>
-                  <div className="flex gap-1">
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Q</kbd>
-                    <span className="text-sm text-gray-400">{isThai ? 'ถึง' : 'to'}</span>
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">P</kbd>
-                  </div>
-                </li>
-                <li className="col-span-2 mt-1">
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                    {isThai 
-                      ? 'ตัวอย่าง (วอลเลย์บอล): Q = เสิร์ฟ, W = รับเสิร์ฟ, E = เซต, R = ตบ, T = บล็อก, Y = รับตบ, U = รับล่าง' 
-                      : 'Example (Volleyball): Q = Serve, W = Receive, E = Set, R = Spike, T = Block, Y = Dig, U = Underhand'}
-                  </p>
-                </li>
-              </ul>
-            </div>
-
-            {/* Action Group 4 */}
-            <div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-3 border-b border-gray-100 dark:border-gray-700 pb-2">
-                {isThai ? 'พื้นที่ (Areas)' : 'Areas'}
-              </h3>
-              <ul className="space-y-2">
-                <li className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เรียงตามลำดับพื้นที่โซน' : 'Order of zone areas'}
-                  </span>
-                  <div className="flex gap-1">
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">A</kbd>
-                    <span className="text-sm text-gray-400">{isThai ? 'ถึง' : 'to'}</span>
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">L</kbd>
-                  </div>
-                </li>
-                <li className="col-span-2 mt-1">
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                    {isThai ? '* บางกีฬาที่กำหนดคีย์พิเศษจะระบุไว้ที่ปุ่มโดยตรง' : '* Some sports with special custom keys are shown directly on the buttons'}
-                  </p>
-                </li>
-              </ul>
-            </div>
-
-            {/* Action Group 5 */}
-            <div className="md:col-span-2">
-              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-3 border-b border-gray-100 dark:border-gray-700 pb-2">
-                {isThai ? 'การควบคุม (Controls) - โหมด Normal และ Pro HUD' : 'Controls - Normal & Pro HUD Mode'}
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'บันทึกเหตุการณ์ (Save / Commit)' : 'Save / Commit Event'}
-                  </span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'บันทึกเหตุการณ์ (Save Event)' : 'Save Event'}</span>
                   <kbd className="px-2 py-1 bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800 rounded text-xs font-mono text-sky-700 dark:text-sky-300 font-bold">Enter</kbd>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'ล้างข้อมูลปัจจุบัน (Clear Current)' : 'Clear Current Action'}
-                  </span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ล้างข้อมูลปัจจุบัน (Clear Current)' : 'Clear Current Action'}</span>
                   <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Esc</kbd>
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'ย้อนกลับ 1 ขั้น (Undo Action)' : 'Undo 1 Step (Backspace)'}
-                  </span>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ย้อนกลับ (Undo 1 Step)' : 'Undo 1 Step'}</span>
                   <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Backspace</kbd>
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'ล้างเหตุการณ์ทั้งแรลลี่ (Clear Rally)' : 'Clear Entire Rally'}
-                  </span>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ล้างเหตุการณ์ทั้งแรลลี่ (Clear Rally)' : 'Clear Entire Rally'}</span>
                   <div className="flex gap-1 items-center">
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Ctrl/Cmd</kbd>
-                    <span className="text-sm text-gray-400">+</span>
+                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Ctrl</kbd>
+                    <span className="text-gray-400">+</span>
                     <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Backspace</kbd>
                   </div>
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เปิดโหมดลากบนหน้าจอ (Screen Marking)' : 'Toggle Screen Marking (Draw)'}
-                  </span>
-                  <div className="flex gap-1 items-center">
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">{isThai ? 'กดค้าง' : 'Hold'}</kbd>
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Alt / Option</kbd>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เปิดโหมดวาดหน้าจอ (Screen Marking)' : 'Toggle Screen Marking'}</span>
+                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Alt / Option</kbd>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลือกทีม 1 หรือ 2 (Team 1/2)' : 'Select Team 1/2'}</span>
+                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">1 / 2</kbd>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Classic Mode */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <div className="w-1.5 h-4 bg-emerald-500 rounded-full"></div>
+                  {isThai ? 'โหมดคลาสสิก (Classic Mode)' : 'Classic Mode'}
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">{isThai ? 'ทักษะ (Skills)' : 'Skills'}</div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ลำดับทักษะ 1-10' : 'Skill slots 1-10'}</span>
+                      <div className="flex gap-1 items-center">
+                        <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Q</kbd>
+                        <span className="text-xs text-gray-400">...</span>
+                        <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">P</kbd>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">{isThai ? 'พื้นที่ (Areas)' : 'Areas'}</div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ลำดับพื้นที่ 1-9' : 'Area slots 1-9'}</span>
+                      <div className="flex gap-1 items-center">
+                        <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">A</kbd>
+                        <span className="text-xs text-gray-400">...</span>
+                        <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">L</kbd>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">{isThai ? 'ผลลัพธ์ (Results)' : 'Results'}</div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ได้แต้ม (Yes)' : 'Yes / Point Won'}</span>
+                      <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Z</kbd>
+                    </div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เสียแต้ม (Out)' : 'Out / Point Lost'}</span>
+                      <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">X</kbd>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เล่นต่อ (Pass)' : 'Pass / Play Con.'}</span>
+                      <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">C</kbd>
+                    </div>
                   </div>
                 </div>
-                <div className="flex justify-between items-center mt-2 border-t border-gray-100 dark:border-gray-700 pt-2 col-span-2">
-                  <span className="text-sm font-bold text-sky-600 dark:text-sky-400">
-                    {isThai ? 'คีย์ลัดเฉพาะโหมด Pro HUD (Pro HUD Hotkeys)' : 'Pro HUD Mode Specific Hotkeys'}
-                  </span>
+              </div>
+
+              {/* Pro HUD Mode */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-2">
+                  <div className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-[10px] font-bold px-2 py-1 rounded-md">PRO</div>
                 </div>
-                <div className="flex justify-between items-center col-span-2 grid grid-cols-2 gap-2 text-xs text-gray-500 dark:text-gray-400 pl-2">
-                  <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/30 p-1.5 rounded-lg">
-                    <span>{isThai ? 'Q : เลือกทักษะ (Skill Wheel)' : 'Q : Select Skill (Skill Wheel)'}</span>
-                    <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded font-bold font-mono">Q</kbd>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <div className="w-1.5 h-4 bg-amber-500 rounded-full"></div>
+                  {isThai ? 'โหมด Pro HUD (กดค้าง)' : 'Pro HUD Mode (Hold Keys)'}
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลือกพื้นที่ (Area Menu)' : 'Area Menu'}</span>
+                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Q</kbd>
                   </div>
-                  <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/30 p-1.5 rounded-lg">
-                    <span>{isThai ? 'W : เลือกพื้นที่สนาม (Area Pad)' : 'W : Select Court Area (Area Pad)'}</span>
-                    <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded font-bold font-mono">W</kbd>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลือกทักษะ (Skill Wheel)' : 'Skill Wheel'}</span>
+                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">W</kbd>
                   </div>
-                  <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/30 p-1.5 rounded-lg">
-                    <span>{isThai ? 'E : เลือกผลลัพธ์ (Result Rail)' : 'E : Select Result (Result Rail)'}</span>
-                    <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded font-bold font-mono">E</kbd>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลือกผลลัพธ์ (Result Rail)' : 'Result Rail'}</span>
+                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">E</kbd>
                   </div>
-                  <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/30 p-1.5 rounded-lg">
-                    <span>{isThai ? '1 / 2 : เลือกทีม (Team)' : '1 / 2 : Select Team'}</span>
-                    <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded font-bold font-mono">1 / 2</kbd>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ฟาวล์ (Foul)' : 'Foul'}</span>
+                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">R / F</kbd>
+                  </div>
+                  
+                  <div className="border-t border-gray-100 dark:border-gray-700 pt-3 mt-3">
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">{isThai ? 'เลื่อนพื้นที่ (Area Nav)' : 'Area Navigation'}</div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลื่อนขึ้น / ลง / ซ้าย / ขวา' : 'Move Selection'}</span>
+                      <div className="flex gap-1">
+                        <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">↑</kbd>
+                        <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">↓</kbd>
+                        <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">←</kbd>
+                        <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">→</kbd>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ยืนยันพื้นที่ (Confirm)' : 'Confirm Selection'}</span>
+                      <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Space / Enter</kbd>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Action Group 5.5 - Court Navigation */}
-            <div className="md:col-span-2">
-              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-3 border-b border-gray-100 dark:border-gray-700 pb-2">
-                {isThai ? 'การควบคุมสนามเชิงพื้นที่ (Court & Arrow Navigation)' : 'Court & Arrow Navigation'}
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เลื่อนตำแหน่งพื้นที่ (Arrow Key Navigation)' : 'Move Selection (Arrow Keys)'}
-                  </span>
-                  <div className="flex gap-1">
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">↑</kbd>
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">↓</kbd>
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">←</kbd>
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">→</kbd>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'ยืนยันเลือกพื้นที่ทางลูกศร (หากไม่ได้เปิด Auto-select)' : 'Confirm Arrow Selection (If Auto-select is off)'}
-                  </span>
-                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Space / Enter</kbd>
-                </div>
-                <div className="flex justify-between items-center mt-2 col-span-2">
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                    {isThai 
-                      ? '* ในโหมดละเอียด (Detailed Court Grid) ปุ่มลูกศรจะขยับกริดพิกัด x, y ไปยังช่องข้างเคียง (เช่น จาก A1 ไป A2 หรือ B1) ช่วยให้ไม่ต้องเล็งพิกเซลด้วยเมาส์' 
-                      : '* In Detailed Court Grid mode, arrow keys move the coordinate grid x, y to adjacent cells (e.g., from A1 to A2 or B1), eliminating the need to aim pixel-perfect with a mouse'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Action Group 6 - Video Controls */}
-            <div className="md:col-span-2">
-              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 mb-3 border-b border-gray-100 dark:border-gray-700 pb-2">
+            {/* Video Controls */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <div className="w-1.5 h-4 bg-purple-500 rounded-full"></div>
                 {isThai ? 'ควบคุมวิดีโอ (Video Controls)' : 'Video Controls'}
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เล่น / พัก (Play / Pause)' : 'Play / Pause'}
-                  </span>
-                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold min-w-[28px] text-center">Space</kbd>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เล่น / พัก (Play / Pause)' : 'Play / Pause'}</span>
+                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Space</kbd>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เดินหน้า / ถอยหลัง 3 วิ (Skip 3s)' : 'Skip 3s Forward / Backward'}
-                  </span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ข้าม 3 วิ (Skip 3s)' : 'Skip 3s'}</span>
                   <div className="flex gap-1">
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">←</kbd>
-                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">→</kbd>
+                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">A / ←</kbd>
+                    <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">D / →</kbd>
                   </div>
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เดินหน้า / ถอยหลัง 1 วิ (Skip 1s)' : 'Skip 1s Forward / Backward'}
-                  </span>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ข้าม 1 วิ (Skip 1s)' : 'Skip 1s'}</span>
                   <div className="flex gap-1 items-center">
                     <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Shift</kbd>
-                    <span className="text-sm text-gray-400">+</span>
+                    <span className="text-gray-400">+</span>
                     <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">← / →</kbd>
                   </div>
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'ลดความเร็ววิดีโอ (Speed Down)' : 'Decrease Speed'}
-                  </span>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'คืนค่าความเร็วปกติ (1.0x)' : 'Normal Speed (1.0x)'}</span>
+                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">0</kbd>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'ลดความเร็ว (Speed Down)' : 'Decrease Speed'}</span>
                   <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">,</kbd>
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'เพิ่มความเร็ววิดีโอ (Speed Up)' : 'Increase Speed'}
-                  </span>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เพิ่มความเร็ว (Speed Up)' : 'Increase Speed'}</span>
                   <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">.</kbd>
-                </div>
-                <div className="flex justify-between items-center mt-2">
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {isThai ? 'คืนค่าความเร็วปกติ (Normal Speed)' : 'Restore Normal Speed'}
-                  </span>
-                  <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">0</kbd>
                 </div>
               </div>
             </div>

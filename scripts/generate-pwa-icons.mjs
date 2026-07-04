@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs';
 
-const svgPath = path.join(process.cwd(), 'public', 'icons', 'app-icon.svg');
+const svgPath = path.join(process.cwd(), 'public', 'icons', 'SP_logo_black_white_transparent_512.png');
 const outDir = path.join(process.cwd(), 'public', 'icons');
 
 async function main() {

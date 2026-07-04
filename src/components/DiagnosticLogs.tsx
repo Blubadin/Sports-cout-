@@ -2,6 +2,10 @@ import React, { useEffect } from 'react';
 
 export default function DiagnosticLogs() {
   useEffect(() => {
+    if (import.meta.env.PROD) {
+      return;
+    }
+
     console.log('%c🔍 [Sports Scout Diagnostics] Starting localStorage Scan...', 'color: #0284c7; font-weight: bold; font-size: 14px;');
 
     const expectedKeys = [

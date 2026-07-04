@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AppSettings, Team, AreaSelectionPayload } from "../types";
 
-export type MarkingMenuType = "none" | "team" | "skill" | "area" | "result";
+export type MarkingMenuType = "none" | "team" | "skill" | "area" | "result" | "foul";
 
 export interface HoveredArea extends AreaSelectionPayload {
   code: string;
@@ -17,10 +17,13 @@ interface UseProHUDMarkingControllerProps {
   teams: Team[];
   selectedSkill: string | null;
   updateActionField: (field: string, value: any, extraId?: any) => void;
+  commitSkillSelection: (payload: { skillCode: string; descriptorGroupId?: string; descriptorCode?: string }) => void;
   commitResult: (resultCode: string, fastMode?: boolean) => void;
   onCloseHUD: () => void;
   layout: any;
   selectArea?: (payload: AreaSelectionPayload) => void;
+  selectFoul?: (foul: any) => void;
+  sportTemplate?: any;
 }
 
 export function useProHUDMarkingController({
@@ -28,10 +31,13 @@ export function useProHUDMarkingController({
   teams,
   selectedSkill,
   updateActionField,
+  commitSkillSelection,
   commitResult,
   onCloseHUD,
   layout,
   selectArea,
+  selectFoul,
+  sportTemplate,
 }: UseProHUDMarkingControllerProps) {
   const [activeMenu, setActiveMenuState] = useState<MarkingMenuType>("none");
   const activeMenuRef = useRef<MarkingMenuType>("none");
@@ -57,6 +63,8 @@ export function useProHUDMarkingController({
 
   const [hoveredTeam, setHoveredTeamState] = useState<string | null>(null);
   const hoveredTeamRef = useRef<string | null>(null);
+  const [hoveredFoul, setHoveredFoulState] = useState<string | null>(null);
+  const hoveredFoulRef = useRef<string | null>(null);
 
   const isHoldingKeyRef = useRef<{ [key: string]: boolean }>({});
 
@@ -98,6 +106,10 @@ export function useProHUDMarkingController({
     setHoveredTeamState(val);
     hoveredTeamRef.current = val;
   }, []);
+  const setHoveredFoul = useCallback((val: string | null) => {
+    setHoveredFoulState(val);
+    hoveredFoulRef.current = val;
+  }, []);
 
   // Compute previewSkill: hoveredSkill has priority over selectedSkill
   const previewSkill = hoveredSkill || selectedSkill;
@@ -113,12 +125,14 @@ export function useProHUDMarkingController({
     setHoveredArea(null);
     setHoveredResult(null);
     setHoveredTeam(null);
+    setHoveredFoul(null);
   }, [
     setHoveredSkill,
     setHoveredDescriptor,
     setHoveredArea,
     setHoveredResult,
     setHoveredTeam,
+    setHoveredFoul,
   ]);
 
   // Determine effective interaction style
@@ -166,7 +180,8 @@ export function useProHUDMarkingController({
       // Bypass elementFromPoint DOM hover tracking for geometry-based wheels
       if (
         activeMenuRef.current === "skill" ||
-        activeMenuRef.current === "result"
+        activeMenuRef.current === "area" ||
+        activeMenuRef.current === "result" || activeMenuRef.current === "foul"
       ) {
         return;
       }
@@ -212,6 +227,11 @@ export function useProHUDMarkingController({
         element
           .closest("[data-scout-hover-result]")
           ?.getAttribute("data-scout-hover-result");
+      const hFoul =
+        element.getAttribute("data-scout-hover-foul") ||
+        element
+          .closest("[data-scout-hover-foul]")
+          ?.getAttribute("data-scout-hover-foul");
       const hTeam =
         element.getAttribute("data-scout-hover-team") ||
         element
@@ -246,6 +266,11 @@ export function useProHUDMarkingController({
         setHoveredResult(null);
       }
 
+      if (hFoul) {
+        setHoveredFoul(hFoul);
+      } else {
+        setHoveredFoul(null);
+      }
       if (hTeam) {
         setHoveredTeam(hTeam);
       } else {
@@ -259,6 +284,7 @@ export function useProHUDMarkingController({
       setHoveredArea,
       setHoveredResult,
       setHoveredTeam,
+      setHoveredFoul,
     ],
   );
 
@@ -273,15 +299,26 @@ export function useProHUDMarkingController({
         const hSkill = hoveredSkillRef.current;
         const hDesc = hoveredDescriptorRef.current;
         if (hSkill) {
-          updateActionField("skillCode", hSkill);
-        }
-        if (hDesc) {
-          updateActionField("descriptors", hDesc.optionCode, hDesc.groupId);
+          commitSkillSelection({
+            skillCode: hSkill,
+            descriptorGroupId: hDesc?.groupId,
+            descriptorCode: hDesc?.optionCode
+          });
         }
       } else if (menu === "area") {
         const hArea = hoveredAreaRef.current;
         if (hArea && selectArea) {
           selectArea(hArea);
+        }
+      } else if (menu === "foul") {
+        const hFoul = hoveredFoulRef.current;
+        if (hFoul) {
+          const foulDef = sportTemplate?.fouls?.find((f: any) => f.code === hFoul);
+          if (foulDef && typeof selectFoul === 'function') {
+             selectFoul(foulDef);
+          } else if (typeof updateActionField === 'function') {
+             updateActionField("foulCode", hFoul);
+          }
         }
       } else if (menu === "result") {
         const hResult = hoveredResultRef.current;
@@ -324,18 +361,18 @@ export function useProHUDMarkingController({
       if (e.code === "KeyQ") {
         e.preventDefault();
         if (isHoldMode) {
-          setActiveMenu("skill");
+          setActiveMenu("area");
         } else {
-          setActiveMenu(activeMenuRef.current === "skill" ? "none" : "skill");
+          setActiveMenu(activeMenuRef.current === "area" ? "none" : "area");
         }
       }
 
       if (e.code === "KeyW") {
         e.preventDefault();
         if (isHoldMode) {
-          setActiveMenu("area");
+          setActiveMenu("skill");
         } else {
-          setActiveMenu(activeMenuRef.current === "area" ? "none" : "area");
+          setActiveMenu(activeMenuRef.current === "skill" ? "none" : "skill");
         }
       }
 
@@ -380,6 +417,15 @@ export function useProHUDMarkingController({
         }
       }
 
+      if (e.code === "KeyR" || e.code === "KeyF") {
+        e.preventDefault();
+        if (isHoldMode) {
+          setActiveMenu("foul");
+        } else {
+          setActiveMenu(activeMenuRef.current === "foul" ? "none" : "foul");
+        }
+      }
+
       if (e.code === "Digit1") {
         e.preventDefault();
         if (isHoldMode) {
@@ -420,12 +466,14 @@ export function useProHUDMarkingController({
 
       if (!isHoldMode) return;
 
-      if (e.code === "KeyQ" && activeMenuRef.current === "skill") {
-        commitMarking("skill");
-      } else if (e.code === "KeyW" && activeMenuRef.current === "area") {
+      if (e.code === "KeyQ" && activeMenuRef.current === "area") {
         commitMarking("area");
+      } else if (e.code === "KeyW" && activeMenuRef.current === "skill") {
+        commitMarking("skill");
       } else if (e.code === "KeyE" && activeMenuRef.current === "result") {
         commitMarking("result");
+      } else if ((e.code === "KeyR" || e.code === "KeyF") && activeMenuRef.current === "foul") {
+        commitMarking("foul");
       } else if (
         (e.code === "Digit1" || e.code === "Digit2") &&
         activeMenuRef.current === "team"
@@ -445,10 +493,13 @@ export function useProHUDMarkingController({
     hoveredArea,
     hoveredResult,
     hoveredTeam,
+    hoveredFoul,
     setHoveredSkill,
     setHoveredDescriptor,
     setHoveredArea,
     setHoveredResult,
+    setHoveredTeam,
+    setHoveredFoul,
     previewSkill,
     bindHoverItem,
     handleKeyDown,

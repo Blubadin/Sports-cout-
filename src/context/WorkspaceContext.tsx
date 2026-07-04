@@ -7,13 +7,20 @@ import { DEFAULT_TEAMS } from '../data';
 interface WorkspaceContextType {
   projects: ScoutProject[];
   activeProjectId: string | null;
-  createNewProject: (title: string, sportType: SportType) => void;
+  createNewProject: (
+    title: string, 
+    sportType: SportType, 
+    initMatchInfo?: Partial<MatchInfo>, 
+    initTeams?: Team[],
+    settingsSnapshot?: AppSettings,
+    videoMeta?: any
+  ) => void;
   openProject: (projectId: string) => void;
   saveCurrentProject: () => void;
   deleteProject: (projectId: string) => void;
   duplicateProject: (projectId: string) => void;
   renameProject: (projectId: string, newTitle: string) => void;
-  importProject: (project: ScoutProject) => void;
+  importProject: (project: any) => boolean;
   updateProjectLastVideoTime: (time: number) => void;
 }
 
@@ -91,11 +98,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const isProjectLoading = React.useRef(false);
   
   const { 
-    events, setEvents, 
+    events, setEvents, clearEventHistory, 
     matchInfo, setMatchInfo, 
     teams, setTeams,
     clearCurrentEvent,
-    settings,
+    settings, setSettings,
     videoSourceType, setVideoSourceType,
     youtubeUrl, setYoutubeUrl,
     youtubeVideoId, setYoutubeVideoId,
@@ -167,6 +174,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
                 events,
                 matchInfo,
                 teams,
+                settingsSnapshot: settings,
                 videoMeta: {
                   sourceType: videoSourceType,
                   youtubeUrl,
@@ -183,7 +191,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       
       return () => clearTimeout(timeoutId);
     }
-  }, [events, matchInfo, teams, activeProjectId, setProjects, videoSourceType, youtubeUrl, youtubeVideoId, localFileName]);
+  }, [events, matchInfo, teams, activeProjectId, setProjects, videoSourceType, youtubeUrl, youtubeVideoId, localFileName, settings]);
 
   const updateProjectLastVideoTime = useCallback((time: number) => {
     if (activeProjectId) {
@@ -206,6 +214,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeProjectId, setProjects, videoSourceType]);
 
+  // Quota exceeded global alert listener
+  useEffect(() => {
+    const handleQuotaExceeded = (e: any) => {
+      console.error('LocalStorage quota exceeded!', e);
+      const isTh = settings.uiLanguage === 'th';
+      showToast(
+        isTh 
+          ? '⚠️ หน่วยความจำเครื่องเต็ม! กรุณาลบโครงการเก่าบางโครงการเพื่อเพิ่มพื้นที่' 
+          : '⚠️ Storage Quota Exceeded! Please delete some old projects to free up space.'
+      );
+    };
+    window.addEventListener('localStorageQuotaExceeded', handleQuotaExceeded);
+    return () => window.removeEventListener('localStorageQuotaExceeded', handleQuotaExceeded);
+  }, [settings.uiLanguage, showToast]);
+
   const saveCurrentProject = () => {
     if (!activeProjectId) {
       createNewProject(`Match ${new Date().toLocaleDateString()}`, matchInfo.sportType);
@@ -226,26 +249,45 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const createNewProject = (title: string, sportType: SportType) => {
+  const createNewProject = (
+    title: string, 
+    sportType: SportType, 
+    customMatchInfo?: Partial<MatchInfo>, 
+    customTeams?: Team[],
+    settingsSnapshot?: AppSettings,
+    videoMeta?: any
+  ) => {
     isProjectLoading.current = true;
     const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     const initMatchInfo: MatchInfo = {
-      scouterName: matchInfo.scouterName,
-      nickname: matchInfo.nickname,
-      matchName: '',
-      matchType: 'Team',
-      setOrGame: '1',
-      currentPoint: 1,
-      sportType: sportType
+      scouterName: customMatchInfo?.scouterName ?? matchInfo.scouterName,
+      nickname: customMatchInfo?.nickname ?? matchInfo.nickname,
+      matchName: customMatchInfo?.matchName ?? '',
+      matchType: customMatchInfo?.matchType ?? 'Team',
+      setOrGame: customMatchInfo?.setOrGame ?? '1',
+      currentPoint: customMatchInfo?.currentPoint ?? 1,
+      sportType: sportType,
+      courtConfig: customMatchInfo?.courtConfig || 'standard',
+      gameFormat: customMatchInfo?.gameFormat || 'standard'
     };
+    
+    const initialTeams = customTeams || DEFAULT_TEAMS;
+    const finalSettings = settingsSnapshot ? { ...settings, ...settingsSnapshot } : settings;
     
     const newProj: ScoutProject = {
       id: newId,
       title,
       sportType,
       matchInfo: initMatchInfo,
-      teams: DEFAULT_TEAMS,
+      teams: initialTeams,
       events: [],
+      settingsSnapshot: finalSettings,
+      videoMeta: videoMeta || {
+        sourceType: 'none',
+        youtubeUrl: '',
+        youtubeVideoId: undefined,
+        localFileName: undefined
+      },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -255,12 +297,31 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     
     // Reset workspace state
     setMatchInfo(initMatchInfo);
-    setTeams(DEFAULT_TEAMS);
-    setEvents([]);
+    setTeams(initialTeams);
+    setEvents([]); 
+    clearEventHistory();
     clearCurrentEvent();
-    setVideoSourceType('local');
-    setLocalFileName(null);
-    setYoutubeUrl('');
+    
+    if (settingsSnapshot) {
+      setSettings(finalSettings);
+    }
+
+    if (videoMeta) {
+      setVideoSourceType(videoMeta.sourceType);
+      if (videoMeta.sourceType === 'youtube') {
+        setYoutubeUrl(videoMeta.youtubeUrl || '');
+        setYoutubeVideoId(videoMeta.youtubeVideoId || null);
+      } else {
+        setLocalFileName(videoMeta.localFileName || null);
+        setYoutubeUrl('');
+        setYoutubeVideoId(null);
+      }
+    } else {
+      setVideoSourceType('none');
+      setLocalFileName(null);
+      setYoutubeUrl('');
+      setYoutubeVideoId(null);
+    }
     
     setTimeout(() => { isProjectLoading.current = false; }, 100);
   };
@@ -272,9 +333,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setActiveProjectId(proj.id);
       setMatchInfo(proj.matchInfo);
       setTeams(proj.teams);
-      setEvents(proj.events);
+      setEvents(proj.events); 
+      clearEventHistory();
       clearCurrentEvent();
       
+      if (proj.settingsSnapshot) {
+        setSettings(prev => ({ ...prev, ...proj.settingsSnapshot }));
+      }
+
       if (proj.videoMeta) {
         setVideoSourceType(proj.videoMeta.sourceType);
         if (proj.videoMeta.sourceType === 'youtube') {
@@ -282,13 +348,14 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           setYoutubeVideoId(proj.videoMeta.youtubeVideoId || null);
         } else {
           setLocalFileName(proj.videoMeta.localFileName || null);
-          // Note: we can't restore the actual local file object for security reasons,
-          // user must re-select it if they want to play it.
+          setYoutubeUrl('');
+          setYoutubeVideoId(null);
         }
       } else {
-        setVideoSourceType('local');
+        setVideoSourceType('none');
         setLocalFileName(null);
         setYoutubeUrl('');
+        setYoutubeVideoId(null);
       }
       setTimeout(() => { isProjectLoading.current = false; }, 100);
     }
@@ -306,7 +373,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setActiveProjectId(proj.id);
         setMatchInfo(proj.matchInfo);
         setTeams(proj.teams);
-        setEvents(proj.events);
+        setEvents(proj.events); clearEventHistory();
         clearCurrentEvent();
         if (proj.videoMeta) {
           setVideoSourceType(proj.videoMeta.sourceType);
@@ -327,7 +394,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           scouterName: matchInfo.scouterName, nickname: matchInfo.nickname, matchName: '', matchType: 'Team', setOrGame: '1', currentPoint: 1, sportType: 'volleyball'
         });
         setTeams(DEFAULT_TEAMS);
-        setEvents([]);
+        setEvents([]); clearEventHistory();
         clearCurrentEvent();
         setVideoSourceType('local');
         setLocalFileName(null);
@@ -358,8 +425,77 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     ));
   };
 
-  const importProject = (project: ScoutProject) => {
-    setProjects(prev => [...prev, project]);
+  const importProject = (project: any): boolean => {
+    if (!project || typeof project !== 'object') return false;
+    if (!project.title || typeof project.title !== 'string') return false;
+    if (!project.sportType || typeof project.sportType !== 'string') return false;
+    if (!Array.isArray(project.events)) return false;
+
+    // Validate and assign correct sport template type
+    const validSportTypes = ['volleyball', 'football', 'badminton', 'basketball'];
+    if (!validSportTypes.includes(project.sportType)) {
+      project.sportType = 'volleyball';
+    }
+
+    // Sanitize MatchInfo
+    if (!project.matchInfo || typeof project.matchInfo !== 'object') {
+      project.matchInfo = {
+        scouterName: '',
+        nickname: '',
+        matchName: '',
+        matchType: 'Team',
+        setOrGame: '1',
+        currentPoint: 1,
+        sportType: project.sportType
+      };
+    } else {
+      project.matchInfo = {
+        scouterName: typeof project.matchInfo.scouterName === 'string' ? project.matchInfo.scouterName : '',
+        nickname: typeof project.matchInfo.nickname === 'string' ? project.matchInfo.nickname : '',
+        matchName: typeof project.matchInfo.matchName === 'string' ? project.matchInfo.matchName : '',
+        matchType: typeof project.matchInfo.matchType === 'string' ? project.matchInfo.matchType : 'Team',
+        setOrGame: typeof project.matchInfo.setOrGame === 'string' ? project.matchInfo.setOrGame : '1',
+        currentPoint: typeof project.matchInfo.currentPoint === 'number' ? project.matchInfo.currentPoint : 1,
+        sportType: project.sportType,
+        courtConfig: typeof project.matchInfo.courtConfig === 'string' ? project.matchInfo.courtConfig : 'standard',
+        gameFormat: typeof project.matchInfo.gameFormat === 'string' ? project.matchInfo.gameFormat : 'standard'
+      };
+    }
+
+    // Sanitize Teams
+    if (!Array.isArray(project.teams) || project.teams.length < 2) {
+      project.teams = DEFAULT_TEAMS;
+    } else {
+      project.teams = project.teams.map((t: any, index: number) => ({
+        id: typeof t.id === 'string' ? t.id : `t${index + 1}`,
+        code: typeof t.code === 'string' ? t.code.toUpperCase() : `T${index + 1}`,
+        name: typeof t.name === 'string' ? t.name : `Team ${index + 1}`,
+        thaiName: typeof t.thaiName === 'string' ? t.thaiName : '',
+        icon: typeof t.icon === 'string' ? t.icon : '',
+        teamType: t.teamType === 'country' || t.teamType === 'club' ? t.teamType : 'country'
+      }));
+    }
+
+    // Sanitize Event rows
+    project.events = sanitizeEvents(project.events);
+
+    // Re-generate ID if missing or colliding
+    if (!project.id || typeof project.id !== 'string') {
+      project.id = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    }
+
+    // Timestamp safety
+    project.createdAt = typeof project.createdAt === 'string' ? project.createdAt : new Date().toISOString();
+    project.updatedAt = new Date().toISOString();
+
+    setProjects(prev => {
+      const prevArr = Array.isArray(prev) ? prev : [];
+      // Prevent duplicates
+      const filtered = prevArr.filter(p => p.id !== project.id);
+      return [...filtered, project];
+    });
+
+    return true;
   };
 
   return (

@@ -70,7 +70,17 @@ interface ScoutContextType {
   selectArea: (payload: AreaSelectionPayload) => void;
   hudLastSavedAt: number;
   updateActionField: (field: keyof Action, value: any, descriptorGroupId?: string) => void;
+  updateActionPatch: (patch: Partial<Action>) => void;
+  selectFoul: (foul?: import('../types').FoulOption) => void;
+  clearFoul: () => void;
+  commitSkillSelection: (payload: { skillCode: string; descriptorGroupId?: string; descriptorCode?: string }) => void;
   commitResult: (resultCode: string, isFastMode?: boolean) => void;
+  canUndoEventAction: boolean;
+  clearEventHistory: () => void;
+  saveEventsWithHistory: (updater: React.SetStateAction<EventRow[]>) => void;
+  canRedoEventAction: boolean;
+  undoEventAction: () => void;
+  redoEventAction: () => void;
 }
 
 const ScoutContext = createContext<ScoutContextType | undefined>(undefined);
@@ -95,6 +105,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
   const [settings, setSettings] = useLocalStorage<AppSettings>('scout_settings', {
     autoNextPoint: true,
+    theme: 'light',
     darkMode: false,
     maxPoints: 25,
     fastMode: true,
@@ -230,6 +241,43 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
   const [currentInputHistory, setCurrentInputHistory] = useState<InputHistoryItem[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  
+  const [pastEvents, setPastEvents] = useState<EventRow[][]>([]);
+  const [futureEvents, setFutureEvents] = useState<EventRow[][]>([]);
+
+  const canUndoEventAction = pastEvents.length > 0;
+  const canRedoEventAction = futureEvents.length > 0;
+
+  const undoEventAction = () => {
+    if (pastEvents.length === 0) return;
+    const previous = pastEvents[pastEvents.length - 1];
+    setPastEvents(prev => prev.slice(0, -1));
+    setFutureEvents(prev => [events, ...prev]);
+    setEvents(previous);
+  };
+
+  const redoEventAction = () => {
+    if (futureEvents.length === 0) return;
+    const next = futureEvents[0];
+    setFutureEvents(prev => prev.slice(1));
+    setPastEvents(prev => [...prev, events]);
+    setEvents(next);
+  };
+
+  const clearEventHistory = () => {
+    setPastEvents([]);
+    setFutureEvents([]);
+  };
+
+  const saveEventsWithHistory = (newEventsUpdater: React.SetStateAction<EventRow[]>) => {
+    setEvents(prev => {
+      const next = typeof newEventsUpdater === 'function' ? (newEventsUpdater as any)(prev) : newEventsUpdater;
+      const renumbered = next.map((e: EventRow, index: number) => ({ ...e, no: index + 1 }));
+      setPastEvents(p => [...p, prev].slice(-20));
+      setFutureEvents([]);
+      return renumbered;
+    });
+  };
 
   const [hudLastSavedText, setHudLastSavedText] = useState<string | null>(null);
   const [hudLastSavedAt, setHudLastSavedAt] = useState<number>(0);
@@ -251,6 +299,92 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     window.addEventListener('localStorageQuotaExceeded', handleQuotaExceeded);
     return () => window.removeEventListener('localStorageQuotaExceeded', handleQuotaExceeded);
   }, [showToast, settings.uiLanguage]);
+
+  const updateActionPatch = useCallback((patch: Partial<Action>) => {
+    setCurrentAction(prev => ({ ...prev, ...patch }));
+  }, []);
+
+  const selectFoul = useCallback((foul?: import('../types').FoulOption) => {
+    setCurrentAction(prev => {
+      const isSame = prev.foulCode === foul?.code;
+      const nextFoulCode = isSame ? undefined : foul?.code;
+      const nextFoulRole = isSame ? undefined : foul?.role;
+      const nextFoulSeverity = isSame ? undefined : foul?.severity;
+
+      setCurrentInputHistory(hist => [...hist, {
+        type: 'field',
+        category: 'foulCode',
+        previousValue: prev.foulCode,
+        value: nextFoulCode
+      } as any]);
+
+      return {
+        ...prev,
+        foulCode: nextFoulCode,
+        foulRole: nextFoulRole,
+        foulSeverity: nextFoulSeverity
+      };
+    });
+  }, []);
+
+  const clearFoul = useCallback(() => {
+    setCurrentAction(prev => {
+      setCurrentInputHistory(hist => [...hist, {
+        type: 'field',
+        category: 'foulCode',
+        previousValue: prev.foulCode,
+        value: undefined
+      } as any]);
+
+      return {
+        ...prev,
+        foulCode: undefined,
+        foulRole: undefined,
+        foulSeverity: undefined
+      };
+    });
+  }, []);
+
+  const commitSkillSelection = useCallback((payload: { skillCode: string; descriptorGroupId?: string; descriptorCode?: string }) => {
+    setCurrentAction(prev => {
+      const isNewSkill = prev.skillCode !== payload.skillCode;
+      const next: Action = { ...prev, skillCode: payload.skillCode };
+
+      if (isNewSkill) {
+        next.descriptors = {};
+        next.resultDetailCode = undefined;
+      } else {
+        next.descriptors = prev.descriptors ? { ...prev.descriptors } : {};
+      }
+
+      if (payload.descriptorGroupId && payload.descriptorCode) {
+        next.descriptors[payload.descriptorGroupId] = payload.descriptorCode;
+      }
+
+      setCurrentInputHistory(hist => {
+        const newHist = [...hist];
+        if (isNewSkill) {
+          newHist.push({
+            type: 'field',
+            category: 'skillCode',
+            previousValue: prev.skillCode,
+            value: payload.skillCode
+          } as any);
+        }
+        if (payload.descriptorGroupId && payload.descriptorCode) {
+          newHist.push({
+            type: 'descriptor',
+            groupId: payload.descriptorGroupId,
+            previousValue: prev.descriptors?.[payload.descriptorGroupId],
+            value: payload.descriptorCode
+          } as any);
+        }
+        return newHist;
+      });
+
+      return next;
+    });
+  }, []);
 
   const updateActionField = useCallback((field: keyof Action, value: any, descriptorGroupId?: string) => {
     const isSame = descriptorGroupId 
@@ -290,8 +424,59 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     } as any]);
   }, [currentAction]);
 
-  const selectArea = useCallback((payload: AreaSelectionPayload) => {
-    const isSame = currentAction.areaCode === payload.areaCode && currentAction.outZone === payload.outZone && currentAction.courtSide === payload.courtSide;
+  const selectArea = useCallback((rawPayload: AreaSelectionPayload) => {
+    // 1. Create a mutable copy of the payload to enrich it
+    const payload = { ...rawPayload };
+
+    // 2. Auto-enrich detailed zones if the areaCode matches a DETAILED_ZONE_LABEL
+    if (payload.areaCode && DETAILED_ZONE_LABELS[payload.areaCode]) {
+      const detailed = DETAILED_ZONE_LABELS[payload.areaCode];
+      payload.gridX = payload.gridX !== undefined ? payload.gridX : detailed.gridX;
+      payload.gridY = payload.gridY !== undefined ? payload.gridY : detailed.gridY;
+      payload.areaMode = payload.areaMode || 'detailed';
+      payload.areaResolution = payload.areaResolution || 'legacy-3x3';
+      payload.areaLabel = payload.areaLabel || detailed.label;
+      payload.areaCode = detailed.baseAreaCode;
+    }
+
+    // 3. Auto-enrich out-of-bounds zones if outZone is provided or if areaCode is an out-of-bounds code
+    if (payload.outZone) {
+      payload.areaResolution = payload.areaResolution || 'out-zone';
+      payload.areaMode = payload.areaMode || 'normal';
+      payload.courtSide = payload.courtSide || 'neutral';
+      if (!payload.areaCode) {
+        payload.areaCode = 'OUT';
+      }
+      if (!payload.areaLabel && OUT_ZONE_LABELS[payload.outZone]) {
+        const isThai = settings.uiLanguage === 'th';
+        payload.areaLabel = isThai ? OUT_ZONE_LABELS[payload.outZone].thaiLabel : OUT_ZONE_LABELS[payload.outZone].label;
+      }
+    } else if (payload.areaCode && ['OUT', 'LONG_OUT', 'SIDE_OUT', 'NET_ERR'].includes(payload.areaCode)) {
+      payload.areaResolution = payload.areaResolution || 'out-zone';
+      payload.areaMode = payload.areaMode || 'normal';
+      payload.courtSide = payload.courtSide || 'neutral';
+      if (!payload.outZone) {
+        if (payload.areaCode === 'NET_ERR') payload.outZone = 'net_error';
+        else payload.outZone = 'unknown';
+      }
+    }
+
+    // 4. Default other missing properties to ensure complete payload
+    payload.areaMode = payload.areaMode || 'normal';
+    payload.courtSide = payload.courtSide || 'neutral';
+    payload.areaResolution = payload.areaResolution || 'normal';
+
+    if (payload.areaCode && !payload.areaLabel) {
+      const areaObj = areas.find(a => a.code === payload.areaCode);
+      const isThai = settings.uiLanguage === 'th';
+      payload.areaLabel = areaObj ? (isThai ? areaObj.thaiName : areaObj.code) : payload.areaCode;
+    }
+
+    const isSame = currentAction.areaCode === payload.areaCode && 
+                   currentAction.outZone === payload.outZone && 
+                   currentAction.courtSide === payload.courtSide &&
+                   currentAction.gridX === payload.gridX &&
+                   currentAction.gridY === payload.gridY;
     
     const nextValueCode = isSame ? undefined : payload.areaCode;
     
@@ -299,7 +484,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       ...currentAction,
       areaCode: nextValueCode,
       areaLabel: isSame ? undefined : payload.areaLabel,
-      areaMode: isSame ? undefined : (payload.areaMode || 'normal'),
+      areaMode: isSame ? undefined : payload.areaMode,
       courtSide: isSame ? undefined : payload.courtSide,
       gridX: isSame ? undefined : payload.gridX,
       gridY: isSame ? undefined : payload.gridY,
@@ -368,9 +553,20 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     const normalized = normalizeActionBeforeCommit(action);
     const isThai = settings.uiLanguage === 'th';
 
-    if (sportTemplate.teamsEnabled && !normalized.teamCode) return isThai ? 'กรุณาเลือกทีมก่อน' : 'Please select a team first';
-    if (!normalized.skillCode) return isThai ? 'กรุณาเลือกทักษะก่อน' : 'Please select a skill first';
-    if (!normalized.resultCode) return isThai ? 'กรุณาเลือกผลลัพธ์ก่อน' : 'Please select a result first';
+    if (sportTemplate.teamsEnabled && !normalized.teamCode) {
+      if (normalized.foulCode) {
+        return isThai ? 'ยังบันทึกไม่ได้ กรุณาเลือกทีมเพื่อบันทึกการฟาวล์' : 'Cannot save yet. Please select a team to record the foul.';
+      }
+      return isThai ? 'ยังบันทึกไม่ได้ กรุณาเลือกทีม ทักษะ พื้นที่ และผลลัพธ์ให้ครบ' : 'Cannot save yet. Please select team, skill, area, and result.';
+    }
+
+    if (normalized.foulCode) {
+      // If a foul is selected, it's a complete standalone action. No skill, result, or area is required.
+      return null;
+    }
+
+    if (!normalized.skillCode) return isThai ? 'ยังบันทึกไม่ได้ กรุณาเลือกทีม ทักษะ พื้นที่ และผลลัพธ์ให้ครบ' : 'Cannot save yet. Please select team, skill, area, and result.';
+    if (!normalized.resultCode) return isThai ? 'ยังบันทึกไม่ได้ กรุณาเลือกทีม ทักษะ พื้นที่ และผลลัพธ์ให้ครบ' : 'Cannot save yet. Please select team, skill, area, and result.';
 
     const skill = getSkillByCode(normalized.skillCode);
     const req = skill?.areaRequirement || 'optionalWhenOut';
@@ -379,17 +575,15 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     if (descGroup) {
       for (const group of descGroup) {
         if (group.required && (!normalized.descriptors || !normalized.descriptors[group.id])) {
-          return isThai ? `กรุณาเลือก ${group.thaiLabel}` : `Please select ${group.label}`;
+          return isThai ? `ยังบันทึกไม่ได้ กรุณาเลือก ${group.thaiLabel}` : `Cannot save yet. Please select ${group.label}`;
         }
       }
     }
 
-    if (req === 'never' || req === 'optional') return null;
-
-    if (normalized.resultCode !== 'Out') {
+    if (req !== 'never' && req !== 'optional') {
       const hasArea = normalized.areaCode || normalized.areaLabel || (normalized.gridX !== undefined && normalized.gridY !== undefined) || (normalized.pointX !== undefined && normalized.pointY !== undefined) || normalized.outZone;
-      if (!hasArea) {
-        return isThai ? 'กรุณาเลือกพื้นที่ในสนามก่อน' : 'Please select a court area first';
+      if (!hasArea && (req === 'always' || (req === 'optionalWhenOut' && normalized.resultCode !== 'Out'))) {
+        return isThai ? 'ยังบันทึกไม่ได้ กรุณาเลือกพื้นที่ในสนาม' : 'Cannot save yet. Please select a court area.';
       }
     }
 
@@ -407,7 +601,14 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     } else if (action.areaCode && DETAILED_ZONE_LABELS[action.areaCode]) {
       area = DETAILED_ZONE_LABELS[action.areaCode].label;
     }
-    const parts = [action.teamCode, action.skillCode, area, action.resultCode];
+    const parts = [
+      action.teamCode, 
+      action.skillCode, 
+      ...(action.descriptors ? Object.values(action.descriptors) : []),
+      area, 
+      action.resultCode, 
+      action.foulCode
+    ];
     return parts.filter(Boolean).join(' / ');
   };
 
@@ -419,11 +620,6 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       details.push(playerStr);
     }
     if (action.resultDetailCode) details.push(action.resultDetailCode);
-    if (action.descriptors) {
-      Object.values(action.descriptors).forEach(val => {
-        if (val) details.push(val);
-      });
-    }
     if (details.length > 0) {
       return base + ' / ' + details.join(' / ');
     }
@@ -436,6 +632,8 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     const areaCode = action.areaCode || (action.resultCode === 'Out' ? 'OUT' : action.areaCode);
     const area = areas.find(a => a.code === areaCode);
     const result = results.find(r => r.code === action.resultCode);
+    const foul = (sportTemplate.fouls || []).find(f => f.code === action.foulCode);
+    const foulStr = foul ? (foul.labelTh || foul.label) : action.foulCode;
 
     let areaStr = action.areaLabel || area?.thaiName || areaCode;
     if (action.outZone && OUT_ZONE_LABELS[action.outZone]) {
@@ -444,11 +642,28 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       areaStr = DETAILED_ZONE_LABELS[action.areaCode].thaiLabel;
     }
 
+    let descStrs: string[] = [];
+    if (action.descriptors) {
+      Object.entries(action.descriptors).forEach(([key, val]) => {
+        // Find thaiLabel of the descriptor option
+        for (const grp of Object.values(sportTemplate.descriptors || {})) {
+          for (const g of grp) {
+            if (g.id === key) {
+              const opt = g.options.find(o => o.code === val);
+              if (opt) descStrs.push(opt.thaiLabel);
+            }
+          }
+        }
+      });
+    }
+
     const parts = [
       team?.thaiName || team?.name || action.teamCode,
       skill?.thaiName || action.skillCode,
+      ...descStrs,
       areaStr,
       result?.thaiName || action.resultCode,
+      foulStr,
     ];
 
     const base = parts.filter(Boolean).join(' / ');
@@ -457,19 +672,6 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     if (action.playerNumber || action.playerName) {
       const playerStr = [action.playerNumber ? `เบอร์ ${action.playerNumber}` : '', action.playerName].filter(Boolean).join(' ');
       details.push(playerStr);
-    }
-    if (action.descriptors) {
-      Object.entries(action.descriptors).forEach(([key, val]) => {
-        // Find thaiLabel of the descriptor option
-        for (const grp of Object.values(sportTemplate.descriptors || {})) {
-          for (const g of grp) {
-            if (g.id === key) {
-              const opt = g.options.find(o => o.code === val);
-              if (opt) details.push(opt.thaiLabel);
-            }
-          }
-        }
-      });
     }
     if (details.length > 0) {
       return base + ' / ' + details.join(' / ');
@@ -611,6 +813,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     if (lastAction.resultCode === 'Yes') resultText = '+1';
     else if (lastAction.resultCode === 'Out') resultText = '-1';
     else if (lastAction.resultCode === 'Pass') resultText = '0';
+    else if (lastAction.foulCode) resultText = '-1'; // Standalone fouls represent lost points/errors
 
     const finalVideoTime = getCurrentTimeRef.current();
     
@@ -647,7 +850,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
     };
 
-    setEvents(prev => {
+    saveEventsWithHistory(prev => {
       const nextEvents = [...prev, newRow];
       return nextEvents.map((e, index) => ({ ...e, no: index + 1 }));
     });
@@ -709,20 +912,24 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   }, [currentAction, getMissingActionMessage, isActionComplete, saveEvent, addAction, showToast]);
 
   const deleteEventRow = (id: string) => {
-    setEvents(prev => 
-      prev
-        .filter(e => e.id !== id)
-        .map((e, index) => ({ ...e, no: index + 1 }))
-    );
+    saveEventsWithHistory(prev => prev.filter(e => e.id !== id));
   };
 
   const updateEventRow = (id: string, updatedRow: EventRow) => {
-    setEvents(prev => prev.map(e => (e.id === id ? updatedRow : e)));
+    saveEventsWithHistory(prev => prev.map(e => (e.id === id ? updatedRow : e)));
   };
 
   const changeSportType = (newSport: SportType, force: boolean = false) => {
-    const hasPending = currentActions.length > 0 || Object.keys(currentAction).some(k => k !== 'videoTime' && k !== 'teamCode');
     const isThai = settings.uiLanguage === 'th';
+    if (events.length > 0 && !force) {
+      showToast(
+        isThai
+          ? 'ไม่สามารถเปลี่ยนชนิดกีฬาได้ เพราะมีข้อมูลที่บันทึกไว้แล้ว หากต้องการเปลี่ยนกีฬา กรุณาสร้างโปรเจคใหม่'
+          : 'Sport type is locked because events have already been recorded. Create a new project to change sport.'
+      );
+      return;
+    }
+    const hasPending = currentActions.length > 0 || Object.keys(currentAction).some(k => k !== 'videoTime' && k !== 'teamCode');
     if (hasPending && !force) {
       const confirmChange = window.confirm(
         isThai 
@@ -741,19 +948,28 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    if (settings.darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    // Migration from old darkMode
+    if (settings.theme === undefined) {
+      setSettings(prev => ({ ...prev, theme: prev.darkMode ? 'dark' : 'light' }));
     }
-  }, [settings.darkMode]);
+
+    document.documentElement.classList.remove('dark', 'theme-monochrome');
+    
+    if (settings.theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else if (settings.theme === 'monochrome') {
+      document.documentElement.classList.add('theme-monochrome');
+    } else if (settings.theme === undefined && settings.darkMode) {
+      document.documentElement.classList.add('dark');
+    }
+  }, [settings.theme, settings.darkMode]);
 
   return (
     <ScoutContext.Provider value={{
       teams, setTeams, skills, areas, results,
       matchInfo, setMatchInfo,
       settings, setSettings,
-      events, setEvents,
+      events, setEvents, saveEventsWithHistory, clearEventHistory,
       currentActions, setCurrentActions,
       currentAction, setCurrentAction,
       videoTime, setVideoTime, getCurrentTimeRef,
@@ -768,7 +984,8 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       sportTemplate, changeSportType,
       currentInputHistory, setCurrentInputHistory, getMissingActionMessage,
       toastMessage, showToast,
-      hudLastSavedText, hudLastSavedAt, updateActionField, selectArea, commitResult
+      hudLastSavedText, hudLastSavedAt, updateActionField, updateActionPatch, selectFoul, clearFoul, commitSkillSelection, selectArea, commitResult,
+      canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction
     }}>
       {children}
     </ScoutContext.Provider>

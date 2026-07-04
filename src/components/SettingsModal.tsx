@@ -16,7 +16,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { 
     settings, setSettings, 
     matchInfo, changeSportType,
-    events, setEvents,
+    events, setEvents, saveEventsWithHistory,
     clearCurrentEvent, setMatchInfo, showToast,
     teams, setTeams
   } = useScoutContext();
@@ -24,79 +24,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [confirmConfig, setConfirmConfig] = React.useState<{ message: string, onConfirm: () => void } | null>(null);
   const [activeTab, setActiveTab] = React.useState<'general' | 'hud' | 'data'>('general');
 
-  const handleExportData = () => {
-    if (events.length === 0) return showToast('ไม่มีข้อมูลให้ Export');
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(events, null, 2));
-    const link = document.createElement("a");
-    link.setAttribute("href", dataStr);
-    link.setAttribute("download", `scout_backup_${new Date().toISOString().split('T')[0]}.json`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        showToast('ขนาดไฟล์เกิน 5MB');
-        return;
-      }
-      
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const content = event.target?.result as string;
-          if (content.length > 5 * 1024 * 1024) throw new Error("File too large");
-
-          const parsed = JSON.parse(content);
-          if (Array.isArray(parsed)) {
-            // Basic validation
-            const isValid = parsed.every(row => {
-              if (typeof row !== 'object' || row === null) return false;
-              if (row.id && typeof row.id !== 'string') return false;
-              if (row.sportType && !['volleyball', 'football', 'badminton', 'basketball'].includes(row.sportType)) return false;
-              if (row.resultText && !['+1', '0', '-1'].includes(row.resultText)) return false;
-              if (row.actions && !Array.isArray(row.actions)) return false;
-              
-              // Validate actions array deeply
-              if (row.actions.length > 0) {
-                 const actionsValid = row.actions.every((action: any) => {
-                   if (typeof action !== 'object' || action === null) return false;
-                   if (action.resultCode && !['Yes', 'Out', 'Pass'].includes(action.resultCode)) return false;
-                   return true;
-                 });
-                 if (!actionsValid) return false;
-              }
-              
-              return true;
-            });
-
-            if (!isValid) {
-              showToast('โครงสร้างข้อมูลในไฟล์ไม่ถูกต้อง หรือ resultCode ผิดพลาด');
-              return;
-            }
-
-            setConfirmConfig({
-              message: `พบข้อมูล ${parsed.length} รายการ ยืนยันการแทนที่ข้อมูลปัจจุบัน?`,
-              onConfirm: () => {
-                setEvents(parsed);
-                showToast('Import สำเร็จ');
-                setConfirmConfig(null);
-              }
-            });
-          } else {
-            showToast('รูปแบบไฟล์ไม่ถูกต้อง ต้องเป็น Array ของ EventRow');
-          }
-        } catch (err) {
-          showToast('ไม่สามารถอ่านไฟล์ได้ หรือโครงสร้าง JSON ผิดพลาด');
-        }
-      };
-      reader.readAsText(file);
-    }
-    // reset input
-    e.target.value = '';
-  };
 
   const handleClearData = () => {
     setConfirmConfig({
@@ -159,7 +86,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     : 'bg-transparent text-gray-600 dark:text-gray-400 border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
-                {settings.uiLanguage === 'th' ? 'ทั่วไป & ทีม (General)' : 'General & Teams'}
+                <span className="hidden sm:inline">{settings.uiLanguage === 'th' ? 'ทั่วไป & ทีม (General)' : 'General & Teams'}</span><span className="sm:hidden">{settings.uiLanguage === 'th' ? 'ทั่วไป' : 'General'}</span>
               </button>
               <button
                 onClick={() => setActiveTab('hud')}
@@ -169,7 +96,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     : 'bg-transparent text-gray-600 dark:text-gray-400 border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
-                {settings.uiLanguage === 'th' ? 'HUD & สนาม & วิดีโอ (HUD/Court)' : 'HUD & Court & Video'}
+                <span className="hidden sm:inline">{settings.uiLanguage === 'th' ? 'HUD & สนาม & วิดีโอ (HUD/Court)' : 'HUD & Court & Video'}</span><span className="sm:hidden">HUD/Court</span>
               </button>
               <button
                 onClick={() => setActiveTab('data')}
@@ -179,7 +106,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     : 'bg-transparent text-gray-600 dark:text-gray-400 border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
-                {settings.uiLanguage === 'th' ? 'การนำเข้า/ส่งออกข้อมูล (Backup)' : 'Data & Backup'}
+                <span className="hidden sm:inline">{settings.uiLanguage === 'th' ? 'การนำเข้า/ส่งออกข้อมูล (Backup)' : 'Data & Backup'}</span><span className="sm:hidden">{settings.uiLanguage === 'th' ? 'ข้อมูล' : 'Data'}</span>
               </button>
             </div>
 
@@ -723,17 +650,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       {t('settings.dataManagement', settings.uiLanguage)}
                     </h3>
                     <div className="flex flex-col gap-3">
-                      <button onClick={handleExportData} className="flex items-center justify-center gap-2 p-3 bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 rounded-lg font-bold hover:bg-sky-100 transition-colors cursor-pointer border border-sky-200 dark:border-sky-900/30">
-                        <Download size={18} /> {t('settings.exportData', settings.uiLanguage)}
-                      </button>
-                      
-                      <label className="flex items-center justify-center gap-2 p-3 bg-gray-100 dark:bg-gray-850 text-gray-700 dark:text-gray-300 rounded-lg font-bold hover:bg-gray-200 transition-colors cursor-pointer border border-gray-300 dark:border-gray-750">
-                        <Upload size={18} /> {t('settings.importData', settings.uiLanguage)}
-                        <input type="file" accept=".json" className="hidden" onChange={handleImportData} />
-                      </label>
-
-                      <div className="border-t border-gray-200 dark:border-gray-850 my-4"></div>
-
                       <button onClick={handleClearData} className="flex items-center justify-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg font-bold hover:bg-red-100 transition-colors cursor-pointer border border-red-200 dark:border-red-900/50">
                         <Trash2 size={18} /> {t('settings.clearData', settings.uiLanguage)}
                       </button>

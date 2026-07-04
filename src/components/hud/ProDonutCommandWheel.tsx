@@ -101,8 +101,6 @@ export default function ProDonutCommandWheel({
     `;
   };
 
-  if (!active) return null;
-
   const cx = size / 2;
   const cy = size / 2;
 
@@ -143,13 +141,20 @@ export default function ProDonutCommandWheel({
   let currentHoveredCode: string | null = null;
 
   if (distance >= deadZone) {
-    hoveredInnerIndex = Math.floor(angleFromUp / sectorAngle) % totalSectors;
-    if (hoveredInnerIndex >= 0 && hoveredInnerIndex < items.length) {
-      currentHoveredCode = items[hoveredInnerIndex].code;
+    if (distance < innerRadiusMax || (!hoveredSkill && !selectedSkill)) {
+      hoveredInnerIndex = Math.floor(angleFromUp / sectorAngle) % totalSectors;
+      if (hoveredInnerIndex >= 0 && hoveredInnerIndex < items.length) {
+        currentHoveredCode = items[hoveredInnerIndex].code;
+      }
+    } else {
+      currentHoveredCode = hoveredSkill || selectedSkill || null;
+      hoveredInnerIndex = items.findIndex((i) => i.code === currentHoveredCode);
     }
   }
 
   // Handle nested descriptor options (sub-skills) for skill wheel
+  // TODO: Add support for multiple descriptor groups by allowing user to toggle active group
+  // or by rendering multiple outer concentric rings for each group in the DescriptorGroup array.
   const activeSkillCode = selectedSkill || currentHoveredCode;
   const activeDescriptors =
     menuType === "skill" && activeSkillCode && descriptors.length > 0
@@ -223,10 +228,13 @@ export default function ProDonutCommandWheel({
     centerColor = "text-white/40 animate-pulse";
   } else if (menuType === "skill") {
     if (distance >= innerRadiusMax && hoveredDescriptor && descriptors[0]) {
-      const parentName =
-        skills.find((s) => s.code === hoveredSkill)?.name || hoveredSkill;
+      const parentSkill = skills.find((s) => s.code === hoveredSkill);
+      const pName = parentSkill ? (uiLanguage === "th" ? parentSkill.thaiName : parentSkill.name) : hoveredSkill;
+      const descObj = descriptors[0].options.find(o => o.code === hoveredDescriptor.optionCode);
+      const descName = descObj ? (uiLanguage === "th" ? descObj.thaiLabel : descObj.label) : hoveredDescriptor.optionCode;
+
       centerTitle = `${hoveredSkill} + ${hoveredDescriptor.optionCode}`;
-      centerSub = `${parentName} (${hoveredDescriptor.optionCode})`;
+      centerSub = `${pName} / ${descName}`;
       centerColor = "text-sky-400";
     } else if (hoveredSkill) {
       const s = skills.find((sk) => sk.code === hoveredSkill);
@@ -240,6 +248,8 @@ export default function ProDonutCommandWheel({
     centerSub = res ? res.sub : "";
     centerColor = hoveredResult === "Yes" ? "text-green-400" : hoveredResult === "Out" ? "text-red-400" : "text-sky-400";
   }
+
+  if (!active) return null;
 
   return (
     <div

@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Action, EventRow, SportType } from '../../types';
+import { SPORT_TEMPLATES } from '../../sports';
 
 type FieldSequenceMapProps = {
   sportType: SportType;
@@ -189,6 +190,13 @@ export default function FieldSequenceMap({
   onEventClick 
 }: FieldSequenceMapProps) {
   const [selectedAreaGroup, setSelectedAreaGroup] = React.useState<{ key: string; label: string; actions: any[] } | null>(null);
+
+  const getFoulLabel = (code: string) => {
+    const template = SPORT_TEMPLATES[sportType];
+    const foulDef = template?.fouls?.find((f: any) => f.code === code);
+    if (!foulDef) return code;
+    return foulDef.label;
+  };
   
   const filteredEvents = useMemo(() => {
     return events.filter(e => e.sportType === sportType && (!selectedEventId || e.id === selectedEventId));
@@ -438,9 +446,22 @@ export default function FieldSequenceMap({
             </div>
           )}
           {mode === 'sequence' && selectedEventId && mapData.map((d, i) => {
+            const isFoul = !!d.foulCode;
             let sequenceColorClass = 'bg-gray-500';
             if (d.teamCode === teamAName) sequenceColorClass = 'bg-sky-500';
             else if (d.teamCode === teamBName) sequenceColorClass = 'bg-orange-500';
+            
+            if (isFoul) {
+              sequenceColorClass = d.foulSeverity === 'card' ? 'bg-red-600' : 'bg-amber-500';
+            }
+
+            let tooltip = `${d.teamCode} - ${d.skillCode} (${d.resultCode})${d.outZone ? ` [Out: ${d.outZone}]` : ''}${d.areaLabel ? ` - ${d.areaLabel}` : ''}`;
+            if (isFoul) {
+              const fLabel = getFoulLabel(d.foulCode);
+              const formattedTime = d.videoTime !== undefined ? ` at ${Math.floor(d.videoTime / 60)}:${String(Math.floor(d.videoTime % 60)).padStart(2, '0')}` : '';
+              tooltip = `[FOUL] Team: ${d.teamCode}, Code: ${d.foulCode}, Label: ${fLabel}, Area: ${d.areaLabel || d.outZone || d.areaCode || '-'}, Time: ${formattedTime}`;
+            }
+
             return (
             <React.Fragment key={i}>
               {i > 0 && d.eventId === mapData[i-1].eventId && (
@@ -457,7 +478,7 @@ export default function FieldSequenceMap({
                 </svg>
               )}
               <div 
-                className={`absolute rounded-full ${sequenceColorClass} text-white text-xs font-bold flex items-center justify-center shadow-md z-20 cursor-pointer hover:scale-125 transition-transform`}
+                className={`absolute rounded-full ${sequenceColorClass} text-white text-xs font-bold flex items-center justify-center shadow-md z-20 cursor-pointer hover:scale-125 transition-transform ${isFoul ? 'ring-2 ring-red-500 ring-offset-1 animate-pulse' : ''}`}
                 style={{
                   top: `${d.coords.top}%`,
                   left: `${d.coords.left}%`,
@@ -466,33 +487,54 @@ export default function FieldSequenceMap({
                   transform: 'translate(-50%, -50%)',
                 }}
                 onClick={() => onEventClick && onEventClick(filteredEvents.find(e => e.id === d.eventId)!, d)}
-                title={`${d.teamCode} - ${d.skillCode} (${d.resultCode})${d.outZone ? ` [Out: ${d.outZone}]` : ''}${d.areaLabel ? ` - ${d.areaLabel}` : ''}`}
+                title={tooltip}
               >
-                {d.sequence}
+                {isFoul ? '!' : d.sequence}
               </div>
             </React.Fragment>
           )})}
 
           {mode === 'result' && mapData.map((d, i) => {
-            const color = d.resultCode === 'Yes' ? 'bg-green-500' : d.outZone ? 'bg-amber-500' : d.resultCode === 'Out' ? 'bg-red-500' : 'bg-gray-500';
+            const isFoul = !!d.foulCode;
+            const color = isFoul 
+              ? (d.foulSeverity === 'card' ? 'bg-red-600' : 'bg-amber-500') 
+              : d.resultCode === 'Yes' 
+                ? 'bg-green-500' 
+                : d.outZone 
+                  ? 'bg-amber-500' 
+                  : d.resultCode === 'Out' 
+                    ? 'bg-red-500' 
+                    : 'bg-gray-500';
+
             let ringColor = 'ring-gray-400';
             if (d.teamCode === teamAName) ringColor = 'ring-sky-500';
             else if (d.teamCode === teamBName) ringColor = 'ring-orange-500';
             
+            let tooltip = `${d.teamCode} - ${d.skillCode} (${d.resultCode})${d.outZone ? ` [Out: ${d.outZone}]` : ''}${d.areaLabel ? ` - ${d.areaLabel}` : ''}`;
+            if (isFoul) {
+              const fLabel = getFoulLabel(d.foulCode);
+              const formattedTime = d.videoTime !== undefined ? ` at ${Math.floor(d.videoTime / 60)}:${String(Math.floor(d.videoTime % 60)).padStart(2, '0')}` : '';
+              tooltip = `[FOUL] Team: ${d.teamCode}, Code: ${d.foulCode}, Label: ${fLabel}, Area: ${d.areaLabel || d.outZone || d.areaCode || '-'}, Time: ${formattedTime}`;
+            }
+
             return (
               <div 
                 key={i}
-                className={`absolute rounded-full ${color} ring-2 ring-offset-1 ${ringColor} shadow-sm z-10 opacity-70 cursor-pointer hover:opacity-100 hover:scale-150 transition-all`}
+                className={`absolute rounded-full ${color} ring-2 ring-offset-1 ${ringColor} shadow-sm z-10 ${isFoul ? 'opacity-100 animate-pulse scale-125' : 'opacity-70'} cursor-pointer hover:opacity-100 hover:scale-150 transition-all`}
                 style={{
                   top: `${d.coords.top + d.jitter.top}%`,
                   left: `${d.coords.left + d.jitter.left}%`,
-                  width: '12px',
-                  height: '12px',
+                  width: isFoul ? '16px' : '12px',
+                  height: isFoul ? '16px' : '12px',
                   transform: 'translate(-50%, -50%)',
                 }}
                 onClick={() => onEventClick && onEventClick(filteredEvents.find(e => e.id === d.eventId)!, d)}
-                title={`${d.teamCode} - ${d.skillCode} (${d.resultCode})${d.outZone ? ` [Out: ${d.outZone}]` : ''}${d.areaLabel ? ` - ${d.areaLabel}` : ''}`}
-              />
+                title={tooltip}
+              >
+                {isFoul && (
+                  <span className="text-[9px] font-bold text-white flex items-center justify-center h-full w-full">!</span>
+                )}
+              </div>
             )
           })}
         </FieldComponent>

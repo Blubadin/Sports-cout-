@@ -10,6 +10,31 @@
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
+  .theme-monochrome {
+    --color-sky-50: var(--color-gray-100);
+    --color-sky-100: var(--color-gray-200);
+    --color-sky-200: var(--color-gray-300);
+    --color-sky-300: var(--color-gray-400);
+    --color-sky-400: var(--color-gray-500);
+    --color-sky-500: var(--color-gray-600);
+    --color-sky-600: var(--color-gray-700);
+    --color-sky-700: var(--color-gray-800);
+    --color-sky-800: var(--color-gray-900);
+    --color-sky-900: var(--color-gray-950);
+    --color-sky-950: var(--color-black);
+    
+    --color-blue-50: var(--color-gray-100);
+    --color-blue-100: var(--color-gray-200);
+    --color-blue-200: var(--color-gray-300);
+    --color-blue-300: var(--color-gray-400);
+    --color-blue-400: var(--color-gray-500);
+    --color-blue-500: var(--color-gray-600);
+    --color-blue-600: var(--color-gray-700);
+    --color-blue-700: var(--color-gray-800);
+    --color-blue-800: var(--color-gray-900);
+    --color-blue-900: var(--color-gray-950);
+    --color-blue-950: var(--color-black);
+  }
 }
 
 @layer utilities {

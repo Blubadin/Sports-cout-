@@ -28,11 +28,12 @@ export default function HUDActionStatus() {
   };
   const getSkillLabel = () => currentAction.skillCode || (isThai ? "ทักษะ (Q)" : "Skill (Q)");
   const getResultLabel = () => currentAction.resultCode || (isThai ? "ผลลัพธ์ (E)" : "Result (E)");
+  const getFoulLabel = () => currentAction.foulCode || "";
 
   const renderChip = (
     label: string,
     isSet: boolean,
-    type: "team" | "skill" | "area" | "result",
+    type: "team" | "skill" | "area" | "result" | "foul",
   ) => {
     let colorClass = "bg-black/50 text-white/50 border-white/20";
     if (isSet) {
@@ -82,7 +83,7 @@ export default function HUDActionStatus() {
           {currentActions.map((act, i) => (
             <React.Fragment key={`${act.id || ""}-${i}`}>
               <span className="bg-black/40 px-2 py-0.5 rounded-lg border border-white/5 backdrop-blur whitespace-nowrap">
-                {[act.teamCode, act.skillCode, act.areaCode, act.resultCode]
+                {[act.teamCode, act.skillCode, ...(act.descriptors ? Object.values(act.descriptors) : []), act.areaCode, act.resultCode, act.foulCode]
                   .filter(Boolean)
                   .join("/")}
               </span>
@@ -97,17 +98,24 @@ export default function HUDActionStatus() {
       {/* Current Action Editing Chips */}
       <div className="flex items-center gap-1.5 md:gap-2 bg-black/40 p-1.5 md:p-2 rounded-xl backdrop-blur-md border border-white/10 flex-nowrap w-full overflow-x-auto justify-center pointer-events-auto">
         {renderChip(getTeamLabel(), !!currentAction.teamCode, "team")}
-        {renderChip(getAreaLabel(), !!currentAction.areaCode, "area")}
-        {renderChip(getSkillLabel(), !!currentAction.skillCode, "skill")}
+        
+        {(!currentAction.foulCode || currentAction.skillCode || currentAction.areaCode || currentAction.resultCode) && (
+          <>
+            {renderChip(getAreaLabel(), !!currentAction.areaCode, "area")}
+            {renderChip(getSkillLabel(), !!currentAction.skillCode, "skill")}
 
-        {/* Render sub-skill if present */}
-        {subSkillText && (
-          <div className="px-1.5 py-1 md:px-2.5 md:py-1 rounded-lg border border-amber-500/30 bg-amber-500/20 text-amber-300 text-[9px] md:text-xs font-bold whitespace-nowrap">
-            {subSkillText}
-          </div>
+            {/* Render sub-skill if present */}
+            {subSkillText && (
+              <div className="px-1.5 py-1 md:px-2.5 md:py-1 rounded-lg border border-amber-500/30 bg-amber-500/20 text-amber-300 text-[9px] md:text-xs font-bold whitespace-nowrap">
+                {subSkillText}
+              </div>
+            )}
+
+            {renderChip(getResultLabel(), !!currentAction.resultCode, "result")}
+          </>
         )}
-
-        {renderChip(getResultLabel(), !!currentAction.resultCode, "result")}
+        
+        {currentAction.foulCode && renderChip(getFoulLabel(), true, "foul")}
 
         {canUndo && (
           <button

@@ -1,3 +1,4 @@
+import { OUT_ZONE_LABELS } from "../../sports";
 import React, { useState, useEffect, useRef } from "react";
 import { useScoutContext } from "../../context/ScoutContext";
 import { Maximize, Minimize, X, History, RotateCcw } from "lucide-react";
@@ -10,6 +11,7 @@ import HUDTeamSelector from "./HUDTeamSelector";
 import HUDSkillRadial from "./HUDSkillRadial";
 import HUDAreaSelector from "./HUDAreaSelector";
 import HUDResultSelector from "./HUDResultSelector";
+import HUDFoulSelector from "./HUDFoulSelector";
 import HUDVideoControls from "./HUDVideoControls";
 import HUDSequenceHistoryDrawer from "./HUDSequenceHistoryDrawer";
 import HUDMiniCourtSelector from "./HUDMiniCourtSelector";
@@ -54,11 +56,13 @@ export default function ScoutHUDMode({
     events,
     clearCurrentEvent,
     updateActionField,
+    commitSkillSelection,
     teams,
     commitResult,
     sportTemplate,
     matchInfo,
     selectArea,
+    selectFoul,
   } = useScoutContext();
 
   const layout = useHUDDeviceLayout();
@@ -84,7 +88,10 @@ export default function ScoutHUDMode({
     setHoveredDescriptor,
     setHoveredArea,
     setHoveredResult,
+    setHoveredTeam,
+    setHoveredFoul,
     hoveredTeam,
+    hoveredFoul,
     previewSkill,
     handleKeyDown,
     handleKeyUp,
@@ -96,10 +103,13 @@ export default function ScoutHUDMode({
     teams,
     selectedSkill: currentAction.skillCode || null,
     updateActionField,
+    commitSkillSelection,
     commitResult,
     onCloseHUD: () => exitHUDModeSafely('escape_key'),
     layout,
     selectArea,
+    selectFoul,
+    sportTemplate,
   });
 
   const uiTimeoutRef = useRef<number | null>(null);
@@ -321,14 +331,6 @@ export default function ScoutHUDMode({
       e.preventDefault();
       videoControls.seekBy(3);
     }
-    if (e.code === "KeyS") {
-      e.preventDefault();
-      videoControls.seekBy(-1);
-    }
-    if (e.code === "KeyF") {
-      e.preventDefault();
-      videoControls.seekBy(1);
-    }
 
     // Save / Undo
     if (e.code === "Enter") {
@@ -363,7 +365,7 @@ export default function ScoutHUDMode({
   const isTouchHoldActiveRef = useRef<boolean>(false);
 
   const handleMenuPointerDown = (
-    menu: "skill" | "area" | "result" | "team",
+    menu: "skill" | "area" | "result" | "team" | "foul",
     e: React.PointerEvent,
   ) => {
     if (activeMenu !== "none") return;
@@ -396,7 +398,7 @@ export default function ScoutHUDMode({
   }, [commitMarking, activeMenu]);
 
   const handlePointerInteraction = (
-    menu: "skill" | "area" | "result" | "team",
+    menu: "skill" | "area" | "result" | "team" | "foul",
   ) => {
     if (isHoldMode) return;
     setActiveMenu(activeMenu === menu ? "none" : menu);
@@ -536,23 +538,29 @@ export default function ScoutHUDMode({
 
               {/* Status footer displaying currently highlighted area code */}
               <div className="mt-4 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 flex items-center gap-2 text-xs">
-                <span className="text-white/40">{settings.uiLanguage === 'th' ? 'พื้นที่ไฮไลต์:' : 'Highlighted:'}</span>
+                <span className="text-white/40">AREA:</span>
                 <span className="text-amber-400 font-extrabold font-mono text-sm tracking-wider">
                   {(() => {
-                    const code = hoveredArea ? hoveredArea.code : currentAction.areaCode;
-                    if (!code) return 'NONE';
+                    const payload = hoveredArea || null;
+                    if (!payload || !payload.areaCode) return 'NONE';
+                    const code = payload.areaCode;
                     const isThai = settings?.uiLanguage === 'th';
-                    const foundArea = sportTemplate.areas.find(a => a.code === code);
-                    const displayInfo = getAreaDisplay(code, isThai, foundArea?.thaiName || '');
-                    return displayInfo.sub ? `${displayInfo.main} (${displayInfo.sub})` : displayInfo.main;
+                    let label = "";
+                    if (payload.outZone && OUT_ZONE_LABELS[payload.outZone]) {
+                        label = isThai ? OUT_ZONE_LABELS[payload.outZone].thaiLabel : OUT_ZONE_LABELS[payload.outZone].label;
+                    } else {
+                        const foundArea = sportTemplate.areas.find(a => a.code === code);
+                        const displayInfo = getAreaDisplay(code, isThai, foundArea?.thaiName || '');
+                        label = displayInfo.sub ? `${displayInfo.main} (${displayInfo.sub})` : displayInfo.main;
+                    }
+                    return `${code} / ${label}`;
                   })()}
                 </span>
-                {hoveredArea?.courtSide && (
+                {hoveredArea?.courtSide && hoveredArea.courtSide !== 'neutral' && (
                   <span className="text-white/60 text-[10px] uppercase font-bold">
                     ({hoveredArea.courtSide === 'teamA' ? teams[0]?.code : teams[1]?.code})
                   </span>
-                )}
-              </div>
+                )}</div>
             </div>
           </div>
         )}
@@ -601,6 +609,19 @@ export default function ScoutHUDMode({
               hoveredTeam={hoveredTeam}
             />
           </div>
+        </div>
+
+        {/* Top-Right for Foul Menu */}
+        <div className="absolute right-2 sm:right-4 md:right-8 top-16 pointer-events-auto z-40">
+          <HUDFoulSelector
+            isActive={activeMenu === "foul"}
+            onPointerDown={(e) => handleMenuPointerDown("foul", e)}
+            onClick={() => handlePointerInteraction("foul")}
+            hoveredFoul={hoveredFoul}
+            onHover={setHoveredFoul}
+            pointerX={pointerPosition.x}
+            pointerY={pointerPosition.y}
+          />
         </div>
 
         {/* Right-Center for Result Rail */}
