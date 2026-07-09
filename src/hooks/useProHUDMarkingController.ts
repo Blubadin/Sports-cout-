@@ -387,6 +387,22 @@ export function useProHUDMarkingController({
         return;
       }
 
+      if ((e.code === "Digit1" || e.code === "Numpad1") && teams[0]) {
+        e.preventDefault();
+        updateActionField("teamCode", teams[0].code);
+        setHoveredTeam(teams[0].code);
+        setActiveMenu("none");
+        return;
+      }
+
+      if ((e.code === "Digit2" || e.code === "Numpad2") && teams[1]) {
+        e.preventDefault();
+        updateActionField("teamCode", teams[1].code);
+        setHoveredTeam(teams[1].code);
+        setActiveMenu("none");
+        return;
+      }
+
       const commandMenu = getHudMenuForKeyboardCode(e.code);
       if (commandMenu) {
         e.preventDefault();
@@ -394,15 +410,6 @@ export function useProHUDMarkingController({
           openMarkingMenu(commandMenu);
         } else {
           toggleMarkingMenu(commandMenu);
-        }
-
-        if (e.code === "Digit1" && teams[0]) {
-          setHoveredTeam(teams[0].code);
-          updateActionField("teamCode", teams[0].code);
-        }
-        if (e.code === "Digit2" && teams[1]) {
-          setHoveredTeam(teams[1].code);
-          updateActionField("teamCode", teams[1].code);
         }
       }
 

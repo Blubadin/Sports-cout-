@@ -10,12 +10,13 @@ import SettingsModal from './components/SettingsModal';
 import WorkspaceMenu from './components/WorkspaceMenu';
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import MatchInfoModal from './components/MatchInfoModal';
-import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2 } from 'lucide-react';
+import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star } from 'lucide-react';
 import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
 
 import VideoPlayer from './components/VideoPlayer';
 import Dashboard from './components/Dashboard';
+import BookmarksPanel from './components/BookmarksPanel';
 
 function Toast() {
   const { toastMessage } = useScoutContext();
@@ -156,7 +157,36 @@ function AppContent() {
   const [isKeyboardShortcutsOpen, setIsKeyboardShortcutsOpen] = useState(false);
   const [isMatchInfoOpen, setIsMatchInfoOpen] = useState(false);
   const { isInstallable, promptInstall } = usePWAInstall();
-  const [activeTab, setActiveTab] = useState<'input' | 'dashboard' | 'table'>('input');
+  const [activeTab, setActiveTab] = useState<'input' | 'dashboard' | 'table' | 'bookmarks'>('input');
+
+  useEffect(() => {
+    if (!activeProjectId || isSettingsOpen || isKeyboardShortcutsOpen || isMatchInfoOpen) return;
+
+    const tabs: Array<'input' | 'dashboard' | 'table' | 'bookmarks'> = ['input', 'dashboard', 'table', 'bookmarks'];
+    const handleTabKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return;
+
+      const activeElement = document.activeElement as HTMLElement | null;
+      const isTyping =
+        activeElement?.tagName === 'INPUT' ||
+        activeElement?.tagName === 'TEXTAREA' ||
+        activeElement?.tagName === 'SELECT' ||
+        activeElement?.isContentEditable;
+
+      if (isTyping) return;
+
+      event.preventDefault();
+      setActiveTab((current) => {
+        const currentIndex = tabs.indexOf(current);
+        const direction = event.shiftKey ? -1 : 1;
+        const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
+        return tabs[nextIndex];
+      });
+    };
+
+    window.addEventListener('keydown', handleTabKey);
+    return () => window.removeEventListener('keydown', handleTabKey);
+  }, [activeProjectId, isSettingsOpen, isKeyboardShortcutsOpen, isMatchInfoOpen]);
 
   return (
     <div className="coach-shell min-h-screen text-gray-900 dark:text-gray-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden">
@@ -325,6 +355,18 @@ function AppContent() {
                   <Table2 size={18} />
                   <span>{settings.uiLanguage === 'th' ? 'ตารางเหตุการณ์' : 'Events Table'}</span>
                 </button>
+                <button
+                  onClick={() => setActiveTab('bookmarks')}
+                  onPointerDown={() => setActiveTab('bookmarks')}
+                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
+                    activeTab === 'bookmarks'
+                      ? 'coach-tab-active'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <Star size={18} />
+                  <span>Bookmarks</span>
+                </button>
               </div>
 
               {/* Dynamic scrollable views wrapper */}
@@ -340,6 +382,11 @@ function AppContent() {
                 {activeTab === 'table' && (
                   <section className="coach-panel p-4">
                     <ScoutingTable />
+                  </section>
+                )}
+                {activeTab === 'bookmarks' && (
+                  <section className="coach-panel p-4">
+                    <BookmarksPanel />
                   </section>
                 )}
               </div>

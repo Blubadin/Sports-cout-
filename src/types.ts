@@ -173,6 +173,7 @@ export type EventRow = {
   youtubeVideoId?: string;
   videoId?: string;
   videoUrl?: string;
+  localFileName?: string;
   videoTime?: number;
   sequenceStartTime?: number;
   sequenceEndTime?: number;
@@ -182,6 +183,9 @@ export type EventRow = {
   clipEndTime?: number;
   previewStartTime?: number;
   previewEndTime?: number;
+  isBookmarked?: boolean;
+  bookmarkNote?: string;
+  bookmarkedAt?: string;
   sportType?: SportType;
   note?: string;
   createdAt: string;

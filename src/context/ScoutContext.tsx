@@ -58,6 +58,8 @@ interface ScoutContextType {
   clearCurrentEvent: () => void;
   deleteEventRow: (id: string) => void;
   updateEventRow: (id: string, updatedRow: EventRow) => void;
+  toggleEventBookmark: (id: string) => void;
+  updateEventBookmarkNote: (id: string, note: string) => void;
   isActionComplete: (action: Action) => boolean;
   getActionText: (action: Action) => string;
   getExtendedActionText: (action: Action) => string;
@@ -858,6 +860,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       youtubeVideoId: videoSourceType === 'youtube' && youtubeVideoId ? youtubeVideoId : undefined,
       videoId: videoSourceType === 'youtube' && youtubeVideoId ? youtubeVideoId : undefined,
       videoUrl: videoSourceType === 'youtube' ? youtubeUrl : undefined,
+      localFileName: videoSourceType === 'local' && localFileName ? localFileName : undefined,
       sportType: matchInfo.sportType,
       createdAt: new Date().toISOString(),
     };
@@ -931,6 +934,41 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     saveEventsWithHistory(prev => prev.map(e => (e.id === id ? updatedRow : e)));
   };
 
+  const toggleEventBookmark = (id: string) => {
+    saveEventsWithHistory(prev =>
+      prev.map(e => {
+        if (e.id !== id) return e;
+        if (e.isBookmarked) {
+          const { isBookmarked, bookmarkNote, bookmarkedAt, ...rest } = e;
+          void isBookmarked;
+          void bookmarkNote;
+          void bookmarkedAt;
+          return rest;
+        }
+        return {
+          ...e,
+          isBookmarked: true,
+          bookmarkedAt: new Date().toISOString(),
+        };
+      })
+    );
+  };
+
+  const updateEventBookmarkNote = (id: string, note: string) => {
+    saveEventsWithHistory(prev =>
+      prev.map(e =>
+        e.id === id
+          ? {
+              ...e,
+              isBookmarked: true,
+              bookmarkNote: note,
+              bookmarkedAt: e.bookmarkedAt || new Date().toISOString(),
+            }
+          : e
+      )
+    );
+  };
+
   const changeSportType = (newSport: SportType, force: boolean = false) => {
     const isThai = settings.uiLanguage === 'th';
     if (events.length > 0 && !force) {
@@ -992,7 +1030,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       seekRequest, setSeekRequest,
       previewState, setPreviewState,
       saveEvent, addAction, undoLastAction, clearCurrentEvent,
-      deleteEventRow, updateEventRow,
+      deleteEventRow, updateEventRow, toggleEventBookmark, updateEventBookmarkNote,
       isActionComplete, getActionText, getExtendedActionText, getThaiMeaning, resetCurrentAction,
       sportTemplate, changeSportType,
       currentInputHistory, setCurrentInputHistory, getMissingActionMessage,

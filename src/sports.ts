@@ -271,6 +271,9 @@ export const SPORT_TEMPLATES: Record<string, SportTemplate> = {
       { id: 'def', code: 'DEF', name: 'Defense', thaiName: 'รับ' },
     ],
     areas: [
+      { id: 'front', code: 'FRONT', thaiName: 'สนามหน้า', type: 'court' },
+      { id: 'mid', code: 'MID', thaiName: 'สนามกลาง', type: 'court' },
+      { id: 'back', code: 'BACK', thaiName: 'สนามหลัง', type: 'court' },
       { id: 'fl', code: 'FL', thaiName: 'หน้าซ้าย', type: 'court' },
       { id: 'fc', code: 'FC', thaiName: 'หน้ากลาง', type: 'court' },
       { id: 'fr', code: 'FR', thaiName: 'หน้าขวา', type: 'court' },
@@ -602,4 +605,3 @@ export const DETAILED_ZONE_LABELS: Record<string, { label: string, thaiLabel: st
   'F-3-2': { label: 'Defense Center-Right', thaiLabel: 'รับกลางขวา', baseAreaCode: 'DEF_C', gridX: 2, gridY: 3 },
   'F-3-3': { label: 'Defense Right', thaiLabel: 'รับขวา', baseAreaCode: 'DEF_R', gridX: 3, gridY: 3 },
 };
-

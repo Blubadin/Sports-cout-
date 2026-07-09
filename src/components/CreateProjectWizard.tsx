@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, Trophy, Flag, User, Layout, Settings2, Video, Languages, 
   Palette, Laptop, Info, ChevronRight, HelpCircle
@@ -187,7 +188,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
     setActiveTab('general');
   };
 
-  return (
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
@@ -731,6 +732,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

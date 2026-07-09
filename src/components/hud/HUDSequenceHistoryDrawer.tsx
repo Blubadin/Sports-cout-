@@ -8,11 +8,14 @@ import {
   Save,
   Play,
   Clock,
+  Clapperboard,
   Copy,
   Filter,
   RotateCcw,
+  Star,
 } from "lucide-react";
 import { formatPreciseTime } from "../../utils";
+import BookmarkClipModal from "../BookmarkClipModal";
 
 type HUDSequenceHistoryDrawerProps = {
   isOpen: boolean;
@@ -41,11 +44,12 @@ export default function HUDSequenceHistoryDrawer({
   onReplaySegment,
   onCopyEvent,
 }: HUDSequenceHistoryDrawerProps) {
-  const { getActionText, sportTemplate, teams, deleteEventRow, settings, videoTime } = useScoutContext();
-  const [activeTab, setActiveTab] = useState<"rally" | "recent" | "filter">(
+  const { getActionText, sportTemplate, teams, deleteEventRow, settings, videoTime, toggleEventBookmark, showToast } = useScoutContext();
+  const [activeTab, setActiveTab] = useState<"rally" | "recent" | "bookmarks" | "filter">(
     "rally",
   );
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
+  const [varClipEvent, setVarClipEvent] = useState<EventRow | null>(null);
 
   // Format full sequence string with arrows
   const formatEventSequence = (event: EventRow) => {
@@ -74,6 +78,16 @@ export default function HUDSequenceHistoryDrawer({
       return "bg-green-500/20 text-green-400 border-green-500/30";
     if (result === "Out") return "bg-red-500/20 text-red-400 border-red-500/30";
     return "bg-sky-500/20 text-sky-400 border-sky-500/30"; // Pass
+  };
+
+  const handleToggleBookmark = (event: EventRow) => {
+    const willBookmark = !event.isBookmarked;
+    toggleEventBookmark(event.id);
+    showToast(
+      willBookmark
+        ? (settings?.uiLanguage === "th" ? "บันทึกไว้ใน Bookmarks แล้ว" : "Saved to bookmarks")
+        : (settings?.uiLanguage === "th" ? "ลบออกจาก Bookmarks แล้ว" : "Removed from bookmarks")
+    );
   };
 
   // Memoized filters
@@ -106,6 +120,10 @@ export default function HUDSequenceHistoryDrawer({
 
     if (activeTab === "recent") {
       return sorted.slice(0, 20);
+    }
+
+    if (activeTab === "bookmarks") {
+      return sorted.filter((e) => e.isBookmarked);
     }
 
     if (selectedFilter === "all") return sorted;
@@ -202,6 +220,17 @@ export default function HUDSequenceHistoryDrawer({
           }`}
         >
           Recent (20)
+        </button>
+        <button
+          onClick={() => setActiveTab("bookmarks")}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 active:scale-95 ${
+            activeTab === "bookmarks"
+              ? "bg-amber-500 text-white shadow"
+              : "text-white/60 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <Star size={12} />
+          Bookmarks
         </button>
         <button
           onClick={() => setActiveTab("filter")}
@@ -359,7 +388,7 @@ export default function HUDSequenceHistoryDrawer({
           </div>
         )}
 
-        {(activeTab === "recent" || activeTab === "filter") && (
+        {(activeTab === "recent" || activeTab === "bookmarks" || activeTab === "filter") && (
           <div className="space-y-4 flex flex-col h-full">
             {activeTab === "filter" && (
               <div className="space-y-2">
@@ -389,6 +418,8 @@ export default function HUDSequenceHistoryDrawer({
                 <span>
                   {activeTab === "filter"
                     ? "Filtered Results"
+                    : activeTab === "bookmarks"
+                      ? "Bookmarked Sequences"
                     : "Recent Saved events"}
                 </span>
                 <span className="font-mono text-white/40">
@@ -435,6 +466,12 @@ export default function HUDSequenceHistoryDrawer({
                         <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-lg">
                           Point: {getEventPointLabel(evt)}
                         </span>
+                        {evt.isBookmarked && (
+                          <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded-lg flex items-center gap-1">
+                            <Star size={10} fill="currentColor" />
+                            Saved
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-col items-end text-xs font-mono">
                         {(evt.sequenceStartTime !== undefined && evt.sequenceEndTime !== undefined && evt.duration !== undefined) ? (
@@ -470,26 +507,48 @@ export default function HUDSequenceHistoryDrawer({
                     )}
 
                     {/* Actions row */}
-                    <div className="flex gap-2 justify-end pt-1">
+                    <div className="flex flex-wrap gap-1.5 justify-end pt-1">
+                      {evt.videoSourceType === "local" && (
+                        <button
+                          onClick={() => setVarClipEvent(evt)}
+                          className="px-2 py-1.5 rounded-lg bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-95 transition-all inline-flex items-center gap-1 text-[11px] font-bold"
+                          title="Open VAR Clip"
+                        >
+                          <Clapperboard size={10} />
+                          VAR
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleToggleBookmark(evt)}
+                        className={`px-2 py-1.5 rounded-lg active:scale-95 transition-all inline-flex items-center gap-1 text-[11px] font-bold border ${
+                          evt.isBookmarked
+                            ? "bg-amber-500/25 text-amber-300 hover:bg-amber-500/40 border-amber-500/30"
+                            : "bg-white/5 text-white/80 hover:bg-amber-500/15 hover:text-amber-300 border-white/10"
+                        }`}
+                        title={evt.isBookmarked ? "Remove Bookmark" : "Bookmark Sequence"}
+                      >
+                        <Star size={10} fill={evt.isBookmarked ? "currentColor" : "none"} />
+                        {evt.isBookmarked ? "Saved" : "Save"}
+                      </button>
                       <button
                         onClick={() => onReplaySegment(evt)}
-                        className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 active:scale-95 active:bg-sky-500/40 transition-all flex items-center gap-1 text-xs font-bold"
+                        className="px-2 py-1.5 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 active:scale-95 active:bg-sky-500/40 transition-all inline-flex items-center gap-1 text-[11px] font-bold"
                         title="Replay Sequence"
                       >
                         <Play size={10} className="fill-current" />
-                        Replay
+                        Play
                       </button>
                       <button
                         onClick={() => onGoToTime(evt.videoTime ?? 0)}
-                        className="p-1.5 rounded-lg bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all flex items-center gap-1 text-xs font-bold"
+                        className="px-2 py-1.5 rounded-lg bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all inline-flex items-center gap-1 text-[11px] font-bold"
                         title="Go to exact time"
                       >
                         <Clock size={10} />
-                        Go To
+                        Time
                       </button>
                       <button
                         onClick={() => onCopyEvent(evt)}
-                        className="p-1.5 rounded-lg bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all flex items-center gap-1 text-xs font-bold"
+                        className="px-2 py-1.5 rounded-lg bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all inline-flex items-center gap-1 text-[11px] font-bold"
                         title="Copy Event description"
                       >
                         <Copy size={10} />
@@ -501,11 +560,11 @@ export default function HUDSequenceHistoryDrawer({
                             deleteEventRow(evt.id);
                           }
                         }}
-                        className="p-1.5 rounded-lg bg-red-500/25 text-red-300 hover:bg-red-500/40 active:scale-95 transition-all flex items-center gap-1 text-xs font-bold border border-red-500/30 cursor-pointer"
+                        className="px-2 py-1.5 rounded-lg bg-red-500/25 text-red-300 hover:bg-red-500/40 active:scale-95 transition-all inline-flex items-center gap-1 text-[11px] font-bold border border-red-500/30 cursor-pointer"
                         title="Delete Sequence"
                       >
                         <Trash2 size={10} />
-                        Delete
+                        Del
                       </button>
                     </div>
                   </div>
@@ -515,6 +574,12 @@ export default function HUDSequenceHistoryDrawer({
           </div>
         )}
       </div>
+      {varClipEvent && (
+        <BookmarkClipModal
+          event={varClipEvent}
+          onClose={() => setVarClipEvent(null)}
+        />
+      )}
     </div>
   );
 }

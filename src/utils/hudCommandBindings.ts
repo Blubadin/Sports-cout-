@@ -40,11 +40,11 @@ export const HUD_COMMAND_BINDINGS: Record<HudCommandMenu, HudCommandBinding> = {
   },
   foul: {
     menu: "foul",
-    keyCodes: ["KeyF", "KeyR"],
-    keyLabel: "F / R",
+    keyCodes: ["KeyR"],
+    keyLabel: "R",
     gamepadButtons: ["left-shoulder", "right-shoulder"],
     title: "Foul Wheel",
-    holdInstruction: "Hold F or R, move pointer, release to select",
+    holdInstruction: "Hold R, move pointer, release to select",
     gamepadHint: "Future gamepad: hold a shoulder button, aim, release",
   },
   team: {
