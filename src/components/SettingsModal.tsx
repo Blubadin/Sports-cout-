@@ -423,7 +423,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           />
                         </div>
                         
-                        <div className="p-3 bg-gray-50 dark:bg-gray-850 rounded-lg border border-gray-150 dark:border-gray-700 flex flex-col gap-2">
+                        <div className="p-3 bg-gray-50 dark:bg-slate-950 rounded-lg border border-gray-150 dark:border-slate-800 flex flex-col gap-2">
                           <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
                             {settings.uiLanguage === 'th' ? 'วินาทีในการดับเบิ้ลแทปกรอเวลา' : 'Double Tap Seek Step'}
                           </div>

@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import CreateProjectWizard from './CreateProjectWizard';
 import CustomSelect from './ui/CustomSelect';
 import { SPORT_TEMPLATES } from '../sports';
+import { createProjectsExport } from '../utils/scoutData';
 
 export default function WorkspaceMenu() {
   const { projects, activeProjectId, createNewProject, openProject, saveCurrentProject, deleteProject, duplicateProject, renameProject, importProject } = useWorkspace();
@@ -64,7 +65,8 @@ export default function WorkspaceMenu() {
   };
 
   const handleExport = (proj: ScoutProject) => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(proj, null, 2));
+    const exportData = createProjectsExport([proj]);
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
     const dlAnchorElem = document.createElement('a');
     dlAnchorElem.setAttribute("href", dataStr);
     dlAnchorElem.setAttribute("download", `${proj.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_scout.json`);
@@ -74,13 +76,7 @@ export default function WorkspaceMenu() {
   };
 
   const handleExportAll = () => {
-    const exportData = {
-      schemaVersion: '1.0',
-      app: 'Sports Scout Logger',
-      exportedAt: new Date().toISOString(),
-      type: 'projects',
-      projects
-    };
+    const exportData = createProjectsExport(projects);
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
     const dlAnchorElem = document.createElement('a');
     dlAnchorElem.setAttribute("href", dataStr);

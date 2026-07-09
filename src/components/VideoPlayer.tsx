@@ -136,6 +136,21 @@ export default function VideoPlayer() {
   // Timeline State
   const [showFineControls, setShowFineControls] = useState(false);
 
+  const handlePlayerReadyWithoutCaptions = useCallback(() => {
+    handlePlayerReady();
+
+    if (videoSourceType !== "youtube") return;
+
+    try {
+      const internalPlayer = getInternalPlayer?.();
+      // Best effort only: YouTube may still restore captions from user/browser preferences.
+      internalPlayer?.unloadModule?.("captions");
+      internalPlayer?.unloadModule?.("cc");
+    } catch {
+      // Caption modules are not available in every YouTube iframe environment.
+    }
+  }, [getInternalPlayer, handlePlayerReady, videoSourceType]);
+
   const extractYouTubeId = (input: string): string | null => {
     const value = input.trim();
     if (/^[a-zA-Z0-9_-]{11}$/.test(value)) return value;
@@ -724,7 +739,7 @@ export default function VideoPlayer() {
                           event?.currentTarget?.duration ?? getDurationSafe();
                         if (Number.isFinite(d) && d > 0) setDuration(d);
                       }}
-                      onReady={handlePlayerReady}
+                      onReady={handlePlayerReadyWithoutCaptions}
                       onPlaying={() => {
                         setIsLoadingVideo(false);
                         setPlayerReady(true);
@@ -744,6 +759,9 @@ export default function VideoPlayer() {
                               playsinline: 1,
                               modestbranding: 1,
                               enablejsapi: 1,
+                              cc_load_policy: 0,
+                              iv_load_policy: 3,
+                              fs: 1,
                               origin: window.location.origin,
                             },
                           },
@@ -787,7 +805,7 @@ export default function VideoPlayer() {
 
             {!isHUDMode && (
               <>
-                <div className="flex flex-col w-full z-30 bg-gray-900 border-t border-gray-800 p-3 relative">
+                <div className="flex flex-col w-full z-30 bg-gray-900 border-t border-gray-800 px-3 py-2 relative">
                   {/* Draft time absolute tooltip above thumb */}
                   {isScrubbing && safeDuration > 0 && (
                     <div
@@ -803,9 +821,9 @@ export default function VideoPlayer() {
                     <span className="text-[10px] font-mono text-gray-400 w-16 text-right shrink-0">
                       {formatPreciseTime(visibleTime)}
                     </span>
-                    <div className="relative flex-1 h-8 flex items-center group">
+                    <div className="relative flex-1 h-5 flex items-center group">
                       {/* Custom Track */}
-                      <div className="absolute left-0 right-0 h-2 bg-gray-700 rounded-full overflow-hidden pointer-events-none">
+                      <div className="absolute left-0 right-0 h-1.5 bg-gray-700 rounded-full overflow-hidden pointer-events-none">
                         <div
                           className="h-full bg-sky-500 transition-none"
                           style={{
@@ -815,7 +833,7 @@ export default function VideoPlayer() {
                       </div>
                       {/* Custom Thumb */}
                       <div
-                        className="absolute h-3 w-3 bg-white rounded-full pointer-events-none shadow-sm -ml-1.5 transition-transform group-hover:scale-125"
+                        className="absolute h-2.5 w-2.5 bg-white rounded-full pointer-events-none shadow-sm -ml-1 transition-transform group-hover:scale-125"
                         style={{
                           left: `${safeDuration > 0 ? (Math.min(visibleTime, safeDuration) / safeDuration) * 100 : 0}%`,
                         }}

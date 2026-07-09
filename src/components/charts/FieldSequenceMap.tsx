@@ -4,6 +4,11 @@ import { SPORT_TEMPLATES } from '../../sports';
 import { useScoutContext } from '../../context/ScoutContext';
 import { Play } from 'lucide-react';
 import { formatPreciseTime } from '../../utils';
+import {
+  formatActionMeaning,
+  getAreaLabel as getScoutAreaLabel,
+  getFoulLabel as getScoutFoulLabel,
+} from '../../utils/scoutData';
 
 type FieldSequenceMapProps = {
   sportType: SportType;
@@ -196,21 +201,24 @@ const hashString = (str: string) => {
   return hash;
 };
 
+const getAreaPrecisionLabel = (action: Action) => {
+  if (action.pointX !== undefined && action.pointY !== undefined) return 'Point';
+  if (action.outZone || action.areaResolution === 'out-zone') return 'Out';
+  if (action.areaMode === 'detailed' || action.areaResolution === 'detailed' || action.areaCode?.includes('-')) return 'Detailed';
+  if (action.areaCode) return 'Zone';
+  return 'Unknown';
+};
+
 export default function FieldSequenceMap({ 
   sportType, events, selectedEventId, mode, 
   teamFilter, skillFilter, resultFilter, 
   teamAName, teamBName,
-  onEventClick 
+  onEventClick,
+  onGoToVideoTime,
 }: FieldSequenceMapProps) {
-  const { setPreviewState } = useScoutContext();
+  const { setPreviewState, settings, teams } = useScoutContext();
   const [selectedAreaGroup, setSelectedAreaGroup] = React.useState<{ key: string; label: string; actions: any[] } | null>(null);
-
-  const getFoulLabel = (code: string) => {
-    const template = SPORT_TEMPLATES[sportType];
-    const foulDef = template?.fouls?.find((f: any) => f.code === code);
-    if (!foulDef) return code;
-    return foulDef.label;
-  };
+  const sportTemplate = SPORT_TEMPLATES[sportType];
   
   const filteredEvents = useMemo(() => {
     return events.filter(e => e.sportType === sportType && (!selectedEventId || e.id === selectedEventId));
@@ -364,18 +372,36 @@ export default function FieldSequenceMap({
           eventId: e.id,
           videoTime: e.videoTime,
           coords,
+          areaLabel: getScoutAreaLabel(a, { sportTemplate, uiLanguage: settings.uiLanguage }),
+          foulLabel: getScoutFoulLabel(a, { sportTemplate, uiLanguage: settings.uiLanguage }),
+          displayText: formatActionMeaning(a, { sportTemplate, teams, uiLanguage: settings.uiLanguage }),
+          precision: getAreaPrecisionLabel(a),
           jitter: { top: topJitter * 0.4, left: leftJitter * 0.4 },
           sequence: sequenceIndex++
         });
       });
     });
     return data;
-  }, [filteredEvents, teamFilter, skillFilter, resultFilter, sportType]);
+  }, [filteredEvents, teamFilter, skillFilter, resultFilter, sportType, sportTemplate, settings.uiLanguage, teams]);
 
   const FieldComponent = SPORT_COMPONENTS[sportType];
 
   return (
     <div className="w-full flex flex-col gap-4">
+      <div className="coach-panel-flat flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-sky-500" />
+          <span>{teamAName || 'Team A'}</span>
+          <span className="h-2 w-2 rounded-full bg-orange-500 ml-2" />
+          <span>{teamBName || 'Team B'}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-green-500/15 px-2 py-1 text-green-700 dark:text-green-300">Yes</span>
+          <span className="rounded-full bg-red-500/15 px-2 py-1 text-red-700 dark:text-red-300">Out</span>
+          <span className="rounded-full bg-amber-500/15 px-2 py-1 text-amber-700 dark:text-amber-300">Foul</span>
+          <span className="rounded-full bg-slate-500/15 px-2 py-1 text-slate-600 dark:text-slate-300">Precision: Point / Detailed / Zone</span>
+        </div>
+      </div>
       <div className="relative w-full flex flex-col justify-center items-center">
         {(teamAName || teamBName) && (
           <div className="flex gap-4 text-xs font-bold mb-1 mt-2 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
@@ -436,8 +462,8 @@ export default function FieldSequenceMap({
               if (g.teamCode === teamAName) offsetLeft = -10;
               else if (g.teamCode === teamBName) offsetLeft = 10;
 
-              const areaRes = g.actions[0]?.areaResolution;
-              const displayLabel = `${g.label}${areaRes ? ` (${areaRes})` : ''} [${g.teamCode || 'No Team'}]`;
+              const precision = g.actions[0]?.precision || 'Unknown';
+              const displayLabel = `${g.label} (${precision}) [${g.teamCode || 'No Team'}]`;
 
               return (
                 <div 
@@ -448,7 +474,7 @@ export default function FieldSequenceMap({
                     left: `calc(${g.left}% + ${offsetLeft}px - 15px)`,
                     width: '30px',
                     height: '30px',
-                    opacity: 0.4 + (intensity * 0.6),
+                    opacity: 0.45 + (intensity * 0.55),
                     cursor: 'pointer'
                   }}
                   title={`${displayLabel}: ${g.count} actions`}
@@ -477,11 +503,10 @@ export default function FieldSequenceMap({
               sequenceColorClass = d.foulSeverity === 'card' ? 'bg-red-600' : 'bg-amber-500';
             }
 
-            let tooltip = `${d.teamCode} - ${d.skillCode} (${d.resultCode})${d.outZone ? ` [Out: ${d.outZone}]` : ''}${d.areaLabel ? ` - ${d.areaLabel}` : ''}`;
+            const timeLabel = d.videoTime !== undefined ? formatPreciseTime(d.videoTime) : '-';
+            let tooltip = `${d.displayText || `${d.teamCode} - ${d.skillCode}`} | ${d.resultCode || '-'} | ${d.areaLabel || d.outZone || d.areaCode || '-'} | ${d.precision} | ${timeLabel}`;
             if (isFoul) {
-              const fLabel = getFoulLabel(d.foulCode);
-              const formattedTime = d.videoTime !== undefined ? ` at ${Math.floor(d.videoTime / 60)}:${String(Math.floor(d.videoTime % 60)).padStart(2, '0')}` : '';
-              tooltip = `[FOUL] Team: ${d.teamCode}, Code: ${d.foulCode}, Label: ${fLabel}, Area: ${d.areaLabel || d.outZone || d.areaCode || '-'}, Time: ${formattedTime}`;
+              tooltip = `[FOUL] Team: ${d.teamCode}, Code: ${d.foulCode}, Label: ${d.foulLabel || d.foulCode}, Area: ${d.areaLabel || d.outZone || d.areaCode || '-'}, Time: ${timeLabel}`;
             }
 
             return (
@@ -509,6 +534,7 @@ export default function FieldSequenceMap({
                   transform: 'translate(-50%, -50%)',
                 }}
                 onClick={() => onEventClick && onEventClick(filteredEvents.find(e => e.id === d.eventId)!, d)}
+                onDoubleClick={() => d.videoTime !== undefined && onGoToVideoTime?.(d.videoTime)}
                 title={tooltip}
               >
                 {isFoul ? '!' : d.sequence}
@@ -532,11 +558,10 @@ export default function FieldSequenceMap({
             if (d.teamCode === teamAName) ringColor = 'ring-sky-500';
             else if (d.teamCode === teamBName) ringColor = 'ring-orange-500';
             
-            let tooltip = `${d.teamCode} - ${d.skillCode} (${d.resultCode})${d.outZone ? ` [Out: ${d.outZone}]` : ''}${d.areaLabel ? ` - ${d.areaLabel}` : ''}`;
+            const timeLabel = d.videoTime !== undefined ? formatPreciseTime(d.videoTime) : '-';
+            let tooltip = `${d.displayText || `${d.teamCode} - ${d.skillCode}`} | ${d.resultCode || '-'} | ${d.areaLabel || d.outZone || d.areaCode || '-'} | ${d.precision} | ${timeLabel}`;
             if (isFoul) {
-              const fLabel = getFoulLabel(d.foulCode);
-              const formattedTime = d.videoTime !== undefined ? ` at ${Math.floor(d.videoTime / 60)}:${String(Math.floor(d.videoTime % 60)).padStart(2, '0')}` : '';
-              tooltip = `[FOUL] Team: ${d.teamCode}, Code: ${d.foulCode}, Label: ${fLabel}, Area: ${d.areaLabel || d.outZone || d.areaCode || '-'}, Time: ${formattedTime}`;
+              tooltip = `[FOUL] Team: ${d.teamCode}, Code: ${d.foulCode}, Label: ${d.foulLabel || d.foulCode}, Area: ${d.areaLabel || d.outZone || d.areaCode || '-'}, Time: ${timeLabel}`;
             }
 
             return (
@@ -551,6 +576,7 @@ export default function FieldSequenceMap({
                   transform: 'translate(-50%, -50%)',
                 }}
                 onClick={() => onEventClick && onEventClick(filteredEvents.find(e => e.id === d.eventId)!, d)}
+                onDoubleClick={() => d.videoTime !== undefined && onGoToVideoTime?.(d.videoTime)}
                 title={tooltip}
               >
                 {isFoul && (
@@ -564,11 +590,11 @@ export default function FieldSequenceMap({
       
       {/* Detail Panel */}
       {selectedAreaGroup && mode === 'heatmap' && (
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 mt-2 text-sm">
+        <div className="coach-panel p-4 mt-2 text-sm">
           <div className="flex justify-between items-center mb-3">
             <h4 className="font-bold text-gray-800 dark:text-gray-100">
               Area: {selectedAreaGroup.label}
-              {selectedAreaGroup.actions[0]?.areaResolution && ` (${selectedAreaGroup.actions[0].areaResolution})`}
+              {selectedAreaGroup.actions[0]?.precision && ` (${selectedAreaGroup.actions[0].precision})`}
             </h4>
             <button onClick={() => setSelectedAreaGroup(null)} className="text-gray-400 hover:text-gray-600">&times;</button>
           </div>
@@ -623,19 +649,31 @@ export default function FieldSequenceMap({
                       const evt = events.find(e => e.id === a.eventId);
                       if (!evt) return null;
                       return (
-                        <div key={`${a.id}-${i}`} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg text-xs">
+                        <div key={`${a.id}-${i}`} className="flex items-center justify-between gap-2 bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg text-xs">
                           <div className="flex flex-col gap-0.5">
-                            <span className="font-semibold text-gray-700 dark:text-gray-300">#{evt.no} {a.skillCode}</span>
-                            <span className="text-gray-500">{evt.eventText}</span>
+                            <span className="font-semibold text-gray-700 dark:text-gray-300">#{evt.no} {a.skillCode || a.foulCode || 'Action'} <span className="ml-1 rounded bg-slate-200/70 dark:bg-slate-600/70 px-1.5 py-0.5 text-[10px]">{a.precision}</span></span>
+                            <span className="text-gray-500">{a.displayText || evt.eventText}</span>
+                            {a.videoTime !== undefined && <span className="text-gray-400">{formatPreciseTime(a.videoTime)}</span>}
                           </div>
-                          <button 
-                            onClick={() => setPreviewState({ isActive: true, eventRow: evt, loop: true })}
-                            className="p-1.5 rounded-md bg-sky-50 dark:bg-sky-900/30 text-sky-600 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors flex items-center gap-1"
-                            title="Replay Sequence"
-                          >
-                            <Play size={12} className="fill-current" />
-                            Replay
-                          </button>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {a.videoTime !== undefined && onGoToVideoTime && (
+                              <button
+                                onClick={() => onGoToVideoTime(a.videoTime)}
+                                className="p-1.5 rounded-md bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+                                title="Jump to video time"
+                              >
+                                {formatPreciseTime(a.videoTime)}
+                              </button>
+                            )}
+                            <button 
+                              onClick={() => setPreviewState({ isActive: true, eventRow: evt, loop: true })}
+                              className="p-1.5 rounded-md bg-sky-50 dark:bg-sky-900/30 text-sky-600 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors flex items-center gap-1"
+                              title="Replay Sequence"
+                            >
+                              <Play size={12} className="fill-current" />
+                              Replay
+                            </button>
+                          </div>
                         </div>
                       );
                     })}

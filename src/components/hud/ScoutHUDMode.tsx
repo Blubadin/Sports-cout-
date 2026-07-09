@@ -524,11 +524,11 @@ export default function ScoutHUDMode({
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
                   <span className="text-white font-extrabold text-sm sm:text-base uppercase tracking-wider">
-                    {settings.uiLanguage === 'th' ? 'พื้นที่สนาม (AREA COMMAND PAD)' : 'AREA COMMAND PAD'}
+                    {settings.uiLanguage === 'th' ? 'พื้นที่สนาม (AREA WHEEL)' : 'AREA WHEEL'}
                   </span>
                 </div>
                 <div className="text-[10px] sm:text-xs text-white/50 font-medium">
-                  {settings.uiLanguage === 'th' ? 'ลากเมาส์ / ปล่อย W เพื่อเลือก • Esc เพื่อยกเลิก' : 'Drag / Release W to Select • Esc to Cancel'}
+                  {settings.uiLanguage === 'th' ? 'กด W ค้าง เล็งจากจุดกลาง แล้วปล่อยเพื่อเลือก - Esc เพื่อยกเลิก' : 'Hold W, aim from center, release to select - Esc to cancel'}
                 </div>
               </div>
 
@@ -536,7 +536,7 @@ export default function ScoutHUDMode({
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30 flex flex-col items-center justify-center">
                 <div className="w-12 h-12 rounded-full bg-amber-500/10 border-2 border-amber-500/40 flex items-center justify-center backdrop-blur-sm animate-ping duration-[3s]"></div>
                 <div className="absolute w-8 h-8 rounded-full bg-black/60 border border-white/20 flex items-center justify-center text-white/40 text-[9px] font-bold">
-                  📍
+                  AIM
                 </div>
               </div>
 
@@ -633,6 +633,11 @@ export default function ScoutHUDMode({
               isActive={activeMenu === "team"}
               onPointerDown={(e) => handleMenuPointerDown("team", e)}
               onClick={() => handlePointerInteraction("team")}
+              onSelectTeam={(teamCode) => {
+                setHoveredTeam(teamCode);
+                updateActionField("teamCode", teamCode);
+                setActiveMenu("none");
+              }}
               hoveredTeam={hoveredTeam}
             />
           </div>

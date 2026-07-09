@@ -3,6 +3,36 @@
 @variant dark (&:where(.dark, .dark *));
 
 @layer base {
+  :root {
+    --coach-bg: #f4f7fb;
+    --coach-bg-accent: rgba(14, 165, 233, 0.1);
+    --coach-surface: rgba(255, 255, 255, 0.9);
+    --coach-surface-strong: rgba(255, 255, 255, 0.98);
+    --coach-border: rgba(15, 23, 42, 0.11);
+    --coach-text-muted: #64748b;
+    --coach-accent: #0284c7;
+    --coach-accent-2: #10b981;
+    --coach-warning: #f59e0b;
+    --coach-danger: #e11d48;
+    --coach-radius: 18px;
+    --coach-shadow: 0 18px 45px rgba(15, 23, 42, 0.09);
+    --coach-focus: 0 0 0 3px rgba(14, 165, 233, 0.22);
+  }
+
+  .dark {
+    --coach-bg: #08111f;
+    --coach-bg-accent: rgba(20, 184, 166, 0.1);
+    --coach-surface: rgba(15, 23, 42, 0.82);
+    --coach-surface-strong: rgba(15, 23, 42, 0.96);
+    --coach-border: rgba(148, 163, 184, 0.16);
+    --coach-text-muted: #94a3b8;
+    --coach-accent: #38bdf8;
+    --coach-accent-2: #34d399;
+    --coach-warning: #fbbf24;
+    --coach-danger: #fb7185;
+    --coach-shadow: 0 22px 55px rgba(0, 0, 0, 0.34);
+  }
+
   body {
     @apply overflow-x-hidden;
   }
@@ -38,6 +68,50 @@
 }
 
 @layer utilities {
+  .coach-shell {
+    background:
+      radial-gradient(circle at 18% 8%, var(--coach-bg-accent), transparent 34rem),
+      linear-gradient(180deg, var(--coach-bg), var(--coach-bg));
+  }
+
+  .coach-header {
+    background: var(--coach-surface-strong);
+    border-bottom: 1px solid var(--coach-border);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    backdrop-filter: blur(18px);
+  }
+
+  .coach-panel {
+    background: var(--coach-surface);
+    border: 1px solid var(--coach-border);
+    border-radius: var(--coach-radius);
+    box-shadow: var(--coach-shadow);
+    backdrop-filter: blur(14px);
+  }
+
+  .coach-panel-flat {
+    background: color-mix(in srgb, var(--coach-surface) 86%, transparent);
+    border: 1px solid var(--coach-border);
+    border-radius: 14px;
+  }
+
+  .coach-tab {
+    border-radius: 12px;
+    min-height: 42px;
+  }
+
+  .coach-tab-active {
+    background: linear-gradient(135deg, var(--coach-accent), #0f766e);
+    color: white;
+    box-shadow: 0 10px 24px rgba(14, 165, 233, 0.22);
+  }
+
+  .coach-status-chip {
+    border: 1px solid var(--coach-border);
+    background: color-mix(in srgb, var(--coach-surface-strong) 82%, transparent);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  }
+
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;

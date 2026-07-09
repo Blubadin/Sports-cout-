@@ -159,10 +159,10 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<'input' | 'dashboard' | 'table'>('input');
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden">
+    <div className="coach-shell min-h-screen text-gray-900 dark:text-gray-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden">
       <PwaIndicator />
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-3 flex justify-between items-center gap-2 sticky top-0 z-[100]">
+      <header className="coach-header px-4 sm:px-6 py-3 flex justify-between items-center gap-2 sticky top-0 z-[100]">
         <div className="flex items-center gap-2 sm:gap-4 shrink-0">
           <div className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center shrink-0">
             <img src="/icons/SP_logo_black_white_transparent_512.png" alt="App Logo" className="w-full h-full object-contain drop-shadow-sm" />
@@ -179,7 +179,7 @@ function AppContent() {
         {activeProjectId && (
           <button
             onClick={() => setIsMatchInfoOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-1.5 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/45 dark:hover:bg-sky-900/45 border border-sky-100/70 dark:border-sky-850 rounded-xl transition-all duration-150 group cursor-pointer shadow-sm hover:shadow active:scale-95 text-left max-w-[280px] sm:max-w-none overflow-hidden"
+            className="coach-status-chip flex items-center gap-2 px-3.5 py-1.5 rounded-xl transition-all duration-150 group cursor-pointer hover:shadow-md active:scale-95 text-left max-w-[280px] sm:max-w-none overflow-hidden"
             title={settings.uiLanguage === 'th' ? 'คลิกเพื่อแก้ไขข้อมูลการแข่งขัน' : 'Click to edit match info'}
           >
             <span className="relative flex h-2 w-2 shrink-0">
@@ -279,7 +279,7 @@ function AppContent() {
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 lg:h-full lg:overflow-hidden">
             
             {/* Top/Left Workspace: Video Player */}
-            <section className="lg:col-span-5 flex flex-col gap-4 bg-gray-50 dark:bg-gray-900 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar">
+            <section className="coach-panel lg:col-span-5 flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar">
               <React.Suspense fallback={<div className="w-full aspect-video bg-gray-800 animate-pulse rounded-lg flex items-center justify-center text-gray-400">Loading Player...</div>}>
                 <VideoPlayer />
               </React.Suspense>
@@ -288,13 +288,13 @@ function AppContent() {
             {/* Top/Right Workspace: Tabs Interface */}
             <section className="lg:col-span-7 flex flex-col gap-4 lg:h-full lg:overflow-hidden">
               {/* Modern tabs navigation */}
-              <div className="flex border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-xl p-1 gap-1 shrink-0 shadow-sm">
+              <div className="coach-panel-flat flex p-1 gap-1 shrink-0">
                 <button
                   onClick={() => setActiveTab('input')}
                   onPointerDown={() => setActiveTab('input')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
                     activeTab === 'input'
-                      ? 'bg-sky-600 text-white shadow-md'
+                      ? 'coach-tab-active'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
@@ -304,9 +304,9 @@ function AppContent() {
                 <button
                   onClick={() => setActiveTab('dashboard')}
                   onPointerDown={() => setActiveTab('dashboard')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
                     activeTab === 'dashboard'
-                      ? 'bg-sky-600 text-white shadow-md'
+                      ? 'coach-tab-active'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
@@ -316,9 +316,9 @@ function AppContent() {
                 <button
                   onClick={() => setActiveTab('table')}
                   onPointerDown={() => setActiveTab('table')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-black transition-all cursor-pointer ${
+                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
                     activeTab === 'table'
-                      ? 'bg-sky-600 text-white shadow-md'
+                      ? 'coach-tab-active'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
@@ -338,7 +338,7 @@ function AppContent() {
                   </React.Suspense>
                 )}
                 {activeTab === 'table' && (
-                  <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+                  <section className="coach-panel p-4">
                     <ScoutingTable />
                   </section>
                 )}

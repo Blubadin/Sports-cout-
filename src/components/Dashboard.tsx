@@ -6,6 +6,7 @@ import { Settings as SettingsIcon } from 'lucide-react';
 import { formatPreciseTime } from '../utils';
 import CustomSelect from './ui/CustomSelect';
 import { t } from '../i18n';
+import { buildAnalyticsSummary, buildDataQualityReport, getFoulLabel as getScoutFoulLabel } from '../utils/scoutData';
 
 import RadarChart from './charts/RadarChart';
 import FieldSequenceMap from './charts/FieldSequenceMap';
@@ -23,6 +24,11 @@ export default function Dashboard() {
 
 
   const [selectedMapAction, setSelectedMapAction] = useState<{event: any, action: any} | null>(null);
+  const dataQuality = useMemo(() => buildDataQualityReport(events, teams), [events, teams]);
+  const analyticsSummary = useMemo(
+    () => buildAnalyticsSummary(events, { sportType: filterSport, teams, uiLanguage: settings.uiLanguage }),
+    [events, filterSport, teams, settings.uiLanguage],
+  );
 
   const stats = useMemo(() => {
     let filteredEvents = events;
@@ -422,9 +428,7 @@ export default function Dashboard() {
       : stats.pieDataTeamB;
 
   const getFoulLabel = (code: string) => {
-    const foulDef = sportTemplate?.fouls?.find(f => f.code === code);
-    if (!foulDef) return code;
-    return settings.uiLanguage === 'th' ? (foulDef.labelTh || foulDef.label) : foulDef.label;
+    return getScoutFoulLabel({ foulCode: code }, { sportTemplate, uiLanguage: settings.uiLanguage });
   };
 
   return (
@@ -516,6 +520,15 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-6">
+        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Valid' : 'Valid'} value={dataQuality.validEvents} tone="green" />
+        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Incomplete' : 'Incomplete'} value={dataQuality.incompleteEvents} tone={dataQuality.incompleteEvents > 0 ? 'red' : 'gray'} />
+        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Warnings' : 'Warnings'} value={dataQuality.warnings} tone={dataQuality.warnings > 0 ? 'amber' : 'gray'} />
+        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Legacy' : 'Legacy'} value={dataQuality.legacyEvents} tone={dataQuality.legacyEvents > 0 ? 'amber' : 'gray'} />
+        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Actions' : 'Actions'} value={dataQuality.totalActions} tone="sky" />
+        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Filtered' : 'Filtered'} value={analyticsSummary.totalActions} tone="sky" />
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-2 mb-6 hide-scrollbar">
@@ -857,6 +870,7 @@ export default function Dashboard() {
                   setSelectedMapAction({ event, action });
                   setSelectedEventId(event.id);
                 }}
+                onGoToVideoTime={(videoTime) => setSeekRequest(Math.max(0, videoTime - 3))}
               />
             )}
             
@@ -880,6 +894,14 @@ export default function Dashboard() {
                   <div className="font-semibold">{selectedMapAction.action.skillCode}</div>
                   <div className="text-gray-500">Area:</div>
                   <div className="font-semibold">{selectedMapAction.action.areaLabel || selectedMapAction.action.outZone || selectedMapAction.action.areaCode || '-'}</div>
+                  <div className="text-gray-500">Precision:</div>
+                  <div className="font-semibold">{selectedMapAction.action.precision || selectedMapAction.action.areaResolution || selectedMapAction.action.areaMode || '-'}</div>
+                  {selectedMapAction.action.foulCode && (
+                    <>
+                      <div className="text-gray-500">Foul:</div>
+                      <div className="font-semibold text-amber-600">{selectedMapAction.action.foulLabel || selectedMapAction.action.foulCode}</div>
+                    </>
+                  )}
                   <div className="text-gray-500">Result:</div>
                   <div className={`font-semibold ${selectedMapAction.action.resultCode === 'Yes' ? 'text-green-600' : selectedMapAction.action.resultCode === 'Out' ? 'text-red-600' : 'text-gray-600'}`}>
                     {selectedMapAction.action.resultCode}
@@ -920,6 +942,23 @@ function StatCard({ title, value, color }: { title: string, value: string | numb
     <div className={`p-3 rounded-xl border border-transparent min-w-[120px] flex-shrink-0 ${color}`}>
       <div className="text-xs uppercase font-semibold opacity-80">{title}</div>
       <div className="text-2xl font-bold mt-1">{value}</div>
+    </div>
+  );
+}
+
+function DataQualityCard({ label, value, tone }: { label: string, value: number, tone: 'green' | 'red' | 'amber' | 'gray' | 'sky' }) {
+  const colors = {
+    green: 'bg-green-50 text-green-700 border-green-100 dark:bg-green-950/30 dark:text-green-400 dark:border-green-900/40',
+    red: 'bg-red-50 text-red-700 border-red-100 dark:bg-red-950/30 dark:text-red-400 dark:border-red-900/40',
+    amber: 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/40',
+    gray: 'bg-gray-50 text-gray-600 border-gray-100 dark:bg-gray-900 dark:text-gray-400 dark:border-gray-700',
+    sky: 'bg-sky-50 text-sky-700 border-sky-100 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-900/40',
+  };
+
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${colors[tone]}`}>
+      <div className="text-[10px] font-bold uppercase tracking-wider opacity-75">{label}</div>
+      <div className="text-lg font-black leading-tight">{value}</div>
     </div>
   );
 }

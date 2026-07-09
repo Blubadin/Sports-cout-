@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useEffect, useCallback } from 'react';
-import { ScoutProject, EventRow, MatchInfo, Team, AppSettings, SportType, Action } from '../types';
+import { ScoutProject, MatchInfo, Team, AppSettings, SportType } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useScoutContext } from './ScoutContext';
 import { DEFAULT_TEAMS } from '../data';
+import { getValidSportType, sanitizeEvents } from '../utils/scoutData';
 
 interface WorkspaceContextType {
   projects: ScoutProject[];
@@ -25,72 +26,6 @@ interface WorkspaceContextType {
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
-
-export const sanitizeEvents = (eventsList: any[]): EventRow[] => {
-  if (!Array.isArray(eventsList)) return [];
-  const seenIds = new Set<string>();
-  return eventsList.map((row, index) => {
-    let newRow = { ...row };
-    
-    // Fallback ID if missing
-    if (!newRow.id) {
-      newRow.id = `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 11)}`;
-    }
-    
-    // If ID is purely numeric or already seen (duplicate), make it unique
-    if (/^\d+$/.test(String(newRow.id)) || seenIds.has(String(newRow.id))) {
-      newRow.id = `${newRow.id}-${index}-${Math.random().toString(36).slice(2, 11)}`;
-    }
-    seenIds.add(String(newRow.id));
-
-    if (!newRow.sportType) {
-      newRow.sportType = 'volleyball';
-    }
-
-    if (newRow.actions) {
-      const seenActionIds = new Set<string>();
-      newRow.actions = newRow.actions.map((act: any, i: number) => {
-        let newAct = { ...act };
-        if (!newAct.id) {
-          newAct.id = `${Date.now()}-${index}-${i}-${Math.random().toString(36).slice(2, 11)}`;
-        }
-        if (/^\d+$/.test(String(newAct.id)) || seenActionIds.has(String(newAct.id))) {
-          newAct.id = `${newAct.id}-${i}-${Math.random().toString(36).slice(2, 11)}`;
-        }
-        seenActionIds.add(String(newAct.id));
-        return newAct;
-      });
-    } else {
-      newRow.actions = [];
-      if (newRow.eventText) {
-        const parts = newRow.eventText.split(' / ').map((p: string) => p.trim()).filter(Boolean);
-        const actions: Action[] = [];
-        
-        for (let i = 0; i + 3 < parts.length; i += 4) {
-          let resultCode = parts[i + 3];
-          
-          if (!['Yes', 'Out', 'Pass', '0', '+1', '-1'].includes(resultCode)) {
-            continue;
-          }
-
-          if (resultCode === '+1') resultCode = 'Yes';
-          else if (resultCode === '-1') resultCode = 'Out';
-          else if (resultCode === '0') resultCode = 'Pass';
-          
-          actions.push({
-            id: `${Date.now()}-${index}-${i}-${Math.random().toString(36).slice(2, 11)}`,
-            teamCode: parts[i],
-            skillCode: parts[i + 1],
-            areaCode: parts[i + 2],
-            resultCode,
-          });
-        }
-        newRow.actions = actions;
-      }
-    }
-    return newRow;
-  });
-};
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [projects, setProjects] = useLocalStorage<ScoutProject[]>('scout_projects', []);
@@ -119,7 +54,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     
     let changed = false;
     const sanitizedProjs = validProjs.map(p => {
-      const sanitizedEvs = sanitizeEvents(p.events);
+      const sanitizedEvs = sanitizeEvents(p.events, getValidSportType(p.sportType));
       if (JSON.stringify(sanitizedEvs) !== JSON.stringify(p.events)) {
         changed = true;
         return { ...p, events: sanitizedEvs };
@@ -143,7 +78,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         sportType: matchInfo.sportType,
         matchInfo,
         teams,
-        events: sanitizeEvents(events),
+        events: sanitizeEvents(events, matchInfo.sportType),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -456,11 +391,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (!project.sportType || typeof project.sportType !== 'string') return false;
     if (!Array.isArray(project.events)) return false;
 
-    // Validate and assign correct sport template type
-    const validSportTypes = ['volleyball', 'football', 'badminton', 'basketball'];
-    if (!validSportTypes.includes(project.sportType)) {
-      project.sportType = 'volleyball';
-    }
+    project.sportType = getValidSportType(project.sportType);
 
     // Sanitize MatchInfo
     if (!project.matchInfo || typeof project.matchInfo !== 'object') {
@@ -502,7 +433,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Sanitize Event rows
-    project.events = sanitizeEvents(project.events);
+    project.events = sanitizeEvents(project.events, project.sportType);
 
     // Re-generate ID if missing or colliding
     if (!project.id || typeof project.id !== 'string') {

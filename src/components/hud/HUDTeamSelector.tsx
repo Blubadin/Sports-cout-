@@ -6,6 +6,7 @@ interface Props {
   onPointerDown?: (e: React.PointerEvent) => void;
   onPointerUp?: () => void;
   onClick?: () => void;
+  onSelectTeam?: (teamCode: string) => void;
   hoveredTeam?: string | null;
 }
 
@@ -14,13 +15,18 @@ export default function HUDTeamSelector({
   onPointerDown,
   onPointerUp,
   onClick,
+  onSelectTeam,
   hoveredTeam,
 }: Props) {
   const { teams, currentAction, updateActionField, settings } =
     useScoutContext();
 
   const handleTeamClick = (teamCode: string) => {
-    updateActionField("teamCode", teamCode);
+    if (onSelectTeam) {
+      onSelectTeam(teamCode);
+    } else {
+      updateActionField("teamCode", teamCode);
+    }
 
     if (settings.hudEnableGameFeedback) {
       // Small haptic or visual flash could be added here
@@ -51,6 +57,10 @@ export default function HUDTeamSelector({
                 if (isActive) {
                   (window as any).__hoveredTeam = t.code;
                 }
+              }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                handleTeamClick(t.code);
               }}
               onClick={(e) => {
                 e.stopPropagation();
