@@ -143,13 +143,16 @@ export default function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShor
                   <div className="w-1.5 h-4 bg-amber-500 rounded-full"></div>
                   {isThai ? 'โหมด Pro HUD (กดค้าง)' : 'Pro HUD Mode (Hold Keys)'}
                 </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  {isThai ? 'กดคีย์ค้าง เลื่อนเมาส์ไปยังตัวเลือก แล้วปล่อยคีย์เพื่อเลือก' : 'Hold the key, move the pointer to a target, then release the key to select.'}
+                </p>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลือกพื้นที่ (Area Menu)' : 'Area Menu'}</span>
+                    <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลือกทักษะ (Skill Wheel)' : 'Skill Wheel'}</span>
                     <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">Q</kbd>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลือกทักษะ (Skill Wheel)' : 'Skill Wheel'}</span>
+                    <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลือกพื้นที่ (Area Menu)' : 'Area Menu'}</span>
                     <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">W</kbd>
                   </div>
                   <div className="flex justify-between items-center">

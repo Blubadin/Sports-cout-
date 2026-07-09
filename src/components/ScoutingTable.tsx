@@ -58,7 +58,7 @@ function ResultSelect({ value, onChange }: { value: string, onChange: (v: string
 }
 
 export default function ScoutingTable() {
-  const { events, setEvents, saveEventsWithHistory, deleteEventRow, updateEventRow, setSeekRequest, setPreviewState, settings, showToast, canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction } = useScoutContext();
+  const { events, saveEventsWithHistory, deleteEventRow, updateEventRow, setSeekRequest, setPreviewState, settings, showToast, canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction } = useScoutContext();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const replaySegment = (row: EventRow) => {
@@ -460,8 +460,8 @@ export default function ScoutingTable() {
               </button>
               <button
                 onClick={() => {
-                  setEvents([]);
-                  showToast(settings.uiLanguage === 'th' ? 'ลบข้อมูลทั้งหมดเรียบร้อยแล้ว' : 'All sequences have been deleted successfully');
+                  saveEventsWithHistory(() => []);
+                  showToast(settings.uiLanguage === 'th' ? 'ลบข้อมูลทั้งหมดเรียบร้อยแล้ว สามารถ Undo ได้' : 'All sequences have been deleted. You can undo this action.');
                   setShowDeleteAllModal(false);
                 }}
                 className="px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg cursor-pointer transition-colors shadow-sm"

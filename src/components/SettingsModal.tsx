@@ -16,7 +16,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { 
     settings, setSettings, 
     matchInfo, changeSportType,
-    events, setEvents, saveEventsWithHistory,
+    events, saveEventsWithHistory,
     clearCurrentEvent, setMatchInfo, showToast,
     teams, setTeams
   } = useScoutContext();
@@ -32,7 +32,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         setConfirmConfig({
           message: 'คุณแน่ใจจริงๆ หรือไม่? ข้อมูลทั้งหมดจะหายไป',
           onConfirm: () => {
-            setEvents([]);
+            saveEventsWithHistory(() => []);
             clearCurrentEvent();
             setMatchInfo(prev => ({ ...prev, currentPoint: 1 }));
             showToast('ล้างข้อมูลสำเร็จ');

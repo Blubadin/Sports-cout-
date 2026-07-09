@@ -5,6 +5,11 @@ import { EventRow } from "../../types";
 import { Maximize, Minimize, X, History, RotateCcw } from "lucide-react";
 import { useHUDDeviceLayout } from "../../hooks/useHUDDeviceLayout";
 import { useProHUDMarkingController } from "../../hooks/useProHUDMarkingController";
+import {
+  getHudCommandInstruction,
+  getHudCommandKeyLabel,
+  getHudCommandTitle,
+} from "../../utils/hudCommandBindings";
 
 import HUDTopStatsBar from "./HUDTopStatsBar";
 import HUDActionStatus from "./HUDActionStatus";
@@ -98,7 +103,7 @@ export default function ScoutHUDMode({
     handleKeyDown,
     handleKeyUp,
     handlePointerMove,
-    commitMarking,
+    commitActiveMarking,
     isHoldMode,
   } = useProHUDMarkingController({
     settings,
@@ -383,10 +388,10 @@ export default function ScoutHUDMode({
   };
 
   useEffect(() => {
-    const handleGlobalPointerUp = (e: any) => {
+    const handleGlobalPointerUp = () => {
       if (!isTouchHoldActiveRef.current) return;
       isTouchHoldActiveRef.current = false;
-      commitMarking(activeMenu);
+      commitActiveMarking();
     };
 
     window.addEventListener("pointerup", handleGlobalPointerUp);
@@ -397,7 +402,7 @@ export default function ScoutHUDMode({
       window.removeEventListener("touchend", handleGlobalPointerUp);
       window.removeEventListener("touchcancel", handleGlobalPointerUp);
     };
-  }, [commitMarking, activeMenu]);
+  }, [commitActiveMarking]);
 
   const handlePointerInteraction = (
     menu: "skill" | "area" | "result" | "team" | "foul",
@@ -475,6 +480,25 @@ export default function ScoutHUDMode({
           />
         )}
 
+        {isHoldMode && activeMenu !== "none" && (
+          <div className="absolute top-3 sm:top-5 left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
+            <div className="flex items-center gap-2 rounded-full border border-sky-400/35 bg-slate-950/80 px-3 py-2 text-white shadow-[0_0_22px_rgba(14,165,233,0.22)] backdrop-blur-xl">
+              <span className="rounded-full bg-sky-500/20 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-sky-200">
+                {getHudCommandTitle(activeMenu)}
+              </span>
+              <kbd className="rounded-md border border-white/15 bg-white/10 px-2 py-1 text-xs font-black text-white">
+                {getHudCommandKeyLabel(activeMenu)}
+              </kbd>
+              <span className="hidden sm:inline text-xs font-semibold text-white/70">
+                {getHudCommandInstruction(activeMenu)}
+              </span>
+              <span className="sm:hidden text-xs font-semibold text-white/70">
+                Release to select
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Center Action Status (Top) */}
         {settings.hudShowActionStatus && (
           <div className="w-full flex justify-center pt-2 pointer-events-none z-10">
@@ -504,7 +528,7 @@ export default function ScoutHUDMode({
                   </span>
                 </div>
                 <div className="text-[10px] sm:text-xs text-white/50 font-medium">
-                  {settings.uiLanguage === 'th' ? 'ลากเมาส์ / ปล่อย Q เพื่อเลือก • Esc เพื่อยกเลิก' : 'Drag / Release Q to Select • Esc to Cancel'}
+                  {settings.uiLanguage === 'th' ? 'ลากเมาส์ / ปล่อย W เพื่อเลือก • Esc เพื่อยกเลิก' : 'Drag / Release W to Select • Esc to Cancel'}
                 </div>
               </div>
 

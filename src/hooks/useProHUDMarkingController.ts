@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AppSettings, Team, AreaSelectionPayload } from "../types";
+import type { HudCommandMenu } from "../utils/hudCommandBindings";
+import {
+  getHudMenuForKeyboardCode,
+} from "../utils/hudCommandBindings";
 
 export type MarkingMenuType = "none" | "team" | "skill" | "area" | "result" | "foul";
 
@@ -134,6 +138,27 @@ export function useProHUDMarkingController({
     setHoveredTeam,
     setHoveredFoul,
   ]);
+
+  const openMarkingMenu = useCallback(
+    (menu: HudCommandMenu) => {
+      if (activeMenuRef.current !== menu) {
+        clearHoverStates();
+      }
+      setActiveMenu(menu);
+    },
+    [clearHoverStates, setActiveMenu],
+  );
+
+  const toggleMarkingMenu = useCallback(
+    (menu: HudCommandMenu) => {
+      const nextMenu = activeMenuRef.current === menu ? "none" : menu;
+      if (nextMenu !== activeMenuRef.current) {
+        clearHoverStates();
+      }
+      setActiveMenu(nextMenu);
+    },
+    [clearHoverStates, setActiveMenu],
+  );
 
   // Determine effective interaction style
   const isHoldMode =
@@ -343,6 +368,10 @@ export function useProHUDMarkingController({
     ],
   );
 
+  const commitActiveMarking = useCallback(() => {
+    commitMarking(activeMenuRef.current);
+  }, [commitMarking]);
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       // If holding or pressing, record key
@@ -358,21 +387,22 @@ export function useProHUDMarkingController({
         return;
       }
 
-      if (e.code === "KeyQ") {
+      const commandMenu = getHudMenuForKeyboardCode(e.code);
+      if (commandMenu) {
         e.preventDefault();
         if (isHoldMode) {
-          setActiveMenu("area");
+          openMarkingMenu(commandMenu);
         } else {
-          setActiveMenu(activeMenuRef.current === "area" ? "none" : "area");
+          toggleMarkingMenu(commandMenu);
         }
-      }
 
-      if (e.code === "KeyW") {
-        e.preventDefault();
-        if (isHoldMode) {
-          setActiveMenu("skill");
-        } else {
-          setActiveMenu(activeMenuRef.current === "skill" ? "none" : "skill");
+        if (e.code === "Digit1" && teams[0]) {
+          setHoveredTeam(teams[0].code);
+          updateActionField("teamCode", teams[0].code);
+        }
+        if (e.code === "Digit2" && teams[1]) {
+          setHoveredTeam(teams[1].code);
+          updateActionField("teamCode", teams[1].code);
         }
       }
 
@@ -408,55 +438,16 @@ export function useProHUDMarkingController({
         }
       }
 
-      if (e.code === "KeyE") {
-        e.preventDefault();
-        if (isHoldMode) {
-          setActiveMenu("result");
-        } else {
-          setActiveMenu(activeMenuRef.current === "result" ? "none" : "result");
-        }
-      }
-
-      if (e.code === "KeyR" || e.code === "KeyF") {
-        e.preventDefault();
-        if (isHoldMode) {
-          setActiveMenu("foul");
-        } else {
-          setActiveMenu(activeMenuRef.current === "foul" ? "none" : "foul");
-        }
-      }
-
-      if (e.code === "Digit1") {
-        e.preventDefault();
-        if (isHoldMode) {
-          setActiveMenu("team");
-        } else {
-          setActiveMenu(activeMenuRef.current === "team" ? "none" : "team");
-        }
-        if (teams[0]) {
-          updateActionField("teamCode", teams[0].code);
-        }
-      }
-
-      if (e.code === "Digit2") {
-        e.preventDefault();
-        if (isHoldMode) {
-          setActiveMenu("team");
-        } else {
-          setActiveMenu(activeMenuRef.current === "team" ? "none" : "team");
-        }
-        if (teams[1]) {
-          updateActionField("teamCode", teams[1].code);
-        }
-      }
     },
     [
       isHoldMode,
       teams,
       updateActionField,
+      setHoveredTeam,
       cancelMarking,
       onCloseHUD,
-      setActiveMenu,
+      openMarkingMenu,
+      toggleMarkingMenu,
     ],
   );
 
@@ -466,19 +457,9 @@ export function useProHUDMarkingController({
 
       if (!isHoldMode) return;
 
-      if (e.code === "KeyQ" && activeMenuRef.current === "area") {
-        commitMarking("area");
-      } else if (e.code === "KeyW" && activeMenuRef.current === "skill") {
-        commitMarking("skill");
-      } else if (e.code === "KeyE" && activeMenuRef.current === "result") {
-        commitMarking("result");
-      } else if ((e.code === "KeyR" || e.code === "KeyF") && activeMenuRef.current === "foul") {
-        commitMarking("foul");
-      } else if (
-        (e.code === "Digit1" || e.code === "Digit2") &&
-        activeMenuRef.current === "team"
-      ) {
-        commitMarking("team");
+      const commandMenu = getHudMenuForKeyboardCode(e.code);
+      if (commandMenu && activeMenuRef.current === commandMenu) {
+        commitMarking(commandMenu);
       }
     },
     [isHoldMode, commitMarking],
@@ -507,6 +488,7 @@ export function useProHUDMarkingController({
     handlePointerMove,
     cancelMarking,
     commitMarking,
+    commitActiveMarking,
     isHoldMode,
   };
 }

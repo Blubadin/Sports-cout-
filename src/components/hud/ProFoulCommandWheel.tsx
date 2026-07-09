@@ -109,13 +109,13 @@ export default function ProFoulCommandWheel({
     onHoverItem(currentHoveredCode);
   }, [active, currentHoveredCode, onHoverItem]);
 
-  let centerTitle = "SWIPE";
+  let centerTitle = "AIM";
   let centerSub = "Release to Select";
   let centerColor = "text-white/40";
 
   if (distance < deadZone) {
     centerTitle = "FOUL";
-    centerSub = uiLanguage === "th" ? "ลากเพื่อเลือก" : "Drag to Select";
+    centerSub = uiLanguage === "th" ? "เลื่อนเมาส์เพื่อเลือก" : "Move pointer";
     centerColor = "text-white/40 animate-pulse";
   } else if (hoveredFoul) {
     const f = fouls.find((sk) => sk.code === hoveredFoul);

@@ -218,13 +218,13 @@ export default function ProDonutCommandWheel({
   ]);
 
   // Center display content
-  let centerTitle = "SWIPE";
+  let centerTitle = "AIM";
   let centerSub = "Release to Select";
   let centerColor = "text-white/40";
 
   if (distance < deadZone) {
     centerTitle = menuType === "skill" ? "SKILL" : "RESULT";
-    centerSub = uiLanguage === "th" ? "ลากเพื่อเลือก" : "Drag to Select";
+    centerSub = uiLanguage === "th" ? "เลื่อนเมาส์เพื่อเลือก" : "Move pointer";
     centerColor = "text-white/40 animate-pulse";
   } else if (menuType === "skill") {
     if (distance >= innerRadiusMax && hoveredDescriptor && descriptors[0]) {

@@ -7,44 +7,85 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  recoveryMessage: string | null;
 }
+
+const SCOUT_STORAGE_KEYS = [
+  'scout_settings',
+  'scout_match_info',
+  'scout_teams',
+  'scout_events',
+  'scout_projects',
+  'active_scout_project_id'
+];
 
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
-    error: null
+    error: null,
+    recoveryMessage: null
   };
 
   public static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, recoveryMessage: null };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
+    console.error('Uncaught error:', error, errorInfo);
   }
 
-  private handleReset = () => {
+  private handleExportRecovery = () => {
+    try {
+      const localStorageSnapshot = SCOUT_STORAGE_KEYS.reduce<Record<string, string | null>>((acc, key) => {
+        acc[key] = localStorage.getItem(key);
+        return acc;
+      }, {});
+
+      const backup = {
+        schemaVersion: '1.0',
+        app: 'Sports Scout Logger',
+        type: 'localStorageRecovery',
+        exportedAt: new Date().toISOString(),
+        localStorage: localStorageSnapshot
+      };
+
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backup, null, 2));
+      const link = document.createElement('a');
+      link.setAttribute('href', dataStr);
+      link.setAttribute('download', `sports_scout_recovery_${new Date().toISOString().split('T')[0]}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      this.setState({ recoveryMessage: 'Recovery backup exported. Keep this file before resetting.' });
+    } catch (e) {
+      console.error(e);
+      this.setState({ recoveryMessage: 'Could not export recovery backup from this browser.' });
+    }
+  };
+
+  private handleReload = () => {
+    window.location.reload();
+  };
+
+  private handleResetRuntime = () => {
     try {
       localStorage.removeItem('scout_settings');
       localStorage.removeItem('scout_match_info');
       localStorage.removeItem('scout_teams');
       localStorage.removeItem('scout_events');
-      localStorage.removeItem('scout_projects');
       localStorage.removeItem('active_scout_project_id');
-      
-      if (typeof window !== 'undefined') {
-        if ('caches' in window) {
-          window.caches.keys().then((keys) => {
-            keys.forEach((key) => window.caches.delete(key));
-          });
-        }
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistrations().then((regs) => {
-            regs.forEach((reg) => reg.unregister());
-          });
-        }
-        window.location.reload();
+
+      if ('caches' in window) {
+        window.caches.keys().then((keys) => {
+          keys.forEach((key) => window.caches.delete(key));
+        });
       }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((regs) => {
+          regs.forEach((reg) => reg.unregister());
+        });
+      }
+      window.location.reload();
     } catch (e) {
       console.error(e);
       window.location.reload();
@@ -62,30 +103,43 @@ export class ErrorBoundary extends Component<Props, State> {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-bold tracking-tight">เกิดข้อผิดพลาดในการโหลดแอป</h2>
+              <h2 className="text-2xl font-bold tracking-tight">The app could not finish loading</h2>
               <p className="text-sm text-slate-400 mt-2">
-                แอปพลิเคชันหยุดทำงานเนื่องจากข้อมูลในหน่วยความจำเสียหายหรือเข้ากันไม่ได้กับเวอร์ชันใหม่
+                Try reloading first. If the problem continues, export a recovery backup before resetting runtime data.
               </p>
             </div>
 
             <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-900 overflow-auto max-h-40 font-mono text-xs text-rose-300">
-              <span className="font-semibold block mb-1">ข้อความจากระบบ:</span>
-              {this.state.error?.message || "Unknown error occurred"}
+              <span className="font-semibold block mb-1">System message:</span>
+              {this.state.error?.message || 'Unknown error occurred'}
             </div>
+
+            {this.state.recoveryMessage && (
+              <div className="bg-sky-950/50 border border-sky-800 text-sky-200 rounded-xl p-3 text-xs">
+                {this.state.recoveryMessage}
+              </div>
+            )}
 
             <div className="space-y-3">
               <button
-                onClick={this.handleReset}
-                className="w-full bg-rose-600 hover:bg-rose-500 text-white font-medium py-3 px-4 rounded-xl transition-all duration-200 shadow-lg shadow-rose-900/20 hover:scale-[1.02] active:scale-[0.98]"
+                onClick={this.handleReload}
+                className="w-full bg-sky-600 hover:bg-sky-500 text-white font-medium py-3 px-4 rounded-xl transition-all duration-200 shadow-lg shadow-sky-900/20 hover:scale-[1.02] active:scale-[0.98]"
               >
-                ล้างข้อมูลและเริ่มต้นใหม่
+                Reload app
               </button>
-              
+
               <button
-                onClick={() => window.location.reload()}
-                className="w-full bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium py-3 px-4 rounded-xl border border-slate-600 transition-all duration-200"
+                onClick={this.handleExportRecovery}
+                className="w-full bg-slate-700 hover:bg-slate-600 text-slate-100 font-medium py-3 px-4 rounded-xl border border-slate-600 transition-all duration-200"
               >
-                ลองใหม่อีกครั้ง
+                Export recovery backup
+              </button>
+
+              <button
+                onClick={this.handleResetRuntime}
+                className="w-full bg-rose-700/80 hover:bg-rose-600 text-white font-medium py-3 px-4 rounded-xl transition-all duration-200"
+              >
+                Reset runtime data, keep projects
               </button>
             </div>
           </div>

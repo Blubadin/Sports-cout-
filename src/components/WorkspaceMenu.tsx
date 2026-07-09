@@ -73,6 +73,23 @@ export default function WorkspaceMenu() {
     document.body.removeChild(dlAnchorElem);
   };
 
+  const handleExportAll = () => {
+    const exportData = {
+      schemaVersion: '1.0',
+      app: 'Sports Scout Logger',
+      exportedAt: new Date().toISOString(),
+      type: 'projects',
+      projects
+    };
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", `sports_scout_projects_${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(dlAnchorElem);
+    dlAnchorElem.click();
+    document.body.removeChild(dlAnchorElem);
+  };
+
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -142,6 +159,15 @@ export default function WorkspaceMenu() {
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
               {settings.uiLanguage === 'th' ? 'คลังโครงการ (Workspace Library)' : 'Workspace Library'}
             </h3>
+            <button
+              type="button"
+              onClick={handleExportAll}
+              disabled={projects.length === 0}
+              className="cursor-pointer p-1 text-gray-500 hover:text-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title={settings.uiLanguage === 'th' ? 'สำรองทุกโครงการ (Export All Projects)' : 'Export All Projects'}
+            >
+              <Download size={14} />
+            </button>
             <label className="cursor-pointer p-1 text-gray-500 hover:text-sky-600 transition-colors" title={settings.uiLanguage === 'th' ? 'นำเข้าโปรเจกต์ (Restore Project)' : 'Restore Project (Import JSON)'}>
               <Upload size={14} />
               <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImport} />

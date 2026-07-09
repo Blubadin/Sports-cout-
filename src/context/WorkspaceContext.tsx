@@ -163,12 +163,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           const prevArr = Array.isArray(prev) ? prev : [];
           return prevArr.map(p => {
             if (p.id === activeProjectId) {
-              // Guard: Prevent overwriting populated events with an empty array
-              // during project switching transitions to avoid data loss.
-              if (p.events.length > 0 && events.length === 0) {
-                console.warn('WorkspaceContext auto-save guard: Prevented overwriting existing events with an empty array.');
-                return p;
-              }
               return {
                 ...p,
                 events,
@@ -225,8 +219,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           : '⚠️ Storage Quota Exceeded! Please delete some old projects to free up space.'
       );
     };
-    window.addEventListener('localStorageQuotaExceeded', handleQuotaExceeded);
-    return () => window.removeEventListener('localStorageQuotaExceeded', handleQuotaExceeded);
+    // ScoutContext owns the single user-facing quota warning to avoid duplicate toasts.
+    void handleQuotaExceeded;
+    return undefined;
   }, [settings.uiLanguage, showToast]);
 
   const saveCurrentProject = () => {
@@ -426,6 +421,36 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const importProject = (project: any): boolean => {
+    if (Array.isArray(project)) {
+      project = {
+        title: 'Imported Events',
+        sportType: project[0]?.sportType || matchInfo.sportType || 'volleyball',
+        matchInfo: { ...matchInfo, sportType: project[0]?.sportType || matchInfo.sportType || 'volleyball' },
+        teams,
+        events: project
+      };
+    } else if (project?.type === 'events' && Array.isArray(project.events)) {
+      project = {
+        title: project.title || `Imported Events ${new Date().toLocaleDateString()}`,
+        sportType: project.events[0]?.sportType || matchInfo.sportType || 'volleyball',
+        matchInfo: { ...matchInfo, sportType: project.events[0]?.sportType || matchInfo.sportType || 'volleyball' },
+        teams,
+        events: project.events
+      };
+    } else if (project?.type === 'projects' && Array.isArray(project.projects)) {
+      return project.projects.map((p: any) => importProject(p)).some(Boolean);
+    } else if (project?.localStorage?.scout_projects) {
+      try {
+        const restoredProjects = JSON.parse(project.localStorage.scout_projects);
+        if (Array.isArray(restoredProjects)) {
+          return restoredProjects.map((p: any) => importProject(p)).some(Boolean);
+        }
+      } catch (err) {
+        console.warn('Failed to parse scout_projects from recovery backup:', err);
+        return false;
+      }
+    }
+
     if (!project || typeof project !== 'object') return false;
     if (!project.title || typeof project.title !== 'string') return false;
     if (!project.sportType || typeof project.sportType !== 'string') return false;
