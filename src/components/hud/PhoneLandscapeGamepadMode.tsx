@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useScoutContext } from "../../context/ScoutContext";
 import { formatPreciseTime } from "../../utils";
+import { EventRow } from "../../types";
 import {
   Play,
   Pause,
@@ -15,6 +16,7 @@ import {
   Crosshair,
   Map,
   RotateCcw as UndoIcon,
+  AlertTriangle,
 } from "lucide-react";
 import HUDTopStatsBar from "./HUDTopStatsBar";
 import HUDActionStatus from "./HUDActionStatus";
@@ -22,6 +24,7 @@ import HUDSequenceHistoryDrawer from "./HUDSequenceHistoryDrawer";
 import PhoneLandscapeTeamPicker from "./PhoneLandscapeTeamPicker";
 import PhoneLandscapeSkillStrip from "./PhoneLandscapeSkillStrip";
 import PhoneLandscapeAreaOverlay from "./PhoneLandscapeAreaOverlay";
+import PhoneLandscapeFoulStrip from "./PhoneLandscapeFoulStrip";
 
 interface PhoneLandscapeGamepadModeProps {
   onClose: () => void;
@@ -58,10 +61,11 @@ export default function PhoneLandscapeGamepadMode({
     saveEvent,
     selectFoul,
     clearFoul,
+    setPreviewState,
   } = useScoutContext();
 
   const [activeOverlay, setActiveOverlay] = useState<
-    "none" | "team" | "skill" | "area"
+    "none" | "team" | "skill" | "area" | "foul"
   >("none");
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -124,9 +128,9 @@ export default function PhoneLandscapeGamepadMode({
     setControlsVisible(true);
   };
 
-  const handleReplayClip = (time: number) => {
-    videoControls.seekTo(time - 3);
-    videoControls.play();
+  const handleReplaySegment = (event: EventRow) => {
+    setPreviewState({ isActive: true, eventRow: event, loop: true });
+    videoControls.pause();
     setIsHistoryOpen(false);
     setControlsVisible(true);
   };
@@ -225,11 +229,11 @@ export default function PhoneLandscapeGamepadMode({
 
       {/* Right Controller Area */}
       <div
-        className={`absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-3.5 pointer-events-auto z-30 transition-all duration-300 ${controlsVisible ? "opacity-100 translate-x-0" : "opacity-15 translate-x-2"}`}
+        className={`absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-2.5 pointer-events-auto z-30 transition-all duration-300 ${controlsVisible ? "opacity-100 translate-x-0" : "opacity-15 translate-x-2"}`}
       >
         {/* SKILL triggering button */}
         <button
-          onClick={() => setActiveOverlay("skill")}
+          onClick={() => setActiveOverlay(activeOverlay === "skill" ? "none" : "skill")}
           className={`w-[58px] h-[58px] rounded-lg flex flex-col items-center justify-center border transition-all active:scale-90 ${
             activeOverlay === "skill"
               ? "bg-green-600 border-green-400 text-white shadow-lg"
@@ -239,38 +243,37 @@ export default function PhoneLandscapeGamepadMode({
           }`}
         >
           <Crosshair size={22} />
-          <span className="text-xs font-black tracking-widest uppercase mt-0.5">
+          <span className="text-[10px] font-black tracking-widest uppercase mt-0.5 truncate max-w-full">
             {currentAction.skillCode || "SKILL"}
           </span>
         </button>
 
+        {/* FOUL Triggering button */}
+        {sportTemplate.fouls && sportTemplate.fouls.length > 0 && (
+          <button
+            onClick={() => setActiveOverlay(activeOverlay === "foul" ? "none" : "foul")}
+            className={`w-[58px] h-[48px] rounded-lg flex flex-col items-center justify-center border transition-all active:scale-90 ${
+              activeOverlay === "foul"
+                ? "bg-amber-600 border-amber-400 text-white shadow-lg"
+                : currentAction.foulCode
+                  ? "bg-amber-950/80 border-amber-500 text-amber-200"
+                  : "bg-gray-900/85 border-gray-700 text-gray-300"
+            }`}
+          >
+            <AlertTriangle size={18} />
+            <span className="text-[10px] font-black tracking-wider uppercase mt-0.5 truncate max-w-full">
+              {currentAction.foulCode || "FOUL"}
+            </span>
+          </button>
+        )}
+
         {/* Dynamic Results column from current sport template */}
-        <div className="flex flex-col gap-2 border-t border-white/5 pt-2">
-          {(sportTemplate.fouls || []).map(f => {
-            const isSelected = currentAction.foulCode === f.code;
-            const isCard = f.severity === 'card' || f.severity === 'technical';
-            return (
-              <button
-                key={f.code}
-                onClick={() => {
-                  setControlsVisible(true);
-                  if (isSelected) {
-                    clearFoul();
-                  } else {
-                    selectFoul(f);
-                  }
-                }}
-                className={`w-[58px] h-[38px] rounded-lg text-white font-black text-[10px] uppercase shadow-lg active:scale-90 transition-all border break-words leading-tight px-1 ${isSelected ? (isCard ? 'bg-red-500 border-red-400' : 'bg-amber-500 border-amber-400') : (isCard ? 'bg-black/50 border-red-900/50 text-red-200' : 'bg-black/50 border-amber-900/50 text-amber-200')}`}
-              >
-                {f.code}
-              </button>
-            );
-          })}
+        <div className="flex flex-col gap-1.5 border-t border-white/5 pt-1.5">
           {results.slice(0, 3).map((res, idx) => {
             const bgColors = [
-              "bg-sky-600 border-sky-500",
-              "bg-green-600 border-green-500",
-              "bg-amber-600 border-amber-500",
+              "bg-sky-600 border-sky-500 hover:bg-sky-500",
+              "bg-green-600 border-green-500 hover:bg-green-500",
+              "bg-amber-600 border-amber-500 hover:bg-amber-500",
             ];
             const bgColor = bgColors[idx % bgColors.length];
             return (
@@ -425,6 +428,9 @@ export default function PhoneLandscapeGamepadMode({
       {activeOverlay === "area" && (
         <PhoneLandscapeAreaOverlay onClose={() => setActiveOverlay("none")} />
       )}
+      {activeOverlay === "foul" && (
+        <PhoneLandscapeFoulStrip onClose={() => setActiveOverlay("none")} />
+      )}
 
       {/* --- HISTORY DRAWER --- */}
       <HUDSequenceHistoryDrawer
@@ -437,7 +443,7 @@ export default function PhoneLandscapeGamepadMode({
         onClearCurrent={clearCurrentEvent}
         onSaveCurrent={saveEvent}
         onGoToTime={handleGoToTime}
-        onReplayClip={handleReplayClip}
+        onReplaySegment={handleReplaySegment}
         onCopyEvent={handleCopyEvent}
       />
     </div>

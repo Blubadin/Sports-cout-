@@ -1,6 +1,7 @@
 import { OUT_ZONE_LABELS } from "../../sports";
 import React, { useState, useEffect, useRef } from "react";
 import { useScoutContext } from "../../context/ScoutContext";
+import { EventRow } from "../../types";
 import { Maximize, Minimize, X, History, RotateCcw } from "lucide-react";
 import { useHUDDeviceLayout } from "../../hooks/useHUDDeviceLayout";
 import { useProHUDMarkingController } from "../../hooks/useProHUDMarkingController";
@@ -63,6 +64,7 @@ export default function ScoutHUDMode({
     matchInfo,
     selectArea,
     selectFoul,
+    setPreviewState,
   } = useScoutContext();
 
   const layout = useHUDDeviceLayout();
@@ -420,9 +422,10 @@ export default function ScoutHUDMode({
     }
   };
 
-  const handleReplayClip = (videoTime: number) => {
-    videoControls.seekTo(Math.max(0, videoTime - 3));
-    videoControls.play();
+  const handleReplaySegment = (event: EventRow) => {
+    setPreviewState({ isActive: true, eventRow: event, loop: true });
+    // Also pause the current video if it was playing normally, the SegmentPreviewPanel will handle playback
+    videoControls.pause();
   };
 
   const handleGoToTime = (videoTime: number) => {
@@ -704,7 +707,7 @@ export default function ScoutHUDMode({
         onClearCurrent={clearCurrentEvent}
         onSaveCurrent={saveEvent}
         onGoToTime={handleGoToTime}
-        onReplayClip={handleReplayClip}
+        onReplaySegment={handleReplaySegment}
         onCopyEvent={handleCopyEvent}
       />
     </div>

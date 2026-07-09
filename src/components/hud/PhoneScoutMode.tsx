@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useScoutContext } from "../../context/ScoutContext";
 import { formatPreciseTime } from "../../utils";
+import { EventRow } from "../../types";
 import {
   Play,
   Pause,
@@ -65,6 +66,7 @@ export default function PhoneScoutMode({
     saveEvent,
     selectFoul,
     clearFoul,
+    setPreviewState,
   } = useScoutContext();
 
   const layout = useHUDDeviceLayout();
@@ -106,9 +108,9 @@ export default function PhoneScoutMode({
     setControlsVisible(true);
   };
 
-  const handleReplayClip = (time: number) => {
-    videoControls.seekTo(time - 3);
-    videoControls.play();
+  const handleReplaySegment = (event: EventRow) => {
+    setPreviewState({ isActive: true, eventRow: event, loop: true });
+    videoControls.pause();
     setIsHistoryOpen(false);
     setControlsVisible(true);
   };
@@ -279,7 +281,7 @@ export default function PhoneScoutMode({
         onClearCurrent={clearCurrentEvent}
         onSaveCurrent={saveEvent}
         onGoToTime={handleGoToTime}
-        onReplayClip={handleReplayClip}
+        onReplaySegment={handleReplaySegment}
         onCopyEvent={handleCopyEvent}
       />
     </div>

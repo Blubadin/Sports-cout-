@@ -49,6 +49,8 @@ interface ScoutContextType {
   getCurrentTimeRef: React.MutableRefObject<() => number>;
   seekRequest: number | null;
   setSeekRequest: React.Dispatch<React.SetStateAction<number | null>>;
+  previewState: { isActive: boolean; eventRow: EventRow | null; loop: boolean } | null;
+  setPreviewState: React.Dispatch<React.SetStateAction<{ isActive: boolean; eventRow: EventRow | null; loop: boolean } | null>>;
 
   saveEvent: (actionToSave?: Action) => void;
   addAction: (actionToAdd?: Action) => void;
@@ -238,6 +240,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
   const getCurrentTimeRef = useRef<() => number>(() => videoTimeRef.current);
   const [seekRequest, setSeekRequest] = useState<number | null>(null);
+  const [previewState, setPreviewState] = useState<{ isActive: boolean; eventRow: EventRow | null; loop: boolean } | null>(null);
 
   const [currentInputHistory, setCurrentInputHistory] = useState<InputHistoryItem[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -817,16 +820,21 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
     const finalVideoTime = getCurrentTimeRef.current();
     
-    let sequenceStartTime = 0;
-    let sequenceEndTime = 0;
+    let sequenceStartTime = finalVideoTime;
+    let sequenceEndTime = finalVideoTime;
     if (finalActions.length > 0) {
       sequenceStartTime = finalActions[0].videoTime ?? finalVideoTime;
       sequenceEndTime = lastAction.videoTimeEnd ?? lastAction.videoTime ?? finalVideoTime;
     }
     if (sequenceEndTime < sequenceStartTime) sequenceEndTime = sequenceStartTime;
-    const duration = sequenceEndTime - sequenceStartTime;
-    const clipStartTime = Math.max(0, sequenceStartTime - 3);
-    const clipEndTime = sequenceEndTime + 3;
+    const sequenceDuration = sequenceEndTime - sequenceStartTime;
+    const previewStartTime = Math.max(0, sequenceStartTime - 2);
+    const previewEndTime = sequenceEndTime + 3;
+    
+    // Legacy fields for backward compatibility
+    const duration = sequenceDuration;
+    const clipStartTime = previewStartTime;
+    const clipEndTime = previewEndTime;
 
     const newRow: EventRow = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
@@ -840,11 +848,15 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       videoTime: sequenceStartTime,
       sequenceStartTime,
       sequenceEndTime,
+      sequenceDuration,
+      previewStartTime,
+      previewEndTime,
       duration,
       clipStartTime,
       clipEndTime,
       videoSourceType,
       youtubeVideoId: videoSourceType === 'youtube' && youtubeVideoId ? youtubeVideoId : undefined,
+      videoId: videoSourceType === 'youtube' && youtubeVideoId ? youtubeVideoId : undefined,
       videoUrl: videoSourceType === 'youtube' ? youtubeUrl : undefined,
       sportType: matchInfo.sportType,
       createdAt: new Date().toISOString(),
@@ -978,6 +990,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       youtubeUrl, setYoutubeUrl,
       localFileName, setLocalFileName,
       seekRequest, setSeekRequest,
+      previewState, setPreviewState,
       saveEvent, addAction, undoLastAction, clearCurrentEvent,
       deleteEventRow, updateEventRow,
       isActionComplete, getActionText, getExtendedActionText, getThaiMeaning, resetCurrentAction,

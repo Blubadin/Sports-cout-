@@ -28,7 +28,7 @@ export default function SportSpecificKPIs({ events, teams, matchInfo, teamFilter
       const matched: any[] = [];
       filteredEvents.forEach(ev => {
         ev.actions.forEach(a => {
-          if (a.skill && skillList.includes(a.skill.toUpperCase())) {
+          if (a.skillCode && skillList.includes(a.skillCode.toUpperCase())) {
             matched.push({ ...a, resultText: ev.resultText });
           }
         });

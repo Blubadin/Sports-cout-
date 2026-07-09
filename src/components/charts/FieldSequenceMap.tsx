@@ -1,6 +1,9 @@
 import React, { useMemo } from 'react';
 import { Action, EventRow, SportType } from '../../types';
 import { SPORT_TEMPLATES } from '../../sports';
+import { useScoutContext } from '../../context/ScoutContext';
+import { Play } from 'lucide-react';
+import { formatPreciseTime } from '../../utils';
 
 type FieldSequenceMapProps = {
   sportType: SportType;
@@ -73,11 +76,21 @@ const BasketballField = ({ children }: { children: React.ReactNode }) => (
     <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
       <span className="text-white/30 text-xs font-bold uppercase tracking-widest">Out of Bounds</span>
     </div>
-    <div className="relative w-full aspect-[4/3] bg-[#dd9f60] border-4 border-white shadow-xl">
-      <div className="absolute top-0 left-1/2 w-[30%] h-[40%] border-4 border-white -translate-x-1/2" />
+    <div className="relative w-full aspect-[1/1.9] bg-[#dd9f60] border-4 border-white shadow-xl">
+      <div className="absolute top-1/2 left-0 right-0 h-1 bg-white opacity-60" />
+      <div className="absolute top-1/2 left-1/2 w-16 h-16 rounded-full border-4 border-white -translate-x-1/2 -translate-y-1/2 opacity-60" />
+      
+      {/* Top half */}
+      <div className="absolute top-0 left-1/2 w-[32%] h-[19%] border-4 border-white -translate-x-1/2" />
       <div className="absolute top-0 left-1/2 w-[60%] aspect-square border-4 border-white rounded-full -translate-x-1/2" />
-      <div className="absolute top-[5%] left-1/2 w-[10%] h-[2%] bg-red-700 -translate-x-1/2 shadow-sm" />
-      <div className="absolute top-[8%] left-1/2 w-3 h-3 border-2 border-red-700 rounded-full -translate-x-1/2 bg-transparent z-10" />
+      <div className="absolute top-[2.5%] left-1/2 w-[10%] h-[1%] bg-red-700 -translate-x-1/2 shadow-sm" />
+      <div className="absolute top-[4%] left-1/2 w-3 h-3 border-2 border-red-700 rounded-full -translate-x-1/2 bg-transparent z-10" />
+
+      {/* Bottom half */}
+      <div className="absolute bottom-0 left-1/2 w-[32%] h-[19%] border-4 border-white -translate-x-1/2" />
+      <div className="absolute bottom-0 left-1/2 w-[60%] aspect-square border-4 border-white rounded-full -translate-x-1/2" />
+      <div className="absolute bottom-[2.5%] left-1/2 w-[10%] h-[1%] bg-red-700 -translate-x-1/2 shadow-sm" />
+      <div className="absolute bottom-[4%] left-1/2 w-3 h-3 border-2 border-red-700 rounded-full -translate-x-1/2 bg-transparent z-10" />
       {children}
     </div>
   </div>
@@ -153,15 +166,15 @@ const AREA_COORDS: Record<SportType, Record<string, { top: number, left: number 
     'own_back_out': { top: 108, left: 50 },
   },
   basketball: {
-    'HOOP': { top: 15, left: 50 },
-    'PAINT': { top: 30, left: 50 },
-    'LEFT_WING': { top: 50, left: 20 },
-    'TOP_KEY': { top: 70, left: 50 },
-    'RIGHT_WING': { top: 50, left: 80 },
-    'LEFT_CORNER': { top: 15, left: 10 },
-    'RIGHT_CORNER': { top: 15, left: 90 },
-    'MID_RANGE': { top: 45, left: 50 },
-    'THREE_PT': { top: 85, left: 50 },
+    'HOOP': { top: 7.5, left: 50 },
+    'PAINT': { top: 15, left: 50 },
+    'LEFT_WING': { top: 25, left: 20 },
+    'TOP_KEY': { top: 35, left: 50 },
+    'RIGHT_WING': { top: 25, left: 80 },
+    'LEFT_CORNER': { top: 7.5, left: 10 },
+    'RIGHT_CORNER': { top: 7.5, left: 90 },
+    'MID_RANGE': { top: 22.5, left: 50 },
+    'THREE_PT': { top: 42.5, left: 50 },
     'OUT': { top: 108, left: 50 },
     'UNKNOWN': { top: 50, left: 50 },
     // Detailed out zones
@@ -189,6 +202,7 @@ export default function FieldSequenceMap({
   teamAName, teamBName,
   onEventClick 
 }: FieldSequenceMapProps) {
+  const { setPreviewState } = useScoutContext();
   const [selectedAreaGroup, setSelectedAreaGroup] = React.useState<{ key: string; label: string; actions: any[] } | null>(null);
 
   const getFoulLabel = (code: string) => {
@@ -331,6 +345,14 @@ export default function FieldSequenceMap({
           } else {
             coords = AREA_COORDS[sportType]?.[targetArea] || { top: 50, left: 50 };
           }
+        }
+
+        // Apply courtSide reflection for full pitch sports (football, basketball)
+        if ((sportType === 'football' || sportType === 'basketball') && a.courtSide === 'teamB') {
+          coords = {
+            top: 100 - coords.top,
+            left: 100 - coords.left
+          };
         }
 
         const idHash = Math.abs(hashString(a.id || `${eIdx}-${aIdx}`));
@@ -570,25 +592,53 @@ export default function FieldSequenceMap({
             const pass = areaActions.filter(a => a.resultCode === 'Pass').length;
 
             return (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-gray-500 text-xs">Total Actions</div>
-                  <div className="font-bold text-lg">{total}</div>
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-gray-500 text-xs">Total Actions</div>
+                    <div className="font-bold text-lg">{total}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-500 text-xs">Top Skill</div>
+                    <div className="font-bold">{topSkill}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-500 text-xs">Top Team</div>
+                    <div className="font-bold">{topTeam}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-500 text-xs">Result Breakdown</div>
+                    <div className="flex gap-2 text-xs font-bold">
+                      <span className="text-green-600">Yes: {yes}</span>
+                      <span className="text-red-600">Out: {out}</span>
+                      <span className="text-gray-600">Pass: {pass}</span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-gray-500 text-xs">Top Skill</div>
-                  <div className="font-bold">{topSkill}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500 text-xs">Top Team</div>
-                  <div className="font-bold">{topTeam}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500 text-xs">Result Breakdown</div>
-                  <div className="flex gap-2 text-xs font-bold">
-                    <span className="text-green-600">Yes: {yes}</span>
-                    <span className="text-red-600">Out: {out}</span>
-                    <span className="text-gray-600">Pass: {pass}</span>
+                
+                <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+                  <div className="text-xs font-bold text-gray-500 mb-2">Events ({areaActions.length})</div>
+                  <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
+                    {areaActions.map((a, i) => {
+                      const evt = events.find(e => e.id === a.eventId);
+                      if (!evt) return null;
+                      return (
+                        <div key={`${a.id}-${i}`} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg text-xs">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-semibold text-gray-700 dark:text-gray-300">#{evt.no} {a.skillCode}</span>
+                            <span className="text-gray-500">{evt.eventText}</span>
+                          </div>
+                          <button 
+                            onClick={() => setPreviewState({ isActive: true, eventRow: evt, loop: true })}
+                            className="p-1.5 rounded-md bg-sky-50 dark:bg-sky-900/30 text-sky-600 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors flex items-center gap-1"
+                            title="Replay Sequence"
+                          >
+                            <Play size={12} className="fill-current" />
+                            Replay
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

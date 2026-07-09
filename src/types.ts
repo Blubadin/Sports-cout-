@@ -171,13 +171,17 @@ export type EventRow = {
   resultText: '+1' | '-1' | '0';
   videoSourceType?: VideoSourceType;
   youtubeVideoId?: string;
+  videoId?: string;
   videoUrl?: string;
   videoTime?: number;
   sequenceStartTime?: number;
   sequenceEndTime?: number;
+  sequenceDuration?: number;
   duration?: number;
   clipStartTime?: number;
   clipEndTime?: number;
+  previewStartTime?: number;
+  previewEndTime?: number;
   sportType?: SportType;
   note?: string;
   createdAt: string;

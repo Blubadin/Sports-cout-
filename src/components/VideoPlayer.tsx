@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { formatPreciseTime } from "../utils";
 import ScoutHUDWrapper from "./hud/ScoutHUDWrapper";
+import SegmentPreviewPanel from "./SegmentPreviewPanel";
 import { useVideoResize } from "../hooks/useVideoResize";
 import { useVideoGestures } from "../hooks/useVideoGestures";
 import { useVideoPlayback } from "../hooks/useVideoPlayback";
@@ -428,36 +429,13 @@ export default function VideoPlayer() {
           className={`flex flex-col relative rounded-lg overflow-hidden bg-black ${isHUDMode ? "fixed inset-0 w-[100vw] h-[100vh] z-[9999] rounded-none" : ""}`}
           ref={containerRef}
         >
+          <SegmentPreviewPanel 
+            isPlaying={isPlaying} 
+            setIsPlaying={setIsPlaying} 
+            seekTo={seekToSafe} 
+            currentTime={currentTimeDisplay} 
+          />
           <div className="flex flex-col relative w-full h-full">
-            {isHUDMode && (
-              <ScoutHUDWrapper
-                onClose={closeHUDMode}
-                containerRef={containerRef}
-                isPortrait={isPortrait}
-                videoControls={{
-                  play: playSafe,
-                  pause: pauseSafe,
-                  togglePlay,
-                  seekBy: seekBySafe,
-                  seekTo: seekToSafe,
-                  setSpeed: setSpeedSafe,
-                  getCurrentTime: getCurrentTimeSafe,
-                  getDuration: getDurationSafe,
-                  isPlaying,
-                  playbackRate,
-                  videoError: playerError,
-                  retryVideo: () => {
-                    if (videoSourceType === "youtube") {
-                      handleYoutubeLoad();
-                    } else {
-                      setPlayerError(null);
-                      setPlayerErrorType(null);
-                      setPlayerErrorCode(null);
-                    }
-                  },
-                }}
-              />
-            )}
             <div
               className="relative w-full flex items-center justify-center transition-all overflow-hidden"
               style={{
@@ -726,6 +704,7 @@ export default function VideoPlayer() {
                       width="100%"
                       height="100%"
                       playsInline
+                      progressInterval={100}
                       onProgress={({ playedSeconds }) => {
                         if (isScrubbing) return;
                         setCurrentTimeDisplay(playedSeconds);
@@ -775,6 +754,36 @@ export default function VideoPlayer() {
                 })()}
               </Suspense>
             </div>
+
+            {isHUDMode && (
+              <ScoutHUDWrapper
+                onClose={closeHUDMode}
+                containerRef={containerRef}
+                isPortrait={isPortrait}
+                videoControls={{
+                  play: playSafe,
+                  pause: pauseSafe,
+                  togglePlay,
+                  seekBy: seekBySafe,
+                  seekTo: seekToSafe,
+                  setSpeed: setSpeedSafe,
+                  getCurrentTime: getCurrentTimeSafe,
+                  getDuration: getDurationSafe,
+                  isPlaying,
+                  playbackRate,
+                  videoError: playerError,
+                  retryVideo: () => {
+                    if (videoSourceType === "youtube") {
+                      handleYoutubeLoad();
+                    } else {
+                      setPlayerError(null);
+                      setPlayerErrorType(null);
+                      setPlayerErrorCode(null);
+                    }
+                  },
+                }}
+              />
+            )}
 
             {!isHUDMode && (
               <>

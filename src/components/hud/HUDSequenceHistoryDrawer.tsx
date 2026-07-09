@@ -24,7 +24,7 @@ type HUDSequenceHistoryDrawerProps = {
   onClearCurrent: () => void;
   onSaveCurrent: () => void;
   onGoToTime: (videoTime: number) => void;
-  onReplayClip: (videoTime: number) => void;
+  onReplaySegment: (event: EventRow) => void;
   onCopyEvent: (event: EventRow) => void;
 };
 
@@ -38,10 +38,10 @@ export default function HUDSequenceHistoryDrawer({
   onClearCurrent,
   onSaveCurrent,
   onGoToTime,
-  onReplayClip,
+  onReplaySegment,
   onCopyEvent,
 }: HUDSequenceHistoryDrawerProps) {
-  const { getActionText, sportTemplate, teams, deleteEventRow, settings } = useScoutContext();
+  const { getActionText, sportTemplate, teams, deleteEventRow, settings, videoTime } = useScoutContext();
   const [activeTab, setActiveTab] = useState<"rally" | "recent" | "filter">(
     "rally",
   );
@@ -238,8 +238,14 @@ export default function HUDSequenceHistoryDrawer({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="text-xs uppercase tracking-wider text-white/50 font-bold mb-1">
-                    Rally Chain Sequences
+                  <div className="text-xs uppercase tracking-wider text-white/50 font-bold mb-1 flex justify-between items-center">
+                    <span>Rally Chain Sequences</span>
+                    {currentActions.length > 0 && currentActions[0].videoTime !== undefined && (
+                      <span className="text-amber-400 font-mono bg-amber-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Clock size={10} />
+                        {Math.max(0, videoTime - currentActions[0].videoTime).toFixed(1)}s
+                      </span>
+                    )}
                   </div>
                   {currentActions.map((act, idx) => (
                     <div
@@ -430,13 +436,25 @@ export default function HUDSequenceHistoryDrawer({
                           Point: {getEventPointLabel(evt)}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1 text-xs font-mono text-white/50">
-                        <Clock size={12} />
-                        <span>
-                          {evt.videoTime !== undefined
-                            ? formatPreciseTime(evt.videoTime)
-                            : "00:00.00"}
-                        </span>
+                      <div className="flex flex-col items-end text-xs font-mono">
+                        {(evt.sequenceStartTime !== undefined && evt.sequenceEndTime !== undefined && evt.duration !== undefined) ? (
+                          <div className="flex flex-col items-end">
+                            <div className="flex items-center gap-1 text-sky-400">
+                              <Clock size={12} />
+                              <span>{formatPreciseTime(evt.sequenceStartTime)} - {formatPreciseTime(evt.sequenceEndTime)}</span>
+                            </div>
+                            <span className="text-[10px] text-white/40">Duration: {evt.duration.toFixed(2)}s</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-white/50">
+                            <Clock size={12} />
+                            <span>
+                              {evt.videoTime !== undefined
+                                ? formatPreciseTime(evt.videoTime)
+                                : "00:00.00"}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -454,9 +472,9 @@ export default function HUDSequenceHistoryDrawer({
                     {/* Actions row */}
                     <div className="flex gap-2 justify-end pt-1">
                       <button
-                        onClick={() => onReplayClip(evt.videoTime ?? 0)}
+                        onClick={() => onReplaySegment(evt)}
                         className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 active:scale-95 active:bg-sky-500/40 transition-all flex items-center gap-1 text-xs font-bold"
-                        title="Replay from -3 seconds"
+                        title="Replay Sequence"
                       >
                         <Play size={10} className="fill-current" />
                         Replay

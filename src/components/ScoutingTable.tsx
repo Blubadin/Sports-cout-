@@ -58,8 +58,12 @@ function ResultSelect({ value, onChange }: { value: string, onChange: (v: string
 }
 
 export default function ScoutingTable() {
-  const { events, setEvents, saveEventsWithHistory, deleteEventRow, updateEventRow, setSeekRequest, settings, showToast, canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction } = useScoutContext();
+  const { events, setEvents, saveEventsWithHistory, deleteEventRow, updateEventRow, setSeekRequest, setPreviewState, settings, showToast, canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction } = useScoutContext();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const replaySegment = (row: EventRow) => {
+    setPreviewState({ isActive: true, eventRow: row, loop: true });
+  };
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<EventRow | null>(null);
 
@@ -241,7 +245,7 @@ export default function ScoutingTable() {
                             : row.videoTime !== undefined ? formatTime(row.videoTime) : '-'}
                         </span>
                         {row.videoTime !== undefined && (
-                          <button onClick={() => replayClip(row.videoTime)} className="text-sky-500 hover:text-sky-700" title="Replay Clip (-3s)">
+                          <button onClick={() => replaySegment(row)} className="text-sky-500 hover:text-sky-700" title="Replay Sequence">
                             <Play size={14} className="fill-current" />
                           </button>
                         )}
@@ -329,11 +333,11 @@ export default function ScoutingTable() {
                     {row.resultText}
                   </span>
                   {(row.sequenceStartTime !== undefined && row.sequenceEndTime !== undefined && row.duration !== undefined) ? (
-                    <button onClick={() => replayClip(row.sequenceStartTime)} className="flex items-center gap-1 text-xs text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded-lg border border-sky-100 dark:border-sky-800">
+                    <button onClick={() => replaySegment(row)} className="flex items-center gap-1 text-xs text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded-lg border border-sky-100 dark:border-sky-800">
                       <Play size={10} className="fill-current" /> {formatTime(row.sequenceStartTime)} - {formatTime(row.sequenceEndTime)} ({row.duration.toFixed(1)}s)
                     </button>
                   ) : row.videoTime !== undefined ? (
-                    <button onClick={() => replayClip(row.videoTime)} className="flex items-center gap-1 text-xs text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded-lg">
+                    <button onClick={() => replaySegment(row)} className="flex items-center gap-1 text-xs text-sky-600 bg-sky-50 dark:bg-sky-900/30 px-1.5 py-0.5 rounded-lg">
                       <Play size={12} className="fill-current" /> {formatTime(row.videoTime)}
                     </button>
                   ) : null}
@@ -486,7 +490,10 @@ function ExportButtons({ events }: { events: EventRow[] }) {
     if (events.length === 0) return;
     const headers = [
       'NO', 'Sport', 'PT', 'Basic Code', 'Extended Code', 'Thai Meaning', 'Result', 
-      'Video Source', 'Video ID', 'Video Time', 'Note', 'Created At',
+      'Video Source', 'Video ID', 'Video URL', 'Video Time', 
+      'Sequence Start', 'Sequence End', 'Sequence Duration',
+      'Preview Start', 'Preview End',
+      'Note', 'Created At',
       'foulCode', 'foulRole', 'foulSeverity', 'foulLabel', 'areaLabel', 'outZone', 'areaMode', 'areaResolution'
     ];
     const rows = events.map(e => [
@@ -498,8 +505,14 @@ function ExportButtons({ events }: { events: EventRow[] }) {
       e.thaiMeaningText || '',
       e.resultText, 
       e.videoSourceType || '',
-      e.youtubeVideoId || '',
+      e.videoId || e.youtubeVideoId || '',
+      e.videoUrl || '',
       e.videoTime !== undefined && e.videoTime !== null ? formatTime(e.videoTime) : '',
+      e.sequenceStartTime !== undefined && e.sequenceStartTime !== null ? formatTime(e.sequenceStartTime) : '',
+      e.sequenceEndTime !== undefined && e.sequenceEndTime !== null ? formatTime(e.sequenceEndTime) : '',
+      e.sequenceDuration !== undefined && e.sequenceDuration !== null ? e.sequenceDuration.toFixed(2) : '',
+      e.previewStartTime !== undefined && e.previewStartTime !== null ? formatTime(e.previewStartTime) : '',
+      e.previewEndTime !== undefined && e.previewEndTime !== null ? formatTime(e.previewEndTime) : '',
       e.note || '',
       e.createdAt,
       e.actions?.map(a => a.foulCode || '').filter(Boolean).join('; ') || '',
