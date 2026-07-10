@@ -4,6 +4,7 @@ import type {
   AreaSelectionPayload,
   OutZoneType,
   SportType,
+  Team,
 } from "../types";
 import { DETAILED_ZONE_LABELS, OUT_ZONE_LABELS } from "../sports";
 
@@ -23,6 +24,8 @@ export type AreaGeometryResolverOptions = {
   areaPrecisionMode?: AppSettings["areaPrecisionMode"];
   uiLanguage?: AppSettings["uiLanguage"];
   source?: AreaSelectionSource;
+  activeTeamCode?: string;
+  teams?: Team[];
 };
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -36,6 +39,8 @@ export function resolveAreaSelectionFromPoint({
   areaPrecisionMode,
   uiLanguage,
   source = "absolute-pointer",
+  activeTeamCode,
+  teams,
 }: AreaGeometryResolverOptions): AreaSelectionPayload | null {
   let rx = clamp01(point.rx);
   let ry = clamp01(point.ry);
@@ -54,7 +59,7 @@ export function resolveAreaSelectionFromPoint({
     const cx = clamp01((rx - 0.15) / 0.7);
     const cy = clamp01((ry - 0.15) / 0.7);
     const isDetailed = areaPrecisionMode === "detailed" || areaPrecisionMode === "point";
-    payload = resolveInnerCourt({ sportType, cx, cy, flipCourtSide, isDetailed });
+    payload = resolveInnerCourt({ sportType, cx, cy, flipCourtSide, isDetailed, activeTeamCode, teams });
   }
 
   if (!payload?.areaCode) return payload;
@@ -126,13 +131,25 @@ function resolveInnerCourt({
   cy,
   flipCourtSide,
   isDetailed,
+  activeTeamCode,
+  teams,
 }: {
   sportType: SportType;
   cx: number;
   cy: number;
   flipCourtSide: boolean;
   isDetailed: boolean;
+  activeTeamCode?: string;
+  teams?: Team[];
 }): AreaSelectionPayload | null {
+  const getOpponentCourtSide = () => {
+    if (!activeTeamCode || !teams || teams.length < 2) return "neutral";
+    const isActiveTeamA = activeTeamCode === teams[0].code;
+    return isActiveTeamA
+      ? (flipCourtSide ? "teamA" : "teamB")
+      : (flipCourtSide ? "teamB" : "teamA");
+  };
+
   if (sportType === "volleyball") {
     const leftCourtSide = flipCourtSide ? "teamB" : "teamA";
     const rightCourtSide = flipCourtSide ? "teamA" : "teamB";
@@ -159,19 +176,21 @@ function resolveInnerCourt({
   }
 
   if (sportType === "football") {
+    // Position-based: matches CourtAreaSelector — top half = teamB (normal), teamA (flipped)
+    const attackCourtSide = flipCourtSide ? "teamA" : "teamB";
     if (isDetailed) {
       const r = Math.min(3, Math.floor(cy * 4));
       const c = Math.min(3, Math.floor(cx * 4));
-      return { areaCode: `F-${r}-${c}`, courtSide: "neutral", areaResolution: "detailed", areaMode: "detailed" };
+      return { areaCode: `F-${r}-${c}`, courtSide: attackCourtSide, areaResolution: "detailed", areaMode: "detailed" };
     }
     if (cy < 0.22) {
       const areaCode = cx > 0.33 && cx < 0.67 ? "GOAL" : "BOX";
-      return { areaCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+      return { areaCode, courtSide: attackCourtSide, areaResolution: "normal", areaMode: "normal" };
     }
     const gridY = (cy - 0.22) / 0.78;
     const rowLabel = gridY < 0.33 ? "ATT" : gridY < 0.66 ? "MID" : "DEF";
     const colLabel = cx < 0.33 ? "L" : cx < 0.66 ? "C" : "R";
-    return { areaCode: `${rowLabel}_${colLabel}`, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+    return { areaCode: `${rowLabel}_${colLabel}`, courtSide: attackCourtSide, areaResolution: "normal", areaMode: "normal" };
   }
 
   if (sportType === "badminton") {
@@ -179,31 +198,33 @@ function resolveInnerCourt({
       const gridY = cy / 0.46;
       const rowCode = gridY < 0.33 ? "B" : gridY < 0.66 ? "M" : "F";
       const colCode = cx < 0.33 ? "R" : cx < 0.66 ? "C" : "L";
-      return { areaCode: rowCode + colCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+      return { areaCode: rowCode + colCode, courtSide: flipCourtSide ? "teamA" : "teamB", areaResolution: "normal", areaMode: "normal" };
     }
     if (cy > 0.54) {
       const gridY = (cy - 0.54) / 0.46;
       const rowCode = gridY < 0.33 ? "F" : gridY < 0.66 ? "M" : "B";
       const colCode = cx < 0.33 ? "L" : cx < 0.66 ? "C" : "R";
-      return { areaCode: rowCode + colCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+      return { areaCode: rowCode + colCode, courtSide: flipCourtSide ? "teamB" : "teamA", areaResolution: "normal", areaMode: "normal" };
     }
     return { areaCode: "NET_ERR", courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
   }
 
   if (sportType === "basketball") {
+    // Position-based: matches CourtAreaSelector — top half = teamB (normal), teamA (flipped)
+    const attackCourtSide = flipCourtSide ? "teamA" : "teamB";
     if (cy < 0.25) {
       const areaCode = cx > 0.33 && cx < 0.67 ? "PAINT" : cx < 0.33 ? "LEFT_WING" : "RIGHT_WING";
-      return { areaCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+      return { areaCode, courtSide: attackCourtSide, areaResolution: "normal", areaMode: "normal" };
     }
-    if (cy >= 0.75) return { areaCode: "THREE_PT", courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+    if (cy >= 0.75) return { areaCode: "THREE_PT", courtSide: attackCourtSide, areaResolution: "normal", areaMode: "normal" };
 
     const gridY = (cy - 0.25) / 0.5;
     if (gridY < 0.5) {
       const areaCode = cx < 0.33 ? "LEFT_WING" : cx < 0.66 ? "TOP_KEY" : "RIGHT_WING";
-      return { areaCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+      return { areaCode, courtSide: attackCourtSide, areaResolution: "normal", areaMode: "normal" };
     }
     const areaCode = cx < 0.33 ? "LEFT_CORNER" : cx < 0.66 ? "MID_RANGE" : "RIGHT_CORNER";
-    return { areaCode, courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
+    return { areaCode, courtSide: attackCourtSide, areaResolution: "normal", areaMode: "normal" };
   }
 
   return null;

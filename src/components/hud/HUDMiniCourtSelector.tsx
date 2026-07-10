@@ -317,9 +317,13 @@ export default function HUDMiniCourtSelector({
       (a) => !(enableOutOfBoundsZones && a.code === "OUT"),
     );
 
+    // HUD shows Attack Direction = opponent's half
+    // Match CourtAreaSelector: top half = teamB (normal), teamA (flipped)
+    const attackCourtSide = flipCourtSide ? "teamA" : "teamB";
+
     return (
       <div
-        className={`flex flex-col gap-2 ${compact ? "w-[80px]" : (isProPad ? "w-[320px] sm:w-[400px]" : "w-[200px] sm:w-[240px]")} max-w-full transition-all items-center`}
+        className={`flex flex-col gap-2 ${compact ? "w-[80px]" : (isProPad ? "w-[320px] sm:w-[440px]" : "w-[200px] sm:w-[240px]")} max-w-full transition-all items-center`}
       >
         <div className={`flex flex-col items-center w-full gap-0.5 ${compact ? "h-[120px]" : (isProPad ? "h-[360px] sm:h-[440px]" : "h-[280px] sm:h-[320px] max-h-full")}`}>
           <div className="flex flex-row items-stretch w-full gap-0.5 min-h-0 flex-1">
@@ -334,25 +338,27 @@ export default function HUDMiniCourtSelector({
               <div className="flex justify-center gap-1 mb-1">
                 <AreaBtn
                   code="GOAL"
+                  courtSide={attackCourtSide}
                   className="flex-1 h-6 bg-green-800/50"
                   flipContent
                 />
                 <AreaBtn
                   code="BOX"
+                  courtSide={attackCourtSide}
                   className="flex-1 h-6 bg-green-800/50"
                   flipContent
                 />
               </div>
               <div className="flex-1 grid grid-cols-3 gap-0.5">
-                <AreaBtn code="ATT_L" flipContent />
-                <AreaBtn code="ATT_C" flipContent />
-                <AreaBtn code="ATT_R" flipContent />
-                <AreaBtn code="MID_L" flipContent />
-                <AreaBtn code="MID_C" flipContent />
-                <AreaBtn code="MID_R" flipContent />
-                <AreaBtn code="DEF_L" flipContent />
-                <AreaBtn code="DEF_C" flipContent />
-                <AreaBtn code="DEF_R" flipContent />
+                <AreaBtn code="ATT_L" courtSide={attackCourtSide} flipContent />
+                <AreaBtn code="ATT_C" courtSide={attackCourtSide} flipContent />
+                <AreaBtn code="ATT_R" courtSide={attackCourtSide} flipContent />
+                <AreaBtn code="MID_L" courtSide={attackCourtSide} flipContent />
+                <AreaBtn code="MID_C" courtSide={attackCourtSide} flipContent />
+                <AreaBtn code="MID_R" courtSide={attackCourtSide} flipContent />
+                <AreaBtn code="DEF_L" courtSide={attackCourtSide} flipContent />
+                <AreaBtn code="DEF_C" courtSide={attackCourtSide} flipContent />
+                <AreaBtn code="DEF_R" courtSide={attackCourtSide} flipContent />
               </div>
             </div>
           </div>
@@ -385,6 +391,9 @@ export default function HUDMiniCourtSelector({
       (a) => !(enableOutOfBoundsZones && a.code === "OUT"),
     );
 
+    const oppCourtSide = flipCourtSide ? "teamA" : "teamB";
+    const ourCourtSide = flipCourtSide ? "teamB" : "teamA";
+
     return (
       <div
         className={`flex flex-col gap-2 ${compact ? "w-[120px]" : (isProPad ? "w-[360px] sm:w-[440px]" : "w-[240px] max-w-full")} transition-all items-center`}
@@ -398,37 +407,43 @@ export default function HUDMiniCourtSelector({
           <div className="relative z-10 grid grid-cols-3 gap-0.5 opacity-80 mb-0.5">
             <AreaBtn
               code="BR"
+              courtSide={oppCourtSide}
               className="aspect-square"
               label={compact ? "BR" : "Opp BR"}
               flipContent
             />
             <AreaBtn
               code="BC"
+              courtSide={oppCourtSide}
               className="aspect-square"
               label={compact ? "BC" : "Opp BC"}
               flipContent
             />
             <AreaBtn
               code="BL"
+              courtSide={oppCourtSide}
               className="aspect-square"
               label={compact ? "BL" : "Opp BL"}
               flipContent
             />
-
+            
             <AreaBtn
               code="MR"
+              courtSide={oppCourtSide}
               className="aspect-square"
               label={compact ? "MR" : "Opp MR"}
               flipContent
             />
             <AreaBtn
               code="MC"
+              courtSide={oppCourtSide}
               className="aspect-square"
               label={compact ? "MC" : "Opp MC"}
               flipContent
             />
             <AreaBtn
               code="ML"
+              courtSide={oppCourtSide}
               className="aspect-square"
               label={compact ? "ML" : "Opp ML"}
               flipContent
@@ -436,18 +451,21 @@ export default function HUDMiniCourtSelector({
 
             <AreaBtn
               code="FR"
+              courtSide={oppCourtSide}
               className="aspect-square"
               label={compact ? "FR" : "Opp FR"}
               flipContent
             />
             <AreaBtn
               code="FC"
+              courtSide={oppCourtSide}
               className="aspect-square"
               label={compact ? "FC" : "Opp FC"}
               flipContent
             />
             <AreaBtn
               code="FL"
+              courtSide={oppCourtSide}
               className="aspect-square"
               label={compact ? "FL" : "Opp FL"}
               flipContent
@@ -463,37 +481,43 @@ export default function HUDMiniCourtSelector({
           <div className="relative z-10 grid grid-cols-3 gap-0.5 mt-0.5">
             <AreaBtn
               code="FL"
+              courtSide={ourCourtSide}
               className="aspect-square"
               label={compact ? "FL" : "Our FL"}
               flipContent
             />
             <AreaBtn
               code="FC"
+              courtSide={ourCourtSide}
               className="aspect-square"
               label={compact ? "FC" : "Our FC"}
               flipContent
             />
             <AreaBtn
               code="FR"
+              courtSide={ourCourtSide}
               className="aspect-square"
               label={compact ? "FR" : "Our FR"}
               flipContent
             />
-
+            
             <AreaBtn
               code="ML"
+              courtSide={ourCourtSide}
               className="aspect-square"
               label={compact ? "ML" : "Our ML"}
               flipContent
             />
             <AreaBtn
               code="MC"
+              courtSide={ourCourtSide}
               className="aspect-square"
               label={compact ? "MC" : "Our MC"}
               flipContent
             />
             <AreaBtn
               code="MR"
+              courtSide={ourCourtSide}
               className="aspect-square"
               label={compact ? "MR" : "Our MR"}
               flipContent
@@ -501,18 +525,21 @@ export default function HUDMiniCourtSelector({
 
             <AreaBtn
               code="BL"
+              courtSide={ourCourtSide}
               className="aspect-square"
               label={compact ? "BL" : "Our BL"}
               flipContent
             />
             <AreaBtn
               code="BC"
+              courtSide={ourCourtSide}
               className="aspect-square"
               label={compact ? "BC" : "Our BC"}
               flipContent
             />
             <AreaBtn
               code="BR"
+              courtSide={ourCourtSide}
               className="aspect-square"
               label={compact ? "BR" : "Our BR"}
               flipContent
@@ -551,6 +578,10 @@ export default function HUDMiniCourtSelector({
       (a) => !(enableOutOfBoundsZones && a.code === "OUT"),
     );
 
+    // HUD shows Basket Direction = opponent's basket half
+    // Match CourtAreaSelector: top half = teamB (normal), teamA (flipped)
+    const attackCourtSide = flipCourtSide ? "teamA" : "teamB";
+
     return (
       <div
         className={`flex flex-col gap-2 ${compact ? "w-[120px]" : (isProPad ? "w-[360px] sm:w-[440px]" : "w-[240px] max-w-full")} transition-all items-center`}
@@ -571,6 +602,7 @@ export default function HUDMiniCourtSelector({
                   <div className="w-6 h-1 bg-amber-600 mx-auto rounded-full mb-0.5"></div>
                   <AreaBtn
                     code="PAINT"
+                    courtSide={attackCourtSide}
                     className="h-10 sm:h-12 bg-amber-800/50"
                     flipContent
                   />
@@ -578,18 +610,19 @@ export default function HUDMiniCourtSelector({
               </div>
     
               <div className="w-full relative z-10 grid grid-cols-3 gap-0.5">
-                <AreaBtn code="LEFT_WING" className="aspect-video" flipContent />
-                <AreaBtn code="TOP_KEY" className="aspect-video" flipContent />
-                <AreaBtn code="RIGHT_WING" className="aspect-video" flipContent />
+                <AreaBtn code="LEFT_WING" courtSide={attackCourtSide} className="aspect-video" flipContent />
+                <AreaBtn code="TOP_KEY" courtSide={attackCourtSide} className="aspect-video" flipContent />
+                <AreaBtn code="RIGHT_WING" courtSide={attackCourtSide} className="aspect-video" flipContent />
     
-                <AreaBtn code="LEFT_CORNER" className="aspect-video" flipContent />
-                <AreaBtn code="MID_RANGE" className="aspect-video" flipContent />
-                <AreaBtn code="RIGHT_CORNER" className="aspect-video" flipContent />
+                <AreaBtn code="LEFT_CORNER" courtSide={attackCourtSide} className="aspect-video" flipContent />
+                <AreaBtn code="MID_RANGE" courtSide={attackCourtSide} className="aspect-video" flipContent />
+                <AreaBtn code="RIGHT_CORNER" courtSide={attackCourtSide} className="aspect-video" flipContent />
               </div>
     
               <div className="w-full mt-1">
                 <AreaBtn
                   code="THREE_PT"
+                  courtSide={attackCourtSide}
                   className="w-full py-1 min-h-[28px]"
                   flipContent
                 />

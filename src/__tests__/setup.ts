@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import { vi } from 'vitest';
 
 // Mock matchMedia for components that use it
 Object.defineProperty(window, 'matchMedia', {
