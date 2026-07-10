@@ -57,7 +57,7 @@ export default function CourtLayoutShell({
                 areaLabel: payload.areaLabel,
                 areaMode: 'normal',
                 courtSide: payload.courtSide,
-                outZone: payload.outZone,
+                outZone: payload.outZone as import('../../types').OutZoneType,
                 areaResolution: 'out-zone'
               });
             }}

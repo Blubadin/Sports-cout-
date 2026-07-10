@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useCallback } from 'react';
-import { ScoutProject, MatchInfo, Team, AppSettings, SportType } from '../types';
+import { ScoutProject, MatchInfo, Team, AppSettings, SportType, EventRow } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useScoutContext } from './ScoutContext';
 import { DEFAULT_TEAMS } from '../data';
@@ -44,6 +44,42 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     localFileName, setLocalFileName,
     showToast
   } = useScoutContext();
+
+  const loadProjectState = useCallback((proj: Partial<ScoutProject> & { matchInfo: MatchInfo, teams: Team[], events: EventRow[], id?: string }) => {
+    isProjectLoading.current = true;
+    if (proj.id) setActiveProjectId(proj.id);
+    
+    setMatchInfo(proj.matchInfo);
+    setTeams(proj.teams);
+    setEvents(proj.events || []); 
+    clearEventHistory();
+    clearCurrentEvent();
+    
+    if (proj.settingsSnapshot) {
+      setSettings(prev => ({ ...prev, ...proj.settingsSnapshot }));
+    }
+
+    if (proj.videoMeta) {
+      setVideoSourceType(proj.videoMeta.sourceType);
+      if (proj.videoMeta.sourceType === 'youtube') {
+        setYoutubeUrl(proj.videoMeta.youtubeUrl || '');
+        setYoutubeVideoId(proj.videoMeta.youtubeVideoId || null);
+      } else {
+        setLocalFileName(proj.videoMeta.localFileName || null);
+        setYoutubeUrl('');
+        setYoutubeVideoId(null);
+      }
+    } else {
+      setVideoSourceType('none');
+      setLocalFileName(null);
+      setYoutubeUrl('');
+      setYoutubeVideoId(null);
+    }
+  }, [
+    setActiveProjectId, setMatchInfo, setTeams, setEvents, 
+    clearEventHistory, clearCurrentEvent, setSettings, 
+    setVideoSourceType, setYoutubeUrl, setYoutubeVideoId, setLocalFileName
+  ]);
 
   // Initial migration & sanitization
   useEffect(() => {
@@ -143,21 +179,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeProjectId, setProjects, videoSourceType]);
 
-  // Quota exceeded global alert listener
-  useEffect(() => {
-    const handleQuotaExceeded = (e: any) => {
-      console.error('LocalStorage quota exceeded!', e);
-      const isTh = settings.uiLanguage === 'th';
-      showToast(
-        isTh 
-          ? '⚠️ หน่วยความจำเครื่องเต็ม! กรุณาลบโครงการเก่าบางโครงการเพื่อเพิ่มพื้นที่' 
-          : '⚠️ Storage Quota Exceeded! Please delete some old projects to free up space.'
-      );
-    };
-    // ScoutContext owns the single user-facing quota warning to avoid duplicate toasts.
-    void handleQuotaExceeded;
-    return undefined;
-  }, [settings.uiLanguage, showToast]);
+
 
   const saveCurrentProject = () => {
     if (!activeProjectId) {
@@ -223,114 +245,41 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     };
 
     setProjects(prev => [...prev, newProj]);
-    setActiveProjectId(newId);
-    
-    // Reset workspace state
-    setMatchInfo(initMatchInfo);
-    setTeams(initialTeams);
-    setEvents([]); 
-    clearEventHistory();
-    clearCurrentEvent();
-    
-    if (settingsSnapshot) {
-      setSettings(finalSettings);
-    }
-
-    if (videoMeta) {
-      setVideoSourceType(videoMeta.sourceType);
-      if (videoMeta.sourceType === 'youtube') {
-        setYoutubeUrl(videoMeta.youtubeUrl || '');
-        setYoutubeVideoId(videoMeta.youtubeVideoId || null);
-      } else {
-        setLocalFileName(videoMeta.localFileName || null);
-        setYoutubeUrl('');
-        setYoutubeVideoId(null);
-      }
-    } else {
-      setVideoSourceType('none');
-      setLocalFileName(null);
-      setYoutubeUrl('');
-      setYoutubeVideoId(null);
-    }
-    
-    setTimeout(() => { isProjectLoading.current = false; }, 100);
+    loadProjectState(newProj);
   };
 
   const openProject = (projectId: string) => {
     const proj = projects.find(p => p.id === projectId);
     if (proj) {
-      isProjectLoading.current = true;
-      setActiveProjectId(proj.id);
-      setMatchInfo(proj.matchInfo);
-      setTeams(proj.teams);
-      setEvents(proj.events); 
-      clearEventHistory();
-      clearCurrentEvent();
-      
-      if (proj.settingsSnapshot) {
-        setSettings(prev => ({ ...prev, ...proj.settingsSnapshot }));
-      }
-
-      if (proj.videoMeta) {
-        setVideoSourceType(proj.videoMeta.sourceType);
-        if (proj.videoMeta.sourceType === 'youtube') {
-          setYoutubeUrl(proj.videoMeta.youtubeUrl || '');
-          setYoutubeVideoId(proj.videoMeta.youtubeVideoId || null);
-        } else {
-          setLocalFileName(proj.videoMeta.localFileName || null);
-          setYoutubeUrl('');
-          setYoutubeVideoId(null);
-        }
-      } else {
-        setVideoSourceType('none');
-        setLocalFileName(null);
-        setYoutubeUrl('');
-        setYoutubeVideoId(null);
-      }
-      setTimeout(() => { isProjectLoading.current = false; }, 100);
+      loadProjectState(proj);
     }
   };
 
   const deleteProject = (projectId: string) => {
-    setProjects(prev => prev.filter(p => p.id !== projectId));
+    const remaining = projects.filter(p => p.id !== projectId);
+    setProjects(remaining);
+    
     if (activeProjectId === projectId) {
       isProjectLoading.current = true;
-      const remaining = projects.filter(p => p.id !== projectId);
       if (remaining.length > 0) {
-        // Will be called with previous `projects` context, wait... actually calling it here uses closure projects which is fine.
-        // Wait, openProject relies on `projects` from closure!
-        const proj = remaining[0];
-        setActiveProjectId(proj.id);
-        setMatchInfo(proj.matchInfo);
-        setTeams(proj.teams);
-        setEvents(proj.events); clearEventHistory();
-        clearCurrentEvent();
-        if (proj.videoMeta) {
-          setVideoSourceType(proj.videoMeta.sourceType);
-          if (proj.videoMeta.sourceType === 'youtube') {
-            setYoutubeUrl(proj.videoMeta.youtubeUrl || '');
-            setYoutubeVideoId(proj.videoMeta.youtubeVideoId || null);
-          } else {
-            setLocalFileName(proj.videoMeta.localFileName || null);
-          }
-        } else {
-          setVideoSourceType('local');
-          setLocalFileName(null);
-          setYoutubeUrl('');
-        }
+        loadProjectState(remaining[0]);
       } else {
-        setActiveProjectId(null);
-        setMatchInfo({
-          scouterName: matchInfo.scouterName, nickname: matchInfo.nickname, matchName: '', matchType: 'Team', setOrGame: '1', currentPoint: 1, sportType: 'volleyball'
+        loadProjectState({
+          id: undefined,
+          matchInfo: {
+            scouterName: matchInfo.scouterName, nickname: matchInfo.nickname, matchName: '', matchType: 'Team', setOrGame: '1', currentPoint: 1, sportType: 'volleyball'
+          },
+          teams: DEFAULT_TEAMS,
+          events: [],
+          videoMeta: {
+            sourceType: 'local',
+            localFileName: null,
+            youtubeUrl: '',
+            youtubeVideoId: undefined
+          }
         });
-        setTeams(DEFAULT_TEAMS);
-        setEvents([]); clearEventHistory();
-        clearCurrentEvent();
-        setVideoSourceType('local');
-        setLocalFileName(null);
-        setYoutubeUrl('');
+        setActiveProjectId(null);
       }
-      setTimeout(() => { isProjectLoading.current = false; }, 100);
     }
   };
 
@@ -339,7 +288,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (proj) {
       const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       const copy: ScoutProject = {
-        ...proj,
+        ...structuredClone(proj),
         id: newId,
         title: `${proj.title} (Copy)`,
         createdAt: new Date().toISOString(),
@@ -356,6 +305,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const importProject = (project: any): boolean => {
+    // Basic size limit checks to prevent crashing or filling localStorage
+    if (Array.isArray(project) && project.length > 20000) {
+      showToast('⚠️ Project data is too large to import (> 20,000 events).');
+      return false;
+    }
+    if (project?.type === 'events' && Array.isArray(project.events) && project.events.length > 20000) {
+      showToast('⚠️ Project data is too large to import (> 20,000 events).');
+      return false;
+    }
+    
     if (Array.isArray(project)) {
       project = {
         title: 'Imported Events',
@@ -453,6 +412,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
     return true;
   };
+
+  // Clear loading flag after state updates have committed
+  useEffect(() => {
+    if (isProjectLoading.current) {
+      isProjectLoading.current = false;
+    }
+  }, [activeProjectId, events, matchInfo, teams]);
 
   return (
     <WorkspaceContext.Provider value={{

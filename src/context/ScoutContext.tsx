@@ -8,8 +8,8 @@ export type InputHistoryItem =
   | { 
       type: 'field'; 
       category: keyof Action; 
-      previousValue?: string; 
-      value?: string; 
+      previousValue?: Action[keyof Action]; 
+      value?: Action[keyof Action]; 
       previousCourtSide?: 'teamA'|'teamB'|'neutral'; 
       courtSide?: 'teamA'|'teamB'|'neutral';
       previousAreaPayload?: Partial<Action>;
@@ -246,6 +246,8 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
   const [currentInputHistory, setCurrentInputHistory] = useState<InputHistoryItem[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const hudTimerRef = useRef<number | null>(null);
   
   const [pastEvents, setPastEvents] = useState<EventRow[][]>([]);
   const [futureEvents, setFutureEvents] = useState<EventRow[][]>([]);
@@ -253,43 +255,49 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   const canUndoEventAction = pastEvents.length > 0;
   const canRedoEventAction = futureEvents.length > 0;
 
-  const undoEventAction = () => {
+  const undoEventAction = useCallback(() => {
     if (pastEvents.length === 0) return;
     const previous = pastEvents[pastEvents.length - 1];
     setPastEvents(prev => prev.slice(0, -1));
     setFutureEvents(prev => [events, ...prev]);
     setEvents(previous);
-  };
+  }, [pastEvents, events]);
 
-  const redoEventAction = () => {
+  const redoEventAction = useCallback(() => {
     if (futureEvents.length === 0) return;
     const next = futureEvents[0];
     setFutureEvents(prev => prev.slice(1));
     setPastEvents(prev => [...prev, events]);
     setEvents(next);
-  };
+  }, [futureEvents, events]);
 
-  const clearEventHistory = () => {
+  const clearEventHistory = useCallback(() => {
     setPastEvents([]);
     setFutureEvents([]);
-  };
+  }, []);
 
-  const saveEventsWithHistory = (newEventsUpdater: React.SetStateAction<EventRow[]>) => {
+  const saveEventsWithHistory = useCallback((newEventsUpdater: React.SetStateAction<EventRow[]>) => {
     setEvents(prev => {
-      const next = typeof newEventsUpdater === 'function' ? (newEventsUpdater as any)(prev) : newEventsUpdater;
+      const next = typeof newEventsUpdater === 'function' ? newEventsUpdater(prev) : newEventsUpdater;
       const renumbered = next.map((e: EventRow, index: number) => ({ ...e, no: index + 1 }));
       setPastEvents(p => [...p, prev].slice(-20));
       setFutureEvents([]);
       return renumbered;
     });
-  };
+  }, []);
 
   const [hudLastSavedText, setHudLastSavedText] = useState<string | null>(null);
   const [hudLastSavedAt, setHudLastSavedAt] = useState<number>(0);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastMessage(null);
+      toastTimerRef.current = null;
+    }, 3000);
   }, []);
 
   useEffect(() => {
@@ -321,7 +329,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
         category: 'foulCode',
         previousValue: prev.foulCode,
         value: nextFoulCode
-      } as any]);
+      } as InputHistoryItem]);
 
       return {
         ...prev,
@@ -339,7 +347,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
         category: 'foulCode',
         previousValue: prev.foulCode,
         value: undefined
-      } as any]);
+      } as InputHistoryItem]);
 
       return {
         ...prev,
@@ -374,7 +382,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
             category: 'skillCode',
             previousValue: prev.skillCode,
             value: payload.skillCode
-          } as any);
+          } as InputHistoryItem);
         }
         if (payload.descriptorGroupId && payload.descriptorCode) {
           newHist.push({
@@ -382,7 +390,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
             groupId: payload.descriptorGroupId,
             previousValue: prev.descriptors?.[payload.descriptorGroupId],
             value: payload.descriptorCode
-          } as any);
+          } as InputHistoryItem);
         }
         return newHist;
       });
@@ -392,153 +400,157 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateActionField = useCallback((field: keyof Action, value: any, descriptorGroupId?: string) => {
-    const isSame = descriptorGroupId 
-      ? currentAction.descriptors?.[descriptorGroupId] === value 
-      : currentAction[field] === value;
+    setCurrentAction(prevAction => {
+      const isSame = descriptorGroupId 
+        ? prevAction.descriptors?.[descriptorGroupId] === value 
+        : prevAction[field] === value;
+        
+      const nextValue = isSame ? undefined : value;
+      const previousValue = descriptorGroupId ? prevAction.descriptors?.[descriptorGroupId] : prevAction[field];
       
-    const nextValue = isSame ? undefined : value;
-    const previousValue = descriptorGroupId ? currentAction.descriptors?.[descriptorGroupId] : currentAction[field];
-    
-    const next = { 
-      ...currentAction,
-      descriptors: currentAction.descriptors ? { ...currentAction.descriptors } : {}
-    };
-    
-    if (descriptorGroupId) {
-      if (isSame) {
-        delete next.descriptors[descriptorGroupId];
+      const next = { 
+        ...prevAction,
+        descriptors: prevAction.descriptors ? { ...prevAction.descriptors } : {}
+      };
+      
+      if (descriptorGroupId) {
+        if (isSame) {
+          delete next.descriptors[descriptorGroupId];
+        } else {
+          next.descriptors[descriptorGroupId] = value;
+        }
       } else {
-        next.descriptors[descriptorGroupId] = value;
+        (next as Record<string, unknown>)[field] = nextValue;
+        if (field === 'skillCode') {
+          next.descriptors = {};
+          next.resultDetailCode = undefined;
+        }
       }
-    } else {
-      (next as any)[field] = nextValue;
-      if (field === 'skillCode') {
-        next.descriptors = {};
-        next.resultDetailCode = undefined;
-      }
-    }
 
-    setCurrentAction(next);
+      setCurrentInputHistory(hist => [...hist, {
+        type: descriptorGroupId ? 'descriptor' : 'field',
+        category: !descriptorGroupId ? field : undefined,
+        groupId: descriptorGroupId,
+        previousValue,
+        value: nextValue
+      } as InputHistoryItem]);
 
-    setCurrentInputHistory(hist => [...hist, {
-      type: descriptorGroupId ? 'descriptor' : 'field',
-      category: !descriptorGroupId ? field : undefined,
-      groupId: descriptorGroupId,
-      previousValue,
-      value: nextValue
-    } as any]);
-  }, [currentAction]);
+      return next;
+    });
+  }, []);
 
   const selectArea = useCallback((rawPayload: AreaSelectionPayload) => {
-    // 1. Create a mutable copy of the payload to enrich it
-    const payload = { ...rawPayload };
+    setCurrentAction(prevAction => {
+      // 1. Create a mutable copy of the payload to enrich it
+      const payload = { ...rawPayload };
 
-    // 2. Auto-enrich detailed zones if the areaCode matches a DETAILED_ZONE_LABEL
-    if (payload.areaCode && DETAILED_ZONE_LABELS[payload.areaCode]) {
-      const detailed = DETAILED_ZONE_LABELS[payload.areaCode];
-      payload.gridX = payload.gridX !== undefined ? payload.gridX : detailed.gridX;
-      payload.gridY = payload.gridY !== undefined ? payload.gridY : detailed.gridY;
-      payload.areaMode = payload.areaMode || 'detailed';
-      payload.areaResolution = payload.areaResolution || 'legacy-3x3';
-      payload.areaLabel = payload.areaLabel || detailed.label;
-      payload.areaCode = detailed.baseAreaCode;
-    }
+      // 2. Auto-enrich detailed zones if the areaCode matches a DETAILED_ZONE_LABEL
+      if (payload.areaCode && DETAILED_ZONE_LABELS[payload.areaCode]) {
+        const detailed = DETAILED_ZONE_LABELS[payload.areaCode];
+        payload.gridX = payload.gridX !== undefined ? payload.gridX : detailed.gridX;
+        payload.gridY = payload.gridY !== undefined ? payload.gridY : detailed.gridY;
+        payload.areaMode = payload.areaMode || 'detailed';
+        payload.areaResolution = payload.areaResolution || 'legacy-3x3';
+        payload.areaLabel = payload.areaLabel || detailed.label;
+        payload.areaCode = detailed.baseAreaCode;
+      }
 
-    // 3. Auto-enrich out-of-bounds zones if outZone is provided or if areaCode is an out-of-bounds code
-    if (payload.outZone) {
-      payload.areaResolution = payload.areaResolution || 'out-zone';
+      // 3. Auto-enrich out-of-bounds zones if outZone is provided or if areaCode is an out-of-bounds code
+      if (payload.outZone) {
+        payload.areaResolution = payload.areaResolution || 'out-zone';
+        payload.areaMode = payload.areaMode || 'normal';
+        payload.courtSide = payload.courtSide || 'neutral';
+        if (!payload.areaCode) {
+          payload.areaCode = 'OUT';
+        }
+        if (!payload.areaLabel && OUT_ZONE_LABELS[payload.outZone]) {
+          const isThai = settings.uiLanguage === 'th';
+          payload.areaLabel = isThai ? OUT_ZONE_LABELS[payload.outZone].thaiLabel : OUT_ZONE_LABELS[payload.outZone].label;
+        }
+      } else if (payload.areaCode && ['OUT', 'LONG_OUT', 'SIDE_OUT', 'NET_ERR'].includes(payload.areaCode)) {
+        payload.areaResolution = payload.areaResolution || 'out-zone';
+        payload.areaMode = payload.areaMode || 'normal';
+        payload.courtSide = payload.courtSide || 'neutral';
+        if (!payload.outZone) {
+          if (payload.areaCode === 'NET_ERR') payload.outZone = 'net_error';
+          else payload.outZone = 'unknown';
+        }
+      }
+
+      // 4. Default other missing properties to ensure complete payload
       payload.areaMode = payload.areaMode || 'normal';
       payload.courtSide = payload.courtSide || 'neutral';
-      if (!payload.areaCode) {
-        payload.areaCode = 'OUT';
-      }
-      if (!payload.areaLabel && OUT_ZONE_LABELS[payload.outZone]) {
+      payload.areaResolution = payload.areaResolution || 'normal';
+
+      if (payload.areaCode && !payload.areaLabel) {
+        const areaObj = areas.find(a => a.code === payload.areaCode);
         const isThai = settings.uiLanguage === 'th';
-        payload.areaLabel = isThai ? OUT_ZONE_LABELS[payload.outZone].thaiLabel : OUT_ZONE_LABELS[payload.outZone].label;
+        payload.areaLabel = areaObj ? (isThai ? areaObj.thaiName : areaObj.code) : payload.areaCode;
       }
-    } else if (payload.areaCode && ['OUT', 'LONG_OUT', 'SIDE_OUT', 'NET_ERR'].includes(payload.areaCode)) {
-      payload.areaResolution = payload.areaResolution || 'out-zone';
-      payload.areaMode = payload.areaMode || 'normal';
-      payload.courtSide = payload.courtSide || 'neutral';
-      if (!payload.outZone) {
-        if (payload.areaCode === 'NET_ERR') payload.outZone = 'net_error';
-        else payload.outZone = 'unknown';
-      }
-    }
 
-    // 4. Default other missing properties to ensure complete payload
-    payload.areaMode = payload.areaMode || 'normal';
-    payload.courtSide = payload.courtSide || 'neutral';
-    payload.areaResolution = payload.areaResolution || 'normal';
+      const isSame = prevAction.areaCode === payload.areaCode && 
+                     prevAction.outZone === payload.outZone && 
+                     prevAction.courtSide === payload.courtSide &&
+                     prevAction.gridX === payload.gridX &&
+                     prevAction.gridY === payload.gridY;
+      
+      const nextValueCode = isSame ? undefined : payload.areaCode;
+      
+      const next: Action = {
+        ...prevAction,
+        areaCode: nextValueCode,
+        areaLabel: isSame ? undefined : payload.areaLabel,
+        areaMode: isSame ? undefined : payload.areaMode,
+        courtSide: isSame ? undefined : payload.courtSide,
+        gridX: isSame ? undefined : payload.gridX,
+        gridY: isSame ? undefined : payload.gridY,
+        pointX: isSame ? undefined : payload.pointX,
+        pointY: isSame ? undefined : payload.pointY,
+        outZone: isSame ? undefined : payload.outZone,
+        areaResolution: isSame ? undefined : payload.areaResolution,
+      };
+      
+      setCurrentInputHistory(hist => [...hist, {
+        type: 'field',
+        category: 'areaCode',
+        previousValue: prevAction.areaCode,
+        value: nextValueCode,
+        previousCourtSide: prevAction.courtSide,
+        courtSide: next.courtSide,
+        previousAreaPayload: {
+          areaCode: prevAction.areaCode,
+          areaLabel: prevAction.areaLabel,
+          areaMode: prevAction.areaMode,
+          courtSide: prevAction.courtSide,
+          gridX: prevAction.gridX,
+          gridY: prevAction.gridY,
+          pointX: prevAction.pointX,
+          pointY: prevAction.pointY,
+          outZone: prevAction.outZone,
+          areaResolution: prevAction.areaResolution
+        }
+      }]);
 
-    if (payload.areaCode && !payload.areaLabel) {
-      const areaObj = areas.find(a => a.code === payload.areaCode);
-      const isThai = settings.uiLanguage === 'th';
-      payload.areaLabel = areaObj ? (isThai ? areaObj.thaiName : areaObj.code) : payload.areaCode;
-    }
+      return next;
+    });
+  }, [settings.uiLanguage, areas]);
 
-    const isSame = currentAction.areaCode === payload.areaCode && 
-                   currentAction.outZone === payload.outZone && 
-                   currentAction.courtSide === payload.courtSide &&
-                   currentAction.gridX === payload.gridX &&
-                   currentAction.gridY === payload.gridY;
-    
-    const nextValueCode = isSame ? undefined : payload.areaCode;
-    
-    const next: Action = {
-      ...currentAction,
-      areaCode: nextValueCode,
-      areaLabel: isSame ? undefined : payload.areaLabel,
-      areaMode: isSame ? undefined : payload.areaMode,
-      courtSide: isSame ? undefined : payload.courtSide,
-      gridX: isSame ? undefined : payload.gridX,
-      gridY: isSame ? undefined : payload.gridY,
-      pointX: isSame ? undefined : payload.pointX,
-      pointY: isSame ? undefined : payload.pointY,
-      outZone: isSame ? undefined : payload.outZone,
-      areaResolution: isSame ? undefined : payload.areaResolution,
-    };
-    
-    setCurrentAction(next);
-
-    setCurrentInputHistory(hist => [...hist, {
-      type: 'field',
-      category: 'areaCode',
-      previousValue: currentAction.areaCode,
-      value: nextValueCode,
-      previousCourtSide: currentAction.courtSide,
-      courtSide: next.courtSide,
-      previousAreaPayload: {
-        areaCode: currentAction.areaCode,
-        areaLabel: currentAction.areaLabel,
-        areaMode: currentAction.areaMode,
-        courtSide: currentAction.courtSide,
-        gridX: currentAction.gridX,
-        gridY: currentAction.gridY,
-        pointX: currentAction.pointX,
-        pointY: currentAction.pointY,
-        outZone: currentAction.outZone,
-        areaResolution: currentAction.areaResolution
-      }
-    }]);
-  }, [currentAction]);
-
-  const clearCurrentEvent = () => {
+  const clearCurrentEvent = useCallback(() => {
     setCurrentActions([]);
     setCurrentAction({});
     setCurrentInputHistory([]);
-  };
+  }, []);
 
-  const resetCurrentAction = () => {
+  const resetCurrentAction = useCallback(() => {
     setCurrentAction({});
     setCurrentInputHistory([]);
-  };
+  }, []);
 
-  const getSkillByCode = (skillCode?: string) => {
+  const getSkillByCode = useCallback((skillCode?: string) => {
     return skills.find(s => s.code === skillCode);
-  };
+  }, [skills]);
 
-  const normalizeActionBeforeCommit = (action: Action): Action => {
+  const normalizeActionBeforeCommit = useCallback((action: Action): Action => {
     const skill = getSkillByCode(action.skillCode);
     const req = skill?.areaRequirement || 'optionalWhenOut';
     const next = { ...action };
@@ -552,9 +564,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     }
 
     return next;
-  };
+  }, [getSkillByCode]);
 
-  const getMissingActionMessage = (action: Action): string | null => {
+  const getMissingActionMessage = useCallback((action: Action): string | null => {
     const normalized = normalizeActionBeforeCommit(action);
     const isThai = settings.uiLanguage === 'th';
 
@@ -593,13 +605,13 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     }
 
     return null;
-  };
+  }, [normalizeActionBeforeCommit, settings.uiLanguage, sportTemplate.teamsEnabled, sportTemplate.descriptors, getSkillByCode]);
 
-  const isActionComplete = (action: Action) => {
+  const isActionComplete = useCallback((action: Action) => {
     return getMissingActionMessage(action) === null;
-  };
+  }, [getMissingActionMessage]);
 
-  const getActionText = (action: Action) => {
+  const getActionText = useCallback((action: Action) => {
     let area = action.areaLabel || action.areaCode || (action.resultCode === 'Out' ? 'OUT' : undefined);
     if (action.outZone && OUT_ZONE_LABELS[action.outZone]) {
       area = OUT_ZONE_LABELS[action.outZone].label;
@@ -615,9 +627,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       action.foulCode
     ];
     return parts.filter(Boolean).join(' / ');
-  };
+  }, []);
 
-  const getExtendedActionText = (action: Action) => {
+  const getExtendedActionText = useCallback((action: Action) => {
     const base = getActionText(action);
     const details = [];
     if (action.playerNumber || action.playerName) {
@@ -629,9 +641,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       return base + ' / ' + details.join(' / ');
     }
     return base;
-  };
+  }, [getActionText]);
 
-  const getThaiMeaning = (action: Action) => {
+  const getThaiMeaning = useCallback((action: Action) => {
     const team = teams.find(t => t.code === action.teamCode);
     const skill = skills.find(s => s.code === action.skillCode);
     const areaCode = action.areaCode || (action.resultCode === 'Out' ? 'OUT' : action.areaCode);
@@ -682,9 +694,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       return base + ' / ' + details.join(' / ');
     }
     return base;
-  };
+  }, [teams, skills, areas, results, sportTemplate.fouls, sportTemplate.descriptors]);
 
-  const addAction = (actionToAdd: Action = currentAction) => {
+  const addAction = useCallback((actionToAdd: Action = currentAction) => {
     if (Object.keys(actionToAdd).length > 0) {
       if (!isActionComplete(actionToAdd)) {
         showToast(settings.uiLanguage === 'th' ? 'กรุณาเลือกข้อมูลให้ครบก่อนเพิ่ม Action' : 'Please select all required info before adding an action');
@@ -704,9 +716,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       setCurrentAction({});
       setCurrentInputHistory([]);
     }
-  };
+  }, [currentAction, isActionComplete, settings.uiLanguage, normalizeActionBeforeCommit, getCurrentTimeRef]);
 
-  const undoLastAction = () => {
+  const undoLastAction = useCallback(() => {
     if (currentInputHistory.length > 0) {
       // Revert last current input
       const history = [...currentInputHistory];
@@ -733,8 +745,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
           if (last.previousValue === undefined) {
             delete next[last.category];
           } else {
-            // @ts-ignore
-            next[last.category] = last.previousValue;
+            (next as Record<string, unknown>)[last.category] = last.previousValue;
           }
           
           if (last.category === 'areaCode') {
@@ -780,9 +791,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     if (currentActions.length > 0) {
       setCurrentActions(prev => prev.slice(0, -1));
     }
-  };
+  }, [currentInputHistory, currentAction, currentActions]);
 
-  const saveEvent = (actionToSave: Action = currentAction) => {
+  const saveEvent = useCallback((actionToSave: Action = currentAction) => {
     let finalActions = [...currentActions];
     if (Object.keys(actionToSave).length > 0) {
       if (!isActionComplete(actionToSave)) {
@@ -873,11 +884,15 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     // HUD visual flash
     setHudLastSavedText(eventText);
     setHudLastSavedAt(Date.now());
-    setTimeout(() => {
+    if (hudTimerRef.current !== null) {
+      window.clearTimeout(hudTimerRef.current);
+    }
+    hudTimerRef.current = window.setTimeout(() => {
       setHudLastSavedAt(prev => {
         if (Date.now() - prev > 1900) setHudLastSavedText(null);
         return prev;
       });
+      hudTimerRef.current = null;
     }, 2000);
 
     clearCurrentEvent();
@@ -885,7 +900,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     if (settings.autoNextPoint && (resultText === '+1' || resultText === '-1')) {
       setMatchInfo(prev => ({ ...prev, currentPoint: prev.currentPoint + 1 }));
     }
-  };
+  }, [currentActions, currentAction, isActionComplete, settings.uiLanguage, settings.autoNextPoint, normalizeActionBeforeCommit, getCurrentTimeRef, getActionText, getThaiMeaning, getExtendedActionText, matchInfo, saveEventsWithHistory, setMatchInfo, showToast]);
 
   const commitResult = useCallback((resultCode: string, isFastMode: boolean = false) => {
     const nextAction = { ...currentAction, resultCode };
@@ -926,15 +941,15 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     }
   }, [currentAction, getMissingActionMessage, isActionComplete, saveEvent, addAction, showToast]);
 
-  const deleteEventRow = (id: string) => {
+  const deleteEventRow = useCallback((id: string) => {
     saveEventsWithHistory(prev => prev.filter(e => e.id !== id));
-  };
+  }, [saveEventsWithHistory]);
 
-  const updateEventRow = (id: string, updatedRow: EventRow) => {
+  const updateEventRow = useCallback((id: string, updatedRow: EventRow) => {
     saveEventsWithHistory(prev => prev.map(e => (e.id === id ? updatedRow : e)));
-  };
+  }, [saveEventsWithHistory]);
 
-  const toggleEventBookmark = (id: string) => {
+  const toggleEventBookmark = useCallback((id: string) => {
     saveEventsWithHistory(prev =>
       prev.map(e => {
         if (e.id !== id) return e;
@@ -952,9 +967,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
         };
       })
     );
-  };
+  }, [saveEventsWithHistory]);
 
-  const updateEventBookmarkNote = (id: string, note: string) => {
+  const updateEventBookmarkNote = useCallback((id: string, note: string) => {
     saveEventsWithHistory(prev =>
       prev.map(e =>
         e.id === id
@@ -967,9 +982,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
           : e
       )
     );
-  };
+  }, [saveEventsWithHistory]);
 
-  const changeSportType = (newSport: SportType, force: boolean = false) => {
+  const changeSportType = useCallback((newSport: SportType, force: boolean = false) => {
     const isThai = settings.uiLanguage === 'th';
     if (events.length > 0 && !force) {
       showToast(
@@ -995,7 +1010,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
         ? `เปลี่ยนเป็นโหมด ${SPORT_TEMPLATES[newSport].thaiName} แล้ว` 
         : `Switched to ${SPORT_TEMPLATES[newSport].name} mode`
     );
-  };
+  }, [settings.uiLanguage, events.length, currentActions.length, currentAction, setMatchInfo, clearCurrentEvent, showToast]);
 
   useEffect(() => {
     // Migration from old darkMode

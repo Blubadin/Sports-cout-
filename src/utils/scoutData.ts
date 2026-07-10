@@ -426,3 +426,27 @@ export function buildDataQualityReport(events: EventRow[], teams: Team[] = []): 
     });
   }
 }
+
+export function isAttackingSkill(sportType: SportType, skillCode: string): boolean {
+  if (!skillCode) return false;
+  const skill = skillCode.toUpperCase();
+  switch (sportType) {
+    case 'volleyball': return ['SV', 'SPK'].includes(skill);
+    case 'football': return ['PAS', 'DRB', 'SHT', 'CRS'].includes(skill);
+    case 'badminton': return ['SMH', 'DRP', 'DRV'].includes(skill);
+    case 'basketball': return ['PAS', 'DRB', 'SHT', 'LAY'].includes(skill);
+    default: return false;
+  }
+}
+
+export function isDefensiveSkill(sportType: SportType, skillCode: string): boolean {
+  if (!skillCode) return false;
+  const skill = skillCode.toUpperCase();
+  switch (sportType) {
+    case 'volleyball': return ['REC', 'DIG', 'BLK', 'UND'].includes(skill);
+    case 'football': return ['TKL', 'INT', 'CLR', 'SAV'].includes(skill);
+    case 'badminton': return ['DEF', 'LFT', 'CLR'].includes(skill);
+    case 'basketball': return ['REB', 'STL', 'BLK'].includes(skill);
+    default: return false;
+  }
+}

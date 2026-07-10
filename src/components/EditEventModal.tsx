@@ -119,7 +119,7 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
         }
         target.descriptors = descriptors;
       } else {
-        (target as any)[field] = value === '' ? undefined : value;
+        (target as Record<string, unknown>)[field] = value === '' ? undefined : value;
         
         // Reset descriptors if skill code changes
         if (field === 'skillCode') {
@@ -210,7 +210,7 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
                   <button
                     key={val}
                     type="button"
-                    onClick={() => setResultText(val as any)}
+                    onClick={() => setResultText(val as '+1' | '-1' | '0')}
                     className={`py-1.5 text-xs font-bold rounded-md cursor-pointer transition-colors ${
                       resultText === val 
                         ? val === '+1' ? 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400'
@@ -421,7 +421,7 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
                       </label>
                       <select
                         value={currentEditingAction.courtSide || ''}
-                        onChange={e => updateActionFieldInList(selectedActionIndex, 'courtSide', e.target.value as any)}
+                        onChange={e => updateActionFieldInList(selectedActionIndex, 'courtSide', e.target.value as 'teamA'|'teamB'|'neutral')}
                         className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-sky-500 dark:focus:border-sky-500 font-medium"
                       >
                         <option value="">-- {isThai ? 'ไม่ระบุ' : 'Not Specified'} --</option>

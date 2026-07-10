@@ -48,7 +48,11 @@ export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalP
         return;
       }
 
-      const fileHandle = handle as any;
+      const fileHandle = handle as unknown as { 
+        queryPermission?: (opts: { mode: string }) => Promise<string>;
+        requestPermission?: (opts: { mode: string }) => Promise<string>;
+        getFile: () => Promise<File>;
+      };
       const queryPermission = typeof fileHandle.queryPermission === 'function'
         ? await fileHandle.queryPermission({ mode: 'read' })
         : 'granted';

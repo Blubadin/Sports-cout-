@@ -1,12 +1,22 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import type { AppSettings } from '../types';
+
+interface PlayerInstance {
+  currentTime?: number;
+  getCurrentTime?: () => number;
+  duration?: number;
+  getDuration?: () => number;
+  getInternalPlayer?: () => any;
+  seekTo?: (amount: number, type?: string) => void;
+}
 
 interface UseVideoPlaybackProps {
-  playerRef: React.MutableRefObject<any>;
+  playerRef: React.MutableRefObject<PlayerInstance | HTMLVideoElement | null>;
   videoSrc: string | null;
   youtubeUrl: string | null;
   videoSourceType: string;
   setVideoTime: (time: number) => void;
-  settings: any;
+  settings: AppSettings;
   seekRequest: number | null;
   setSeekRequest: (req: number | null) => void;
   getCurrentTimeRef: React.MutableRefObject<(() => number) | null>;
@@ -55,7 +65,7 @@ export function useVideoPlayback({
   const [brightness, setBrightness] = useState(1);
 
   // Helper functions
-  const getPlayer = useCallback(() => playerRef.current as any, [playerRef]);
+  const getPlayer = useCallback(() => playerRef.current as (PlayerInstance & HTMLVideoElement) | null, [playerRef]);
   const getInternalPlayer = useCallback(
     () => getPlayer()?.getInternalPlayer?.(),
     [getPlayer],

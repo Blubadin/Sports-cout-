@@ -61,7 +61,7 @@ export default function HUDMiniCourtSelector({
     flipContent?: boolean;
     isOut?: boolean;
     style?: React.CSSProperties;
-    outZone?: string;
+    outZone?: import('../../types').OutZoneType;
     areaLabel?: string;
   }) => {
     let matchCode = code;

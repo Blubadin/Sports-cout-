@@ -20,7 +20,7 @@ export default function CourtAreaSelector() {
     return areas.find(a => a.code === code)?.thaiName || '';
   };
 
-  const handleSelectArea = (code: string, courtSide?: 'teamA' | 'teamB' | 'neutral', outZone?: string, isOut: boolean = false) => {
+  const handleSelectArea = (code: string, courtSide?: 'teamA' | 'teamB' | 'neutral', outZone?: import('../types').OutZoneType, isOut: boolean = false) => {
     selectArea({
       areaCode: code,
       courtSide,
@@ -35,7 +35,7 @@ export default function CourtAreaSelector() {
     return areas.some(a => a.code === code);
   };
 
-  const AreaButton = ({ code, className = '', label, subLabel, courtSide, flipContent = false, isOut = false, style, outZone }: { code: string, className?: string, label?: string, subLabel?: string, courtSide?: 'teamA' | 'teamB' | 'neutral', flipContent?: boolean, isOut?: boolean, style?: React.CSSProperties, outZone?: string }) => {
+  const AreaButton = ({ code, className = '', label, subLabel, courtSide, flipContent = false, isOut = false, style, outZone }: { code: string, className?: string, label?: string, subLabel?: string, courtSide?: 'teamA' | 'teamB' | 'neutral', flipContent?: boolean, isOut?: boolean, style?: React.CSSProperties, outZone?: import('../types').OutZoneType }) => {
     const isThai = settings.uiLanguage === 'th';
     const displayInfo = getAreaDisplay(code, isThai, label || getAreaThaiName(code));
     let name = displayInfo.main;

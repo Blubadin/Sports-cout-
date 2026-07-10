@@ -17,11 +17,12 @@ export function useVideoResize() {
 
   useEffect(() => {
     const handleFullscreenChange = () => {
+      const doc = document as Document & { webkitFullscreenElement?: Element, mozFullScreenElement?: Element, msFullscreenElement?: Element };
       const isFs = !!(
-        document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        (document as any).mozFullScreenElement ||
-        (document as any).msFullscreenElement
+        doc.fullscreenElement ||
+        doc.webkitFullscreenElement ||
+        doc.mozFullScreenElement ||
+        doc.msFullscreenElement
       );
       if (!isFs && isHUDMode) {
         closeHUDMode("fullscreen_exit");
@@ -61,7 +62,7 @@ export function useVideoResize() {
 
     try {
       if (screen.orientation && "unlock" in screen.orientation) {
-        (screen.orientation as any).unlock?.();
+        (screen.orientation as ScreenOrientation & { unlock?: () => void }).unlock?.();
       }
     } catch (e) {}
 

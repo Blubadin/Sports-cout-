@@ -61,7 +61,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
   const [selectedTheme, setSelectedTheme] = useState<'light' | 'dark' | 'monochrome'>('light');
   const [selectedLanguage, setSelectedLanguage] = useState<'th' | 'en'>(isThai ? 'th' : 'en');
 
-  const getCourtOptions = () => {
+  const courtOptions = React.useMemo(() => {
     switch (sportType) {
       case 'volleyball': return [
         { value: 'standard', label: isThai ? 'มาตรฐาน 3x3 (9 โซน)' : 'Standard 3x3 (9 Zones)' }, 
@@ -81,9 +81,9 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
       ];
       default: return [{ value: 'standard', label: 'Standard' }];
     }
-  };
+  }, [sportType, isThai]);
 
-  const getFormatOptions = () => {
+  const formatOptions = React.useMemo(() => {
     switch (sportType) {
       case 'volleyball': return [
         { value: 'standard', label: isThai ? '3 ใน 5 เซ็ต' : 'Best of 5 Sets' }, 
@@ -102,14 +102,14 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
       ];
       default: return [{ value: 'standard', label: 'Standard' }];
     }
-  };
+  }, [sportType, isThai]);
   
-  const countryOptions: Option[] = COUNTRIES.map(c => ({
+  const countryOptions: Option[] = React.useMemo(() => COUNTRIES.map(c => ({
     value: c.code,
     label: c.code,
     subLabel: `${c.name} ${c.thaiName ? `(${c.thaiName})` : ''}`,
     icon: <span className="text-lg">{c.icon}</span>
-  }));
+  })), []);
 
   const handleCountryChange = (isTeam1: boolean, newCode: string) => {
     const upperCode = newCode.toUpperCase();
@@ -393,7 +393,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
                             <CustomSelect
                               value={courtConfig}
                               onChange={(val) => setCourtConfig(val)}
-                              options={getCourtOptions()}
+                              options={courtOptions}
                             />
                           </div>
                           <div>
@@ -403,7 +403,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
                             <CustomSelect
                               value={gameFormat}
                               onChange={(val) => setGameFormat(val)}
-                              options={getFormatOptions()}
+                              options={formatOptions}
                             />
                           </div>
                         </div>

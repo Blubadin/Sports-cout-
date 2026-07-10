@@ -145,13 +145,13 @@ export default function MatchInfoModal({ isOpen, onClose }: MatchInfoModalProps)
                 <CustomSelect
                   label={isThai ? 'รูปแบบสนาม (Court Layout)' : 'Court Layout'}
                   value={matchInfo.courtConfig || 'standard'}
-                  onChange={(val) => setMatchInfo(prev => ({ ...prev, courtConfig: val as any }))}
+                  onChange={(val) => setMatchInfo(prev => ({ ...prev, courtConfig: val }))}
                   options={getCourtOptions()}
                 />
                 <CustomSelect
                   label={isThai ? 'รูปแบบการแข่งขัน (Game Format)' : 'Game Format'}
                   value={matchInfo.gameFormat || 'standard'}
-                  onChange={(val) => setMatchInfo(prev => ({ ...prev, gameFormat: val as any }))}
+                  onChange={(val) => setMatchInfo(prev => ({ ...prev, gameFormat: val }))}
                   options={getFormatOptions()}
                 />
               </div>
@@ -161,7 +161,7 @@ export default function MatchInfoModal({ isOpen, onClose }: MatchInfoModalProps)
                 <CustomSelect
                   label={isThai ? 'ประเภท (Type)' : 'Type'}
                   value={matchInfo.matchType}
-                  onChange={(val) => setMatchInfo(prev => ({ ...prev, matchType: val as any }))}
+                  onChange={(val) => setMatchInfo(prev => ({ ...prev, matchType: val as 'Single' | 'Team' }))}
                   options={matchTypeOptions}
                 />
                 <div>

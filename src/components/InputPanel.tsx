@@ -6,6 +6,7 @@ import { t } from '../i18n';
 
 import CourtAreaSelector from './CourtAreaSelector';
 import { useScreenMarkingMode } from '../hooks/useScreenMarkingMode';
+import { Action } from '../types';
 
 const sports = [
   { id: 'volleyball', name: 'Volleyball', thaiName: 'วอลเลย์บอล' },
@@ -25,7 +26,7 @@ export default function InputPanel() {
   } = useScoutContext();
 
   const handleSelect = useCallback((category: keyof typeof currentAction, value: string) => {
-    updateActionField(category as any, value);
+    updateActionField(category as keyof Action, value);
     (document.activeElement as HTMLElement)?.blur?.();
   }, [updateActionField]);
 
@@ -38,7 +39,7 @@ export default function InputPanel() {
   }, [commitResult, settings.fastMode]);
 
   const handleDescriptorSelect = useCallback((groupId: string, value: string) => {
-    updateActionField('descriptors' as any, value, groupId);
+    updateActionField('descriptors', value, groupId);
     (document.activeElement as HTMLElement)?.blur?.();
   }, [updateActionField]);
 
