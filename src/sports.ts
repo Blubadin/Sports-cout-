@@ -33,7 +33,7 @@ export const SPORT_TEMPLATES: Record<string, SportTemplate> = {
       },
       outOfBounds: {
         type: 'out',
-        outZones: ['side_left_near', 'side_left_far', 'side_right_near', 'side_right_far', 'back_left', 'back_right', 'net_error', 'unknown']
+        outZones: ['side_left_near', 'side_left_far', 'side_right_near', 'side_right_far', 'back_left', 'back_right', 'opp_back_left', 'opp_back_right', 'net_error', 'unknown']
       }
     },
     skills: [
@@ -257,7 +257,7 @@ export const SPORT_TEMPLATES: Record<string, SportTemplate> = {
       },
       outOfBounds: {
         type: 'out',
-        outZones: ['side_left', 'side_right', 'back_left', 'back_right', 'net_error', 'unknown']
+        outZones: ['side_left_near', 'side_left_far', 'side_right_near', 'side_right_far', 'own_back_out', 'opp_back_out', 'net_error', 'unknown']
       }
     },
     skills: [

@@ -160,6 +160,10 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<'input' | 'dashboard' | 'table' | 'bookmarks'>('input');
 
   useEffect(() => {
+    document.documentElement.lang = settings.uiLanguage;
+  }, [settings.uiLanguage]);
+
+  useEffect(() => {
     if (!activeProjectId || isSettingsOpen || isKeyboardShortcutsOpen || isMatchInfoOpen) return;
 
     const tabs: Array<'input' | 'dashboard' | 'table' | 'bookmarks'> = ['input', 'dashboard', 'table', 'bookmarks'];

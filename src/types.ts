@@ -40,7 +40,13 @@ export type OutZoneType =
   | 'baseline_left'
   | 'baseline_right'
   | 'endline'
-  | string;
+  | 'opp_back_left'
+  | 'opp_back_right'
+  | 'net_err'
+  | 'opp_back_out'
+  | 'own_back_out'
+  | 'side_left'
+  | 'side_right';
 
 export type AreaSelectionPayload = {
   areaCode?: string;

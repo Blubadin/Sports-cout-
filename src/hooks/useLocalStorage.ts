@@ -21,15 +21,15 @@ function safeMerge<T>(initial: T, parsed: any): T {
   if (typeof initial === "object") {
     if (typeof parsed !== "object" || Array.isArray(parsed)) return initial;
 
-    const result = { ...initial } as any;
-    for (const key of Object.keys(initial as object)) {
+    const result = { ...initial } as Record<string, unknown>;
+    for (const key of Object.keys(initial as Record<string, unknown>)) {
       const val = parsed[key];
       if (val === null || val === undefined) {
         // Keep initial default value for null/undefined properties
         continue;
       }
 
-      const expectedType = typeof (initial as any)[key];
+      const expectedType = typeof (initial as Record<string, unknown>)[key];
       const actualType = typeof val;
 
       if (expectedType !== "undefined" && actualType !== expectedType) {
@@ -37,13 +37,13 @@ function safeMerge<T>(initial: T, parsed: any): T {
         continue;
       }
 
-      if (expectedType === "object" && (initial as any)[key] !== null) {
-        result[key] = safeMerge((initial as any)[key], val);
+      if (expectedType === "object" && (initial as Record<string, unknown>)[key] !== null) {
+        result[key] = safeMerge((initial as Record<string, unknown>)[key], val);
       } else {
         result[key] = val;
       }
     }
-    return result;
+    return result as unknown as T;
   }
 
   if (typeof initial !== typeof parsed) {

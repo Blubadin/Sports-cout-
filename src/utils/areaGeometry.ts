@@ -87,7 +87,7 @@ function resolveOutZone({
   if (sportType === "volleyball") {
     if (rx < 0.15) outZone = ry < 0.5 ? "side_left_far" : "side_left_near";
     else if (rx > 0.85) outZone = ry < 0.5 ? "side_right_far" : "side_right_near";
-    else if (ry < 0.15) outZone = rx < 0.5 ? "back_left" : "back_right";
+    else if (ry < 0.15) outZone = rx < 0.5 ? "opp_back_left" : "opp_back_right";
     else if (ry > 0.85) outZone = rx < 0.5 ? "back_left" : "back_right";
     if (rx > 0.43 && rx < 0.57 && ry > 0.1 && ry < 0.9) {
       outZone = "net_error";
@@ -99,10 +99,10 @@ function resolveOutZone({
     else if (ry < 0.15) outZone = rx < 0.2 ? "corner_left" : rx > 0.8 ? "corner_right" : "opp_endline";
     else if (ry > 0.85) outZone = rx > 0.35 && rx < 0.65 ? "goal_kick" : "own_endline";
   } else if (sportType === "badminton") {
-    if (rx < 0.15) outZone = "side_left";
-    else if (rx > 0.85) outZone = "side_right";
-    else if (ry < 0.15) outZone = rx < 0.5 ? "back_left" : "back_right";
-    else if (ry > 0.85) outZone = rx < 0.5 ? "back_left" : "back_right";
+    if (rx < 0.15) outZone = ry < 0.5 ? "side_left_far" : "side_left_near";
+    else if (rx > 0.85) outZone = ry < 0.5 ? "side_right_far" : "side_right_near";
+    else if (ry < 0.15) outZone = "opp_back_out";
+    else if (ry > 0.85) outZone = "own_back_out";
   } else if (sportType === "basketball") {
     if (rx < 0.15) outZone = "left_sideline";
     else if (rx > 0.85) outZone = "right_sideline";

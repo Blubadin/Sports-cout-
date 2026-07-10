@@ -201,9 +201,10 @@ export default function VideoPlayer() {
     try {
       const handle = await get(`videoFileHandle-${localFileName}`);
       if (handle) {
-         const perm = await (handle as any).requestPermission({ mode: 'read' });
+         const fileHandle = handle as unknown as { requestPermission: (opts: { mode: string }) => Promise<string>, getFile: () => Promise<File> };
+         const perm = await fileHandle.requestPermission({ mode: 'read' });
          if (perm === 'granted') {
-            const file = await (handle as any).getFile();
+            const file = await fileHandle.getFile();
             const url = URL.createObjectURL(file);
             setVideoSrc(url);
          }
@@ -216,7 +217,7 @@ export default function VideoPlayer() {
   const handlePickLocalVideo = async () => {
     if ('showOpenFilePicker' in window) {
       try {
-        const [fileHandle] = await (window as any).showOpenFilePicker({
+        const [fileHandle] = await (window as unknown as { showOpenFilePicker: (opts: unknown) => Promise<any[]> }).showOpenFilePicker({
           types: [{ description: 'Video Files', accept: { 'video/*': [] } }]
         });
         const file = await fileHandle.getFile();
@@ -706,7 +707,7 @@ export default function VideoPlayer() {
                     videoSourceType === "local"
                       ? (videoSrc ?? undefined)
                       : youtubeUrl || undefined;
-                  const Player = ReactPlayer as any;
+                  const Player = ReactPlayer as React.ElementType;
                   return (
                     <Player
                       key={`${videoSourceType}-${currentVideoSrc}`}
@@ -765,7 +766,7 @@ export default function VideoPlayer() {
                               origin: window.location.origin,
                             },
                           },
-                        } as any
+                        } as Record<string, unknown>
                       }
                     />
                   );

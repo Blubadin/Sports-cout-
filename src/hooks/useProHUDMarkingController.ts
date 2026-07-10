@@ -90,7 +90,7 @@ export function useProHUDMarkingController({
   const setHoveredArea = useCallback((val: AreaSelectionPayload | null) => {
     let finalVal: HoveredArea | null = null;
     if (val) {
-      const codeValue = val.areaCode || (val as any).code || "";
+      const codeValue = val.areaCode || (val as { code?: string }).code || "";
       finalVal = {
         ...val,
         code: codeValue,
@@ -278,8 +278,8 @@ export function useProHUDMarkingController({
       if (hArea) {
         setHoveredArea({
           areaCode: hArea,
-          courtSide: (courtSide as any) || undefined,
-          outZone: (outZone as any) || undefined,
+          courtSide: (courtSide as AreaSelectionPayload['courtSide']) || undefined,
+          outZone: (outZone as AreaSelectionPayload['outZone']) || undefined,
         });
       } else {
         setHoveredArea(null);
@@ -365,6 +365,10 @@ export function useProHUDMarkingController({
       commitResult,
       setActiveMenu,
       clearHoverStates,
+      commitSkillSelection,
+      selectArea,
+      selectFoul,
+      sportTemplate?.fouls,
     ],
   );
 
@@ -431,10 +435,10 @@ export function useProHUDMarkingController({
                 if (targetBtn) {
                    const code = targetBtn.getAttribute("data-scout-hover-area")!;
                    const courtSide = targetBtn.getAttribute("data-scout-hover-court-side") || undefined;
-                   setHoveredArea({ areaCode: code, courtSide: courtSide as any });
+                   setHoveredArea({ areaCode: code, courtSide: courtSide as AreaSelectionPayload['courtSide'] });
                    if (settings.areaAutoSelectOnArrow) {
                       if (selectArea) {
-                        selectArea({ areaCode: code, courtSide: courtSide as any });
+                        selectArea({ areaCode: code, courtSide: courtSide as AreaSelectionPayload['courtSide'] });
                       } else {
                         updateActionField("areaCode", code);
                         if (courtSide) updateActionField("courtSide", courtSide);
@@ -455,6 +459,10 @@ export function useProHUDMarkingController({
       onCloseHUD,
       openMarkingMenu,
       toggleMarkingMenu,
+      settings.enableArrowAreaNavigation,
+      settings.areaAutoSelectOnArrow,
+      selectArea,
+      setHoveredArea,
     ],
   );
 
