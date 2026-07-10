@@ -198,6 +198,8 @@ const ScoutingTableRow = React.memo(({
   );
 });
 
+ScoutingTableRow.displayName = 'ScoutingTableRow';
+
 export default function ScoutingTable() {
   const { events, saveEventsWithHistory, deleteEventRow, updateEventRow, setSeekRequest, setPreviewState, settings, showToast, canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction } = useScoutContext();
   const [copiedId, setCopiedId] = useState<string | null>(null);

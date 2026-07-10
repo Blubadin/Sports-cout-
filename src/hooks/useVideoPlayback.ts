@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { AppSettings } from '../types';
+import { readMediaCurrentTime } from "../utils/videoPlayerEvents";
 
 interface PlayerInstance {
   currentTime?: number;
@@ -317,7 +318,7 @@ export function useVideoPlayback({
 
   const handleTimeUpdate = useCallback((event: any) => {
     if (isScrubbing) return;
-    const time = event?.currentTarget?.currentTime ?? getCurrentTimeSafe();
+    const time = readMediaCurrentTime(event, getCurrentTimeSafe());
     if (Number.isFinite(time)) {
       setCurrentTimeDisplay(time);
       setVideoTime(time);

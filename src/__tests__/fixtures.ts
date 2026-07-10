@@ -1,4 +1,4 @@
-import type { Action, EventRow, Team, SportType } from '../../types';
+import type { Action, EventRow, Team, SportType } from '../types';
 
 // ─── Teams ───────────────────────────────────────────────
 export const mockTeamA: Team = {
@@ -38,8 +38,8 @@ export function createMockFoulAction(overrides: Partial<Action> = {}): Action {
     id: `action-foul-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     teamCode: 'JPN',
     foulCode: 'NET_TOUCH',
-    foulRole: 'offender',
-    foulSeverity: 'minor',
+    foulRole: 'violation',
+    foulSeverity: 'normal',
     ...overrides,
   };
 }

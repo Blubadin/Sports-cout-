@@ -11,6 +11,16 @@ export default defineConfig({
     setupFiles: ['./src/__tests__/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     css: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      thresholds: {
+        lines: 15,
+        functions: 15,
+        branches: 10,
+        statements: 15,
+      },
+    },
   },
   resolve: {
     alias: {

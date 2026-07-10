@@ -21,6 +21,7 @@ import {
   MonitorPlay,
 } from "lucide-react";
 import { formatPreciseTime } from "../utils";
+import { readMediaDuration } from "../utils/videoPlayerEvents";
 import ScoutHUDWrapper from "./hud/ScoutHUDWrapper";
 import SegmentPreviewPanel from "./SegmentPreviewPanel";
 import { useVideoResize } from "../hooks/useVideoResize";
@@ -707,9 +708,8 @@ export default function VideoPlayer() {
                     videoSourceType === "local"
                       ? (videoSrc ?? undefined)
                       : youtubeUrl || undefined;
-                  const Player = ReactPlayer as React.ElementType;
                   return (
-                    <Player
+                    <ReactPlayer
                       key={`${videoSourceType}-${currentVideoSrc}`}
                       ref={playerRef}
                       src={currentVideoSrc}
@@ -720,24 +720,12 @@ export default function VideoPlayer() {
                       width="100%"
                       height="100%"
                       playsInline
-                      progressInterval={100}
-                      onProgress={({ playedSeconds }) => {
-                        if (isScrubbing) return;
-                        setCurrentTimeDisplay(playedSeconds);
-                        setVideoTime(playedSeconds);
-                        
-                        // Auto-save time periodically
-                        if (Math.floor(playedSeconds) % 15 === 0) {
-                           updateProjectLastVideoTime(playedSeconds);
-                        }
-                      }}
-                      onDuration={(d: number) => {
-                        if (Number.isFinite(d) && d > 0) setDuration(d);
-                      }}
                       onTimeUpdate={handleTimeUpdate}
-                      onDurationChange={(event: any) => {
-                        const d =
-                          event?.currentTarget?.duration ?? getDurationSafe();
+                      onDurationChange={(eventOrDuration: any) => {
+                        const d = readMediaDuration(
+                          eventOrDuration,
+                          getDurationSafe(),
+                        );
                         if (Number.isFinite(d) && d > 0) setDuration(d);
                       }}
                       onReady={handlePlayerReadyWithoutCaptions}

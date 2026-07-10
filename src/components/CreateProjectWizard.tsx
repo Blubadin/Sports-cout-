@@ -151,7 +151,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
     };
 
     if (videoSource === 'youtube') {
-      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
       const match = youtubeUrlInput.match(regExp);
       if (match && match[2].length === 11) {
         videoMeta.youtubeVideoId = match[2];

@@ -14,8 +14,8 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
 
 // Monkeypatch HTMLMediaElement.prototype.play to catch unhandled play() promise rejections
 const originalPlay = HTMLMediaElement.prototype.play;
-HTMLMediaElement.prototype.play = function () {
-  const p = originalPlay.apply(this, arguments as any);
+HTMLMediaElement.prototype.play = function (...args) {
+  const p = originalPlay.apply(this, args);
   if (p && typeof p.catch === 'function') {
     p.catch((e: any) => {
       if (e && e.name === 'AbortError') return;
@@ -84,14 +84,6 @@ console.error = (...args) => {
   if (args.some(isPlayInterrupted)) {
     console.debug('[Suppressed] The play() request was interrupted by a call to pause() - from console.error');
     return; // Suppress play/pause interrupt exceptions
-  }
-  if (
-    args[0] &&
-    typeof args[0] === 'string' &&
-    args[0].includes('Unknown event handler property') &&
-    args.some(arg => typeof arg === 'string' && arg.includes('onDuration'))
-  ) {
-    return; // Suppress React 19 onDuration warning from ReactPlayer
   }
   originalError(...args);
 };
