@@ -100,6 +100,8 @@ export default function ProAreaCommandPad({
       areaPrecisionMode: settings?.areaPrecisionMode,
       uiLanguage: settings?.uiLanguage,
       source: "absolute-pointer",
+      activeTeamCode: currentAction.teamCode,
+      teams,
     });
 
     setLocalRx(nextPoint.rx);
@@ -167,6 +169,13 @@ export default function ProAreaCommandPad({
       </div>
     );
   };
+
+  // Match CourtAreaSelector: top half = teamB (normal), teamA (flipped)
+  const attackCourtSide = flipCourtSide ? "teamA" : "teamB";
+
+  // Badminton: oppCourtSide = top (opponent), ourCourtSide = bottom (our team)
+  const oppCourtSide = flipCourtSide ? "teamA" : "teamB";
+  const ourCourtSide = flipCourtSide ? "teamB" : "teamA";
 
   return (
     <div
@@ -306,19 +315,19 @@ export default function ProAreaCommandPad({
           {sportType === "football" && (
             <div className="w-full h-full flex flex-col gap-1.5">
               <div className="flex gap-1.5 h-[22%]">
-                {renderZoneBlock("GOAL", isThai ? "หน้าประตู" : "Goal Area", "neutral", "flex-1")}
-                {renderZoneBlock("BOX", isThai ? "กรอบเขตโทษ" : "Penalty Box", "neutral", "flex-1")}
+                {renderZoneBlock("GOAL", isThai ? "หน้าประตู" : "Goal Area", attackCourtSide, "flex-1")}
+                {renderZoneBlock("BOX", isThai ? "กรอบเขตโทษ" : "Penalty Box", attackCourtSide, "flex-1")}
               </div>
               <div className="flex-1 grid grid-cols-3 grid-rows-3 gap-1.5">
-                {renderZoneBlock("ATT_L", isThai ? "ซ้ายหน้า" : "Attack Left")}
-                {renderZoneBlock("ATT_C", isThai ? "หน้ากลาง" : "Attack Center")}
-                {renderZoneBlock("ATT_R", isThai ? "ขวาหน้า" : "Attack Right")}
-                {renderZoneBlock("MID_L", isThai ? "ซ้ายกลาง" : "Mid Left")}
-                {renderZoneBlock("MID_C", isThai ? "แดนกลาง" : "Mid Center")}
-                {renderZoneBlock("MID_R", isThai ? "ขวากลาง" : "Mid Right")}
-                {renderZoneBlock("DEF_L", isThai ? "ซ้ายหลัง" : "Defense Left")}
-                {renderZoneBlock("DEF_C", isThai ? "หลังกลาง" : "Defense Center")}
-                {renderZoneBlock("DEF_R", isThai ? "ขวาหลัง" : "Defense Right")}
+                {renderZoneBlock("ATT_L", isThai ? "ซ้ายหน้า" : "Attack Left", attackCourtSide)}
+                {renderZoneBlock("ATT_C", isThai ? "หน้ากลาง" : "Attack Center", attackCourtSide)}
+                {renderZoneBlock("ATT_R", isThai ? "ขวาหน้า" : "Attack Right", attackCourtSide)}
+                {renderZoneBlock("MID_L", isThai ? "ซ้ายกลาง" : "Mid Left", attackCourtSide)}
+                {renderZoneBlock("MID_C", isThai ? "แดนกลาง" : "Mid Center", attackCourtSide)}
+                {renderZoneBlock("MID_R", isThai ? "ขวากลาง" : "Mid Right", attackCourtSide)}
+                {renderZoneBlock("DEF_L", isThai ? "ซ้ายหลัง" : "Defense Left", attackCourtSide)}
+                {renderZoneBlock("DEF_C", isThai ? "หลังกลาง" : "Defense Center", attackCourtSide)}
+                {renderZoneBlock("DEF_R", isThai ? "ขวาหลัง" : "Defense Right", attackCourtSide)}
               </div>
             </div>
           )}
@@ -327,15 +336,15 @@ export default function ProAreaCommandPad({
             <div className="w-full h-full flex flex-col gap-1 relative">
               {/* Opponent Side */}
               <div className="flex-1 grid grid-cols-3 gap-1 opacity-90">
-                {renderZoneBlock("BR", isThai ? "หลังขวา" : "Opp BR")}
-                {renderZoneBlock("BC", isThai ? "หลังกลาง" : "Opp BC")}
-                {renderZoneBlock("BL", isThai ? "หลังซ้าย" : "Opp BL")}
-                {renderZoneBlock("MR", isThai ? "กลางขวา" : "Opp MR")}
-                {renderZoneBlock("MC", isThai ? "กลาง" : "Opp MC")}
-                {renderZoneBlock("ML", isThai ? "กลางซ้าย" : "Opp ML")}
-                {renderZoneBlock("FR", isThai ? "หน้าขวา" : "Opp FR")}
-                {renderZoneBlock("FC", isThai ? "หน้ากลาง" : "Opp FC")}
-                {renderZoneBlock("FL", isThai ? "หน้าซ้าย" : "Opp FL")}
+                {renderZoneBlock("BR", isThai ? "หลังขวา" : "Opp BR", oppCourtSide)}
+                {renderZoneBlock("BC", isThai ? "หลังกลาง" : "Opp BC", oppCourtSide)}
+                {renderZoneBlock("BL", isThai ? "หลังซ้าย" : "Opp BL", oppCourtSide)}
+                {renderZoneBlock("MR", isThai ? "กลางขวา" : "Opp MR", oppCourtSide)}
+                {renderZoneBlock("MC", isThai ? "กลาง" : "Opp MC", oppCourtSide)}
+                {renderZoneBlock("ML", isThai ? "กลางซ้าย" : "Opp ML", oppCourtSide)}
+                {renderZoneBlock("FR", isThai ? "หน้าขวา" : "Opp FR", oppCourtSide)}
+                {renderZoneBlock("FC", isThai ? "หน้ากลาง" : "Opp FC", oppCourtSide)}
+                {renderZoneBlock("FL", isThai ? "หน้าซ้าย" : "Opp FL", oppCourtSide)}
               </div>
 
               {/* Net divider line */}
@@ -347,15 +356,15 @@ export default function ProAreaCommandPad({
 
               {/* Our Side */}
               <div className="flex-1 grid grid-cols-3 gap-1">
-                {renderZoneBlock("FL", isThai ? "หน้าซ้าย" : "Our FL")}
-                {renderZoneBlock("FC", isThai ? "หน้ากลาง" : "Our FC")}
-                {renderZoneBlock("FR", isThai ? "หน้าขวา" : "Our FR")}
-                {renderZoneBlock("ML", isThai ? "กลางซ้าย" : "Our ML")}
-                {renderZoneBlock("MC", isThai ? "กลาง" : "Our MC")}
-                {renderZoneBlock("MR", isThai ? "กลางขวา" : "Our MR")}
-                {renderZoneBlock("BL", isThai ? "หลังซ้าย" : "Our BL")}
-                {renderZoneBlock("BC", isThai ? "หลังกลาง" : "Our BC")}
-                {renderZoneBlock("BR", isThai ? "หลังขวา" : "Our BR")}
+                {renderZoneBlock("FL", isThai ? "หน้าซ้าย" : "Our FL", ourCourtSide)}
+                {renderZoneBlock("FC", isThai ? "หน้ากลาง" : "Our FC", ourCourtSide)}
+                {renderZoneBlock("FR", isThai ? "หน้าขวา" : "Our FR", ourCourtSide)}
+                {renderZoneBlock("ML", isThai ? "กลางซ้าย" : "Our ML", ourCourtSide)}
+                {renderZoneBlock("MC", isThai ? "กลาง" : "Our MC", ourCourtSide)}
+                {renderZoneBlock("MR", isThai ? "กลางขวา" : "Our MR", ourCourtSide)}
+                {renderZoneBlock("BL", isThai ? "หลังซ้าย" : "Our BL", ourCourtSide)}
+                {renderZoneBlock("BC", isThai ? "หลังกลาง" : "Our BC", ourCourtSide)}
+                {renderZoneBlock("BR", isThai ? "หลังขวา" : "Our BR", ourCourtSide)}
               </div>
             </div>
           )}
@@ -363,18 +372,18 @@ export default function ProAreaCommandPad({
           {sportType === "basketball" && (
             <div className="w-full h-full flex flex-col gap-1.5">
               <div className="flex gap-1.5 h-[24%]">
-                {renderZoneBlock("PAINT", isThai ? "กรอบเขตโทษ" : "The Paint", "neutral", "flex-1")}
+                {renderZoneBlock("PAINT", isThai ? "กรอบเขตโทษ" : "The Paint", attackCourtSide, "flex-1")}
               </div>
               <div className="flex-1 grid grid-cols-3 grid-rows-2 gap-1.5">
-                {renderZoneBlock("LEFT_WING", isThai ? "ปีกซ้าย" : "Left Wing")}
-                {renderZoneBlock("TOP_KEY", isThai ? "หัวกะโหลก" : "Top of Key")}
-                {renderZoneBlock("RIGHT_WING", isThai ? "ปีกขวา" : "Right Wing")}
-                {renderZoneBlock("LEFT_CORNER", isThai ? "มุมซ้าย" : "Left Corner")}
-                {renderZoneBlock("MID_RANGE", isThai ? "ระยะกลาง" : "Mid Range")}
-                {renderZoneBlock("RIGHT_CORNER", isThai ? "มุมขวา" : "Right Corner")}
+                {renderZoneBlock("LEFT_WING", isThai ? "ปีกซ้าย" : "Left Wing", attackCourtSide)}
+                {renderZoneBlock("TOP_KEY", isThai ? "หัวกะโหลก" : "Top of Key", attackCourtSide)}
+                {renderZoneBlock("RIGHT_WING", isThai ? "ปีกขวา" : "Right Wing", attackCourtSide)}
+                {renderZoneBlock("LEFT_CORNER", isThai ? "มุมซ้าย" : "Left Corner", attackCourtSide)}
+                {renderZoneBlock("MID_RANGE", isThai ? "ระยะกลาง" : "Mid Range", attackCourtSide)}
+                {renderZoneBlock("RIGHT_CORNER", isThai ? "มุมขวา" : "Right Corner", attackCourtSide)}
               </div>
               <div className="h-[18%] flex">
-                {renderZoneBlock("THREE_PT", isThai ? "นอกเส้น 3 คะแนน" : "3-Point Line", "neutral", "w-full")}
+                {renderZoneBlock("THREE_PT", isThai ? "นอกเส้น 3 คะแนน" : "3-Point Line", attackCourtSide, "w-full")}
               </div>
             </div>
           )}
@@ -466,3 +475,4 @@ export default function ProAreaCommandPad({
     </div>
   );
 }
+
