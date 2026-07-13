@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { PROJECTS_REPOSITORY_KEY } from '../utils/projectRepository';
+import { buildRecoveryEnvelope } from '../utils/scoutData';
 import { indexedDbStorageAdapter } from '../utils/storageAdapter';
 
 interface Props {
@@ -43,14 +44,11 @@ export class ErrorBoundary extends Component<Props, State> {
         return acc;
       }, {});
 
-      const backup = {
-        schemaVersion: '1.1',
-        app: 'Sports Scout Logger',
-        type: 'localStorageRecovery',
+      const backup = buildRecoveryEnvelope({
         exportedAt: new Date().toISOString(),
         localStorage: localStorageSnapshot,
         indexedDbProjects: await indexedDbStorageAdapter.getItem(PROJECTS_REPOSITORY_KEY),
-      };
+      });
 
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backup, null, 2));
       const link = document.createElement('a');

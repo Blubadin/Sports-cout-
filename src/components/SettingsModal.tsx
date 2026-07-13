@@ -6,6 +6,7 @@ import { X, Save, Trash2, Download, Upload, Settings, RefreshCw } from 'lucide-r
 import CustomSelect, { Option } from './ui/CustomSelect';
 import { t, SupportedLanguage } from '../i18n';
 import { motion, AnimatePresence } from 'motion/react';
+import { APP_NAME, APP_VERSION, SCOUT_EXPORT_SCHEMA_VERSION } from '../appMetadata';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -643,7 +644,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               )}
 
               {activeTab === 'data' && (
-                <div className="max-w-md mx-auto py-6">
+                <div className="max-w-md mx-auto py-6 space-y-4">
                   {/* Data Management */}
                   <section className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
                     <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 text-center">
@@ -654,6 +655,25 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         <Trash2 size={18} /> {t('settings.clearData', settings.uiLanguage)}
                       </button>
                     </div>
+                  </section>
+                  <section className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
+                    <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 text-center">
+                      {settings.uiLanguage === 'th' ? 'ข้อมูลเวอร์ชัน' : 'Release Metadata'}
+                    </h3>
+                    <dl className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-4">
+                        <dt className="text-gray-500 dark:text-gray-400">App</dt>
+                        <dd className="font-mono font-medium text-gray-800 dark:text-gray-100">{APP_NAME}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <dt className="text-gray-500 dark:text-gray-400">Version</dt>
+                        <dd className="font-mono font-medium text-gray-800 dark:text-gray-100">{APP_VERSION}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <dt className="text-gray-500 dark:text-gray-400">Export schema</dt>
+                        <dd className="font-mono font-medium text-gray-800 dark:text-gray-100">{SCOUT_EXPORT_SCHEMA_VERSION}</dd>
+                      </div>
+                    </dl>
                   </section>
                 </div>
               )}

@@ -8,19 +8,37 @@ import type {
   Team,
 } from "../types";
 import { DETAILED_ZONE_LABELS, OUT_ZONE_LABELS, SPORT_TEMPLATES } from "../sports";
+import { APP_NAME, APP_VERSION, SCOUT_EXPORT_SCHEMA_VERSION as EXPORT_SCHEMA_VERSION } from "../appMetadata";
 
-export const SCOUT_EXPORT_SCHEMA_VERSION = "1.1";
-export const SCOUT_EXPORT_APP_NAME = "Sports Scout Logger";
+export const SCOUT_EXPORT_SCHEMA_VERSION = EXPORT_SCHEMA_VERSION;
+export const SCOUT_EXPORT_APP_NAME = APP_NAME;
 
 export type ScoutExportEnvelopeType = "events" | "projects";
 
 export type ScoutExportEnvelope<T extends ScoutExportEnvelopeType> = {
   schemaVersion: string;
   app: string;
+  appVersion?: string;
   type: T;
   exportedAt: string;
   events?: EventRow[];
   projects?: ScoutProject[];
+};
+
+export type ScoutRecoveryEnvelope = {
+  schemaVersion: string;
+  app: string;
+  appVersion: string;
+  type: "localStorageRecovery";
+  exportedAt: string;
+  localStorage: Record<string, string | null>;
+  indexedDbProjects?: unknown;
+};
+
+export type RecoveryEnvelopeInput = {
+  exportedAt: string;
+  localStorage: Record<string, string | null>;
+  indexedDbProjects?: unknown;
 };
 
 export type DataQualityIssueSeverity = "info" | "warning" | "error";
@@ -260,6 +278,7 @@ export function createEventsExport(events: EventRow[]): ScoutExportEnvelope<"eve
   return {
     schemaVersion: SCOUT_EXPORT_SCHEMA_VERSION,
     app: SCOUT_EXPORT_APP_NAME,
+    appVersion: APP_VERSION,
     exportedAt: new Date().toISOString(),
     type: "events",
     events: sanitizeEvents(events),
@@ -270,6 +289,7 @@ export function createProjectsExport(projects: ScoutProject[]): ScoutExportEnvel
   return {
     schemaVersion: SCOUT_EXPORT_SCHEMA_VERSION,
     app: SCOUT_EXPORT_APP_NAME,
+    appVersion: APP_VERSION,
     exportedAt: new Date().toISOString(),
     type: "projects",
     projects: projects.map((project) => ({
@@ -279,6 +299,27 @@ export function createProjectsExport(projects: ScoutProject[]): ScoutExportEnvel
       updatedAt: project.updatedAt || new Date().toISOString(),
     })),
   };
+}
+
+export function buildRecoveryEnvelope({
+  exportedAt,
+  localStorage,
+  indexedDbProjects,
+}: RecoveryEnvelopeInput): ScoutRecoveryEnvelope {
+  const envelope: ScoutRecoveryEnvelope = {
+    schemaVersion: SCOUT_EXPORT_SCHEMA_VERSION,
+    app: SCOUT_EXPORT_APP_NAME,
+    appVersion: APP_VERSION,
+    type: "localStorageRecovery",
+    exportedAt,
+    localStorage,
+  };
+
+  if (indexedDbProjects !== undefined) {
+    envelope.indexedDbProjects = indexedDbProjects;
+  }
+
+  return envelope;
 }
 
 export function buildAnalyticsSummary(

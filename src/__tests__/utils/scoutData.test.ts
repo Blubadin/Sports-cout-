@@ -10,6 +10,8 @@ import {
   deriveEventResultText,
   sanitizeEvents,
   createEventsExport,
+  createProjectsExport,
+  buildRecoveryEnvelope,
   buildAnalyticsSummary,
   buildDataQualityReport,
   isAttackingSkill,
@@ -305,6 +307,61 @@ describe('createEventsExport', () => {
     expect(envelope.type).toBe('events');
     expect(envelope.exportedAt).toBeTruthy();
     expect(envelope.events).toHaveLength(3);
+  });
+
+  it('identifies new event exports as the current SPORTSCOUT pilot release', () => {
+    const envelope = createEventsExport(createMockEventList(1));
+
+    expect(envelope.app).toBe('SPORTSCOUT');
+    expect(envelope.appVersion).toBe('0.11.0-pilot.1');
+  });
+});
+
+describe('createProjectsExport', () => {
+  it('identifies new project exports as the current SPORTSCOUT pilot release', () => {
+    const envelope = createProjectsExport([{
+      id: 'project-1',
+      title: 'Pilot project',
+      sportType: 'volleyball',
+      events: createMockEventList(1),
+      teams: [],
+      matchInfo: { sportType: 'volleyball' },
+      createdAt: '2026-07-13T00:00:00.000Z',
+      updatedAt: '2026-07-13T00:00:00.000Z',
+    }] as any);
+
+    expect(envelope.app).toBe('SPORTSCOUT');
+    expect(envelope.appVersion).toBe('0.11.0-pilot.1');
+  });
+});
+
+describe('buildRecoveryEnvelope', () => {
+  it('builds a versioned recovery envelope and preserves IndexedDB projects when supplied', () => {
+    const snapshot = { scout_events: '[{"id":"event-1"}]', scout_settings: null };
+    const indexedDbProjects = { projects: [{ id: 'project-1', events: [] }] };
+
+    expect(buildRecoveryEnvelope({
+      exportedAt: '2026-07-13T00:00:00.000Z',
+      localStorage: snapshot,
+      indexedDbProjects,
+    })).toEqual({
+      schemaVersion: '1.1',
+      app: 'SPORTSCOUT',
+      appVersion: '0.11.0-pilot.1',
+      type: 'localStorageRecovery',
+      exportedAt: '2026-07-13T00:00:00.000Z',
+      localStorage: snapshot,
+      indexedDbProjects,
+    });
+  });
+
+  it('omits IndexedDB projects when they are unavailable', () => {
+    const envelope = buildRecoveryEnvelope({
+      exportedAt: '2026-07-13T00:00:00.000Z',
+      localStorage: {},
+    });
+
+    expect(envelope).not.toHaveProperty('indexedDbProjects');
   });
 });
 

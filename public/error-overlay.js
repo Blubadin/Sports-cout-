@@ -77,7 +77,8 @@
       }
       var backup = {
         schemaVersion: '1.1',
-        app: 'Sports Scout Logger',
+        app: 'SPORTSCOUT',
+        appVersion: '0.11.0-pilot.1',
         type: 'runtimeRecovery',
         exportedAt: new Date().toISOString(),
         localStorage: snapshot

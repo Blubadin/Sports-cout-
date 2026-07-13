@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { APP_NAME, APP_VERSION, SCOUT_EXPORT_SCHEMA_VERSION } from '../appMetadata';
 
 export default function DiagnosticLogs() {
   useEffect(() => {
@@ -6,7 +7,10 @@ export default function DiagnosticLogs() {
       return;
     }
 
-    console.log('%c🔍 [Sports Scout Diagnostics] Starting localStorage Scan...', 'color: #0284c7; font-weight: bold; font-size: 14px;');
+    console.log(
+      `%c[${APP_NAME} Diagnostics] Starting localStorage scan (${APP_NAME} ${APP_VERSION}, export schema ${SCOUT_EXPORT_SCHEMA_VERSION})...`,
+      'color: #0284c7; font-weight: bold; font-size: 14px;',
+    );
 
     const expectedKeys = [
       'scout_settings',
