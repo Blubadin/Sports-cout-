@@ -428,7 +428,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       try {
         const restoredProjects = JSON.parse(project.localStorage.scout_projects);
         if (Array.isArray(restoredProjects)) {
-          return restoredProjects.map((p: any) => importProject(p)).some(Boolean);
+          return importProject({ type: 'projects', projects: restoredProjects });
         }
       } catch (err) {
         console.warn('Failed to parse scout_projects from recovery backup:', err);
