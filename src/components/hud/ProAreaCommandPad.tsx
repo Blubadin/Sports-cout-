@@ -24,7 +24,6 @@ export default function ProAreaCommandPad({
   sportType,
   areas,
   currentAction,
-  teams,
   onSelectArea,
   active,
   pointerX,
@@ -100,8 +99,6 @@ export default function ProAreaCommandPad({
       areaPrecisionMode: settings?.areaPrecisionMode,
       uiLanguage: settings?.uiLanguage,
       source: "absolute-pointer",
-      activeTeamCode: currentAction.teamCode,
-      teams,
     });
 
     setLocalRx(nextPoint.rx);
