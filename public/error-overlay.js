@@ -110,7 +110,7 @@
       root.id = 'root-fallback';
       document.body.appendChild(root);
     }
-    
+
     var existing = document.getElementById('debug-error-panel');
     if (existing) {
       var content = existing.querySelector('.details-container');
@@ -118,7 +118,7 @@
         var hr = document.createElement('hr');
         hr.style.cssText = 'border-color: #fca5a5; margin: 12px 0;';
         content.appendChild(hr);
-        
+
         var p = document.createElement('p');
         p.style.cssText = 'font-weight: 600; font-size: 14px; margin: 6px 0;';
         p.textContent = title + ': ' + message;
@@ -210,7 +210,7 @@
     if (e.target && (e.target.src || e.target.href)) {
       var resourceUrl = e.target.src || e.target.href;
       var tagName = (e.target.tagName || '').toLowerCase();
-      
+
       if (tagName === 'img' || tagName === 'video' || tagName === 'audio' || tagName === 'source') return;
       if (
         resourceUrl.indexOf('youtube.com') !== -1 ||

@@ -19,7 +19,7 @@ export default defineConfig(() => {
     },
     plugins: [
       injectAppVersionMeta(),
-      react(), 
+      react(),
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
