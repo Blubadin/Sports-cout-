@@ -1,4 +1,108 @@
 (function() {
+  function getAppVersion() {
+    var versionMeta = document.querySelector('meta[name="sportscout-app-version"]');
+    return versionMeta && versionMeta.getAttribute('content') || 'unknown';
+  }
+
+  function readIndexedDbProjects() {
+    return new Promise(function(resolve) {
+      if (!window.indexedDB) {
+        resolve({ value: undefined, failed: true });
+        return;
+      }
+
+      var settled = false;
+      function finish(value, failed) {
+        if (settled) return;
+        settled = true;
+        resolve({ value: value, failed: failed });
+      }
+
+      var openRequest;
+      try {
+        openRequest = window.indexedDB.open('keyval-store');
+      } catch (error) {
+        finish(undefined, true);
+        return;
+      }
+
+      openRequest.onupgradeneeded = function() {
+        // The default idb-keyval database did not exist, so abort rather than create it.
+        if (openRequest.transaction) openRequest.transaction.abort();
+        finish(undefined, false);
+      };
+      openRequest.onerror = function() { finish(undefined, true); };
+      openRequest.onblocked = function() { finish(undefined, true); };
+      openRequest.onsuccess = function() {
+        var database = openRequest.result;
+        if (!database.objectStoreNames.contains('keyval')) {
+          database.close();
+          finish(undefined, false);
+          return;
+        }
+
+        var transaction;
+        try {
+          transaction = database.transaction('keyval', 'readonly');
+          var getRequest = transaction.objectStore('keyval').get('scout-projects:v1.1');
+          getRequest.onsuccess = function() {
+            database.close();
+            finish(getRequest.result, false);
+          };
+          getRequest.onerror = function() {
+            database.close();
+            finish(undefined, true);
+          };
+        } catch (error) {
+          database.close();
+          finish(undefined, true);
+        }
+      };
+    });
+  }
+
+  function showBackupStatus(container, message) {
+    var status = document.getElementById('runtime-recovery-status');
+    if (!status) {
+      status = document.createElement('p');
+      status.id = 'runtime-recovery-status';
+      status.style.cssText = 'font-size: 11px; margin: 12px 0 0; color: #b91c1c;';
+      container.appendChild(status);
+    }
+    status.textContent = message;
+  }
+
+  async function exportRuntimeRecovery() {
+    var snapshot = {};
+    for (var index = 0; index < localStorage.length; index += 1) {
+      var key = localStorage.key(index);
+      if (key) snapshot[key] = localStorage.getItem(key);
+    }
+
+    var indexedDbResult = await readIndexedDbProjects();
+    var backup = {
+      schemaVersion: '1.1',
+      app: 'SPORTSCOUT',
+      appVersion: getAppVersion(),
+      type: 'localStorageRecovery',
+      exportedAt: new Date().toISOString(),
+      localStorage: snapshot
+    };
+    if (indexedDbResult.value !== undefined) backup.indexedDbProjects = indexedDbResult.value;
+
+    var blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = 'sports_scout_runtime_recovery.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    return indexedDbResult.failed;
+  }
+
   function renderErrorOverlay(title, message, detail, extra) {
     var root = document.getElementById('root');
     if (!root) {
@@ -69,29 +173,14 @@
     var exportBtn = document.createElement('button');
     exportBtn.style.cssText = 'padding: 10px 20px; background: #0f766e; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px;';
     exportBtn.textContent = 'Export Local Backup';
-    exportBtn.addEventListener('click', function() {
-      var snapshot = {};
-      for (var index = 0; index < localStorage.length; index += 1) {
-        var key = localStorage.key(index);
-        if (key) snapshot[key] = localStorage.getItem(key);
-      }
-      var backup = {
-        schemaVersion: '1.1',
-        app: 'SPORTSCOUT',
-        appVersion: '0.11.0-pilot.1',
-        type: 'runtimeRecovery',
-        exportedAt: new Date().toISOString(),
-        localStorage: snapshot
-      };
-      var blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-      var url = URL.createObjectURL(blob);
-      var link = document.createElement('a');
-      link.href = url;
-      link.download = 'sports_scout_runtime_recovery.json';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+    exportBtn.addEventListener('click', async function() {
+      var indexedDbReadFailed = await exportRuntimeRecovery();
+      showBackupStatus(
+        detailsDiv,
+        indexedDbReadFailed
+          ? 'Exported localStorage backup. IndexedDB project data could not be read.'
+          : 'Recovery backup exported.'
+      );
     });
     btnContainer.appendChild(exportBtn);
 
@@ -178,17 +267,17 @@
     }).join(' ');
 
     if (
-      message.indexOf('benign') !== -1 || 
-      message.indexOf('play/pause DOMException') !== -1 || 
-      message.indexOf('YouTube') !== -1 || 
-      message.indexOf('YT') !== -1 || 
+      message.indexOf('benign') !== -1 ||
+      message.indexOf('play/pause DOMException') !== -1 ||
+      message.indexOf('YouTube') !== -1 ||
+      message.indexOf('YT') !== -1 ||
       message.indexOf('Widget') !== -1
     ) return;
-    
+
     if (
-      message.indexOf('Minified React error') !== -1 || 
-      message.indexOf('React will try to recreate') !== -1 || 
-      message.indexOf('Invariant Violation') !== -1 || 
+      message.indexOf('Minified React error') !== -1 ||
+      message.indexOf('React will try to recreate') !== -1 ||
+      message.indexOf('Invariant Violation') !== -1 ||
       message.indexOf('uncaught exception') !== -1
     ) {
       renderErrorOverlay(

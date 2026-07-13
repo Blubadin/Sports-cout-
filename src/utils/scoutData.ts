@@ -28,7 +28,7 @@ export type ScoutExportEnvelope<T extends ScoutExportEnvelopeType> = {
 export type ScoutRecoveryEnvelope = {
   schemaVersion: string;
   app: string;
-  appVersion: string;
+  appVersion?: string;
   type: "localStorageRecovery";
   exportedAt: string;
   localStorage: Record<string, string | null>;

@@ -5,12 +5,20 @@ import packageMetadata from './package.json';
 import {defineConfig} from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const injectAppVersionMeta = () => ({
+  name: 'inject-app-version-meta',
+  transformIndexHtml(html: string) {
+    return html.replace('__SPORTSCOUT_APP_VERSION__', packageMetadata.version);
+  },
+});
+
 export default defineConfig(() => {
   return {
     define: {
       __APP_VERSION__: JSON.stringify(packageMetadata.version),
     },
     plugins: [
+      injectAppVersionMeta(),
       react(), 
       tailwindcss(),
       VitePWA({
