@@ -66,11 +66,33 @@
     var btnContainer = document.createElement('div');
     btnContainer.style.cssText = 'margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap;';
 
-    var clearBtn = document.createElement('button');
-    clearBtn.style.cssText = 'padding: 10px 20px; background: #dc2626; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.2);';
-    clearBtn.textContent = '\ud83e\uddf9 Clear Storage & Reload';
-    clearBtn.addEventListener('click', function() { localStorage.clear(); sessionStorage.clear(); location.reload(); });
-    btnContainer.appendChild(clearBtn);
+    var exportBtn = document.createElement('button');
+    exportBtn.style.cssText = 'padding: 10px 20px; background: #0f766e; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px;';
+    exportBtn.textContent = 'Export Local Backup';
+    exportBtn.addEventListener('click', function() {
+      var snapshot = {};
+      for (var index = 0; index < localStorage.length; index += 1) {
+        var key = localStorage.key(index);
+        if (key) snapshot[key] = localStorage.getItem(key);
+      }
+      var backup = {
+        schemaVersion: '1.1',
+        app: 'Sports Scout Logger',
+        type: 'runtimeRecovery',
+        exportedAt: new Date().toISOString(),
+        localStorage: snapshot
+      };
+      var blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = 'sports_scout_runtime_recovery.json';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
+    btnContainer.appendChild(exportBtn);
 
     var reloadBtn = document.createElement('button');
     reloadBtn.style.cssText = 'padding: 10px 20px; background: #475569; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px;';
@@ -106,9 +128,7 @@
         resourceUrl.indexOf('s.ytimg.com') !== -1 ||
         resourceUrl.indexOf('google.com') !== -1 ||
         resourceUrl.indexOf('googleapis.com') !== -1 ||
-        resourceUrl.indexOf('gstatic.com') !== -1 ||
-        resourceUrl.indexOf('jsdelivr.net') !== -1 ||
-        resourceUrl.indexOf('unsplash.com') !== -1
+        resourceUrl.indexOf('gstatic.com') !== -1
       ) return;
 
       var isRelativeOrOwnOrigin = resourceUrl.indexOf('http') !== 0 || resourceUrl.indexOf(window.location.origin) === 0;

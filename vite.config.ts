@@ -13,8 +13,8 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         injectRegister: false, // We handle SW registration manually in main.tsx
         manifest: {
-          name: 'Multi-Sport Scout Logger',
-          short_name: 'Scout Logger',
+          name: 'SPORTSCOUT',
+          short_name: 'SPORTSCOUT',
           description: 'Portable scouting app for volleyball, football, badminton and basketball',
           theme_color: '#4f46e5',
           background_color: '#f9fafb',

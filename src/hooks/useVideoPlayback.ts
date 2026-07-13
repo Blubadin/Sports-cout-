@@ -369,6 +369,15 @@ export function useVideoPlayback({
     setVideoTime,
   ]);
 
+  useEffect(() => {
+    if (!isPlaying) return;
+    const timer = window.setInterval(() => {
+      const time = getCurrentTimeSafe();
+      if (Number.isFinite(time) && time >= 0) updateProjectLastVideoTime(time);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [getCurrentTimeSafe, isPlaying, updateProjectLastVideoTime]);
+
   const handleSeekPointerDown = () => setIsScrubbing(true);
 
   const handleSeekInput = (e: React.FormEvent<HTMLInputElement>) => {

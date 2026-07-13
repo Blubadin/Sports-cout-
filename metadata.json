@@ -1,5 +1,5 @@
 {
-  "name": "Multi-Sport Scout Logger",
+  "name": "SPORTSCOUT",
   "description": "A portable sports scouting logger for volleyball, football, badminton, and basketball, with a high-fidelity video-synchronized HUD.",
   "requestFramePermissions": [],
   "majorCapabilities": []

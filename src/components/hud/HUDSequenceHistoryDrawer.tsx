@@ -49,7 +49,7 @@ export default function HUDSequenceHistoryDrawer({
     "rally",
   );
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
-  const [varClipEvent, setVarClipEvent] = useState<EventRow | null>(null);
+  const [replayClipEvent, setReplayClipEvent] = useState<EventRow | null>(null);
 
   // Format full sequence string with arrows
   const formatEventSequence = (event: EventRow) => {
@@ -510,12 +510,12 @@ export default function HUDSequenceHistoryDrawer({
                     <div className="flex flex-wrap gap-1.5 justify-end pt-1">
                       {evt.videoSourceType === "local" && (
                         <button
-                          onClick={() => setVarClipEvent(evt)}
-                          className="px-2 py-1.5 rounded-lg bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-95 transition-all inline-flex items-center gap-1 text-[11px] font-bold"
-                          title="Open VAR Clip"
+                          onClick={() => setReplayClipEvent(evt)}
+                          className="h-7 w-7 shrink-0 rounded-lg bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-95 transition-all inline-flex items-center justify-center"
+                          title={settings?.uiLanguage === "th" ? "เปิดรีเพลย์ลำดับเหตุการณ์" : "Open Sequence Replay"}
+                          aria-label={settings?.uiLanguage === "th" ? "เปิดรีเพลย์ลำดับเหตุการณ์" : "Open Sequence Replay"}
                         >
-                          <Clapperboard size={10} />
-                          VAR
+                          <Clapperboard size={13} />
                         </button>
                       )}
                       <button
@@ -574,10 +574,10 @@ export default function HUDSequenceHistoryDrawer({
           </div>
         )}
       </div>
-      {varClipEvent && (
+      {replayClipEvent && (
         <BookmarkClipModal
-          event={varClipEvent}
-          onClose={() => setVarClipEvent(null)}
+          event={replayClipEvent}
+          onClose={() => setReplayClipEvent(null)}
         />
       )}
     </div>

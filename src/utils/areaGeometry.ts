@@ -4,7 +4,6 @@ import type {
   AreaSelectionPayload,
   OutZoneType,
   SportType,
-  Team,
 } from "../types";
 import { DETAILED_ZONE_LABELS, OUT_ZONE_LABELS } from "../sports";
 
@@ -24,8 +23,6 @@ export type AreaGeometryResolverOptions = {
   areaPrecisionMode?: AppSettings["areaPrecisionMode"];
   uiLanguage?: AppSettings["uiLanguage"];
   source?: AreaSelectionSource;
-  activeTeamCode?: string;
-  teams?: Team[];
 };
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -39,16 +36,9 @@ export function resolveAreaSelectionFromPoint({
   areaPrecisionMode,
   uiLanguage,
   source = "absolute-pointer",
-  activeTeamCode,
-  teams,
 }: AreaGeometryResolverOptions): AreaSelectionPayload | null {
-  let rx = clamp01(point.rx);
-  let ry = clamp01(point.ry);
-
-  if (flipCourtSide) {
-    rx = 1 - rx;
-    ry = 1 - ry;
-  }
+  const rx = clamp01(point.rx);
+  const ry = clamp01(point.ry);
 
   let payload: AreaSelectionPayload | null = null;
   const isOutZone = rx < 0.15 || rx > 0.85 || ry < 0.15 || ry > 0.85;
@@ -59,7 +49,7 @@ export function resolveAreaSelectionFromPoint({
     const cx = clamp01((rx - 0.15) / 0.7);
     const cy = clamp01((ry - 0.15) / 0.7);
     const isDetailed = areaPrecisionMode === "detailed" || areaPrecisionMode === "point";
-    payload = resolveInnerCourt({ sportType, cx, cy, flipCourtSide, isDetailed, activeTeamCode, teams });
+    payload = resolveInnerCourt({ sportType, cx, cy, flipCourtSide, isDetailed });
   }
 
   if (!payload?.areaCode) return payload;
@@ -131,25 +121,13 @@ function resolveInnerCourt({
   cy,
   flipCourtSide,
   isDetailed,
-  activeTeamCode,
-  teams,
 }: {
   sportType: SportType;
   cx: number;
   cy: number;
   flipCourtSide: boolean;
   isDetailed: boolean;
-  activeTeamCode?: string;
-  teams?: Team[];
 }): AreaSelectionPayload | null {
-  const getOpponentCourtSide = () => {
-    if (!activeTeamCode || !teams || teams.length < 2) return "neutral";
-    const isActiveTeamA = activeTeamCode === teams[0].code;
-    return isActiveTeamA
-      ? (flipCourtSide ? "teamA" : "teamB")
-      : (flipCourtSide ? "teamB" : "teamA");
-  };
-
   if (sportType === "volleyball") {
     const leftCourtSide = flipCourtSide ? "teamB" : "teamA";
     const rightCourtSide = flipCourtSide ? "teamA" : "teamB";

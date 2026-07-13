@@ -22,7 +22,7 @@ export default function BookmarksPanel() {
   } = useScoutContext();
   const isThai = settings.uiLanguage === 'th';
   const bookmarkedEvents = events.filter(event => event.isBookmarked);
-  const [varClipEvent, setVarClipEvent] = useState<EventRow | null>(null);
+  const [replayClipEvent, setReplayClipEvent] = useState<EventRow | null>(null);
 
   const playSegment = (event: EventRow, loop: boolean) => {
     setPreviewState({ isActive: true, eventRow: event, loop });
@@ -137,11 +137,12 @@ export default function BookmarksPanel() {
                 {event.videoSourceType === 'local' && (
                   <button
                     type="button"
-                    onClick={() => setVarClipEvent(event)}
+                    onClick={() => setReplayClipEvent(event)}
                     className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-amber-300 active:scale-95"
+                    title={isThai ? "เปิดรีเพลย์ลำดับเหตุการณ์" : "Open Sequence Replay"}
                   >
                     <Clapperboard size={14} />
-                    VAR
+                    {isThai ? "รีเพลย์ช่วงนี้" : "Sequence Replay"}
                   </button>
                 )}
                 <button
@@ -166,10 +167,10 @@ export default function BookmarksPanel() {
         })}
       </div>
 
-      {varClipEvent && (
+      {replayClipEvent && (
         <BookmarkClipModal
-          event={varClipEvent}
-          onClose={() => setVarClipEvent(null)}
+          event={replayClipEvent}
+          onClose={() => setReplayClipEvent(null)}
         />
       )}
     </div>

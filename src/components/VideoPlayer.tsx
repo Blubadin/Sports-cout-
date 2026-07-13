@@ -9,7 +9,6 @@ import React, {
 import ReactPlayer from "react-player";
 import { useScoutContext } from "../context/ScoutContext";
 import { useWorkspace } from "../context/WorkspaceContext";
-import { get, set } from 'idb-keyval';
 import {
   Play,
   Pause,
@@ -26,10 +25,17 @@ import SegmentPreviewPanel from "./SegmentPreviewPanel";
 import { useVideoResize } from "../hooks/useVideoResize";
 import { useVideoGestures } from "../hooks/useVideoGestures";
 import { useVideoPlayback } from "../hooks/useVideoPlayback";
+import {
+  loadProjectVideoFileHandle,
+  saveProjectVideoFileHandle,
+  type PersistentVideoFileHandle,
+} from "../utils/videoFileStore";
 
 export default function VideoPlayer() {
   const playerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previousProjectIdRef = useRef<string | null>(null);
+  const restoredPlaybackKeyRef = useRef<string | null>(null);
 
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState("");
@@ -63,7 +69,8 @@ export default function VideoPlayer() {
     getCurrentTimeRef,
   } = useScoutContext();
 
-  const { updateProjectLastVideoTime } = useWorkspace();
+  const { activeProjectId, projects, updateProjectLastVideoTime } = useWorkspace();
+  const activeProject = projects.find(project => project.id === activeProjectId);
 
   const {
     playbackRate,
@@ -136,6 +143,49 @@ export default function VideoPlayer() {
   // Timeline State
   const [showFineControls, setShowFineControls] = useState(false);
 
+  useEffect(() => {
+    if (videoSourceType === "youtube") setUrlInput(youtubeUrl || "");
+  }, [videoSourceType, youtubeUrl]);
+
+  useEffect(() => {
+    const previousProjectId = previousProjectIdRef.current;
+    previousProjectIdRef.current = activeProjectId;
+    if (!previousProjectId || previousProjectId === activeProjectId) return;
+
+    if (videoSrc) URL.revokeObjectURL(videoSrc);
+    setVideoSrc(null);
+    setRequestedPlaying(false);
+    setPlayerReady(false);
+    setCurrentTimeDisplay(0);
+    restoredPlaybackKeyRef.current = null;
+  }, [activeProjectId, videoSrc]);
+
+  useEffect(() => {
+    const resumeTime = activeProject?.videoMeta?.lastVideoTime;
+    if (!playerReady || !activeProjectId || !resumeTime || resumeTime <= 0) return;
+
+    const sourceIdentity = videoSourceType === "youtube" ? youtubeUrl : localFileName;
+    const playbackKey = `${activeProjectId}:${videoSourceType}:${sourceIdentity || "none"}`;
+    if (restoredPlaybackKeyRef.current === playbackKey) return;
+
+    setIsPlaying(false);
+    seekToSafe(resumeTime);
+    setCurrentTimeDisplay(resumeTime);
+    setVideoTime(resumeTime);
+    restoredPlaybackKeyRef.current = playbackKey;
+  }, [
+    activeProject?.videoMeta?.lastVideoTime,
+    activeProjectId,
+    localFileName,
+    playerReady,
+    seekToSafe,
+    setCurrentTimeDisplay,
+    setIsPlaying,
+    setVideoTime,
+    videoSourceType,
+    youtubeUrl,
+  ]);
+
   const handlePlayerReadyWithoutCaptions = useCallback(() => {
     handlePlayerReady();
 
@@ -187,7 +237,7 @@ export default function VideoPlayer() {
 
   useEffect(() => {
     if (videoSourceType === 'local' && localFileName && !videoSrc) {
-       get(`videoFileHandle-${localFileName}`).then(handle => {
+       loadProjectVideoFileHandle(activeProjectId, localFileName).then(handle => {
           if (handle) {
              setCanRestoreAccess(true);
           }
@@ -195,16 +245,21 @@ export default function VideoPlayer() {
     } else {
        setCanRestoreAccess(false);
     }
-  }, [videoSourceType, localFileName, videoSrc]);
+  }, [activeProjectId, videoSourceType, localFileName, videoSrc]);
 
   const handleRestoreAccess = async () => {
     try {
-      const handle = await get(`videoFileHandle-${localFileName}`);
+      const handle = await loadProjectVideoFileHandle(activeProjectId, localFileName);
       if (handle) {
-         const fileHandle = handle as unknown as { requestPermission: (opts: { mode: string }) => Promise<string>, getFile: () => Promise<File> };
-         const perm = await fileHandle.requestPermission({ mode: 'read' });
+         const currentPermission = handle.queryPermission
+           ? await handle.queryPermission({ mode: 'read' })
+           : 'granted';
+         const perm = currentPermission === 'granted' || !handle.requestPermission
+           ? currentPermission
+           : await handle.requestPermission({ mode: 'read' });
          if (perm === 'granted') {
-            const file = await fileHandle.getFile();
+            const file = await handle.getFile();
+            if (videoSrc && videoSourceType === "local") URL.revokeObjectURL(videoSrc);
             const url = URL.createObjectURL(file);
             setVideoSrc(url);
          }
@@ -217,7 +272,7 @@ export default function VideoPlayer() {
   const handlePickLocalVideo = async () => {
     if ('showOpenFilePicker' in window) {
       try {
-        const [fileHandle] = await (window as unknown as { showOpenFilePicker: (opts: unknown) => Promise<any[]> }).showOpenFilePicker({
+        const [fileHandle] = await (window as unknown as { showOpenFilePicker: (opts: unknown) => Promise<PersistentVideoFileHandle[]> }).showOpenFilePicker({
           types: [{ description: 'Video Files', accept: { 'video/*': [] } }]
         });
         const file = await fileHandle.getFile();
@@ -231,7 +286,7 @@ export default function VideoPlayer() {
         setVideoSourceType("local");
         setIsPlaying(false);
         
-        await set(`videoFileHandle-${file.name}`, fileHandle);
+        await saveProjectVideoFileHandle(activeProjectId, file.name, fileHandle);
       } catch (err) {
         console.log("User cancelled or file access failed");
       }
@@ -541,7 +596,8 @@ export default function VideoPlayer() {
                             onClick={() => {
                               const origin = window.location.origin;
                               const embedUrl = `https://www.youtube.com/embed/${youtubeVideoId}?enablejsapi=1&origin=${origin}`;
-                              window.open(embedUrl, "_blank");
+                              const externalWindow = window.open(embedUrl, "_blank", "noopener,noreferrer");
+                              if (externalWindow) externalWindow.opener = null;
                             }}
                             className="px-2 py-0.5 bg-white/10 hover:bg-white/20 text-white rounded text-[9px] transition-colors"
                           >
@@ -806,7 +862,7 @@ export default function VideoPlayer() {
 
             {!isHUDMode && (
               <>
-                <div className="flex flex-col w-full z-30 bg-gray-900 border-t border-gray-800 px-3 py-2 relative">
+                <div className="relative z-30 flex w-full flex-col border-t border-gray-800 bg-gray-900 px-3 py-1.5">
                   {/* Draft time absolute tooltip above thumb */}
                   {isScrubbing && safeDuration > 0 && (
                     <div
@@ -824,7 +880,7 @@ export default function VideoPlayer() {
                     </span>
                     <div className="relative flex-1 h-5 flex items-center group">
                       {/* Custom Track */}
-                      <div className="absolute left-0 right-0 h-1.5 bg-gray-700 rounded-full overflow-hidden pointer-events-none">
+                      <div className="absolute left-0 right-0 h-[2px] bg-gray-700 rounded-full overflow-hidden pointer-events-none">
                         <div
                           className="h-full bg-sky-500 transition-none"
                           style={{
@@ -834,7 +890,7 @@ export default function VideoPlayer() {
                       </div>
                       {/* Custom Thumb */}
                       <div
-                        className="absolute h-2.5 w-2.5 bg-white rounded-full pointer-events-none shadow-sm -ml-1 transition-transform group-hover:scale-125"
+                        className="absolute h-2 w-2 bg-white rounded-full pointer-events-none shadow-sm -ml-1 transition-transform group-hover:scale-125"
                         style={{
                           left: `${safeDuration > 0 ? (Math.min(visibleTime, safeDuration) / safeDuration) * 100 : 0}%`,
                         }}
