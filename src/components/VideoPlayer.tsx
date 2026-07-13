@@ -34,6 +34,8 @@ import {
 export default function VideoPlayer() {
   const playerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previousProjectIdRef = useRef<string | null>(null);
+  const restoredPlaybackKeyRef = useRef<string | null>(null);
 
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState("");
@@ -67,7 +69,8 @@ export default function VideoPlayer() {
     getCurrentTimeRef,
   } = useScoutContext();
 
-  const { activeProjectId, updateProjectLastVideoTime } = useWorkspace();
+  const { activeProjectId, projects, updateProjectLastVideoTime } = useWorkspace();
+  const activeProject = projects.find(project => project.id === activeProjectId);
 
   const {
     playbackRate,
@@ -139,6 +142,49 @@ export default function VideoPlayer() {
 
   // Timeline State
   const [showFineControls, setShowFineControls] = useState(false);
+
+  useEffect(() => {
+    if (videoSourceType === "youtube") setUrlInput(youtubeUrl || "");
+  }, [videoSourceType, youtubeUrl]);
+
+  useEffect(() => {
+    const previousProjectId = previousProjectIdRef.current;
+    previousProjectIdRef.current = activeProjectId;
+    if (!previousProjectId || previousProjectId === activeProjectId) return;
+
+    if (videoSrc) URL.revokeObjectURL(videoSrc);
+    setVideoSrc(null);
+    setRequestedPlaying(false);
+    setPlayerReady(false);
+    setCurrentTimeDisplay(0);
+    restoredPlaybackKeyRef.current = null;
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    const resumeTime = activeProject?.videoMeta?.lastVideoTime;
+    if (!playerReady || !activeProjectId || !resumeTime || resumeTime <= 0) return;
+
+    const sourceIdentity = videoSourceType === "youtube" ? youtubeUrl : localFileName;
+    const playbackKey = `${activeProjectId}:${videoSourceType}:${sourceIdentity || "none"}`;
+    if (restoredPlaybackKeyRef.current === playbackKey) return;
+
+    setIsPlaying(false);
+    seekToSafe(resumeTime);
+    setCurrentTimeDisplay(resumeTime);
+    setVideoTime(resumeTime);
+    restoredPlaybackKeyRef.current = playbackKey;
+  }, [
+    activeProject?.videoMeta?.lastVideoTime,
+    activeProjectId,
+    localFileName,
+    playerReady,
+    seekToSafe,
+    setCurrentTimeDisplay,
+    setIsPlaying,
+    setVideoTime,
+    videoSourceType,
+    youtubeUrl,
+  ]);
 
   const handlePlayerReadyWithoutCaptions = useCallback(() => {
     handlePlayerReady();

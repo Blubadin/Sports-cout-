@@ -4,10 +4,29 @@ import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useScoutContext } from './ScoutContext';
 import { DEFAULT_TEAMS } from '../data';
 import { getValidSportType, sanitizeEvents } from '../utils/scoutData';
+import { indexedDbStorageAdapter } from '../utils/storageAdapter';
+import { createProjectRepository } from '../utils/projectRepository';
+
+export type ProjectSaveStatus = 'loading' | 'idle' | 'saving' | 'saved' | 'error';
+
+const projectRepository = createProjectRepository(indexedDbStorageAdapter);
+
+function readLegacyProjects(): ScoutProject[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem('scout_projects') || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 interface WorkspaceContextType {
   projects: ScoutProject[];
   activeProjectId: string | null;
+  saveStatus: ProjectSaveStatus;
+  lastSavedAt: string | null;
+  repositoryReady: boolean;
   createNewProject: (
     title: string, 
     sportType: SportType, 
@@ -17,7 +36,7 @@ interface WorkspaceContextType {
     videoMeta?: any
   ) => void;
   openProject: (projectId: string) => void;
-  saveCurrentProject: () => void;
+  saveCurrentProject: () => Promise<void>;
   deleteProject: (projectId: string) => void;
   duplicateProject: (projectId: string) => void;
   renameProject: (projectId: string, newTitle: string) => void;
@@ -28,9 +47,15 @@ interface WorkspaceContextType {
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
-  const [projects, setProjects] = useLocalStorage<ScoutProject[]>('scout_projects', []);
+  const [projects, setProjects] = React.useState<ScoutProject[]>(readLegacyProjects);
   const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>('active_scout_project_id', null);
+  const [saveStatus, setSaveStatus] = React.useState<ProjectSaveStatus>('loading');
+  const [lastSavedAt, setLastSavedAt] = React.useState<string | null>(null);
+  const [repositoryReady, setRepositoryReady] = React.useState(false);
   const isProjectLoading = React.useRef(false);
+  const projectsRef = React.useRef(projects);
+  const saveGenerationRef = React.useRef(0);
+  const explicitlyPersistedProjectsRef = React.useRef<ScoutProject[] | null>(null);
   
   const { 
     events, setEvents, clearEventHistory, 
@@ -81,82 +106,127 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     setVideoSourceType, setYoutubeUrl, setYoutubeVideoId, setLocalFileName
   ]);
 
-  // Initial migration & sanitization
   useEffect(() => {
-    let projs = Array.isArray(projects) ? projects : [];
-    
-    // Sanitize corrupted projects
-    const validProjs = projs.filter(p => typeof p === 'object' && p !== null && p.id && p.title);
-    
-    let changed = false;
-    const sanitizedProjs = validProjs.map(p => {
-      const sanitizedEvs = sanitizeEvents(p.events, getValidSportType(p.sportType));
-      if (JSON.stringify(sanitizedEvs) !== JSON.stringify(p.events)) {
-        changed = true;
-        return { ...p, events: sanitizedEvs };
-      }
-      return p;
-    });
+    projectsRef.current = projects;
+  }, [projects]);
 
-    if (changed || validProjs.length !== projs.length) {
-      console.warn('WorkspaceContext: Sanitized duplicate or numeric event IDs.');
-      setProjects(sanitizedProjs);
-      projs = sanitizedProjs;
-    }
-    
-    const evs = Array.isArray(events) ? events : [];
-    if (projs.length === 0 && evs.length > 0) {
-      // Migrate existing data to a Recovered Scout project
-      const recoveredId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-      const newProj: ScoutProject = {
-        id: recoveredId,
-        title: 'Recovered Scout',
-        sportType: matchInfo.sportType,
-        matchInfo,
-        teams,
-        events: sanitizeEvents(events, matchInfo.sportType),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      setProjects([newProj]);
-      setActiveProjectId(recoveredId);
+  const persistProjects = useCallback(async (nextProjects: ScoutProject[]) => {
+    const generation = ++saveGenerationRef.current;
+    setSaveStatus('saving');
+    try {
+      await projectRepository.save(nextProjects);
+      if (generation === saveGenerationRef.current) {
+        setSaveStatus('saved');
+        setLastSavedAt(new Date().toISOString());
+      }
+    } catch (error) {
+      console.error('Failed to save projects to IndexedDB:', error);
+      if (generation === saveGenerationRef.current) setSaveStatus('error');
+      throw error;
     }
   }, []);
 
-  // Auto-save logic
+  // IndexedDB becomes the source of truth. The original localStorage value is kept as a recovery backup.
   useEffect(() => {
-    if (isProjectLoading.current) return;
+    let cancelled = false;
+    const initializeRepository = async () => {
+      try {
+        let initializedProjects = await projectRepository.initialize(projectsRef.current);
+        initializedProjects = initializedProjects
+          .filter(project => project && project.id && project.title)
+          .map(project => ({
+            ...project,
+            sportType: getValidSportType(project.sportType),
+            events: sanitizeEvents(project.events, getValidSportType(project.sportType)),
+          }));
+
+        if (initializedProjects.length === 0 && Array.isArray(events) && events.length > 0) {
+          const recoveredId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+          const recoveredProject: ScoutProject = {
+            id: recoveredId,
+            title: 'Recovered Scout',
+            sportType: matchInfo.sportType,
+            matchInfo,
+            teams,
+            events: sanitizeEvents(events, matchInfo.sportType),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          initializedProjects = [recoveredProject];
+          await projectRepository.save(initializedProjects);
+          if (!activeProjectId) setActiveProjectId(recoveredId);
+        }
+
+        if (cancelled) return;
+        projectsRef.current = initializedProjects;
+        setProjects(initializedProjects);
+        const projectToOpen = initializedProjects.find(project => project.id === activeProjectId)
+          || initializedProjects[0];
+        if (projectToOpen) loadProjectState(projectToOpen);
+        setRepositoryReady(true);
+        setSaveStatus('saved');
+        setLastSavedAt(new Date().toISOString());
+      } catch (error) {
+        console.error('Failed to initialize project repository:', error);
+        if (cancelled) return;
+        setRepositoryReady(true);
+        setSaveStatus('error');
+      }
+    };
+
+    void initializeRepository();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!repositoryReady) return;
+    if (explicitlyPersistedProjectsRef.current === projects) {
+      explicitlyPersistedProjectsRef.current = null;
+      return;
+    }
+    explicitlyPersistedProjectsRef.current = null;
+    const timeoutId = window.setTimeout(() => {
+      void persistProjects(projects).catch(() => undefined);
+    }, 250);
+    return () => window.clearTimeout(timeoutId);
+  }, [persistProjects, projects, repositoryReady]);
+
+  const snapshotCurrentProject = useCallback((project: ScoutProject): ScoutProject => ({
+    ...project,
+    sportType: matchInfo.sportType,
+    events,
+    matchInfo,
+    teams,
+    settingsSnapshot: settings,
+    videoMeta: {
+      ...(project.videoMeta || {}),
+      sourceType: videoSourceType,
+      youtubeUrl,
+      youtubeVideoId: youtubeVideoId || undefined,
+      localFileName: localFileName || undefined,
+    },
+    updatedAt: new Date().toISOString(),
+  }), [events, localFileName, matchInfo, settings, teams, videoSourceType, youtubeUrl, youtubeVideoId]);
+
+  // Debounced project snapshot; repository persistence is handled separately above.
+  useEffect(() => {
+    if (isProjectLoading.current || !repositoryReady) return;
     
     if (activeProjectId) {
+      setSaveStatus('idle');
       const timeoutId = setTimeout(() => {
         if (isProjectLoading.current) return;
         setProjects(prev => {
           const prevArr = Array.isArray(prev) ? prev : [];
-          return prevArr.map(p => {
-            if (p.id === activeProjectId) {
-              return {
-                ...p,
-                events,
-                matchInfo,
-                teams,
-                settingsSnapshot: settings,
-                videoMeta: {
-                  sourceType: videoSourceType,
-                  youtubeUrl,
-                  youtubeVideoId: youtubeVideoId || undefined,
-                  localFileName: localFileName || undefined
-                },
-                updatedAt: new Date().toISOString()
-              };
-            }
-            return p;
-          });
+          return prevArr.map(p => p.id === activeProjectId ? snapshotCurrentProject(p) : p);
         });
       }, 800);
       
       return () => clearTimeout(timeoutId);
     }
-  }, [events, matchInfo, teams, activeProjectId, setProjects, videoSourceType, youtubeUrl, youtubeVideoId, localFileName, settings]);
+  }, [activeProjectId, repositoryReady, snapshotCurrentProject]);
 
   const updateProjectLastVideoTime = useCallback((time: number) => {
     if (activeProjectId) {
@@ -181,23 +251,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
 
 
-  const saveCurrentProject = () => {
+  const saveCurrentProject = async () => {
     if (!activeProjectId) {
       createNewProject(`Match ${new Date().toLocaleDateString()}`, matchInfo.sportType);
-    } else {
-      setProjects(prev => {
-        const prevArr = Array.isArray(prev) ? prev : [];
-        return prevArr.map(p => {
-          if (p.id === activeProjectId) {
-            return {
-              ...p,
-              updatedAt: new Date().toISOString()
-            };
-          }
-          return p;
-        });
-      });
-      showToast(settings.uiLanguage === 'th' ? 'บันทึกโครงการแล้ว' : 'Project saved successfully');
+      return;
+    }
+
+    const nextProjects = projectsRef.current.map(project =>
+      project.id === activeProjectId ? snapshotCurrentProject(project) : project,
+    );
+    projectsRef.current = nextProjects;
+    explicitlyPersistedProjectsRef.current = nextProjects;
+    setProjects(nextProjects);
+    try {
+      await persistProjects(nextProjects);
+      showToast(settings.uiLanguage === 'th' ? 'บันทึกโปรเจกต์แล้ว' : 'Project saved');
+    } catch {
+      showToast(settings.uiLanguage === 'th' ? 'บันทึกไม่สำเร็จ กรุณาลองอีกครั้ง' : 'Save failed. Please try again.');
     }
   };
 
@@ -249,10 +319,30 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const openProject = (projectId: string) => {
-    const proj = projects.find(p => p.id === projectId);
-    if (proj) {
-      loadProjectState(proj);
-    }
+    const switchProject = async () => {
+      let nextProjects = projectsRef.current;
+      if (activeProjectId) {
+        nextProjects = nextProjects.map(project =>
+          project.id === activeProjectId ? snapshotCurrentProject(project) : project,
+        );
+        projectsRef.current = nextProjects;
+        explicitlyPersistedProjectsRef.current = nextProjects;
+        setProjects(nextProjects);
+        try {
+          await persistProjects(nextProjects);
+        } catch {
+          showToast(settings.uiLanguage === 'th'
+            ? 'บันทึกโปรเจกต์ปัจจุบันไม่สำเร็จ จึงยังไม่สลับโปรเจกต์'
+            : 'Could not save the current project, so the project switch was cancelled.');
+          return;
+        }
+      }
+
+      const project = nextProjects.find(candidate => candidate.id === projectId);
+      if (project) loadProjectState(project);
+    };
+
+    void switchProject();
   };
 
   const deleteProject = (projectId: string) => {
@@ -424,6 +514,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     <WorkspaceContext.Provider value={{
       projects,
       activeProjectId,
+      saveStatus,
+      lastSavedAt,
+      repositoryReady,
       createNewProject,
       openProject,
       saveCurrentProject,

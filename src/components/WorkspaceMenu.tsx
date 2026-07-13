@@ -11,7 +11,20 @@ import { SPORT_TEMPLATES } from '../sports';
 import { createProjectsExport } from '../utils/scoutData';
 
 export default function WorkspaceMenu() {
-  const { projects, activeProjectId, createNewProject, openProject, saveCurrentProject, deleteProject, duplicateProject, renameProject, importProject } = useWorkspace();
+  const {
+    projects,
+    activeProjectId,
+    saveStatus,
+    lastSavedAt,
+    repositoryReady,
+    createNewProject,
+    openProject,
+    saveCurrentProject,
+    deleteProject,
+    duplicateProject,
+    renameProject,
+    importProject,
+  } = useWorkspace();
   const { matchInfo, showToast, settings } = useScoutContext();
   const [isOpen, setIsOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -32,6 +45,12 @@ export default function WorkspaceMenu() {
   }, []);
 
   const activeProject = projects.find(p => p.id === activeProjectId);
+  const saveLabel = settings.uiLanguage === 'th'
+    ? saveStatus === 'saving' ? 'กำลังบันทึก' : saveStatus === 'idle' ? 'รอบันทึก' : saveStatus === 'error' ? 'บันทึกไม่สำเร็จ' : 'บันทึกแล้ว'
+    : saveStatus === 'saving' ? 'Saving' : saveStatus === 'idle' ? 'Changes pending' : saveStatus === 'error' ? 'Save failed' : 'Saved';
+  const saveTitle = lastSavedAt && saveStatus === 'saved'
+    ? `${saveLabel} ${new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : saveLabel;
 
   const sportOptions = Object.values(SPORT_TEMPLATES).map(t => ({
     value: t.id,
@@ -125,6 +144,24 @@ export default function WorkspaceMenu() {
             {activeProject ? activeProject.title : (settings.uiLanguage === 'th' ? 'ไม่มีโครงการ' : 'No Project')}
           </span>
           <ChevronDown size={16} className="text-gray-400 shrink-0 ml-1" />
+          <span
+            className={classNames(
+              "h-2 w-2 shrink-0 rounded-full",
+              saveStatus === 'error' ? 'bg-red-500' : saveStatus === 'saving' || saveStatus === 'idle' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500',
+            )}
+            title={saveTitle}
+          />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => void saveCurrentProject()}
+          disabled={!activeProjectId || !repositoryReady || saveStatus === 'saving'}
+          className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:bg-gray-50 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+          title={settings.uiLanguage === 'th' ? `บันทึกตอนนี้ - ${saveTitle}` : `Save now - ${saveTitle}`}
+          aria-label={settings.uiLanguage === 'th' ? 'บันทึกโปรเจกต์ตอนนี้' : 'Save project now'}
+        >
+          <Save size={17} />
         </button>
         
         <button
