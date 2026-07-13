@@ -1,7 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { PROJECTS_REPOSITORY_KEY } from '../utils/projectRepository';
-import { buildRecoveryEnvelope } from '../utils/scoutData';
-import { indexedDbStorageAdapter } from '../utils/storageAdapter';
+import { buildRecoveryEnvelopeBestEffort } from '../utils/scoutData';
+import { readExistingIndexedDbItem } from '../utils/storageAdapter';
 
 interface Props {
   children: ReactNode;
@@ -44,11 +44,16 @@ export class ErrorBoundary extends Component<Props, State> {
         return acc;
       }, {});
 
-      const backup = buildRecoveryEnvelope({
+      const recovery = await buildRecoveryEnvelopeBestEffort({
         exportedAt: new Date().toISOString(),
         localStorage: localStorageSnapshot,
-        indexedDbProjects: await indexedDbStorageAdapter.getItem(PROJECTS_REPOSITORY_KEY),
+        readIndexedDbProjects: async () => {
+          const result = await readExistingIndexedDbItem('keyval-store', 'keyval', PROJECTS_REPOSITORY_KEY);
+          if (result.failed) throw new Error('IndexedDB recovery read failed');
+          return result.value;
+        },
       });
+      const backup = recovery.envelope;
 
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backup, null, 2));
       const link = document.createElement('a');
@@ -57,7 +62,11 @@ export class ErrorBoundary extends Component<Props, State> {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      this.setState({ recoveryMessage: 'Recovery backup exported. Keep this file before resetting.' });
+      this.setState({
+        recoveryMessage: recovery.indexedDbReadFailed
+          ? 'Local backup exported. IndexedDB projects could not be read.'
+          : 'Recovery backup exported. Keep this file before resetting.',
+      });
     } catch (e) {
       console.error(e);
       this.setState({ recoveryMessage: 'Could not export recovery backup from this browser.' });

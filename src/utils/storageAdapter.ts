@@ -19,6 +19,73 @@ export const indexedDbStorageAdapter: StorageAdapter = {
   },
 };
 
+export type ExistingIndexedDbReadResult<T> = {
+  value: T | null;
+  failed: boolean;
+};
+
+export function readExistingIndexedDbItem<T = unknown>(
+  databaseName: string,
+  storeName: string,
+  key: IDBValidKey,
+): Promise<ExistingIndexedDbReadResult<T>> {
+  return new Promise((resolve) => {
+    if (typeof indexedDB === 'undefined') {
+      resolve({ value: null, failed: true });
+      return;
+    }
+
+    let settled = false;
+    const finish = (value: T | null, failed: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve({ value, failed });
+    };
+
+    let request: IDBOpenDBRequest;
+    try {
+      request = indexedDB.open(databaseName);
+    } catch {
+      finish(null, true);
+      return;
+    }
+
+    request.onupgradeneeded = () => {
+      // Opening a missing database triggers an upgrade. Abort so recovery never creates storage.
+      request.transaction?.abort();
+      finish(null, false);
+    };
+    request.onerror = () => finish(null, true);
+    request.onblocked = () => finish(null, true);
+    request.onsuccess = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(storeName)) {
+        database.close();
+        finish(null, false);
+        return;
+      }
+
+      try {
+        const getRequest = database
+          .transaction(storeName, 'readonly')
+          .objectStore(storeName)
+          .get(key);
+        getRequest.onsuccess = () => {
+          database.close();
+          finish((getRequest.result as T | undefined) ?? null, false);
+        };
+        getRequest.onerror = () => {
+          database.close();
+          finish(null, true);
+        };
+      } catch {
+        database.close();
+        finish(null, true);
+      }
+    };
+  });
+}
+
 export const localStorageAdapter: StorageAdapter = {
   async getItem(key) {
     const raw = window.localStorage.getItem(key);

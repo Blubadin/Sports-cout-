@@ -4,6 +4,11 @@
     return versionMeta && versionMeta.getAttribute('content') || 'unknown';
   }
 
+  function getMetadata(name, fallback) {
+    var meta = document.querySelector('meta[name="' + name + '"]');
+    return meta && meta.getAttribute('content') || fallback;
+  }
+
   function readIndexedDbProjects() {
     return new Promise(function(resolve) {
       if (!window.indexedDB) {
@@ -81,8 +86,8 @@
 
     var indexedDbResult = await readIndexedDbProjects();
     var backup = {
-      schemaVersion: '1.1',
-      app: 'SPORTSCOUT',
+      schemaVersion: getMetadata('sportscout-schema-version', 'unknown'),
+      app: getMetadata('sportscout-app-name', 'unknown'),
       appVersion: getAppVersion(),
       type: 'localStorageRecovery',
       exportedAt: new Date().toISOString(),

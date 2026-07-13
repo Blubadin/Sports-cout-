@@ -8,7 +8,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 const injectAppVersionMeta = () => ({
   name: 'inject-app-version-meta',
   transformIndexHtml(html: string) {
-    return html.replace('__SPORTSCOUT_APP_VERSION__', packageMetadata.version);
+    return html
+      .replace('__SPORTSCOUT_APP_NAME__', 'SPORTSCOUT')
+      .replace('__SPORTSCOUT_APP_VERSION__', packageMetadata.version)
+      .replace('__SPORTSCOUT_SCHEMA_VERSION__', '1.1');
   },
 });
 

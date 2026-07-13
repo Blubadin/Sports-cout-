@@ -41,6 +41,10 @@ export type RecoveryEnvelopeInput = {
   indexedDbProjects?: unknown;
 };
 
+export type RecoveryEnvelopeBestEffortInput = Omit<RecoveryEnvelopeInput, "indexedDbProjects"> & {
+  readIndexedDbProjects: () => Promise<unknown>;
+};
+
 export type DataQualityIssueSeverity = "info" | "warning" | "error";
 
 export type DataQualityIssueCode =
@@ -320,6 +324,32 @@ export function buildRecoveryEnvelope({
   }
 
   return envelope;
+}
+
+export async function buildRecoveryEnvelopeBestEffort({
+  exportedAt,
+  localStorage,
+  readIndexedDbProjects,
+}: RecoveryEnvelopeBestEffortInput): Promise<{
+  envelope: ScoutRecoveryEnvelope;
+  indexedDbReadFailed: boolean;
+}> {
+  try {
+    const indexedDbProjects = await readIndexedDbProjects();
+    return {
+      envelope: buildRecoveryEnvelope({
+        exportedAt,
+        localStorage,
+        indexedDbProjects: indexedDbProjects ?? undefined,
+      }),
+      indexedDbReadFailed: false,
+    };
+  } catch {
+    return {
+      envelope: buildRecoveryEnvelope({ exportedAt, localStorage }),
+      indexedDbReadFailed: true,
+    };
+  }
 }
 
 export function buildAnalyticsSummary(

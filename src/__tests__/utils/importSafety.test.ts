@@ -47,6 +47,8 @@ describe("importSafety", () => {
   it("keeps runtime recovery metadata dynamic and includes the IndexedDB project envelope", () => {
     expect(errorOverlaySource).not.toContain("0.11.0-pilot.1");
     expect(errorOverlaySource).toContain('meta[name="sportscout-app-version"]');
+    expect(errorOverlaySource).toContain("sportscout-app-name");
+    expect(errorOverlaySource).toContain("sportscout-schema-version");
     expect(errorOverlaySource).toContain("async function exportRuntimeRecovery");
     expect(errorOverlaySource).toContain("keyval-store");
     expect(errorOverlaySource).toContain("keyval");

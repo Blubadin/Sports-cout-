@@ -12,6 +12,7 @@ import {
   createEventsExport,
   createProjectsExport,
   buildRecoveryEnvelope,
+  buildRecoveryEnvelopeBestEffort,
   buildAnalyticsSummary,
   buildDataQualityReport,
   isAttackingSkill,
@@ -362,6 +363,22 @@ describe('buildRecoveryEnvelope', () => {
     });
 
     expect(envelope).not.toHaveProperty('indexedDbProjects');
+  });
+});
+
+describe('buildRecoveryEnvelopeBestEffort', () => {
+  it('keeps the localStorage recovery snapshot when IndexedDB cannot be read', async () => {
+    const result = await buildRecoveryEnvelopeBestEffort({
+      exportedAt: '2026-07-13T00:00:00.000Z',
+      localStorage: { scout_projects: '[{"id":"legacy"}]' },
+      readIndexedDbProjects: async () => {
+        throw new Error('IndexedDB unavailable');
+      },
+    });
+
+    expect(result.indexedDbReadFailed).toBe(true);
+    expect(result.envelope.localStorage.scout_projects).toBe('[{"id":"legacy"}]');
+    expect(result.envelope.indexedDbProjects).toBeUndefined();
   });
 });
 
