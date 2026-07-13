@@ -6,6 +6,7 @@ import { DEFAULT_TEAMS } from '../data';
 import { getValidSportType, sanitizeEvents } from '../utils/scoutData';
 import { indexedDbStorageAdapter } from '../utils/storageAdapter';
 import { createProjectRepository } from '../utils/projectRepository';
+import { getImportPayloadCounts, MAX_IMPORT_EVENTS, MAX_IMPORT_PROJECTS } from '../utils/importSafety';
 
 export type ProjectSaveStatus = 'loading' | 'idle' | 'saving' | 'saved' | 'error';
 
@@ -395,13 +396,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const importProject = (project: any): boolean => {
-    // Basic size limit checks to prevent crashing or filling localStorage
-    if (Array.isArray(project) && project.length > 20000) {
-      showToast('⚠️ Project data is too large to import (> 20,000 events).');
-      return false;
-    }
-    if (project?.type === 'events' && Array.isArray(project.events) && project.events.length > 20000) {
-      showToast('⚠️ Project data is too large to import (> 20,000 events).');
+    const importCounts = getImportPayloadCounts(project);
+    if (importCounts.projects > MAX_IMPORT_PROJECTS || importCounts.events > MAX_IMPORT_EVENTS) {
+      showToast(settings.uiLanguage === 'th'
+        ? `ข้อมูลนำเข้าใหญ่เกินขีดจำกัด (${MAX_IMPORT_PROJECTS} โปรเจกต์ / ${MAX_IMPORT_EVENTS.toLocaleString()} เหตุการณ์)`
+        : `Import exceeds the limit of ${MAX_IMPORT_PROJECTS} projects or ${MAX_IMPORT_EVENTS.toLocaleString()} events`);
       return false;
     }
     
@@ -423,6 +422,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       };
     } else if (project?.type === 'projects' && Array.isArray(project.projects)) {
       return project.projects.map((p: any) => importProject(p)).some(Boolean);
+    } else if (Array.isArray(project?.indexedDbProjects?.projects)) {
+      return project.indexedDbProjects.projects.map((p: any) => importProject(p)).some(Boolean);
     } else if (project?.localStorage?.scout_projects) {
       try {
         const restoredProjects = JSON.parse(project.localStorage.scout_projects);
@@ -484,10 +485,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     // Sanitize Event rows
     project.events = sanitizeEvents(project.events, project.sportType);
 
-    // Re-generate ID if missing or colliding
-    if (!project.id || typeof project.id !== 'string') {
-      project.id = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-    }
+    // Imports are copies: always assign a fresh ID so existing work cannot be overwritten.
+    project.id = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
     // Timestamp safety
     project.createdAt = typeof project.createdAt === 'string' ? project.createdAt : new Date().toISOString();
@@ -495,9 +494,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
     setProjects(prev => {
       const prevArr = Array.isArray(prev) ? prev : [];
-      // Prevent duplicates
-      const filtered = prevArr.filter(p => p.id !== project.id);
-      return [...filtered, project];
+      return [...prevArr, project];
     });
 
     return true;

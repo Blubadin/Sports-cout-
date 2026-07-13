@@ -81,17 +81,17 @@ export default function HUDVideoControls({ isPortrait, videoControls }: Props) {
   const isMobile = layout.device === "phone";
 
   return (
-    <div className="flex flex-col gap-1 w-full max-w-4xl mx-auto px-4 bg-black/50 backdrop-blur-md rounded-2xl py-1.5 border border-white/5 pb-[env(safe-area-inset-bottom)]">
+    <div className="flex flex-col gap-1 w-full max-w-4xl mx-auto px-4 bg-black/50 backdrop-blur-md rounded-lg py-1 border border-white/5 pb-[env(safe-area-inset-bottom)]">
       {/* Thin timeline with a preserved pointer hit area */}
       <div
         ref={timelineRef}
-        className="w-full flex items-center cursor-pointer relative group touch-none select-none py-1.5"
-        style={{ minHeight: isMobile ? "28px" : "24px" }}
+        className="w-full flex items-center cursor-pointer relative group touch-none select-none py-1"
+        style={{ minHeight: isMobile ? "28px" : "20px" }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
-        <div className="h-1 w-full bg-white/20 rounded-full overflow-hidden relative">
+        <div className="h-px w-full bg-white/20 rounded-full overflow-hidden relative">
           <div
             className="absolute top-0 left-0 h-full bg-sky-500 shadow-[0_0_10px_rgba(56,189,248,0.8)]"
             style={{
@@ -101,7 +101,7 @@ export default function HUDVideoControls({ isPortrait, videoControls }: Props) {
         </div>
         {/* Hover/active thumb */}
         <div
-          className="absolute w-2.5 h-2.5 bg-white rounded-full shadow border border-sky-500 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none -translate-x-1/2"
+          className="absolute w-2 h-2 bg-white rounded-full shadow border border-sky-500 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none -translate-x-1/2"
           style={{
             left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%`,
           }}

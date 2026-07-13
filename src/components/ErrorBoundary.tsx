@@ -1,4 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { PROJECTS_REPOSITORY_KEY } from '../utils/projectRepository';
+import { indexedDbStorageAdapter } from '../utils/storageAdapter';
 
 interface Props {
   children: ReactNode;
@@ -34,7 +36,7 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('Uncaught error:', error, errorInfo);
   }
 
-  private handleExportRecovery = () => {
+  private handleExportRecovery = async () => {
     try {
       const localStorageSnapshot = SCOUT_STORAGE_KEYS.reduce<Record<string, string | null>>((acc, key) => {
         acc[key] = localStorage.getItem(key);
@@ -42,11 +44,12 @@ export class ErrorBoundary extends Component<Props, State> {
       }, {});
 
       const backup = {
-        schemaVersion: '1.0',
+        schemaVersion: '1.1',
         app: 'Sports Scout Logger',
         type: 'localStorageRecovery',
         exportedAt: new Date().toISOString(),
-        localStorage: localStorageSnapshot
+        localStorage: localStorageSnapshot,
+        indexedDbProjects: await indexedDbStorageAdapter.getItem(PROJECTS_REPOSITORY_KEY),
       };
 
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backup, null, 2));
@@ -129,7 +132,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </button>
 
               <button
-                onClick={this.handleExportRecovery}
+                onClick={() => void this.handleExportRecovery()}
                 className="w-full bg-slate-700 hover:bg-slate-600 text-slate-100 font-medium py-3 px-4 rounded-xl border border-slate-600 transition-all duration-200"
               >
                 Export recovery backup

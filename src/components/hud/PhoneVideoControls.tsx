@@ -72,7 +72,7 @@ export default function PhoneVideoControls({
           step={0.01}
           value={progress}
           onChange={handleSeek}
-          className="flex-1 h-1 sm:h-1.5 bg-white/20 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+          className="flex-1 h-1 sm:h-1.5 bg-white/20 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
         />
         <span className="text-xs text-gray-500 font-mono w-12">
           {formatPreciseTime(duration)}

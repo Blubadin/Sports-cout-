@@ -17,6 +17,7 @@ import { usePWAInstall } from './hooks/usePWAInstall';
 import VideoPlayer from './components/VideoPlayer';
 import Dashboard from './components/Dashboard';
 import BookmarksPanel from './components/BookmarksPanel';
+import { MAX_IMPORT_FILE_BYTES, validateImportFileSize } from './utils/importSafety';
 
 function Toast() {
   const { toastMessage } = useScoutContext();
@@ -75,6 +76,13 @@ function EmptyProjectState() {
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!validateImportFileSize(file.size)) {
+      showToast(settings.uiLanguage === 'th'
+        ? `ไฟล์ใหญ่เกินไป ต้องไม่เกิน ${MAX_IMPORT_FILE_BYTES / 1024 / 1024} MB`
+        : `Import file must be ${MAX_IMPORT_FILE_BYTES / 1024 / 1024} MB or smaller`);
+      event.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (e) => {
