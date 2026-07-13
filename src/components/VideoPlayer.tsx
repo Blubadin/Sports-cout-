@@ -9,7 +9,6 @@ import React, {
 import ReactPlayer from "react-player";
 import { useScoutContext } from "../context/ScoutContext";
 import { useWorkspace } from "../context/WorkspaceContext";
-import { get, set } from 'idb-keyval';
 import {
   Play,
   Pause,
@@ -26,6 +25,11 @@ import SegmentPreviewPanel from "./SegmentPreviewPanel";
 import { useVideoResize } from "../hooks/useVideoResize";
 import { useVideoGestures } from "../hooks/useVideoGestures";
 import { useVideoPlayback } from "../hooks/useVideoPlayback";
+import {
+  loadProjectVideoFileHandle,
+  saveProjectVideoFileHandle,
+  type PersistentVideoFileHandle,
+} from "../utils/videoFileStore";
 
 export default function VideoPlayer() {
   const playerRef = useRef<any>(null);
@@ -63,7 +67,7 @@ export default function VideoPlayer() {
     getCurrentTimeRef,
   } = useScoutContext();
 
-  const { updateProjectLastVideoTime } = useWorkspace();
+  const { activeProjectId, updateProjectLastVideoTime } = useWorkspace();
 
   const {
     playbackRate,
@@ -187,7 +191,7 @@ export default function VideoPlayer() {
 
   useEffect(() => {
     if (videoSourceType === 'local' && localFileName && !videoSrc) {
-       get(`videoFileHandle-${localFileName}`).then(handle => {
+       loadProjectVideoFileHandle(activeProjectId, localFileName).then(handle => {
           if (handle) {
              setCanRestoreAccess(true);
           }
@@ -195,16 +199,21 @@ export default function VideoPlayer() {
     } else {
        setCanRestoreAccess(false);
     }
-  }, [videoSourceType, localFileName, videoSrc]);
+  }, [activeProjectId, videoSourceType, localFileName, videoSrc]);
 
   const handleRestoreAccess = async () => {
     try {
-      const handle = await get(`videoFileHandle-${localFileName}`);
+      const handle = await loadProjectVideoFileHandle(activeProjectId, localFileName);
       if (handle) {
-         const fileHandle = handle as unknown as { requestPermission: (opts: { mode: string }) => Promise<string>, getFile: () => Promise<File> };
-         const perm = await fileHandle.requestPermission({ mode: 'read' });
+         const currentPermission = handle.queryPermission
+           ? await handle.queryPermission({ mode: 'read' })
+           : 'granted';
+         const perm = currentPermission === 'granted' || !handle.requestPermission
+           ? currentPermission
+           : await handle.requestPermission({ mode: 'read' });
          if (perm === 'granted') {
-            const file = await fileHandle.getFile();
+            const file = await handle.getFile();
+            if (videoSrc && videoSourceType === "local") URL.revokeObjectURL(videoSrc);
             const url = URL.createObjectURL(file);
             setVideoSrc(url);
          }
@@ -217,7 +226,7 @@ export default function VideoPlayer() {
   const handlePickLocalVideo = async () => {
     if ('showOpenFilePicker' in window) {
       try {
-        const [fileHandle] = await (window as unknown as { showOpenFilePicker: (opts: unknown) => Promise<any[]> }).showOpenFilePicker({
+        const [fileHandle] = await (window as unknown as { showOpenFilePicker: (opts: unknown) => Promise<PersistentVideoFileHandle[]> }).showOpenFilePicker({
           types: [{ description: 'Video Files', accept: { 'video/*': [] } }]
         });
         const file = await fileHandle.getFile();
@@ -231,7 +240,7 @@ export default function VideoPlayer() {
         setVideoSourceType("local");
         setIsPlaying(false);
         
-        await set(`videoFileHandle-${file.name}`, fileHandle);
+        await saveProjectVideoFileHandle(activeProjectId, file.name, fileHandle);
       } catch (err) {
         console.log("User cancelled or file access failed");
       }
