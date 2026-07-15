@@ -177,6 +177,7 @@ export default function ProAreaCommandPad({
   return (
     <div
       ref={containerRef}
+      data-controller-wheel="area"
       className={`relative w-full aspect-[4/3] sm:aspect-[1.4/1] bg-slate-900/60 border border-white/10 rounded-2xl p-4 flex flex-col justify-between overflow-hidden select-none`}
     >
       {/* Pointer Highlight */}

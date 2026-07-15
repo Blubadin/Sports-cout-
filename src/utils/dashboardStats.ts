@@ -1,6 +1,7 @@
 import { EventRow, SportType, Team } from '../types';
 import { OUT_ZONE_LABELS, DETAILED_ZONE_LABELS } from '../sports';
 import { isAttackingSkill, isDefensiveSkill } from './scoutData';
+import { buildAnalyticsSummary } from './analyticsEngine';
 
 export function calculateDashboardStats(
   events: EventRow[],
@@ -11,6 +12,7 @@ export function calculateDashboardStats(
   if (filterSport !== 'ALL') {
     filteredEvents = events.filter(e => e.sportType === filterSport);
   }
+  const analyticsSummary = buildAnalyticsSummary(events, { sportType: filterSport, teams });
 
   let total = filteredEvents.length;
   let yes = 0, out = 0, pass = 0;
@@ -306,9 +308,17 @@ export function calculateDashboardStats(
   ].filter(d => d.value > 0);
 
   return {
-    total, yes, out, pass,
-    teamAScore, teamBScore,
-    teamCounts, skillCounts, areaCounts,
+    total: analyticsSummary.totalEvents,
+    totalActions: analyticsSummary.totalActions,
+    yes: analyticsSummary.eventResultCounts.Yes,
+    out: analyticsSummary.eventResultCounts.Out,
+    pass: analyticsSummary.eventResultCounts.Pass,
+    teamAScore: analyticsSummary.derivedOutcomePoints.byTeam[teamA || ''] ?? teamAScore,
+    teamBScore: analyticsSummary.derivedOutcomePoints.byTeam[teamB || ''] ?? teamBScore,
+    teamCounts: analyticsSummary.teamCounts,
+    skillCounts,
+    areaCounts: analyticsSummary.areaCounts,
+    analyticsSummary,
     
     // Point Summary Breakdown values
     teamAEarned, teamAErrorPoints, teamAErrors, teamAOpponentEarned,

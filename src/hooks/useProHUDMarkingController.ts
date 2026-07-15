@@ -4,6 +4,12 @@ import type { HudCommandMenu } from "../utils/hudCommandBindings";
 import {
   getHudMenuForKeyboardCode,
 } from "../utils/hudCommandBindings";
+import {
+  dispatchCoachCommand,
+  resolveCoachInputContext,
+  resolveKeyboardCoachCommand,
+  type CoachCommand,
+} from "../utils/coachCommands";
 
 export type MarkingMenuType = "none" | "team" | "skill" | "area" | "result" | "foul";
 
@@ -376,45 +382,46 @@ export function useProHUDMarkingController({
     commitMarking(activeMenuRef.current);
   }, [commitMarking]);
 
+  const handleCoachCommand = useCallback((command: CoachCommand) => {
+    return dispatchCoachCommand(command, {
+      selectTeam: (teamIndex) => {
+        const team = teams[teamIndex];
+        if (!team) return;
+        updateActionField("teamCode", team.code);
+        setHoveredTeam(team.code);
+        setActiveMenu("none");
+      },
+      openMenu: (menu) => {
+        if (isHoldMode) openMarkingMenu(menu);
+        else toggleMarkingMenu(menu);
+      },
+      cancelContext: () => {
+        if (activeMenuRef.current !== "none") cancelMarking();
+        else onCloseHUD();
+      },
+    });
+  }, [
+    cancelMarking,
+    isHoldMode,
+    onCloseHUD,
+    openMarkingMenu,
+    setActiveMenu,
+    setHoveredTeam,
+    teams,
+    toggleMarkingMenu,
+    updateActionField,
+  ]);
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      // If holding or pressing, record key
       isHoldingKeyRef.current[e.code] = true;
-
-      if (e.code === "Escape") {
+      const command = resolveKeyboardCoachCommand(
+        e,
+        resolveCoachInputContext({ activeWheel: activeMenuRef.current !== "none", hudActive: true }),
+      );
+      if (command && ['selectTeam', 'openMenu', 'cancelContext'].includes(command.type)) {
         e.preventDefault();
-        if (activeMenuRef.current !== "none") {
-          cancelMarking();
-        } else {
-          onCloseHUD();
-        }
-        return;
-      }
-
-      if ((e.code === "Digit1" || e.code === "Numpad1") && teams[0]) {
-        e.preventDefault();
-        updateActionField("teamCode", teams[0].code);
-        setHoveredTeam(teams[0].code);
-        setActiveMenu("none");
-        return;
-      }
-
-      if ((e.code === "Digit2" || e.code === "Numpad2") && teams[1]) {
-        e.preventDefault();
-        updateActionField("teamCode", teams[1].code);
-        setHoveredTeam(teams[1].code);
-        setActiveMenu("none");
-        return;
-      }
-
-      const commandMenu = getHudMenuForKeyboardCode(e.code);
-      if (commandMenu) {
-        e.preventDefault();
-        if (isHoldMode) {
-          openMarkingMenu(commandMenu);
-        } else {
-          toggleMarkingMenu(commandMenu);
-        }
+        handleCoachCommand(command);
       }
 
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code) && settings.enableArrowAreaNavigation) {
@@ -451,14 +458,7 @@ export function useProHUDMarkingController({
 
     },
     [
-      isHoldMode,
-      teams,
-      updateActionField,
-      setHoveredTeam,
-      cancelMarking,
-      onCloseHUD,
-      openMarkingMenu,
-      toggleMarkingMenu,
+      handleCoachCommand,
       settings.enableArrowAreaNavigation,
       settings.areaAutoSelectOnArrow,
       selectArea,
@@ -501,6 +501,7 @@ export function useProHUDMarkingController({
     handleKeyDown,
     handleKeyUp,
     handlePointerMove,
+    handleCoachCommand,
     cancelMarking,
     commitMarking,
     commitActiveMarking,

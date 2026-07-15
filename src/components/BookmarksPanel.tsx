@@ -4,6 +4,7 @@ import { useScoutContext } from '../context/ScoutContext';
 import type { EventRow } from '../types';
 import { formatPreciseTime } from '../utils';
 import BookmarkClipModal from './BookmarkClipModal';
+import { t } from '../i18n';
 
 function getPreviewRange(event: EventRow) {
   const start = event.previewStartTime ?? event.clipStartTime ?? event.videoTime ?? 0;
@@ -20,13 +21,12 @@ export default function BookmarksPanel() {
     updateEventBookmarkNote,
     showToast,
   } = useScoutContext();
-  const isThai = settings.uiLanguage === 'th';
   const bookmarkedEvents = events.filter(event => event.isBookmarked);
   const [replayClipEvent, setReplayClipEvent] = useState<EventRow | null>(null);
 
   const playSegment = (event: EventRow, loop: boolean) => {
     setPreviewState({ isActive: true, eventRow: event, loop });
-    showToast(isThai ? 'เปิด replay เหตุการณ์สำคัญแล้ว' : 'Bookmark replay opened');
+    showToast(t('keyMoments.replayOpened', settings.uiLanguage));
   };
 
   const copyTimeRange = async (event: EventRow) => {
@@ -34,7 +34,7 @@ export default function BookmarksPanel() {
     const text = `${formatPreciseTime(start)} - ${formatPreciseTime(end)}`;
     try {
       await navigator.clipboard.writeText(text);
-      showToast(isThai ? 'คัดลอกช่วงเวลาแล้ว' : 'Time range copied');
+      showToast(t('keyMoments.rangeCopied', settings.uiLanguage));
     } catch {
       showToast(text);
     }
@@ -47,12 +47,10 @@ export default function BookmarksPanel() {
           <Star size={22} />
         </div>
         <h3 className="text-sm font-black text-gray-900 dark:text-gray-100">
-          {isThai ? 'ยังไม่มีเหตุการณ์สำคัญ' : 'No bookmarked sequences yet'}
+          {t('keyMoments.empty', settings.uiLanguage)}
         </h3>
         <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-          {isThai
-            ? 'เปิด replay จากเหตุการณ์ แล้วกดปุ่มดาวเพื่อเก็บช่วงสำคัญไว้ดูซ้ำภายหลัง'
-            : 'Open an event replay and press the star button to save key sequences for later review.'}
+          {t('keyMoments.emptyHelp', settings.uiLanguage)}
         </p>
       </div>
     );
@@ -63,16 +61,14 @@ export default function BookmarksPanel() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-black uppercase tracking-wide text-sky-500">
-            {isThai ? 'เหตุการณ์ที่ Bookmark ไว้' : 'Bookmarked Sequences'}
+            {t('keyMoments.title', settings.uiLanguage)}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {isThai
-              ? 'ใช้เป็น virtual clip replay สำหรับ local video และเก็บช่วงเวลาสำคัญสำหรับ YouTube'
-              : 'Virtual clip replay for local video, timestamp metadata for YouTube.'}
+            {t('keyMoments.description', settings.uiLanguage)}
           </p>
         </div>
         <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-xs font-black text-amber-500">
-          {bookmarkedEvents.length} {isThai ? 'รายการ' : 'saved'}
+          {bookmarkedEvents.length} {t('keyMoments.items', settings.uiLanguage)}
         </span>
       </div>
 
@@ -111,8 +107,8 @@ export default function BookmarksPanel() {
                   type="button"
                   onClick={() => toggleEventBookmark(event.id)}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-red-400/20 bg-red-500/10 text-red-400 transition-colors hover:bg-red-500/20"
-                  title={isThai ? 'ลบ Bookmark' : 'Remove bookmark'}
-                  aria-label={isThai ? 'ลบ Bookmark' : 'Remove bookmark'}
+                  title={t('keyMoments.remove', settings.uiLanguage)}
+                  aria-label={t('keyMoments.remove', settings.uiLanguage)}
                 >
                   <Trash2 size={15} />
                 </button>
@@ -121,7 +117,7 @@ export default function BookmarksPanel() {
               <textarea
                 value={event.bookmarkNote || ''}
                 onChange={(e) => updateEventBookmarkNote(event.id, e.target.value)}
-                placeholder={isThai ? 'โน้ตสำหรับโค้ช เช่น จุดเปลี่ยนเกม, แผนรับ, จังหวะสำคัญ...' : 'Coach note: key rally, defensive setup, turning point...'}
+                placeholder={t('keyMoments.notePlaceholder', settings.uiLanguage)}
                 className="mt-3 min-h-[66px] w-full resize-y rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-800 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-400/20 dark:border-slate-700 dark:bg-slate-950 dark:text-gray-100"
               />
 
@@ -132,17 +128,17 @@ export default function BookmarksPanel() {
                   className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3 py-2 text-xs font-black text-white transition hover:bg-sky-400 active:scale-95"
                 >
                   <Play size={14} />
-                  {isThai ? 'เล่นช่วงนี้' : 'Play'}
+                  {t('keyMoments.play', settings.uiLanguage)}
                 </button>
                 {event.videoSourceType === 'local' && (
                   <button
                     type="button"
                     onClick={() => setReplayClipEvent(event)}
                     className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-amber-300 active:scale-95"
-                    title={isThai ? "เปิดรีเพลย์ลำดับเหตุการณ์" : "Open Sequence Replay"}
+                    title={t('keyMoments.openReplay', settings.uiLanguage)}
                   >
                     <Clapperboard size={14} />
-                    {isThai ? "รีเพลย์ช่วงนี้" : "Sequence Replay"}
+                    {t('keyMoments.replay', settings.uiLanguage)}
                   </button>
                 )}
                 <button
@@ -151,7 +147,7 @@ export default function BookmarksPanel() {
                   className="inline-flex items-center gap-2 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-xs font-black text-sky-500 transition hover:bg-sky-500/20 active:scale-95"
                 >
                   <Repeat size={14} />
-                  {isThai ? 'เล่นวน' : 'Loop'}
+                  {t('keyMoments.loopOn', settings.uiLanguage)}
                 </button>
                 <button
                   type="button"
@@ -159,7 +155,7 @@ export default function BookmarksPanel() {
                   className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-black text-gray-700 transition hover:bg-gray-100 active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-gray-200 dark:hover:bg-slate-700"
                 >
                   <Copy size={14} />
-                  {isThai ? 'คัดลอกเวลา' : 'Copy range'}
+                  {t('keyMoments.copyRange', settings.uiLanguage)}
                 </button>
               </div>
             </article>

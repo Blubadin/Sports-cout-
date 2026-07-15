@@ -47,8 +47,8 @@ export default function WorkspaceMenu() {
 
   const activeProject = projects.find(p => p.id === activeProjectId);
   const saveLabel = settings.uiLanguage === 'th'
-    ? saveStatus === 'saving' ? 'กำลังบันทึก' : saveStatus === 'idle' ? 'รอบันทึก' : saveStatus === 'error' ? 'บันทึกไม่สำเร็จ' : 'บันทึกแล้ว'
-    : saveStatus === 'saving' ? 'Saving' : saveStatus === 'idle' ? 'Changes pending' : saveStatus === 'error' ? 'Save failed' : 'Saved';
+    ? saveStatus === 'saving' ? 'กำลังบันทึก' : saveStatus === 'pending' ? 'รอบันทึก' : saveStatus === 'failed' ? 'บันทึกไม่สำเร็จ' : 'บันทึกแล้ว'
+    : saveStatus === 'saving' ? 'Saving' : saveStatus === 'pending' ? 'Changes pending' : saveStatus === 'failed' ? 'Save failed' : 'Saved';
   const saveTitle = lastSavedAt && saveStatus === 'saved'
     ? `${saveLabel} ${new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : saveLabel;
@@ -155,7 +155,7 @@ export default function WorkspaceMenu() {
           <span
             className={classNames(
               "h-2 w-2 shrink-0 rounded-full",
-              saveStatus === 'error' ? 'bg-red-500' : saveStatus === 'saving' || saveStatus === 'idle' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500',
+              saveStatus === 'failed' ? 'bg-red-500' : saveStatus === 'saving' || saveStatus === 'pending' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500',
             )}
             title={saveTitle}
           />

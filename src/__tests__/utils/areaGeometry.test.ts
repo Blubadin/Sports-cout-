@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resolveAreaSelectionFromPoint } from "../../utils/areaGeometry";
+import {
+  getAreaPrecision,
+  resolveAreaDisplayPoint,
+  resolveAreaSelectionFromPoint,
+  resolveVisibleCourtSide,
+} from "../../utils/areaGeometry";
 import type { SportType } from "../../types";
 
 const innerPoint = { rx: 0.25, ry: 0.25 };
@@ -15,6 +20,13 @@ const resolve = (sportType: SportType, flipCourtSide: boolean) =>
   });
 
 describe("resolveAreaSelectionFromPoint court orientation", () => {
+  it("uses one shared physical-side rule for normal input, HUD and future controllers", () => {
+    expect(resolveVisibleCourtSide("primary", false)).toBe("teamA");
+    expect(resolveVisibleCourtSide("opponent", false)).toBe("teamB");
+    expect(resolveVisibleCourtSide("primary", true)).toBe("teamB");
+    expect(resolveVisibleCourtSide("opponent", true)).toBe("teamA");
+  });
+
   it.each([
     ["volleyball", "LB", "teamA", "teamB"],
     ["football", "BOX", "teamB", "teamA"],
@@ -55,5 +67,40 @@ describe("resolveAreaSelectionFromPoint court orientation", () => {
       courtSide: "neutral",
       outZone: "side_left_far",
     });
+  });
+});
+
+describe("field map display geometry", () => {
+  it.each([
+    ["volleyball", "LN"],
+    ["football", "MID_C"],
+    ["badminton", "MC"],
+    ["basketball", "TOP_KEY"],
+  ] as const)("resolves a stable display point for %s area %s", (sportType, areaCode) => {
+    const point = resolveAreaDisplayPoint(sportType, { areaCode });
+    expect(point).not.toBeNull();
+    expect(point!.top).toBeGreaterThanOrEqual(0);
+    expect(point!.top).toBeLessThanOrEqual(100);
+    expect(point!.left).toBeGreaterThanOrEqual(0);
+    expect(point!.left).toBeLessThanOrEqual(100);
+  });
+
+  it("does not present unknown location as an exact center point", () => {
+    expect(resolveAreaDisplayPoint("volleyball", { areaCode: "UNKNOWN" })).toBeNull();
+    expect(getAreaPrecision({ areaCode: "UNKNOWN" })).toBe("Unknown");
+  });
+
+  it("uses explicit point coordinates before zone geometry", () => {
+    expect(resolveAreaDisplayPoint("football", {
+      areaCode: "MID_C",
+      pointX: 0.25,
+      pointY: 0.75,
+    })).toEqual({ top: 75, left: 25 });
+    expect(getAreaPrecision({ pointX: 0.25, pointY: 0.75 })).toBe("Point");
+  });
+
+  it("keeps legacy OUT codes in an out lane instead of classifying them as a court zone", () => {
+    expect(getAreaPrecision({ areaCode: "OUT" })).toBe("Out");
+    expect(resolveAreaDisplayPoint("badminton", { areaCode: "OUT" })).toEqual({ top: 108, left: 50 });
   });
 });

@@ -8,6 +8,12 @@ import type {
   Team,
 } from "../types";
 import { DETAILED_ZONE_LABELS, OUT_ZONE_LABELS, SPORT_TEMPLATES } from "../sports";
+import {
+  buildAnalyticsSummary as buildUnifiedAnalyticsSummary,
+  type AnalyticsSummary,
+} from "./analyticsEngine";
+export { buildUnifiedAnalyticsSummary as buildAnalyticsSummary };
+export type { AnalyticsSummary };
 
 export const SCOUT_EXPORT_SCHEMA_VERSION = "1.1";
 export const SCOUT_EXPORT_APP_NAME = "Sports Scout Logger";
@@ -21,6 +27,7 @@ export type ScoutExportEnvelope<T extends ScoutExportEnvelopeType> = {
   exportedAt: string;
   events?: EventRow[];
   projects?: ScoutProject[];
+  analytics?: AnalyticsSummary;
 };
 
 export type DataQualityIssueSeverity = "info" | "warning" | "error";
@@ -66,15 +73,13 @@ export type DataQualityReport = {
   issues: DataQualityIssue[];
 };
 
-export type AnalyticsSummary = {
-  totalEvents: number;
-  totalActions: number;
-  teamCounts: Record<string, number>;
-  skillCounts: Record<string, number>;
-  eventResultCounts: Record<string, number>;
-  actionResultCounts: Record<string, number>;
-  areaCounts: Record<string, number>;
-  foulCounts: Record<string, number>;
+export type DataQualityDrilldownGroup = {
+  code: DataQualityIssueCode;
+  severity: DataQualityIssueSeverity;
+  count: number;
+  eventIds: string[];
+  eventNos: number[];
+  actionIds: string[];
 };
 
 type FormatContext = {
@@ -257,12 +262,14 @@ function parseLegacyActions(eventText: unknown, eventIndex: number): Action[] {
 }
 
 export function createEventsExport(events: EventRow[]): ScoutExportEnvelope<"events"> {
+  const sanitizedEvents = sanitizeEvents(events);
   return {
     schemaVersion: SCOUT_EXPORT_SCHEMA_VERSION,
     app: SCOUT_EXPORT_APP_NAME,
     exportedAt: new Date().toISOString(),
     type: "events",
-    events: sanitizeEvents(events),
+    events: sanitizedEvents,
+    analytics: buildUnifiedAnalyticsSummary(sanitizedEvents),
   };
 }
 
@@ -279,47 +286,6 @@ export function createProjectsExport(projects: ScoutProject[]): ScoutExportEnvel
       updatedAt: project.updatedAt || new Date().toISOString(),
     })),
   };
-}
-
-export function buildAnalyticsSummary(
-  events: EventRow[],
-  context: FormatContext & { sportType?: SportType | "ALL" } = {},
-): AnalyticsSummary {
-  const summary: AnalyticsSummary = {
-    totalEvents: 0,
-    totalActions: 0,
-    teamCounts: {},
-    skillCounts: {},
-    eventResultCounts: { Yes: 0, Out: 0, Pass: 0 },
-    actionResultCounts: { Yes: 0, Out: 0, Pass: 0 },
-    areaCounts: {},
-    foulCounts: {},
-  };
-
-  events.forEach((event) => {
-    if (context.sportType && context.sportType !== "ALL" && event.sportType !== context.sportType) return;
-    summary.totalEvents++;
-
-    if (event.resultText === "+1") summary.eventResultCounts.Yes++;
-    else if (event.resultText === "-1") summary.eventResultCounts.Out++;
-    else summary.eventResultCounts.Pass++;
-
-    const template = getTemplateForEvent(event, context.sportTemplate);
-    const actions = Array.isArray(event.actions) ? event.actions : [];
-    actions.forEach((action) => {
-      summary.totalActions++;
-      if (action.teamCode) summary.teamCounts[action.teamCode] = (summary.teamCounts[action.teamCode] || 0) + 1;
-      if (action.skillCode) summary.skillCounts[action.skillCode] = (summary.skillCounts[action.skillCode] || 0) + 1;
-      if (action.resultCode) summary.actionResultCounts[action.resultCode] = (summary.actionResultCounts[action.resultCode] || 0) + 1;
-      if (action.foulCode) summary.foulCounts[action.foulCode] = (summary.foulCounts[action.foulCode] || 0) + 1;
-
-      const areaLabel = getAreaLabel(action, { ...context, sportTemplate: template });
-      const normalizedArea = areaLabel || action.areaCode || action.outZone || "UNKNOWN";
-      summary.areaCounts[normalizedArea] = (summary.areaCounts[normalizedArea] || 0) + 1;
-    });
-  });
-
-  return summary;
 }
 
 export function buildDataQualityReport(events: EventRow[], teams: Team[] = []): DataQualityReport {
@@ -425,6 +391,34 @@ export function buildDataQualityReport(events: EventRow[], teams: Team[] = []): 
       actionId: action?.id,
     });
   }
+}
+
+export function buildDataQualityDrilldown(report: DataQualityReport): DataQualityDrilldownGroup[] {
+  const severityRank: Record<DataQualityIssueSeverity, number> = { error: 0, warning: 1, info: 2 };
+  const groups = new Map<DataQualityIssueCode, DataQualityDrilldownGroup>();
+
+  report.issues.forEach(issue => {
+    const group = groups.get(issue.code) ?? {
+      code: issue.code,
+      severity: issue.severity,
+      count: 0,
+      eventIds: [],
+      eventNos: [],
+      actionIds: [],
+    };
+    group.count += 1;
+    if (issue.eventId && !group.eventIds.includes(issue.eventId)) group.eventIds.push(issue.eventId);
+    if (issue.eventNo !== undefined && !group.eventNos.includes(issue.eventNo)) group.eventNos.push(issue.eventNo);
+    if (issue.actionId && !group.actionIds.includes(issue.actionId)) group.actionIds.push(issue.actionId);
+    if (severityRank[issue.severity] < severityRank[group.severity]) group.severity = issue.severity;
+    groups.set(issue.code, group);
+  });
+
+  return Array.from(groups.values()).sort((left, right) =>
+    severityRank[left.severity] - severityRank[right.severity]
+      || right.count - left.count
+      || left.code.localeCompare(right.code),
+  );
 }
 
 export function isAttackingSkill(sportType: SportType, skillCode: string): boolean {

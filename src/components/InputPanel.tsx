@@ -7,6 +7,12 @@ import { t } from '../i18n';
 import CourtAreaSelector from './CourtAreaSelector';
 import { useScreenMarkingMode } from '../hooks/useScreenMarkingMode';
 import { Action } from '../types';
+import {
+  dispatchCoachCommand,
+  resolveCoachInputContext,
+  resolveKeyboardCoachCommand,
+  type CoachCommand,
+} from '../utils/coachCommands';
 
 const sports = [
   { id: 'volleyball', name: 'Volleyball', thaiName: 'วอลเลย์บอล' },
@@ -22,21 +28,62 @@ export default function InputPanel() {
     currentActions, events,
     addAction, saveEvent, undoLastAction, clearCurrentEvent,
     settings, setSettings, isActionComplete, resetCurrentAction, getThaiMeaning, getExtendedActionText, sportTemplate, changeSportType,
-    getMissingActionMessage, currentInputHistory, setCurrentInputHistory, showToast, updateActionField, commitResult, selectArea, selectFoul, clearFoul
+    getMissingActionMessage, currentInputHistory, setCurrentInputHistory, showToast, updateActionField, commitResult, selectArea, selectFoul, clearFoul, redoEventAction
   } = useScoutContext();
 
+  const executeCoachCommand = useCallback((command: CoachCommand) => {
+    return dispatchCoachCommand(command, {
+      selectTeam: (teamIndex) => {
+        const team = teams[teamIndex];
+        if (team) updateActionField('teamCode', team.code);
+      },
+      selectSkill: (skillCode) => updateActionField('skillCode', skillCode),
+      selectArea,
+      selectResult: (resultCode) => commitResult(resultCode, settings.fastMode),
+      selectFoul: (foulCode) => {
+        const foul = sportTemplate.fouls?.find((item) => item.code === foulCode);
+        if (foul) selectFoul(foul);
+      },
+      saveEvent,
+      undoAction: undoLastAction,
+      redoAction: redoEventAction,
+      clearCurrent: clearCurrentEvent,
+      cancelContext: resetCurrentAction,
+    });
+  }, [
+    clearCurrentEvent,
+    commitResult,
+    redoEventAction,
+    resetCurrentAction,
+    saveEvent,
+    selectArea,
+    selectFoul,
+    settings.fastMode,
+    sportTemplate.fouls,
+    teams,
+    undoLastAction,
+    updateActionField,
+  ]);
+
   const handleSelect = useCallback((category: keyof typeof currentAction, value: string) => {
-    updateActionField(category as keyof Action, value);
+    if (category === 'teamCode') {
+      const teamIndex = teams.findIndex((team) => team.code === value);
+      if (teamIndex === 0 || teamIndex === 1) executeCoachCommand({ type: 'selectTeam', teamIndex });
+    } else if (category === 'skillCode') {
+      executeCoachCommand({ type: 'selectSkill', skillCode: value });
+    } else {
+      updateActionField(category as keyof Action, value);
+    }
     (document.activeElement as HTMLElement)?.blur?.();
-  }, [updateActionField]);
+  }, [executeCoachCommand, teams, updateActionField]);
 
   const handleSelectArea = useCallback((code: string, courtSide?: 'teamA' | 'teamB' | 'neutral') => {
-    selectArea({ areaCode: code, courtSide });
-  }, [selectArea]);
+    executeCoachCommand({ type: 'selectArea', area: { areaCode: code, courtSide } });
+  }, [executeCoachCommand]);
 
   const handleResultSelect = useCallback((value: string) => {
-    commitResult(value, settings.fastMode);
-  }, [commitResult, settings.fastMode]);
+    executeCoachCommand({ type: 'selectResult', resultCode: value });
+  }, [executeCoachCommand]);
 
   const handleDescriptorSelect = useCallback((groupId: string, value: string) => {
     updateActionField('descriptors', value, groupId);
@@ -60,6 +107,7 @@ export default function InputPanel() {
 
   // Keyboard Shortcuts (Only reliable for top items, for full sport support, clicking is safer)
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.repeat) return;
     const activeEl = document.activeElement;
     if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.tagName === 'SELECT') {
       return;
@@ -69,10 +117,18 @@ export default function InputPanel() {
       return;
     }
 
+    const command = resolveKeyboardCoachCommand(
+      e,
+      resolveCoachInputContext({
+        blockingModal: Boolean(document.querySelector('[role="dialog"][aria-modal="true"]')),
+      }),
+    );
+    if (command && executeCoachCommand(command)) {
+      e.preventDefault();
+      return;
+    }
+
     const key = e.key.toLowerCase();
-    
-    if (key === '1' && teams[0]) handleSelect('teamCode', teams[0].code);
-    if (key === '2' && teams[1]) handleSelect('teamCode', teams[1].code);
     
     const skillKeys = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'];
     const sIndex = skillKeys.indexOf(key);
@@ -100,23 +156,7 @@ export default function InputPanel() {
     if (key === 'x') handleResultSelect('Out');
     if (key === 'c') handleResultSelect('Pass');
 
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveEvent();
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      resetCurrentAction();
-    }
-    if (e.key === 'Backspace') {
-      e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        clearCurrentEvent();
-      } else {
-        undoLastAction();
-      }
-    }
-  }, [teams, skills, areas, currentAction, saveEvent, undoLastAction, clearCurrentEvent, resetCurrentAction, handleSelect, handleSelectArea, handleResultSelect, isScreenMarkingActive]);
+  }, [skills, areas, currentAction, executeCoachCommand, handleSelect, handleSelectArea, handleResultSelect, isScreenMarkingActive]);
 
   const handleKeyDownRef = useRef(handleKeyDown);
   useEffect(() => {
@@ -564,7 +604,7 @@ export default function InputPanel() {
                         if (isSelected) {
                           clearFoul();
                         } else {
-                          selectFoul(f);
+                          executeCoachCommand({ type: 'selectFoul', foulCode: f.code });
                         }
                       }}
                       className={classNames(

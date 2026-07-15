@@ -1,10 +1,18 @@
 import { OUT_ZONE_LABELS } from "../../sports";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useScoutContext } from "../../context/ScoutContext";
 import { EventRow } from "../../types";
 import { Maximize, Minimize, X, History, RotateCcw } from "lucide-react";
 import { useHUDDeviceLayout } from "../../hooks/useHUDDeviceLayout";
 import { useProHUDMarkingController } from "../../hooks/useProHUDMarkingController";
+import { useControllerHudRuntime } from "../../hooks/useControllerHudRuntime";
+import {
+  resolveControllerAimClientPoint,
+  type ControllerHistoryCommand,
+  type ControllerHudIntent,
+} from "../../controller/controllerHudBridge";
+import { pulseBrowserGamepad } from "../../controller/gamepadRuntime";
+import type { ControllerButtonName, ControllerInputEvent, ControllerProfile } from "../../controller/types";
 import {
   getHudCommandInstruction,
   getHudCommandKeyLabel,
@@ -22,7 +30,13 @@ import HUDVideoControls from "./HUDVideoControls";
 import HUDSequenceHistoryDrawer from "./HUDSequenceHistoryDrawer";
 import HUDMiniCourtSelector from "./HUDMiniCourtSelector";
 import ProAreaCommandPad from "./ProAreaCommandPad";
+import HUDControllerPrompts from "./HUDControllerPrompts";
 import { getAreaDisplay } from "../../utils/areaHelper";
+import {
+  dispatchCoachCommand,
+  resolveCoachInputContext,
+  resolveKeyboardCoachCommand,
+} from "../../utils/coachCommands";
 
 interface ScoutHUDModeProps {
   onClose: () => void;
@@ -70,6 +84,11 @@ export default function ScoutHUDMode({
     selectArea,
     selectFoul,
     setPreviewState,
+    redoEventAction,
+    previewState,
+    getMissingActionMessage,
+    toggleEventBookmark,
+    showToast,
   } = useScoutContext();
 
   const layout = useHUDDeviceLayout();
@@ -79,6 +98,11 @@ export default function ScoutHUDMode({
     "auto" | "portrait" | "landscape"
   >("auto");
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [activeMenuControl, setActiveMenuControl] = useState<ControllerButtonName | undefined>();
+  const [historyControllerCommand, setHistoryControllerCommand] = useState<{
+    id: number;
+    command: ControllerHistoryCommand;
+  } | null>(null);
   const [skillMenuPhase, setSkillMenuPhase] = useState<"skill" | "descriptor">(
     "skill",
   );
@@ -95,15 +119,15 @@ export default function ScoutHUDMode({
     setHoveredDescriptor,
     setHoveredArea,
     setHoveredResult,
-    setHoveredTeam,
     setHoveredFoul,
     hoveredTeam,
     hoveredFoul,
     previewSkill,
-    handleKeyDown,
     handleKeyUp,
     handlePointerMove,
     commitActiveMarking,
+    handleCoachCommand,
+    cancelMarking,
     isHoldMode,
   } = useProHUDMarkingController({
     settings,
@@ -120,6 +144,144 @@ export default function ScoutHUDMode({
   });
 
   const uiTimeoutRef = useRef<number | null>(null);
+  const controllerProfileRef = useRef<ControllerProfile | null>(null);
+  const historyControllerCommandIdRef = useRef(0);
+
+  useEffect(() => {
+    if (activeMenu === "none") setActiveMenuControl(undefined);
+  }, [activeMenu]);
+
+  const handleControllerSave = useCallback((controllerIndex: number) => {
+    const hasCurrentAction = Object.keys(currentAction).length > 0;
+    if (hasCurrentAction) {
+      const missingMessage = getMissingActionMessage(currentAction);
+      if (missingMessage) {
+        showToast(missingMessage);
+        if (settings.hudEnableHapticFeedback) void pulseBrowserGamepad(controllerIndex, 100);
+        return;
+      }
+    }
+    if (!hasCurrentAction && currentActions.length === 0) {
+      showToast(settings.uiLanguage === "th" ? "ยังไม่มีเหตุการณ์ให้บันทึก" : "There is no event to save yet");
+      if (settings.hudEnableHapticFeedback) void pulseBrowserGamepad(controllerIndex, 80);
+      return;
+    }
+    saveEvent();
+    if (settings.hudEnableHapticFeedback) void pulseBrowserGamepad(controllerIndex, 35);
+  }, [currentAction, currentActions.length, getMissingActionMessage, saveEvent, settings.hudEnableHapticFeedback, settings.uiLanguage, showToast]);
+
+  const handleControllerIntent = useCallback((intent: ControllerHudIntent, event: ControllerInputEvent) => {
+    const controllerIndex = event.controllerIndex;
+    switch (intent.type) {
+      case "open-menu":
+        setActiveMenuControl(intent.control);
+        handleCoachCommand({ type: "openMenu", menu: intent.menu });
+        if (intent.menu === "skill") setSkillMenuPhase("skill");
+        return;
+      case "release-menu":
+        commitActiveMarking();
+        setActiveMenuControl(undefined);
+        if (settings.hudEnableHapticFeedback) void pulseBrowserGamepad(controllerIndex, 24);
+        return;
+      case "aim": {
+        if (activeMenu === "none") return;
+        const target = document.querySelector<HTMLElement>(`[data-controller-wheel="${activeMenu}"]`);
+        if (!target) return;
+        const point = resolveControllerAimClientPoint(
+          target.getBoundingClientRect(),
+          intent,
+          controllerProfileRef.current?.calibration.neutralCancelThreshold ?? 0.28,
+        );
+        handlePointerMove(point.x, point.y);
+        return;
+      }
+      case "cycle-team": {
+        const teamCount = Math.min(teams.length, 2);
+        if (teamCount === 0) return;
+        const selectedIndex = teams.findIndex((team) => team.code === currentAction.teamCode);
+        const nextIndex = intent.direction > 0
+          ? (selectedIndex < 0 ? 0 : (selectedIndex + 1) % teamCount)
+          : (selectedIndex < 0 ? teamCount - 1 : (selectedIndex - 1 + teamCount) % teamCount);
+        if (nextIndex === 0 || nextIndex === 1) handleCoachCommand({ type: "selectTeam", teamIndex: nextIndex });
+        return;
+      }
+      case "undo":
+        undoLastAction();
+        return;
+      case "redo":
+        redoEventAction();
+        return;
+      case "save-event":
+        handleControllerSave(controllerIndex);
+        return;
+      case "toggle-history":
+        cancelMarking();
+        setIsHistoryOpen((value) => !value);
+        return;
+      case "toggle-playback":
+        videoControls.togglePlay();
+        return;
+      case "seek-by":
+        videoControls.seekBy(intent.seconds);
+        return;
+      case "bookmark-latest": {
+        const latestEvent = events[events.length - 1];
+        if (!latestEvent) {
+          showToast(settings.uiLanguage === "th" ? "ยังไม่มีเหตุการณ์สำหรับบันทึกเป็น Key Moment" : "No event is available to bookmark");
+          return;
+        }
+        toggleEventBookmark(latestEvent.id);
+        if (settings.hudEnableHapticFeedback) void pulseBrowserGamepad(controllerIndex, 45);
+        return;
+      }
+      case "exit-hud":
+        void exitHUDModeSafely("controller_cancel");
+        return;
+      case "history-command":
+        if (intent.command === "close") setIsHistoryOpen(false);
+        else {
+          historyControllerCommandIdRef.current += 1;
+          setHistoryControllerCommand({ id: historyControllerCommandIdRef.current, command: intent.command });
+        }
+        return;
+      case "replay-command":
+        if (intent.command === "close") setPreviewState(null);
+        else if (intent.command === "toggle-playback") videoControls.togglePlay();
+        else if (intent.command === "toggle-loop") {
+          setPreviewState((state) => state ? { ...state, loop: !state.loop } : state);
+        } else if (intent.command === "seek-backward") videoControls.seekBy(-3);
+        else if (intent.command === "seek-forward") videoControls.seekBy(3);
+        else if (intent.command === "bookmark" && previewState?.eventRow) {
+          toggleEventBookmark(previewState.eventRow.id);
+        }
+        return;
+      case "cancel-input":
+        cancelMarking();
+        setActiveMenuControl(undefined);
+        return;
+    }
+  }, [activeMenu, cancelMarking, commitActiveMarking, currentAction.teamCode, events, handleCoachCommand, handleControllerSave, handlePointerMove, previewState?.eventRow, redoEventAction, setPreviewState, settings.hudEnableHapticFeedback, settings.uiLanguage, showToast, teams, toggleEventBookmark, undoLastAction, videoControls]);
+
+  const controllerRuntime = useControllerHudRuntime({
+    enabled: settings.controllerV1Enabled === true,
+    getContext: () => {
+      const blockingModal = Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+      if (blockingModal) return { mode: "blocking-modal", activeMenu, activeMenuControl };
+      if (previewState?.isActive) return { mode: "replay", activeMenu, activeMenuControl };
+      if (isHistoryOpen) return { mode: "history", activeMenu, activeMenuControl };
+      if (activeMenu !== "none") return { mode: "active-wheel", activeMenu, activeMenuControl };
+      return { mode: "hud-base", activeMenu, activeMenuControl };
+    },
+    onIntent: handleControllerIntent,
+  });
+  controllerProfileRef.current = controllerRuntime.profile;
+  const controllerHudMode = previewState?.isActive
+    ? "replay"
+    : isHistoryOpen
+      ? "history"
+      : activeMenu !== "none"
+        ? "active-wheel"
+        : "hud-base";
 
   // Reset skill menu phase when active menu is closed/changed
   useEffect(() => {
@@ -297,76 +459,65 @@ export default function ScoutHUDMode({
   const handleKeyUpRef = useRef<any>(null);
 
   const handleKeyDownGlobal = (e: KeyboardEvent) => {
-    if (e.repeat) return;
+    if (e.repeat || e.defaultPrevented) return;
     const activeEl = document.activeElement;
-    if (
-      activeEl?.tagName === "INPUT" ||
-      activeEl?.tagName === "TEXTAREA" ||
-      activeEl?.tagName === "SELECT"
-    )
-      return;
+    if (activeEl instanceof HTMLElement && (activeEl.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(activeEl.tagName))) return;
 
-    if (e.code === "Escape") {
-      if (isHistoryOpen) {
-        e.preventDefault();
-        setIsHistoryOpen(false);
-        return;
-      }
-      // Esc closes menus or HUD handled by hook
-    }
+    const blockingModal = Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+    const context = resolveCoachInputContext({
+      blockingModal,
+      historyReplay: isHistoryOpen,
+      activeWheel: activeMenu !== "none",
+      hudActive: true,
+    });
+    const command = resolveKeyboardCoachCommand(e, context);
+    if (!command) return;
 
-    // Toggle History Drawer with 'KeyH'
-    if (e.code === "KeyH") {
-      e.preventDefault();
-      setIsHistoryOpen((prev) => !prev);
-      return;
-    }
-
-    // Handled by Pro Marking Controller hook
-    handleKeyDown(e);
-
-    // Video Controls
-    if (e.code === "Space") {
-      e.preventDefault();
-      videoControls.togglePlay();
-    }
-    if (e.code === "KeyA") {
-      e.preventDefault();
-      videoControls.seekBy(-3);
-    }
-    if (e.code === "KeyD") {
-      e.preventDefault();
-      videoControls.seekBy(3);
-    }
-
-    // Save / Undo
-    if (e.code === "Enter") {
-      e.preventDefault();
-      saveEvent();
-    }
-    if (
-      e.code === "Backspace" ||
-      (e.code === "KeyZ" && (e.ctrlKey || e.metaKey))
-    ) {
-      e.preventDefault();
-      undoLastAction();
-    }
+    const handled = dispatchCoachCommand(command, {
+      selectTeam: (teamIndex) => handleCoachCommand({ type: 'selectTeam', teamIndex }),
+      openMenu: (menu) => handleCoachCommand({ type: 'openMenu', menu }),
+      saveEvent,
+      undoAction: undoLastAction,
+      redoAction: redoEventAction,
+      clearCurrent: clearCurrentEvent,
+      cancelContext: () => {
+        if (isHistoryOpen) setIsHistoryOpen(false);
+        else handleCoachCommand({ type: 'cancelContext' });
+      },
+      toggleHistory: () => {
+        cancelMarking();
+        setIsHistoryOpen((prev) => !prev);
+      },
+      togglePlayback: videoControls.togglePlay,
+      seekBy: videoControls.seekBy,
+    });
+    if (handled) e.preventDefault();
   };
 
   handleKeyDownRef.current = handleKeyDownGlobal;
-  handleKeyUpRef.current = handleKeyUp;
+  handleKeyUpRef.current = (e: KeyboardEvent) => {
+    const blockingModal = Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+    if (blockingModal || isHistoryOpen) {
+      cancelMarking();
+      return;
+    }
+    handleKeyUp(e);
+  };
 
   useEffect(() => {
     const keydownListener = (e: KeyboardEvent) => handleKeyDownRef.current?.(e);
     const keyupListener = (e: KeyboardEvent) => handleKeyUpRef.current?.(e);
+    const cancelHeldCommand = () => cancelMarking();
 
     window.addEventListener("keydown", keydownListener);
     window.addEventListener("keyup", keyupListener);
+    window.addEventListener("blur", cancelHeldCommand);
     return () => {
       window.removeEventListener("keydown", keydownListener);
       window.removeEventListener("keyup", keyupListener);
+      window.removeEventListener("blur", cancelHeldCommand);
     };
-  }, []);
+  }, [cancelMarking]);
 
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
   const isTouchHoldActiveRef = useRef<boolean>(false);
@@ -380,7 +531,7 @@ export default function ScoutHUDMode({
     if (isHoldMode) {
       isTouchHoldActiveRef.current = true;
       touchStartPosRef.current = { x: e.clientX, y: e.clientY };
-      setActiveMenu(menu);
+      handleCoachCommand({ type: 'openMenu', menu });
       if (menu === "skill") {
         setSkillMenuPhase("skill");
       }
@@ -408,7 +559,7 @@ export default function ScoutHUDMode({
     menu: "skill" | "area" | "result" | "team" | "foul",
   ) => {
     if (isHoldMode) return;
-    setActiveMenu(activeMenu === menu ? "none" : menu);
+    handleCoachCommand({ type: 'openMenu', menu });
   };
 
   const handleCopyEvent = (event: any) => {
@@ -634,9 +785,10 @@ export default function ScoutHUDMode({
               onPointerDown={(e) => handleMenuPointerDown("team", e)}
               onClick={() => handlePointerInteraction("team")}
               onSelectTeam={(teamCode) => {
-                setHoveredTeam(teamCode);
-                updateActionField("teamCode", teamCode);
-                setActiveMenu("none");
+                const teamIndex = teams.findIndex((team) => team.code === teamCode);
+                if (teamIndex === 0 || teamIndex === 1) {
+                  handleCoachCommand({ type: 'selectTeam', teamIndex });
+                }
               }}
               hoveredTeam={hoveredTeam}
             />
@@ -726,6 +878,15 @@ export default function ScoutHUDMode({
       </div>
 
       {/* Sequence History Drawer Component */}
+      {settings.controllerV1Enabled && (
+        <HUDControllerPrompts
+          status={controllerRuntime.status}
+          profile={controllerRuntime.profile}
+          mode={controllerHudMode}
+          language={settings.uiLanguage ?? "th"}
+        />
+      )}
+
       <HUDSequenceHistoryDrawer
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
@@ -738,6 +899,7 @@ export default function ScoutHUDMode({
         onGoToTime={handleGoToTime}
         onReplaySegment={handleReplaySegment}
         onCopyEvent={handleCopyEvent}
+        controllerCommand={historyControllerCommand}
       />
     </div>
   );

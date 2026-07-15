@@ -130,6 +130,7 @@ export default function ProFoulCommandWheel({
   return (
     <div
       ref={containerRef}
+      data-controller-wheel="foul"
       className="relative flex items-center justify-center select-none"
       style={{ width: size, height: size }}
     >

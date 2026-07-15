@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { AppSettings } from '../types';
+import { t } from '../i18n';
 
 interface PlayerInstance {
   currentTime?: number;
@@ -275,7 +276,7 @@ export function useVideoPlayback({
 
   const handlePlayerError = useCallback((error: any) => {
     console.warn("ReactPlayer / YouTube Error:", error);
-    let message = "ไม่สามารถโหลดวิดีโอได้";
+    let message = t('video.errorLoad', settings.uiLanguage);
     let type = "unknown";
     let code: number | null = null;
 
@@ -283,29 +284,26 @@ export function useVideoPlayback({
       code = error;
       if (error === 2) {
         type = "invalid_parameter";
-        message = "พารามิเตอร์ที่ส่งไปยัง YouTube player ไม่ถูกต้อง";
+        message = t('video.errorInvalidParameter', settings.uiLanguage);
       } else if (error === 5) {
         type = "html5_error";
-        message = "เกิดข้อผิดพลาดกับ HTML5 player";
+        message = t('video.errorHtml5', settings.uiLanguage);
       } else if (error === 100) {
         type = "private_or_removed";
-        message = "วิดีโอนี้เป็นวิดีโอส่วนตัว หรือถูกลบออกไปแล้ว";
+        message = t('video.errorPrivateRemoved', settings.uiLanguage);
       } else if (error === 101 || error === 150) {
         type = "embed_disabled";
-        message =
-          "เจ้าของวิดีโอไม่อนุญาตให้ฝังเล่นบนเว็บไซต์อื่นภายนอก YouTube";
+        message = t('video.errorEmbedDisabled', settings.uiLanguage);
       } else if (error === 153) {
         type = "preview_iframe_restricted";
-        message =
-          "ไม่พบสิทธิ์ Referer หรือ client identity ใน Preview iframe นี้";
+        message = t('video.errorPreviewRestricted', settings.uiLanguage);
       } else {
         type = "unknown";
         message = `YouTube Error (Error Code: ${error})`;
       }
     } else if (videoSourceType === "youtube") {
       type = "browser_blocked";
-      message =
-        "ไม่สามารถเล่น YouTube นี้ได้ อาจเกิดจากคลิปไม่อนุญาตให้ฝัง, คลิปเป็น private/removed, browser block third-party embed, หรือเปิดผ่าน preview iframe ที่จำกัดสิทธิ์";
+      message = t('video.errorBrowserBlocked', settings.uiLanguage);
     }
 
     setPlayerError(message);
@@ -313,7 +311,7 @@ export function useVideoPlayback({
     setPlayerErrorCode(code);
     setIsLoadingVideo(false);
     setIsPlaying(false);
-  }, [videoSourceType, setIsPlaying]);
+  }, [settings.uiLanguage, videoSourceType, setIsPlaying]);
 
   const handleTimeUpdate = useCallback((event: any) => {
     if (isScrubbing) return;

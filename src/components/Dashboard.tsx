@@ -1,12 +1,16 @@
 import React, { useMemo, useState, lazy, Suspense } from 'react';
+import { AlertTriangle, ChevronDown, FilterX, Printer, X } from 'lucide-react';
 import { useScoutContext } from '../context/ScoutContext';
-import { SportType } from '../types';
+import type { SportType, Team } from '../types';
 import { SPORT_TEMPLATES, OUT_ZONE_LABELS, DETAILED_ZONE_LABELS } from '../sports';
 import { formatPreciseTime } from '../utils';
 import CustomSelect from './ui/CustomSelect';
 import { t } from '../i18n';
-import { buildAnalyticsSummary, buildDataQualityReport, getFoulLabel as getScoutFoulLabel } from '../utils/scoutData';
+import { buildAnalyticsSummary, buildDataQualityDrilldown, buildDataQualityReport, getFoulLabel as getScoutFoulLabel } from '../utils/scoutData';
 import { calculateDashboardStats } from '../utils/dashboardStats';
+import { getEventQueryOptions } from '../utils/eventQuery';
+import type { AnalyticsSummary } from '../utils/analyticsEngine';
+import type { DataQualityReport } from '../utils/scoutData';
 
 import RadarChart from './charts/RadarChart';
 import FieldSequenceMap from './charts/FieldSequenceMap';
@@ -16,15 +20,28 @@ import ResultDistributionChart from './charts/ResultDistributionChart';
 import SportSpecificKPIs from './charts/SportSpecificKPIs';
 
 export default function Dashboard() {
-  const { events, matchInfo, changeSportType, teams, setSeekRequest, settings, sportTemplate } = useScoutContext();
+  const { events, matchInfo, changeSportType, teams, setSeekRequest, setPreviewState, settings, sportTemplate } = useScoutContext();
   const [filterSport, setFilterSport] = useState<SportType | 'ALL'>('ALL');
   const [mapMode, setMapMode] = useState<'heatmap' | 'sequence' | 'result'>('heatmap');
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>();
   const [teamFilter, setTeamFilter] = useState<'ALL' | 'teamA' | 'teamB'>('ALL');
+  const [showQualityDetails, setShowQualityDetails] = useState(false);
+  const [mapTeamFilter, setMapTeamFilter] = useState('ALL');
+  const [mapSkillFilter, setMapSkillFilter] = useState('ALL');
+  const [mapResultFilter, setMapResultFilter] = useState('ALL');
+  const [mapFoulFilter, setMapFoulFilter] = useState('ALL');
+  const [mapAreaFilter, setMapAreaFilter] = useState('ALL');
+  const [mapTimeFrom, setMapTimeFrom] = useState<number | undefined>();
+  const [mapTimeTo, setMapTimeTo] = useState<number | undefined>();
 
 
   const [selectedMapAction, setSelectedMapAction] = useState<{event: any, action: any} | null>(null);
-  const dataQuality = useMemo(() => buildDataQualityReport(events, teams), [events, teams]);
+  const filteredSportEvents = useMemo(
+    () => filterSport === 'ALL' ? events : events.filter(event => event.sportType === filterSport),
+    [events, filterSport],
+  );
+  const dataQuality = useMemo(() => buildDataQualityReport(filteredSportEvents, teams), [filteredSportEvents, teams]);
+  const qualityDrilldown = useMemo(() => buildDataQualityDrilldown(dataQuality), [dataQuality]);
   const analyticsSummary = useMemo(
     () => buildAnalyticsSummary(events, { sportType: filterSport, teams, uiLanguage: settings.uiLanguage }),
     [events, filterSport, teams, settings.uiLanguage],
@@ -33,6 +50,7 @@ export default function Dashboard() {
   const stats = useMemo(() => {
     return calculateDashboardStats(events, filterSport, teams);
   }, [events, filterSport, teams]);
+  const mapQueryOptions = useMemo(() => getEventQueryOptions(filteredSportEvents), [filteredSportEvents]);
 
   const successRate = stats.total > 0 ? ((stats.yes / stats.total) * 100).toFixed(1) : '0.0';
 
@@ -89,13 +107,28 @@ export default function Dashboard() {
 
   return (
     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
+      <CoachPrintSummary
+        language={settings.uiLanguage}
+        sportLabel={filterSport === 'ALL' ? 'ALL' : SPORT_TEMPLATES[filterSport].name}
+        teams={teams}
+        analytics={analyticsSummary}
+        dataQuality={dataQuality}
+      />
       {/* Header Container */}
       <div className="flex flex-col gap-4 mb-6 pb-4 border-b border-gray-100 dark:border-gray-700/50">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center gap-6">
             <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-              {settings.uiLanguage === 'th' ? 'แดชบอร์ดสรุปผล (Summary Dashboard)' : 'Summary Dashboard'}
+              {t('dashboard.summary', settings.uiLanguage)}
             </h2>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="print:hidden inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 text-xs font-semibold text-gray-600 hover:border-sky-400 hover:text-sky-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+            >
+              <Printer size={14} />
+              {t('dashboard.printCoachSummary', settings.uiLanguage)}
+            </button>
             {teams.length >= 2 && (
               <div className="flex items-center gap-3 bg-gray-100 dark:bg-gray-900 px-4 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700">
                 <span className="font-bold text-gray-800 dark:text-gray-200">{teams[0]?.icon && <span className="mr-1">{teams[0].icon}</span>}{teams[0]?.code}</span>
@@ -178,13 +211,49 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-6">
-        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Valid' : 'Valid'} value={dataQuality.validEvents} tone="green" />
-        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Incomplete' : 'Incomplete'} value={dataQuality.incompleteEvents} tone={dataQuality.incompleteEvents > 0 ? 'red' : 'gray'} />
-        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Warnings' : 'Warnings'} value={dataQuality.warnings} tone={dataQuality.warnings > 0 ? 'amber' : 'gray'} />
-        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Legacy' : 'Legacy'} value={dataQuality.legacyEvents} tone={dataQuality.legacyEvents > 0 ? 'amber' : 'gray'} />
-        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Actions' : 'Actions'} value={dataQuality.totalActions} tone="sky" />
-        <DataQualityCard label={settings.uiLanguage === 'th' ? 'Filtered' : 'Filtered'} value={analyticsSummary.totalActions} tone="sky" />
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2 mb-3">
+        <DataQualityCard label={t('dashboard.valid', settings.uiLanguage)} value={dataQuality.validEvents} tone="green" />
+        <DataQualityCard label={t('dashboard.incomplete', settings.uiLanguage)} value={dataQuality.incompleteEvents} tone={dataQuality.incompleteEvents > 0 ? 'red' : 'gray'} />
+        <DataQualityCard label={t('dashboard.warnings', settings.uiLanguage)} value={dataQuality.warnings} tone={dataQuality.warnings > 0 ? 'amber' : 'gray'} />
+        <DataQualityCard label={t('dashboard.legacy', settings.uiLanguage)} value={dataQuality.legacyEvents} tone={dataQuality.legacyEvents > 0 ? 'amber' : 'gray'} />
+        <DataQualityCard label={t('dashboard.totalEvents', settings.uiLanguage)} value={analyticsSummary.totalEvents} tone="sky" />
+        <DataQualityCard label={t('dashboard.totalActions', settings.uiLanguage)} value={analyticsSummary.totalActions} tone="sky" />
+        <DataQualityCard label={t('dashboard.derivedPoints', settings.uiLanguage)} value={analyticsSummary.derivedOutcomePoints.total} tone="amber" />
+      </div>
+
+      <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50/70 dark:border-gray-700 dark:bg-gray-900/30">
+        <button
+          type="button"
+          onClick={() => setShowQualityDetails(current => !current)}
+          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs font-semibold text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+          aria-expanded={showQualityDetails}
+        >
+          <span className="flex items-center gap-2">
+            <AlertTriangle size={14} className={dataQuality.errors > 0 ? 'text-red-500' : dataQuality.warnings > 0 ? 'text-amber-500' : 'text-green-500'} />
+            {showQualityDetails ? t('dashboard.hideIssues', settings.uiLanguage) : t('dashboard.reviewIssues', settings.uiLanguage)}
+            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] dark:bg-gray-800">{qualityDrilldown.length}</span>
+          </span>
+          <ChevronDown size={15} className={`transition-transform ${showQualityDetails ? 'rotate-180' : ''}`} />
+        </button>
+        {showQualityDetails && (
+          <div className="grid gap-2 border-t border-gray-200 p-3 dark:border-gray-700 md:grid-cols-2 xl:grid-cols-3">
+            {qualityDrilldown.length === 0 ? (
+              <p className="text-xs text-green-700 dark:text-green-300">{t('dashboard.noQualityIssues', settings.uiLanguage)}</p>
+            ) : qualityDrilldown.map(group => (
+              <div key={group.code} className="rounded-md border border-gray-200 bg-white p-2.5 text-xs dark:border-gray-700 dark:bg-gray-900">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`font-bold ${group.severity === 'error' ? 'text-red-600' : group.severity === 'warning' ? 'text-amber-600' : 'text-sky-600'}`}>
+                    {group.code.replaceAll('_', ' ')}
+                  </span>
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 font-bold dark:bg-gray-800">{group.count}</span>
+                </div>
+                <p className="mt-1 text-gray-500 dark:text-gray-400">
+                  {t('dashboard.issueEvents', settings.uiLanguage)}: {group.eventNos.length > 0 ? group.eventNos.join(', ') : '-'}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-2 mb-6 hide-scrollbar">
@@ -476,7 +545,7 @@ export default function Dashboard() {
 
           <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl lg:col-span-3 flex flex-col items-center">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full mb-4 gap-2">
-              <h3 className="text-xs font-bold text-gray-500 uppercase">Field Intelligence Map</h3>
+              <h3 className="text-xs font-bold text-gray-500 uppercase">{t('dashboard.fieldMap', settings.uiLanguage)}</h3>
               <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
                 {mapMode === 'sequence' && (() => {
                   const eventOptions = events
@@ -492,7 +561,7 @@ export default function Dashboard() {
                       value={selectedEventId || ''}
                       options={eventOptions}
                       onChange={(v) => setSelectedEventId(v || undefined)}
-                      placeholder="-- เลือก Event เพื่อดู Sequence --"
+                      placeholder={t('dashboard.selectEventSequence', settings.uiLanguage)}
                       className="max-w-xs"
                     />
                   );
@@ -500,18 +569,49 @@ export default function Dashboard() {
                 <div className="flex gap-2 bg-white dark:bg-gray-800 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
                   <button 
                     onClick={() => setMapMode('heatmap')}
+                    aria-pressed={mapMode === 'heatmap'}
                     className={`px-3 py-1 text-xs font-medium rounded-lg ${mapMode === 'heatmap' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                  >Heatmap</button>
+                  >{t('dashboard.heatmap', settings.uiLanguage)}</button>
                   <button 
                     onClick={() => setMapMode('sequence')}
+                    aria-pressed={mapMode === 'sequence'}
                     className={`px-3 py-1 text-xs font-medium rounded-lg ${mapMode === 'sequence' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                  >Sequence</button>
+                  >{t('dashboard.sequence', settings.uiLanguage)}</button>
                   <button 
                     onClick={() => setMapMode('result')}
+                    aria-pressed={mapMode === 'result'}
                     className={`px-3 py-1 text-xs font-medium rounded-lg ${mapMode === 'result' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                  >Result</button>
+                  >{t('dashboard.result', settings.uiLanguage)}</button>
                 </div>
               </div>
+            </div>
+
+            <div className="mb-3 grid w-full grid-cols-2 gap-2 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800 md:grid-cols-4 xl:grid-cols-7">
+              <div className="col-span-2 flex items-center justify-between md:col-span-4 xl:col-span-7">
+                <span className="text-[11px] font-bold uppercase text-gray-500 dark:text-gray-400">{t('dashboard.mapFilters', settings.uiLanguage)}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMapTeamFilter('ALL');
+                    setMapSkillFilter('ALL');
+                    setMapResultFilter('ALL');
+                    setMapFoulFilter('ALL');
+                    setMapAreaFilter('ALL');
+                    setMapTimeFrom(undefined);
+                    setMapTimeTo(undefined);
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-sky-600"
+                >
+                  <FilterX size={13} /> {t('dashboard.clearMapFilters', settings.uiLanguage)}
+                </button>
+              </div>
+              <MapFilterSelect label={t('input.team', settings.uiLanguage)} value={mapTeamFilter} options={mapQueryOptions.teams} allLabel={t('table.allTeams', settings.uiLanguage)} onChange={setMapTeamFilter} />
+              <MapFilterSelect label={t('input.skill', settings.uiLanguage)} value={mapSkillFilter} options={mapQueryOptions.skills} allLabel={t('table.allSkills', settings.uiLanguage)} onChange={setMapSkillFilter} />
+              <MapFilterSelect label={t('input.result', settings.uiLanguage)} value={mapResultFilter} options={mapQueryOptions.results} allLabel={t('table.allResults', settings.uiLanguage)} onChange={setMapResultFilter} />
+              <MapFilterSelect label={t('table.foul', settings.uiLanguage)} value={mapFoulFilter} options={['with-foul', ...mapQueryOptions.fouls]} allLabel={t('dashboard.allFouls', settings.uiLanguage)} specialLabel={t('dashboard.withFoul', settings.uiLanguage)} onChange={setMapFoulFilter} />
+              <MapFilterSelect label={t('input.area', settings.uiLanguage)} value={mapAreaFilter} options={mapQueryOptions.areas} allLabel={t('table.allAreas', settings.uiLanguage)} onChange={setMapAreaFilter} />
+              <MapTimeInput label={t('dashboard.timeFrom', settings.uiLanguage)} value={mapTimeFrom} onChange={setMapTimeFrom} />
+              <MapTimeInput label={t('dashboard.timeTo', settings.uiLanguage)} value={mapTimeTo} onChange={setMapTimeTo} invalid={mapTimeFrom !== undefined && mapTimeTo !== undefined && mapTimeFrom > mapTimeTo} />
             </div>
             
             {(filterSport !== 'ALL' || matchInfo.sportType) && (
@@ -520,6 +620,13 @@ export default function Dashboard() {
                 events={events}
                 mode={mapMode}
                 selectedEventId={selectedEventId}
+                teamFilter={mapTeamFilter}
+                skillFilter={mapSkillFilter}
+                resultFilter={mapResultFilter}
+                foulFilter={mapFoulFilter}
+                areaFilter={mapAreaFilter}
+                timeFrom={mapTimeFrom}
+                timeTo={mapTimeTo}
                 teamAName={teams[0]?.code ?? 'Team A'}
                 teamBName={teams[1]?.code ?? 'Team B'}
                 onEventClick={(event, action) => {
@@ -534,31 +641,38 @@ export default function Dashboard() {
               <div className="w-full mt-4 bg-white dark:bg-gray-800 p-4 rounded-xl border border-sky-100 dark:border-sky-900/50 shadow-sm relative">
                 <button 
                   onClick={() => setSelectedMapAction(null)}
-                  className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  aria-label={t('dashboard.closeDetails', settings.uiLanguage)}
+                  className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
                 >
-                  &times;
+                  <X size={16} />
                 </button>
-                <h4 className="text-xs font-bold text-sky-600 dark:text-sky-400 mb-2 uppercase">Action Details</h4>
+                <h4 className="text-xs font-bold text-sky-600 dark:text-sky-400 mb-2 uppercase">{t('dashboard.actionDetails', settings.uiLanguage)}</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="text-gray-500">Event No:</div>
+                  <div className="text-gray-500">{t('dashboard.eventNo', settings.uiLanguage)}:</div>
                   <div className="font-semibold">{selectedMapAction.event.no}</div>
-                  <div className="text-gray-500">Point:</div>
+                  <div className="text-gray-500">{t('dashboard.point', settings.uiLanguage)}:</div>
                   <div className="font-semibold">{selectedMapAction.event.point}</div>
-                  <div className="text-gray-500">Team:</div>
+                  <div className="text-gray-500">{t('input.team', settings.uiLanguage)}:</div>
                   <div className="font-semibold text-sky-600">{selectedMapAction.action.teamCode}</div>
-                  <div className="text-gray-500">Skill:</div>
+                  <div className="text-gray-500">{t('input.skill', settings.uiLanguage)}:</div>
                   <div className="font-semibold">{selectedMapAction.action.skillCode}</div>
-                  <div className="text-gray-500">Area:</div>
+                  {(selectedMapAction.action.playerNumber || selectedMapAction.action.playerName) && (
+                    <>
+                      <div className="text-gray-500">{t('table.player', settings.uiLanguage)}:</div>
+                      <div className="font-semibold">{[selectedMapAction.action.playerNumber ? `#${selectedMapAction.action.playerNumber}` : '', selectedMapAction.action.playerName].filter(Boolean).join(' ')}</div>
+                    </>
+                  )}
+                  <div className="text-gray-500">{t('input.area', settings.uiLanguage)}:</div>
                   <div className="font-semibold">{selectedMapAction.action.areaLabel || selectedMapAction.action.outZone || selectedMapAction.action.areaCode || '-'}</div>
-                  <div className="text-gray-500">Precision:</div>
+                  <div className="text-gray-500">{t('dashboard.precision', settings.uiLanguage)}:</div>
                   <div className="font-semibold">{selectedMapAction.action.precision || selectedMapAction.action.areaResolution || selectedMapAction.action.areaMode || '-'}</div>
                   {selectedMapAction.action.foulCode && (
                     <>
-                      <div className="text-gray-500">Foul:</div>
+                      <div className="text-gray-500">{t('table.foul', settings.uiLanguage)}:</div>
                       <div className="font-semibold text-amber-600">{selectedMapAction.action.foulLabel || selectedMapAction.action.foulCode}</div>
                     </>
                   )}
-                  <div className="text-gray-500">Result:</div>
+                  <div className="text-gray-500">{t('input.result', settings.uiLanguage)}:</div>
                   <div className={`font-semibold ${selectedMapAction.action.resultCode === 'Yes' ? 'text-green-600' : selectedMapAction.action.resultCode === 'Out' ? 'text-red-600' : 'text-gray-600'}`}>
                     {selectedMapAction.action.resultCode}
                   </div>
@@ -567,11 +681,11 @@ export default function Dashboard() {
                     if (vt !== undefined && vt !== null) {
                       return (
                         <>
-                          <div className="text-gray-500">Video Time:</div>
+                          <div className="text-gray-500">{t('dashboard.videoTime', settings.uiLanguage)}:</div>
                           <div className="font-semibold text-sky-600 cursor-pointer hover:underline" onClick={() => {
                             setSeekRequest(Math.max(0, vt - 3));
                           }}>
-                            {formatPreciseTime(vt)} (Click to Go)
+                            {formatPreciseTime(vt)} · {t('dashboard.goToVideo', settings.uiLanguage)}
                           </div>
                         </>
                       );
@@ -579,6 +693,13 @@ export default function Dashboard() {
                     return null;
                   })()}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewState({ isActive: true, eventRow: selectedMapAction.event, loop: true })}
+                  className="mt-3 inline-flex h-9 items-center gap-2 rounded-md bg-sky-600 px-3 text-xs font-bold text-white hover:bg-sky-500"
+                >
+                  {t('dashboard.openKeyMoment', settings.uiLanguage)}
+                </button>
               </div>
             )}
           </div>
@@ -586,7 +707,7 @@ export default function Dashboard() {
         </Suspense>
       ) : (
         <div className="text-center py-8 text-gray-500 text-sm">
-          ไม่มีข้อมูลสำหรับกีฬาที่เลือก
+          {t('dashboard.noData', settings.uiLanguage)}
         </div>
       )}
     </div>
@@ -616,5 +737,101 @@ function DataQualityCard({ label, value, tone }: { label: string, value: number,
       <div className="text-[10px] font-bold uppercase tracking-wider opacity-75">{label}</div>
       <div className="text-lg font-black leading-tight">{value}</div>
     </div>
+  );
+}
+
+function MapFilterSelect({
+  label,
+  value,
+  options,
+  allLabel,
+  specialLabel,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  allLabel: string;
+  specialLabel?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1 text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400">
+      {label}
+      <select
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        className="h-9 min-w-0 rounded-md border border-gray-300 bg-white px-2 text-xs font-normal normal-case text-gray-800 outline-none focus:border-sky-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+      >
+        <option value="ALL">{allLabel}</option>
+        {options.map(option => (
+          <option key={option} value={option}>{option === 'with-foul' ? specialLabel : option}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function MapTimeInput({
+  label,
+  value,
+  invalid = false,
+  onChange,
+}: {
+  label: string;
+  value?: number;
+  invalid?: boolean;
+  onChange: (value?: number) => void;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1 text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400">
+      {label}
+      <input
+        type="number"
+        min="0"
+        step="0.1"
+        value={value ?? ''}
+        onChange={event => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
+        className={`h-9 min-w-0 rounded-md border bg-white px-2 text-xs font-normal text-gray-800 outline-none focus:border-sky-500 dark:bg-gray-900 dark:text-gray-100 ${invalid ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
+      />
+    </label>
+  );
+}
+
+function CoachPrintSummary({
+  language,
+  sportLabel,
+  teams,
+  analytics,
+  dataQuality,
+}: {
+  language: 'th' | 'en';
+  sportLabel: string;
+  teams: Team[];
+  analytics: AnalyticsSummary;
+  dataQuality: DataQualityReport;
+}) {
+  const topSkills = Object.entries(analytics.skillCounts).sort((left, right) => right[1] - left[1]).slice(0, 5);
+  const topAreas = Object.entries(analytics.areaCounts).sort((left, right) => right[1] - left[1]).slice(0, 5);
+
+  return (
+    <section className="coach-print-summary hidden" aria-hidden="true">
+      <header>
+        <h1>SPORTSCOUT · {t('dashboard.coachSummary', language)}</h1>
+        <p>{sportLabel} · {teams.map(team => team.code).join(' vs ') || '-'}</p>
+      </header>
+      <div className="coach-print-metrics">
+        <div><strong>{analytics.totalEvents}</strong><span>{t('dashboard.totalEvents', language)}</span></div>
+        <div><strong>{analytics.totalActions}</strong><span>{t('dashboard.totalActions', language)}</span></div>
+        <div><strong>{analytics.derivedOutcomePoints.total}</strong><span>{t('dashboard.derivedPoints', language)}</span></div>
+        <div><strong>{dataQuality.incompleteEvents}</strong><span>{t('dashboard.incomplete', language)}</span></div>
+      </div>
+      <p className="coach-print-note">{t('dashboard.derivedPointsHelp', language)}</p>
+      <div className="coach-print-columns">
+        <div><h2>{language === 'th' ? 'ทักษะที่พบบ่อย' : 'Top Skills'}</h2>{topSkills.map(([key, value]) => <p key={key}>{key}<strong>{value}</strong></p>)}</div>
+        <div><h2>{language === 'th' ? 'พื้นที่ที่พบบ่อย' : 'Top Areas'}</h2>{topAreas.map(([key, value]) => <p key={key}>{key}<strong>{value}</strong></p>)}</div>
+        <div><h2>{t('dashboard.dataQuality', language)}</h2><p>{t('dashboard.valid', language)}<strong>{dataQuality.validEvents}</strong></p><p>{t('dashboard.warnings', language)}<strong>{dataQuality.warnings}</strong></p><p>{t('dashboard.legacy', language)}<strong>{dataQuality.legacyEvents}</strong></p></div>
+      </div>
+    </section>
   );
 }
