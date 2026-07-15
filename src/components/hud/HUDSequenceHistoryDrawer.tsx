@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { EventRow, Action } from "../../types";
 import { useScoutContext } from "../../context/ScoutContext";
 import {
@@ -16,6 +16,9 @@ import {
 } from "lucide-react";
 import { formatPreciseTime } from "../../utils";
 import BookmarkClipModal from "../BookmarkClipModal";
+import type { ControllerHistoryCommand } from "../../controller/controllerHudBridge";
+import { t } from "../../i18n";
+import { getEventTimestamp } from "../../utils/eventQuery";
 
 type HUDSequenceHistoryDrawerProps = {
   isOpen: boolean;
@@ -29,6 +32,7 @@ type HUDSequenceHistoryDrawerProps = {
   onGoToTime: (videoTime: number) => void;
   onReplaySegment: (event: EventRow) => void;
   onCopyEvent: (event: EventRow) => void;
+  controllerCommand?: { id: number; command: ControllerHistoryCommand } | null;
 };
 
 export default function HUDSequenceHistoryDrawer({
@@ -43,6 +47,7 @@ export default function HUDSequenceHistoryDrawer({
   onGoToTime,
   onReplaySegment,
   onCopyEvent,
+  controllerCommand,
 }: HUDSequenceHistoryDrawerProps) {
   const { getActionText, sportTemplate, teams, deleteEventRow, settings, videoTime, toggleEventBookmark, showToast } = useScoutContext();
   const [activeTab, setActiveTab] = useState<"rally" | "recent" | "bookmarks" | "filter">(
@@ -50,6 +55,10 @@ export default function HUDSequenceHistoryDrawer({
   );
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
   const [replayClipEvent, setReplayClipEvent] = useState<EventRow | null>(null);
+  const [selectedEventIndex, setSelectedEventIndex] = useState(0);
+  const eventListRef = useRef<HTMLDivElement>(null);
+  const selectedEventRef = useRef<HTMLDivElement>(null);
+  const lastControllerCommandIdRef = useRef<number | null>(null);
 
   // Format full sequence string with arrows
   const formatEventSequence = (event: EventRow) => {
@@ -85,8 +94,8 @@ export default function HUDSequenceHistoryDrawer({
     toggleEventBookmark(event.id);
     showToast(
       willBookmark
-        ? (settings?.uiLanguage === "th" ? "บันทึกไว้ใน Bookmarks แล้ว" : "Saved to bookmarks")
-        : (settings?.uiLanguage === "th" ? "ลบออกจาก Bookmarks แล้ว" : "Removed from bookmarks")
+        ? t('keyMoments.savedToast', settings.uiLanguage)
+        : t('keyMoments.removedToast', settings.uiLanguage)
     );
   };
 
@@ -97,23 +106,23 @@ export default function HUDSequenceHistoryDrawer({
     const t2 = teamsList[1]?.code || "TeamB";
 
     return [
-      { id: "all", label: "All Events" },
-      { id: "yes", label: "Result: Yes" },
-      { id: "out", label: "Result: Out" },
-      { id: "pass", label: "Result: Pass" },
-      { id: `team-${t1}`, label: `Team: ${t1}` },
-      { id: `team-${t2}`, label: `Team: ${t2}` },
-      { id: "long-rally", label: "Long Rally (>=3)" },
+      { id: "all", label: t('history.allEvents', settings.uiLanguage) },
+      { id: "yes", label: `${t('input.result', settings.uiLanguage)}: Yes` },
+      { id: "out", label: `${t('input.result', settings.uiLanguage)}: Out` },
+      { id: "pass", label: `${t('input.result', settings.uiLanguage)}: Pass` },
+      { id: `team-${t1}`, label: `${t('input.team', settings.uiLanguage)}: ${t1}` },
+      { id: `team-${t2}`, label: `${t('input.team', settings.uiLanguage)}: ${t2}` },
+      { id: "long-rally", label: t('history.longRally', settings.uiLanguage) },
       {
         id: "current-skill",
-        label: `Skill: ${currentAction.skillCode || "None"}`,
+        label: `${t('input.skill', settings.uiLanguage)}: ${currentAction.skillCode || t('history.none', settings.uiLanguage)}`,
       },
       {
         id: "current-area",
-        label: `Area: ${currentAction.areaCode || "None"}`,
+        label: `${t('input.area', settings.uiLanguage)}: ${currentAction.areaCode || t('history.none', settings.uiLanguage)}`,
       },
     ];
-  }, [teams, currentAction]);
+  }, [teams, currentAction, settings.uiLanguage]);
 
   const filteredEvents = useMemo(() => {
     const sorted = [...events].reverse(); // Most recent first
@@ -172,6 +181,51 @@ export default function HUDSequenceHistoryDrawer({
     return sorted;
   }, [events, activeTab, selectedFilter, currentAction]);
 
+  useEffect(() => {
+    setSelectedEventIndex((index) => Math.max(0, Math.min(index, filteredEvents.length - 1)));
+  }, [filteredEvents.length]);
+
+  useEffect(() => {
+    if (!isOpen || !controllerCommand) return;
+    if (lastControllerCommandIdRef.current === controllerCommand.id) return;
+    lastControllerCommandIdRef.current = controllerCommand.id;
+    const tabs: Array<typeof activeTab> = ["rally", "recent", "bookmarks", "filter"];
+    const tabIndex = tabs.indexOf(activeTab);
+    switch (controllerCommand.command) {
+      case "previous-tab":
+        setActiveTab(tabs[(tabIndex - 1 + tabs.length) % tabs.length]);
+        setSelectedEventIndex(0);
+        break;
+      case "next-tab":
+        setActiveTab(tabs[(tabIndex + 1) % tabs.length]);
+        setSelectedEventIndex(0);
+        break;
+      case "previous-item":
+        setSelectedEventIndex((index) => Math.max(0, index - 1));
+        break;
+      case "next-item":
+        setSelectedEventIndex((index) => Math.min(Math.max(0, filteredEvents.length - 1), index + 1));
+        break;
+      case "confirm":
+        if (activeTab === "rally") onSaveCurrent();
+        else if (filteredEvents[selectedEventIndex]) onReplaySegment(filteredEvents[selectedEventIndex]);
+        break;
+      case "scroll-up":
+        eventListRef.current?.scrollBy({ top: -140, behavior: "smooth" });
+        break;
+      case "scroll-down":
+        eventListRef.current?.scrollBy({ top: 140, behavior: "smooth" });
+        break;
+      case "close":
+        onClose();
+        break;
+    }
+  }, [activeTab, controllerCommand, filteredEvents, isOpen, onClose, onReplaySegment, onSaveCurrent, selectedEventIndex]);
+
+  useEffect(() => {
+    selectedEventRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedEventIndex, activeTab]);
+
   if (!isOpen) return null;
 
   return (
@@ -181,7 +235,7 @@ export default function HUDSequenceHistoryDrawer({
         <div className="flex items-center gap-2">
           <Clock size={18} className="text-sky-400" />
           <h2 className="font-bold text-base uppercase tracking-wider">
-            Sequence History
+            {t('history.title', settings.uiLanguage)}
           </h2>
           <span className="text-xs bg-white/10 px-2 py-0.5 rounded-full text-white/70">
             {events.length}
@@ -190,15 +244,17 @@ export default function HUDSequenceHistoryDrawer({
         <button
           onClick={onClose}
           className="p-1.5 rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors active:scale-90 active:bg-white/20"
-          title="Close Panel"
+          title={t('history.close', settings.uiLanguage)}
         >
           <X size={20} />
         </button>
       </div>
 
       {/* Tabs bar */}
-      <div className="flex border-b border-white/10 bg-white/5 p-1 gap-1">
+      <div className="flex border-b border-white/10 bg-white/5 p-1 gap-1" role="tablist" aria-label={t('history.title', settings.uiLanguage)}>
         <button
+          role="tab"
+          aria-selected={activeTab === "rally"}
           onClick={() => setActiveTab("rally")}
           className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all relative active:scale-95 ${
             activeTab === "rally"
@@ -206,12 +262,14 @@ export default function HUDSequenceHistoryDrawer({
               : "text-white/60 hover:text-white hover:bg-white/5"
           }`}
         >
-          Current Rally
+          {t('history.currentRally', settings.uiLanguage)}
           {currentActions.length > 0 && (
             <span className="absolute top-1 right-2 w-2 h-2 bg-amber-500 rounded-full animate-ping" />
           )}
         </button>
         <button
+          role="tab"
+          aria-selected={activeTab === "recent"}
           onClick={() => setActiveTab("recent")}
           className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all active:scale-95 ${
             activeTab === "recent"
@@ -219,9 +277,11 @@ export default function HUDSequenceHistoryDrawer({
               : "text-white/60 hover:text-white hover:bg-white/5"
           }`}
         >
-          Recent (20)
+          {t('history.recent', settings.uiLanguage)} (20)
         </button>
         <button
+          role="tab"
+          aria-selected={activeTab === "bookmarks"}
           onClick={() => setActiveTab("bookmarks")}
           className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 active:scale-95 ${
             activeTab === "bookmarks"
@@ -230,9 +290,11 @@ export default function HUDSequenceHistoryDrawer({
           }`}
         >
           <Star size={12} />
-          Bookmarks
+          {t('keyMoments.title', settings.uiLanguage)}
         </button>
         <button
+          role="tab"
+          aria-selected={activeTab === "filter"}
           onClick={() => setActiveTab("filter")}
           className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 active:scale-95 ${
             activeTab === "filter"
@@ -241,7 +303,7 @@ export default function HUDSequenceHistoryDrawer({
           }`}
         >
           <Filter size={12} />
-          Filters
+          {t('history.filters', settings.uiLanguage)}
         </button>
       </div>
 
@@ -260,15 +322,15 @@ export default function HUDSequenceHistoryDrawer({
                     size={32}
                     className="opacity-20 animate-spin-slow"
                   />
-                  <p className="text-sm">ยังไม่มี sequence ใน rally นี้</p>
+                  <p className="text-sm">{t('history.noCurrentSequence', settings.uiLanguage)}</p>
                   <p className="text-[11px]">
-                    เลือกข้อมูลเพื่อประกอบ sequence ของ rally
+                    {t('history.buildSequence', settings.uiLanguage)}
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div className="text-xs uppercase tracking-wider text-white/50 font-bold mb-1 flex justify-between items-center">
-                    <span>Rally Chain Sequences</span>
+                    <span>{t('history.currentSequence', settings.uiLanguage)}</span>
                     {currentActions.length > 0 && currentActions[0].videoTime !== undefined && (
                       <span className="text-amber-400 font-mono bg-amber-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
                         <Clock size={10} />
@@ -297,11 +359,17 @@ export default function HUDSequenceHistoryDrawer({
                               .filter(Boolean)
                               .join(" / ")}
                           </span>
-                          <span className="text-xs text-white/40 font-mono">
+                          <button
+                            type="button"
+                            onClick={() => act.videoTime !== undefined && onGoToTime(act.videoTime)}
+                            disabled={act.videoTime === undefined}
+                            className="text-left text-xs text-white/40 font-mono hover:text-sky-300 disabled:cursor-default disabled:hover:text-white/40"
+                            title={t('table.jumpToTime', settings.uiLanguage)}
+                          >
                             {act.videoTime !== undefined
                               ? formatPreciseTime(act.videoTime)
                               : "00:00.00"}
-                          </span>
+                          </button>
                         </div>
                       </div>
                       <span className="text-xs px-2 py-0.5 rounded-full border border-white/20 bg-white/5 text-white/60">
@@ -317,7 +385,7 @@ export default function HUDSequenceHistoryDrawer({
                     currentAction.foulCode) && (
                     <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-3 space-y-2 animate-pulse">
                       <div className="text-xs uppercase font-bold text-sky-400">
-                        Composing Current Action
+                        {t('history.composing', settings.uiLanguage)}
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         <span
@@ -362,26 +430,26 @@ export default function HUDSequenceHistoryDrawer({
                 <button
                   onClick={onUndo}
                   className="py-2.5 px-2 bg-white/5 border border-white/10 rounded-lg text-xs font-bold flex flex-col items-center gap-1 hover:bg-white/10 active:scale-95 transition-all text-white/80 hover:text-white"
-                  title="Undo last action"
+                  title={t('history.undoLast', settings.uiLanguage)}
                 >
                   <Undo2 size={16} />
-                  <span>Undo Last</span>
+                  <span>{t('history.undoLast', settings.uiLanguage)}</span>
                 </button>
                 <button
                   onClick={onClearCurrent}
                   className="py-2.5 px-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs font-bold flex flex-col items-center gap-1 hover:bg-red-500/20 active:scale-95 transition-all text-red-400"
-                  title="Clear rally"
+                  title={t('history.clearRally', settings.uiLanguage)}
                 >
                   <Trash2 size={16} />
-                  <span>Clear Rally</span>
+                  <span>{t('history.clearRally', settings.uiLanguage)}</span>
                 </button>
                 <button
                   onClick={onSaveCurrent}
                   className="py-2.5 px-2 bg-green-500/20 border border-green-500/30 rounded-lg text-xs font-bold flex flex-col items-center gap-1 hover:bg-green-500/30 active:scale-95 transition-all text-green-400"
-                  title="Save Event"
+                  title={t('input.saveEvent', settings.uiLanguage)}
                 >
                   <Save size={16} />
-                  <span>Save Event</span>
+                  <span>{t('input.saveEvent', settings.uiLanguage)}</span>
                 </button>
               </div>
             )}
@@ -393,7 +461,7 @@ export default function HUDSequenceHistoryDrawer({
             {activeTab === "filter" && (
               <div className="space-y-2">
                 <div className="text-xs uppercase tracking-wider text-white/50 font-bold mb-1">
-                  Filter Events
+                  {t('history.filterEvents', settings.uiLanguage)}
                 </div>
                 <div className="flex flex-wrap gap-1.5 max-h-[140px] overflow-y-auto p-1 border border-white/5 rounded-lg bg-black/40">
                   {filterOptions.map((opt) => (
@@ -413,14 +481,14 @@ export default function HUDSequenceHistoryDrawer({
               </div>
             )}
 
-            <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+            <div ref={eventListRef} className="flex-1 space-y-3 overflow-y-auto pr-1">
               <div className="flex justify-between items-center text-xs uppercase tracking-wider text-white/50 font-bold mb-1">
                 <span>
                   {activeTab === "filter"
-                    ? "Filtered Results"
+                    ? t('history.filteredResults', settings.uiLanguage)
                     : activeTab === "bookmarks"
-                      ? "Bookmarked Sequences"
-                    : "Recent Saved events"}
+                      ? t('keyMoments.title', settings.uiLanguage)
+                    : t('history.recentSaved', settings.uiLanguage)}
                 </span>
                 <span className="font-mono text-white/40">
                   ({filteredEvents.length})
@@ -429,13 +497,19 @@ export default function HUDSequenceHistoryDrawer({
 
               {filteredEvents.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center text-white/40 py-12">
-                  <p className="text-sm">ไม่พบข้อมูลที่ต้องการ</p>
+                  <p className="text-sm">{t('history.noData', settings.uiLanguage)}</p>
                 </div>
               ) : (
                 filteredEvents.map((evt, idx) => (
                   <div
                     key={`${evt.id}-${idx}`}
-                    className="bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl p-3.5 space-y-3.5 transition-all hover:scale-[1.01]"
+                    ref={idx === selectedEventIndex ? selectedEventRef : undefined}
+                    data-controller-selected={idx === selectedEventIndex}
+                    className={`rounded-xl p-3.5 space-y-3.5 transition-all hover:scale-[1.01] ${
+                      idx === selectedEventIndex
+                        ? "bg-sky-500/15 border-2 border-sky-400 shadow-[0_0_18px_rgba(56,189,248,0.18)]"
+                        : "bg-white/5 hover:bg-white/10 border border-white/10"
+                    }`}
                   >
                     {/* Event top info */}
                     <div className="flex items-start justify-between">
@@ -469,7 +543,7 @@ export default function HUDSequenceHistoryDrawer({
                         {evt.isBookmarked && (
                           <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded-lg flex items-center gap-1">
                             <Star size={10} fill="currentColor" />
-                            Saved
+                            {t('keyMoments.saved', settings.uiLanguage)}
                           </span>
                         )}
                       </div>
@@ -512,8 +586,8 @@ export default function HUDSequenceHistoryDrawer({
                         <button
                           onClick={() => setReplayClipEvent(evt)}
                           className="h-7 w-7 shrink-0 rounded-lg bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-95 transition-all inline-flex items-center justify-center"
-                          title={settings?.uiLanguage === "th" ? "เปิดรีเพลย์ลำดับเหตุการณ์" : "Open Sequence Replay"}
-                          aria-label={settings?.uiLanguage === "th" ? "เปิดรีเพลย์ลำดับเหตุการณ์" : "Open Sequence Replay"}
+                          title={t('keyMoments.openReplay', settings.uiLanguage)}
+                          aria-label={t('keyMoments.openReplay', settings.uiLanguage)}
                         >
                           <Clapperboard size={13} />
                         </button>
@@ -525,34 +599,34 @@ export default function HUDSequenceHistoryDrawer({
                             ? "bg-amber-500/25 text-amber-300 hover:bg-amber-500/40 border-amber-500/30"
                             : "bg-white/5 text-white/80 hover:bg-amber-500/15 hover:text-amber-300 border-white/10"
                         }`}
-                        title={evt.isBookmarked ? "Remove Bookmark" : "Bookmark Sequence"}
+                        title={evt.isBookmarked ? t('keyMoments.remove', settings.uiLanguage) : t('keyMoments.add', settings.uiLanguage)}
                       >
                         <Star size={10} fill={evt.isBookmarked ? "currentColor" : "none"} />
-                        {evt.isBookmarked ? "Saved" : "Save"}
+                        {evt.isBookmarked ? t('keyMoments.saved', settings.uiLanguage) : t('keyMoments.addShort', settings.uiLanguage)}
                       </button>
                       <button
                         onClick={() => onReplaySegment(evt)}
                         className="px-2 py-1.5 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 active:scale-95 active:bg-sky-500/40 transition-all inline-flex items-center gap-1 text-[11px] font-bold"
-                        title="Replay Sequence"
+                        title={t('keyMoments.openReplay', settings.uiLanguage)}
                       >
                         <Play size={10} className="fill-current" />
-                        Play
+                        {t('keyMoments.play', settings.uiLanguage)}
                       </button>
                       <button
-                        onClick={() => onGoToTime(evt.videoTime ?? 0)}
+                        onClick={() => onGoToTime(getEventTimestamp(evt) ?? 0)}
                         className="px-2 py-1.5 rounded-lg bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all inline-flex items-center gap-1 text-[11px] font-bold"
-                        title="Go to exact time"
+                        title={t('table.jumpToTime', settings.uiLanguage)}
                       >
                         <Clock size={10} />
-                        Time
+                        {t('history.time', settings.uiLanguage)}
                       </button>
                       <button
                         onClick={() => onCopyEvent(evt)}
                         className="px-2 py-1.5 rounded-lg bg-white/5 text-white/80 hover:bg-white/10 hover:text-white active:scale-95 active:bg-white/15 transition-all inline-flex items-center gap-1 text-[11px] font-bold"
-                        title="Copy Event description"
+                        title={t('history.copyEvent', settings.uiLanguage)}
                       >
                         <Copy size={10} />
-                        Copy
+                        {t('history.copy', settings.uiLanguage)}
                       </button>
                       <button
                         onClick={() => {
@@ -561,10 +635,10 @@ export default function HUDSequenceHistoryDrawer({
                           }
                         }}
                         className="px-2 py-1.5 rounded-lg bg-red-500/25 text-red-300 hover:bg-red-500/40 active:scale-95 transition-all inline-flex items-center gap-1 text-[11px] font-bold border border-red-500/30 cursor-pointer"
-                        title="Delete Sequence"
+                        title={t('history.deleteEvent', settings.uiLanguage)}
                       >
                         <Trash2 size={10} />
-                        Del
+                        {t('history.delete', settings.uiLanguage)}
                       </button>
                     </div>
                   </div>

@@ -1,4 +1,5 @@
 import type {
+  Action,
   AppSettings,
   Area,
   AreaSelectionPayload,
@@ -13,6 +14,15 @@ export type AreaSelectionPoint = {
 };
 
 export type AreaSelectionSource = "absolute-pointer" | "joystick-cursor" | "gamepad-stick";
+export type VisibleCourtRegion = "primary" | "opponent";
+
+export function resolveVisibleCourtSide(
+  region: VisibleCourtRegion,
+  flipCourtSide = false,
+): "teamA" | "teamB" {
+  if (region === "primary") return flipCourtSide ? "teamB" : "teamA";
+  return flipCourtSide ? "teamA" : "teamB";
+}
 
 export type AreaGeometryResolverOptions = {
   sportType: SportType;
@@ -26,6 +36,96 @@ export type AreaGeometryResolverOptions = {
 };
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+export type AreaPrecision = "Point" | "Detailed" | "Zone" | "Out" | "Unknown";
+export type AreaDisplayPoint = { top: number; left: number };
+
+const AREA_DISPLAY_POINTS: Record<SportType, Record<string, AreaDisplayPoint>> = {
+  volleyball: {
+    LN: { top: 25, left: 20 }, CN: { top: 50, left: 20 }, RN: { top: 75, left: 20 },
+    RB: { top: 25, left: 80 }, CB: { top: 50, left: 80 }, LB: { top: 75, left: 80 },
+    NET: { top: 50, left: 50 }, NET_ERR: { top: 50, left: 50 },
+  },
+  football: {
+    ATT_L: { top: 20, left: 20 }, ATT_C: { top: 20, left: 50 }, ATT_R: { top: 20, left: 80 },
+    MID_L: { top: 50, left: 20 }, MID_C: { top: 50, left: 50 }, MID_R: { top: 50, left: 80 },
+    DEF_L: { top: 80, left: 20 }, DEF_C: { top: 80, left: 50 }, DEF_R: { top: 80, left: 80 },
+    BOX: { top: 10, left: 50 }, GOAL: { top: 5, left: 50 },
+  },
+  badminton: {
+    FRONT: { top: 25, left: 50 }, MID: { top: 50, left: 50 }, BACK: { top: 75, left: 50 },
+    FL: { top: 65, left: 25 }, FC: { top: 65, left: 50 }, FR: { top: 65, left: 75 },
+    ML: { top: 75, left: 25 }, MC: { top: 75, left: 50 }, MR: { top: 75, left: 75 },
+    BL: { top: 90, left: 25 }, BC: { top: 90, left: 50 }, BR: { top: 90, left: 75 },
+    NET: { top: 50, left: 50 }, NET_ERR: { top: 50, left: 50 },
+  },
+  basketball: {
+    PAINT: { top: 15, left: 50 }, LEFT_WING: { top: 25, left: 20 }, RIGHT_WING: { top: 25, left: 80 },
+    TOP_KEY: { top: 35, left: 50 }, LEFT_CORNER: { top: 8, left: 10 }, RIGHT_CORNER: { top: 8, left: 90 },
+    MID_RANGE: { top: 23, left: 50 }, THREE_PT: { top: 43, left: 50 },
+  },
+};
+
+const OUT_DISPLAY_POINTS: Partial<Record<OutZoneType, AreaDisplayPoint>> = {
+  side_left_near: { top: 75, left: -8 }, side_left_far: { top: 25, left: -8 },
+  side_right_near: { top: 75, left: 108 }, side_right_far: { top: 25, left: 108 },
+  back_left: { top: 108, left: 25 }, back_right: { top: 108, left: 75 },
+  opp_back_left: { top: -8, left: 25 }, opp_back_right: { top: -8, left: 75 },
+  left_touchline_att: { top: 20, left: -8 }, left_touchline_mid: { top: 50, left: -8 }, left_touchline_def: { top: 80, left: -8 },
+  right_touchline_att: { top: 20, left: 108 }, right_touchline_mid: { top: 50, left: 108 }, right_touchline_def: { top: 80, left: 108 },
+  own_endline: { top: 108, left: 50 }, opp_endline: { top: -8, left: 50 },
+  left_sideline: { top: 50, left: -8 }, right_sideline: { top: 50, left: 108 },
+  baseline_left: { top: -8, left: 25 }, baseline_right: { top: -8, left: 75 }, endline: { top: 108, left: 50 },
+  net_error: { top: 50, left: 50 },
+};
+
+export function getAreaPrecision(action: Pick<Action, "pointX" | "pointY" | "outZone" | "areaResolution" | "areaMode" | "areaCode">): AreaPrecision {
+  if (Number.isFinite(action.pointX) && Number.isFinite(action.pointY)) return "Point";
+  if (action.outZone || action.areaResolution === "out-zone" || ["OUT", "LONG_OUT", "SIDE_OUT"].includes(action.areaCode || "")) return "Out";
+  if (!action.areaCode || action.areaCode === "UNKNOWN") return "Unknown";
+  if (action.areaMode === "detailed" || action.areaResolution === "detailed" || action.areaCode.startsWith("F-") || /-[1-4]$/.test(action.areaCode)) return "Detailed";
+  return "Zone";
+}
+
+export function resolveAreaDisplayPoint(
+  sportType: SportType,
+  action: Pick<Action, "pointX" | "pointY" | "outZone" | "areaCode" | "areaMode" | "areaResolution" | "gridX" | "gridY" | "courtSide">,
+): AreaDisplayPoint | null {
+  if (Number.isFinite(action.pointX) && Number.isFinite(action.pointY)) {
+    return { top: clamp01(action.pointY!) * 100, left: clamp01(action.pointX!) * 100 };
+  }
+  if (action.outZone) return OUT_DISPLAY_POINTS[action.outZone] ?? null;
+  if (["OUT", "LONG_OUT", "SIDE_OUT"].includes(action.areaCode || "")) return { top: 108, left: 50 };
+  if (!action.areaCode || action.areaCode === "UNKNOWN") return null;
+
+  let point: AreaDisplayPoint | undefined;
+  if (sportType === "football" && action.areaCode.startsWith("F-")) {
+    const [, row, column] = action.areaCode.split("-").map(Number);
+    if (Number.isFinite(row) && Number.isFinite(column)) {
+      point = { top: (row + 0.5) * 25, left: (column + 0.5) * 25 };
+    }
+  } else if (sportType === "volleyball" && /-[1-4]$/.test(action.areaCode)) {
+    const [baseCode, subGrid] = action.areaCode.split("-");
+    const base = AREA_DISPLAY_POINTS.volleyball[baseCode];
+    const offsets: Record<string, AreaDisplayPoint> = {
+      "1": { top: -7, left: -4 }, "2": { top: -7, left: 4 },
+      "3": { top: 7, left: -4 }, "4": { top: 7, left: 4 },
+    };
+    const offset = offsets[subGrid];
+    if (base && offset) point = { top: base.top + offset.top, left: base.left + offset.left };
+  } else if (Number.isFinite(action.gridX) && Number.isFinite(action.gridY)) {
+    point = { top: (action.gridY! + 0.5) * 25, left: (action.gridX! + 0.5) * 25 };
+  } else {
+    const normalizedCode = action.areaCode === "THREE_POINT" ? "THREE_PT" : action.areaCode;
+    point = AREA_DISPLAY_POINTS[sportType][normalizedCode];
+  }
+
+  if (!point) return null;
+  if ((sportType === "football" || sportType === "basketball") && action.courtSide === "teamB") {
+    return { top: 100 - point.top, left: 100 - point.left };
+  }
+  return point;
+}
 
 export function resolveAreaSelectionFromPoint({
   sportType,
@@ -129,8 +229,8 @@ function resolveInnerCourt({
   isDetailed: boolean;
 }): AreaSelectionPayload | null {
   if (sportType === "volleyball") {
-    const leftCourtSide = flipCourtSide ? "teamB" : "teamA";
-    const rightCourtSide = flipCourtSide ? "teamA" : "teamB";
+    const leftCourtSide = resolveVisibleCourtSide("primary", flipCourtSide);
+    const rightCourtSide = resolveVisibleCourtSide("opponent", flipCourtSide);
 
     if (cx < 0.46) {
       const colX = cx / 0.46;
@@ -155,7 +255,7 @@ function resolveInnerCourt({
 
   if (sportType === "football") {
     // Position-based: matches CourtAreaSelector — top half = teamB (normal), teamA (flipped)
-    const attackCourtSide = flipCourtSide ? "teamA" : "teamB";
+    const attackCourtSide = resolveVisibleCourtSide("opponent", flipCourtSide);
     if (isDetailed) {
       const r = Math.min(3, Math.floor(cy * 4));
       const c = Math.min(3, Math.floor(cx * 4));
@@ -176,20 +276,20 @@ function resolveInnerCourt({
       const gridY = cy / 0.46;
       const rowCode = gridY < 0.33 ? "B" : gridY < 0.66 ? "M" : "F";
       const colCode = cx < 0.33 ? "R" : cx < 0.66 ? "C" : "L";
-      return { areaCode: rowCode + colCode, courtSide: flipCourtSide ? "teamA" : "teamB", areaResolution: "normal", areaMode: "normal" };
+      return { areaCode: rowCode + colCode, courtSide: resolveVisibleCourtSide("opponent", flipCourtSide), areaResolution: "normal", areaMode: "normal" };
     }
     if (cy > 0.54) {
       const gridY = (cy - 0.54) / 0.46;
       const rowCode = gridY < 0.33 ? "F" : gridY < 0.66 ? "M" : "B";
       const colCode = cx < 0.33 ? "L" : cx < 0.66 ? "C" : "R";
-      return { areaCode: rowCode + colCode, courtSide: flipCourtSide ? "teamB" : "teamA", areaResolution: "normal", areaMode: "normal" };
+      return { areaCode: rowCode + colCode, courtSide: resolveVisibleCourtSide("primary", flipCourtSide), areaResolution: "normal", areaMode: "normal" };
     }
     return { areaCode: "NET_ERR", courtSide: "neutral", areaResolution: "normal", areaMode: "normal" };
   }
 
   if (sportType === "basketball") {
     // Position-based: matches CourtAreaSelector — top half = teamB (normal), teamA (flipped)
-    const attackCourtSide = flipCourtSide ? "teamA" : "teamB";
+    const attackCourtSide = resolveVisibleCourtSide("opponent", flipCourtSide);
     if (cy < 0.25) {
       const areaCode = cx > 0.33 && cx < 0.67 ? "PAINT" : cx < 0.33 ? "LEFT_WING" : "RIGHT_WING";
       return { areaCode, courtSide: attackCourtSide, areaResolution: "normal", areaMode: "normal" };

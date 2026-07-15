@@ -330,8 +330,10 @@ function AppContent() {
             {/* Top/Right Workspace: Tabs Interface */}
             <section className="lg:col-span-7 flex flex-col gap-4 lg:h-full lg:overflow-hidden">
               {/* Modern tabs navigation */}
-              <div className="coach-panel-flat flex p-1 gap-1 shrink-0">
+              <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'}>
                 <button
+                  role="tab"
+                  aria-selected={activeTab === 'input'}
                   onClick={() => setActiveTab('input')}
                   onPointerDown={() => setActiveTab('input')}
                   className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
@@ -344,6 +346,8 @@ function AppContent() {
                   <span>{settings.uiLanguage === 'th' ? 'แผงบันทึก (Scout)' : 'Scout Input'}</span>
                 </button>
                 <button
+                  role="tab"
+                  aria-selected={activeTab === 'dashboard'}
                   onClick={() => setActiveTab('dashboard')}
                   onPointerDown={() => setActiveTab('dashboard')}
                   className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
@@ -356,6 +360,8 @@ function AppContent() {
                   <span>{settings.uiLanguage === 'th' ? 'สถิติ / ชาร์ต' : 'Dashboard'}</span>
                 </button>
                 <button
+                  role="tab"
+                  aria-selected={activeTab === 'table'}
                   onClick={() => setActiveTab('table')}
                   onPointerDown={() => setActiveTab('table')}
                   className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
@@ -368,6 +374,8 @@ function AppContent() {
                   <span>{settings.uiLanguage === 'th' ? 'ตารางเหตุการณ์' : 'Events Table'}</span>
                 </button>
                 <button
+                  role="tab"
+                  aria-selected={activeTab === 'bookmarks'}
                   onClick={() => setActiveTab('bookmarks')}
                   onPointerDown={() => setActiveTab('bookmarks')}
                   className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
@@ -377,7 +385,7 @@ function AppContent() {
                   }`}
                 >
                   <Star size={18} />
-                  <span>Bookmarks</span>
+                  <span>{t('keyMoments.title', settings.uiLanguage)}</span>
                 </button>
               </div>
 

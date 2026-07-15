@@ -256,6 +256,7 @@ export type AppSettings = {
   hudInteractionStyle?: 'hold' | 'click';
   hudExperienceMode?: 'auto' | 'pro' | 'phone';
   phoneScoutDensity?: 'compact' | 'comfortable';
+  controllerV1Enabled?: boolean;
 };
 
 export type ScoutProject = {

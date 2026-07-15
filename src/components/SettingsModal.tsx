@@ -2,10 +2,11 @@ import React from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { SportType } from '../types';
 import { SPORT_TEMPLATES } from '../sports';
-import { X, Save, Trash2, Download, Upload, Settings, RefreshCw } from 'lucide-react';
+import { X, Save, Trash2, Download, Upload, Settings, RefreshCw, Gamepad2 } from 'lucide-react';
 import CustomSelect, { Option } from './ui/CustomSelect';
 import { t, SupportedLanguage } from '../i18n';
 import { motion, AnimatePresence } from 'motion/react';
+import ControllerSettingsPanel from './controller/ControllerSettingsPanel';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -22,7 +23,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   } = useScoutContext();
 
   const [confirmConfig, setConfirmConfig] = React.useState<{ message: string, onConfirm: () => void } | null>(null);
-  const [activeTab, setActiveTab] = React.useState<'general' | 'hud' | 'data'>('general');
+  const [activeTab, setActiveTab] = React.useState<'general' | 'hud' | 'controller' | 'data'>('general');
 
 
   const handleClearData = () => {
@@ -71,16 +72,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
             <Settings size={20} /> {t('settings.title', settings.uiLanguage)}
           </h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 transition-colors">
+          <button
+            onClick={onClose}
+            aria-label={settings.uiLanguage === 'th' ? 'ปิดการตั้งค่า' : 'Close settings'}
+            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 transition-colors"
+          >
             <X size={20} />
           </button>
         </div>
 
             {/* Horizontal Tabs for settings */}
-            <div className="flex border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 p-1.5 gap-2 shrink-0">
+            <div className="grid grid-cols-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 p-1.5 gap-1 shrink-0">
               <button
                 onClick={() => setActiveTab('general')}
-                className={`flex-1 py-2 rounded-lg text-sm font-black transition-all border cursor-pointer ${
+                className={`min-w-0 px-1 py-2 rounded-lg text-xs sm:text-sm font-black transition-all border cursor-pointer ${
                   activeTab === 'general'
                     ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
                     : 'bg-transparent text-gray-600 dark:text-gray-400 border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -90,17 +95,28 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               </button>
               <button
                 onClick={() => setActiveTab('hud')}
-                className={`flex-1 py-2 rounded-lg text-sm font-black transition-all border cursor-pointer ${
+                className={`min-w-0 px-1 py-2 rounded-lg text-xs sm:text-sm font-black transition-all border cursor-pointer ${
                   activeTab === 'hud'
                     ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
                     : 'bg-transparent text-gray-600 dark:text-gray-400 border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
                 }`}
               >
-                <span className="hidden sm:inline">{settings.uiLanguage === 'th' ? 'HUD & สนาม & วิดีโอ (HUD/Court)' : 'HUD & Court & Video'}</span><span className="sm:hidden">HUD/Court</span>
+                <span className="hidden sm:inline">{settings.uiLanguage === 'th' ? 'HUD & สนาม & วิดีโอ (HUD/Court)' : 'HUD & Court & Video'}</span><span className="sm:hidden">HUD</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('controller')}
+                aria-label={t('controller.tab', settings.uiLanguage)}
+                className={`min-w-0 px-1 py-2 rounded-lg text-xs sm:text-sm font-black transition-all border cursor-pointer ${
+                  activeTab === 'controller'
+                    ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                    : 'bg-transparent text-gray-600 dark:text-gray-400 border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                <span className="inline-flex items-center justify-center gap-1.5"><Gamepad2 size={15} /><span className="hidden sm:inline">{t('controller.tab', settings.uiLanguage)}</span></span>
               </button>
               <button
                 onClick={() => setActiveTab('data')}
-                className={`flex-1 py-2 rounded-lg text-sm font-black transition-all border cursor-pointer ${
+                className={`min-w-0 px-1 py-2 rounded-lg text-xs sm:text-sm font-black transition-all border cursor-pointer ${
                   activeTab === 'data'
                     ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
                     : 'bg-transparent text-gray-600 dark:text-gray-400 border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -642,6 +658,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
               )}
 
+              {activeTab === 'controller' && (
+                <ControllerSettingsPanel
+                  language={(settings.uiLanguage ?? 'th') as SupportedLanguage}
+                  controllerEnabled={settings.controllerV1Enabled ?? false}
+                  onControllerEnabledChange={(enabled) => setSettings((previous) => ({
+                    ...previous,
+                    controllerV1Enabled: enabled,
+                  }))}
+                />
+              )}
+
               {activeTab === 'data' && (
                 <div className="max-w-md mx-auto py-6">
                   {/* Data Management */}
@@ -689,4 +716,3 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     </AnimatePresence>
   );
 }
-

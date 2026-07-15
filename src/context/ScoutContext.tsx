@@ -147,7 +147,8 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     hudEnableHapticFeedback: true,
     hudInteractionStyle: 'click',
     hudExperienceMode: 'auto',
-    phoneScoutDensity: 'comfortable'
+    phoneScoutDensity: 'comfortable',
+    controllerV1Enabled: false
   });
 
   const [events, setEvents] = useLocalStorage<EventRow[]>('scout_events', []);

@@ -6,11 +6,14 @@ import { SPORT_TEMPLATES, OUT_ZONE_LABELS, DETAILED_ZONE_LABELS, OUT_ZONE_VISUAL
 import AreaBoundaryFrame from './area/AreaBoundaryFrame';
 import CourtLayoutShell from './area/CourtLayoutShell';
 import { getAreaDisplay } from '../utils/areaHelper';
+import { resolveVisibleCourtSide } from '../utils/areaGeometry';
 
 export default function CourtAreaSelector() {
   const { matchInfo, currentAction, setCurrentAction, sportTemplate, currentInputHistory, setCurrentInputHistory, teams, settings, setSettings, selectArea } = useScoutContext();
   const areas = sportTemplate.areas;
   const selectedAreaCode = currentAction.areaCode;
+  const primaryCourtSide = resolveVisibleCourtSide('primary', settings.flipCourtSide);
+  const opponentCourtSide = resolveVisibleCourtSide('opponent', settings.flipCourtSide);
 
   const getAreaName = (code: string) => {
     return code; // Areas don't have English names, just codes
@@ -122,8 +125,8 @@ export default function CourtAreaSelector() {
     
     const leftTeam = settings.flipCourtSide ? teamB : teamA;
     const rightTeam = settings.flipCourtSide ? teamA : teamB;
-    const leftCourtSide = settings.flipCourtSide ? 'teamB' : 'teamA';
-    const rightCourtSide = settings.flipCourtSide ? 'teamA' : 'teamB';
+    const leftCourtSide = primaryCourtSide;
+    const rightCourtSide = opponentCourtSide;
 
     return (
       <CourtLayoutShell
@@ -238,17 +241,17 @@ export default function CourtAreaSelector() {
           
           {/* Team B Side (Top Half) */}
           <div className="relative z-10 grid grid-cols-3 gap-1 opacity-80 mb-1">
-            <AreaButton code="DEF_R" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="DEF_C" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="DEF_L" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+            <AreaButton code="DEF_R" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="DEF_C" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="DEF_L" courtSide={opponentCourtSide} flipContent />
             
-            <AreaButton code="MID_R" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="MID_C" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="MID_L" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+            <AreaButton code="MID_R" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="MID_C" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="MID_L" courtSide={opponentCourtSide} flipContent />
 
-            <AreaButton code="ATT_R" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="ATT_C" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="ATT_L" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+            <AreaButton code="ATT_R" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="ATT_C" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="ATT_L" courtSide={opponentCourtSide} flipContent />
           </div>
 
           <div className="h-1 bg-green-400 dark:bg-green-600/50 my-1 flex items-center justify-center">
@@ -257,17 +260,17 @@ export default function CourtAreaSelector() {
 
           {/* Team A Side (Bottom Half) */}
           <div className="relative z-10 grid grid-cols-3 gap-1 mt-1">
-            <AreaButton code="ATT_L" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="ATT_C" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="ATT_R" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+            <AreaButton code="ATT_L" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="ATT_C" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="ATT_R" courtSide={primaryCourtSide} flipContent />
 
-            <AreaButton code="MID_L" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="MID_C" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="MID_R" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+            <AreaButton code="MID_L" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="MID_C" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="MID_R" courtSide={primaryCourtSide} flipContent />
 
-            <AreaButton code="DEF_L" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="DEF_C" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="DEF_R" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+            <AreaButton code="DEF_L" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="DEF_C" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="DEF_R" courtSide={primaryCourtSide} flipContent />
           </div>
         </div>
       </CourtLayoutShell>
@@ -289,17 +292,17 @@ export default function CourtAreaSelector() {
         <div className={`flex-1 rounded-xl border-2 border-sky-300 dark:border-sky-700/50 bg-sky-50 dark:bg-sky-950/10 p-3 relative overflow-hidden flex flex-col gap-1 transition-transform duration-300 ${settings.flipCourtSide ? 'rotate-180' : ''}`}>
           {/* Opponent Side */}
           <div className="relative z-10 grid grid-cols-3 gap-1 opacity-80 mb-1">
-            <AreaButton code="BR" className="aspect-square" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="BC" className="aspect-square" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="BL" className="aspect-square" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+            <AreaButton code="BR" className="aspect-square" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="BC" className="aspect-square" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="BL" className="aspect-square" courtSide={opponentCourtSide} flipContent />
             
-            <AreaButton code="MR" className="aspect-square" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="MC" className="aspect-square" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="ML" className="aspect-square" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+            <AreaButton code="MR" className="aspect-square" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="MC" className="aspect-square" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="ML" className="aspect-square" courtSide={opponentCourtSide} flipContent />
 
-            <AreaButton code="FR" className="aspect-square" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="FC" className="aspect-square" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-            <AreaButton code="FL" className="aspect-square" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+            <AreaButton code="FR" className="aspect-square" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="FC" className="aspect-square" courtSide={opponentCourtSide} flipContent />
+            <AreaButton code="FL" className="aspect-square" courtSide={opponentCourtSide} flipContent />
           </div>
 
           {/* NET */}
@@ -309,17 +312,17 @@ export default function CourtAreaSelector() {
 
           {/* Our Side */}
           <div className="relative z-10 grid grid-cols-3 gap-1 mt-1">
-            <AreaButton code="FL" className="aspect-square" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="FC" className="aspect-square" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="FR" className="aspect-square" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+            <AreaButton code="FL" className="aspect-square" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="FC" className="aspect-square" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="FR" className="aspect-square" courtSide={primaryCourtSide} flipContent />
             
-            <AreaButton code="ML" className="aspect-square" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="MC" className="aspect-square" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="MR" className="aspect-square" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+            <AreaButton code="ML" className="aspect-square" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="MC" className="aspect-square" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="MR" className="aspect-square" courtSide={primaryCourtSide} flipContent />
 
-            <AreaButton code="BL" className="aspect-square" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="BC" className="aspect-square" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-            <AreaButton code="BR" className="aspect-square" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+            <AreaButton code="BL" className="aspect-square" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="BC" className="aspect-square" courtSide={primaryCourtSide} flipContent />
+            <AreaButton code="BR" className="aspect-square" courtSide={primaryCourtSide} flipContent />
           </div>
         </div>
       </CourtLayoutShell>
@@ -346,29 +349,29 @@ export default function CourtAreaSelector() {
             <div className="w-full flex justify-center mb-1">
               <div className="w-1/3 flex flex-col gap-1 relative">
                 <div className="w-8 h-1 bg-amber-600 mx-auto rounded-full mb-0.5"></div>
-                <AreaButton code="PAINT" className="h-10 text-xs bg-amber-200 dark:bg-amber-800" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+                <AreaButton code="PAINT" className="h-10 text-xs bg-amber-200 dark:bg-amber-800" courtSide={opponentCourtSide} flipContent />
                 
                 {/* Corners inside the hoop row for compact UI */}
                 <div className="absolute top-1 -left-[110%] w-[100%] h-full">
-                   <AreaButton code="LEFT_CORNER" className="h-full text-[10px]" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+                   <AreaButton code="LEFT_CORNER" className="h-full text-[10px]" courtSide={opponentCourtSide} flipContent />
                 </div>
                 <div className="absolute top-1 -right-[110%] w-[100%] h-full">
-                   <AreaButton code="RIGHT_CORNER" className="h-full text-[10px]" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+                   <AreaButton code="RIGHT_CORNER" className="h-full text-[10px]" courtSide={opponentCourtSide} flipContent />
                 </div>
               </div>
             </div>
 
             <div className="w-full relative z-10 grid grid-cols-3 gap-1 mb-1">
-              <AreaButton code="LEFT_WING" className="text-xs" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+              <AreaButton code="LEFT_WING" className="text-xs" courtSide={opponentCourtSide} flipContent />
               <div className="flex flex-col gap-1">
-                <AreaButton code="MID_RANGE" className="text-[10px] h-8" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
-                <AreaButton code="TOP_KEY" className="text-xs h-8" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+                <AreaButton code="MID_RANGE" className="text-[10px] h-8" courtSide={opponentCourtSide} flipContent />
+                <AreaButton code="TOP_KEY" className="text-xs h-8" courtSide={opponentCourtSide} flipContent />
               </div>
-              <AreaButton code="RIGHT_WING" className="text-xs" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+              <AreaButton code="RIGHT_WING" className="text-xs" courtSide={opponentCourtSide} flipContent />
             </div>
             
             <div className="w-full">
-              <AreaButton code="THREE_PT" className="w-full py-1.5 text-xs" courtSide={settings.flipCourtSide ? "teamA" : "teamB"} flipContent />
+              <AreaButton code="THREE_PT" className="w-full py-1.5 text-xs" courtSide={opponentCourtSide} flipContent />
             </div>
           </div>
 
@@ -379,16 +382,16 @@ export default function CourtAreaSelector() {
           {/* Team A Side (Bottom Half) */}
           <div className="flex flex-col items-center w-full mt-1">
             <div className="w-full">
-              <AreaButton code="THREE_PT" className="w-full py-1.5 text-xs" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+              <AreaButton code="THREE_PT" className="w-full py-1.5 text-xs" courtSide={primaryCourtSide} flipContent />
             </div>
 
             <div className="w-full relative z-10 grid grid-cols-3 gap-1 mt-1">
-              <AreaButton code="LEFT_WING" className="text-xs" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+              <AreaButton code="LEFT_WING" className="text-xs" courtSide={primaryCourtSide} flipContent />
               <div className="flex flex-col gap-1">
-                <AreaButton code="TOP_KEY" className="text-xs h-8" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
-                <AreaButton code="MID_RANGE" className="text-[10px] h-8" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+                <AreaButton code="TOP_KEY" className="text-xs h-8" courtSide={primaryCourtSide} flipContent />
+                <AreaButton code="MID_RANGE" className="text-[10px] h-8" courtSide={primaryCourtSide} flipContent />
               </div>
-              <AreaButton code="RIGHT_WING" className="text-xs" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+              <AreaButton code="RIGHT_WING" className="text-xs" courtSide={primaryCourtSide} flipContent />
             </div>
 
             {/* Hoop / Paint */}
@@ -397,13 +400,13 @@ export default function CourtAreaSelector() {
                 
                 {/* Corners inside the hoop row for compact UI */}
                 <div className="absolute bottom-1 -left-[110%] w-[100%] h-[calc(100%-4px)]">
-                   <AreaButton code="LEFT_CORNER" className="h-full text-[10px]" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+                   <AreaButton code="LEFT_CORNER" className="h-full text-[10px]" courtSide={primaryCourtSide} flipContent />
                 </div>
                 <div className="absolute bottom-1 -right-[110%] w-[100%] h-[calc(100%-4px)]">
-                   <AreaButton code="RIGHT_CORNER" className="h-full text-[10px]" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+                   <AreaButton code="RIGHT_CORNER" className="h-full text-[10px]" courtSide={primaryCourtSide} flipContent />
                 </div>
 
-                <AreaButton code="PAINT" className="h-10 text-xs bg-amber-200 dark:bg-amber-800" courtSide={settings.flipCourtSide ? "teamB" : "teamA"} flipContent />
+                <AreaButton code="PAINT" className="h-10 text-xs bg-amber-200 dark:bg-amber-800" courtSide={primaryCourtSide} flipContent />
                 <div className="w-8 h-1 bg-amber-600 mx-auto rounded-full mt-0.5"></div>
               </div>
             </div>

@@ -9,6 +9,9 @@ import {
   getAreaLabel as getScoutAreaLabel,
   getFoulLabel as getScoutFoulLabel,
 } from '../../utils/scoutData';
+import { buildFieldMapRecords } from '../../utils/analyticsEngine';
+import { getAreaPrecision, resolveAreaDisplayPoint } from '../../utils/areaGeometry';
+import { t } from '../../i18n';
 
 type FieldSequenceMapProps = {
   sportType: SportType;
@@ -18,6 +21,10 @@ type FieldSequenceMapProps = {
   teamFilter?: string;
   skillFilter?: string;
   resultFilter?: string;
+  foulFilter?: string;
+  areaFilter?: string;
+  timeFrom?: number;
+  timeTo?: number;
   teamAName?: string;
   teamBName?: string;
   onEventClick?: (event: EventRow, action: Action) => void;
@@ -201,17 +208,10 @@ const hashString = (str: string) => {
   return hash;
 };
 
-const getAreaPrecisionLabel = (action: Action) => {
-  if (action.pointX !== undefined && action.pointY !== undefined) return 'Point';
-  if (action.outZone || action.areaResolution === 'out-zone') return 'Out';
-  if (action.areaMode === 'detailed' || action.areaResolution === 'detailed' || action.areaCode?.includes('-')) return 'Detailed';
-  if (action.areaCode) return 'Zone';
-  return 'Unknown';
-};
-
 export default function FieldSequenceMap({ 
   sportType, events, selectedEventId, mode, 
   teamFilter, skillFilter, resultFilter, 
+  foulFilter, areaFilter, timeFrom, timeTo,
   teamAName, teamBName,
   onEventClick,
   onGoToVideoTime,
@@ -224,12 +224,33 @@ export default function FieldSequenceMap({
     return events.filter(e => e.sportType === sportType && (!selectedEventId || e.id === selectedEventId));
   }, [events, sportType, selectedEventId]);
 
+  const filteredMapRecords = useMemo(() => buildFieldMapRecords(events, {
+    sportType,
+    eventId: selectedEventId,
+    team: teamFilter,
+    skill: skillFilter,
+    result: resultFilter,
+    foul: foulFilter,
+    area: areaFilter,
+    timeFrom,
+    timeTo,
+  }), [areaFilter, events, foulFilter, resultFilter, selectedEventId, skillFilter, sportType, teamFilter, timeFrom, timeTo]);
+  const filteredRecordIds = useMemo(
+    () => new Set(filteredMapRecords.map(record => `${record.eventId}:${record.id}`)),
+    [filteredMapRecords],
+  );
+  const unknownLocationCount = useMemo(
+    () => filteredMapRecords.filter(record => record.precision === 'Unknown').length,
+    [filteredMapRecords],
+  );
+
   const mapData = useMemo(() => {
     const data: any[] = [];
     let sequenceIndex = 1;
 
     filteredEvents.forEach((e, eIdx) => {
       e.actions?.forEach((a, aIdx) => {
+        if (!filteredRecordIds.has(`${e.id}:${a.id}`)) return;
         if (teamFilter && a.teamCode !== teamFilter && teamFilter !== 'ALL') return;
         if (skillFilter && a.skillCode !== skillFilter && skillFilter !== 'ALL') return;
         if (resultFilter && a.resultCode !== resultFilter && resultFilter !== 'ALL') return;
@@ -363,6 +384,10 @@ export default function FieldSequenceMap({
           };
         }
 
+        const resolvedDisplayPoint = resolveAreaDisplayPoint(sportType, a);
+        if (!resolvedDisplayPoint) return;
+        coords = resolvedDisplayPoint;
+
         const idHash = Math.abs(hashString(a.id || `${eIdx}-${aIdx}`));
         const topJitter = (idHash % 10) - 5;
         const leftJitter = ((idHash >> 4) % 10) - 5;
@@ -375,14 +400,16 @@ export default function FieldSequenceMap({
           areaLabel: getScoutAreaLabel(a, { sportTemplate, uiLanguage: settings.uiLanguage }),
           foulLabel: getScoutFoulLabel(a, { sportTemplate, uiLanguage: settings.uiLanguage }),
           displayText: formatActionMeaning(a, { sportTemplate, teams, uiLanguage: settings.uiLanguage }),
-          precision: getAreaPrecisionLabel(a),
+          precision: getAreaPrecision(a),
           jitter: { top: topJitter * 0.4, left: leftJitter * 0.4 },
           sequence: sequenceIndex++
         });
       });
     });
-    return data;
-  }, [filteredEvents, teamFilter, skillFilter, resultFilter, sportType, sportTemplate, settings.uiLanguage, teams]);
+    return data
+      .sort((left, right) => left.videoTime - right.videoTime || left.sequence - right.sequence)
+      .map((item, index) => ({ ...item, sequence: index + 1 }));
+  }, [filteredEvents, filteredRecordIds, teamFilter, skillFilter, resultFilter, sportType, sportTemplate, settings.uiLanguage, teams]);
 
   const FieldComponent = SPORT_COMPONENTS[sportType];
 
@@ -399,7 +426,12 @@ export default function FieldSequenceMap({
           <span className="rounded-full bg-green-500/15 px-2 py-1 text-green-700 dark:text-green-300">Yes</span>
           <span className="rounded-full bg-red-500/15 px-2 py-1 text-red-700 dark:text-red-300">Out</span>
           <span className="rounded-full bg-amber-500/15 px-2 py-1 text-amber-700 dark:text-amber-300">Foul</span>
-          <span className="rounded-full bg-slate-500/15 px-2 py-1 text-slate-600 dark:text-slate-300">Precision: Point / Detailed / Zone</span>
+          <span className="rounded-full bg-slate-500/15 px-2 py-1 text-slate-600 dark:text-slate-300">{t('dashboard.precisionLegend', settings.uiLanguage)}</span>
+          {unknownLocationCount > 0 && (
+            <span className="rounded-full bg-gray-500/15 px-2 py-1 text-gray-600 dark:text-gray-300">
+              {t('dashboard.unknownHidden', settings.uiLanguage)}: {unknownLocationCount}
+            </span>
+          )}
         </div>
       </div>
       <div className="relative w-full flex flex-col justify-center items-center">
@@ -489,7 +521,7 @@ export default function FieldSequenceMap({
           {mode === 'sequence' && !selectedEventId && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/5 z-30">
               <span className="bg-white px-3 py-1.5 rounded-lg shadow-sm text-xs font-medium text-gray-500 border border-gray-200">
-                เลือก Event ในตารางเพื่อดู Sequence
+                {t('dashboard.selectEventSequence', settings.uiLanguage)}
               </span>
             </div>
           )}

@@ -60,7 +60,6 @@ export default function HUDTeamSelector({
               }}
               onPointerDown={(e) => {
                 e.stopPropagation();
-                handleTeamClick(t.code);
               }}
               onClick={(e) => {
                 e.stopPropagation();

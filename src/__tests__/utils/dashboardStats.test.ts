@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { calculateDashboardStats } from '../../utils/dashboardStats';
 import { createMockEventList, createMockEvent, createMockAction, mockTeams } from '../fixtures';
+import { createGoldenSportEvents, goldenTeams } from '../fixtures/goldenAnalytics';
 
 describe('calculateDashboardStats', () => {
   it('should handle empty events', () => {
@@ -69,5 +70,20 @@ describe('calculateDashboardStats', () => {
     expect(Array.isArray(stats.barDataGlobal)).toBe(true);
     expect(stats.pieDataGlobal).toBeDefined();
     expect(Array.isArray(stats.pieDataGlobal)).toBe(true);
+  });
+
+  it('exposes the unified analytics summary used by dashboard totals', () => {
+    const stats = calculateDashboardStats(
+      createGoldenSportEvents('volleyball'),
+      'volleyball',
+      goldenTeams,
+    );
+
+    expect(stats.analyticsSummary.totalEvents).toBe(20);
+    expect(stats.total).toBe(stats.analyticsSummary.totalEvents);
+    expect(stats.totalActions).toBe(stats.analyticsSummary.totalActions);
+    expect(stats.yes).toBe(stats.analyticsSummary.eventResultCounts.Yes);
+    expect(stats.teamAScore).toBe(stats.analyticsSummary.derivedOutcomePoints.byTeam.A);
+    expect(stats.teamBScore).toBe(stats.analyticsSummary.derivedOutcomePoints.byTeam.B);
   });
 });

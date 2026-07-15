@@ -10,6 +10,7 @@ import {
   saveProjectVideoFileHandle,
   type PersistentVideoFileHandle,
 } from "../utils/videoFileStore";
+import { t } from "../i18n";
 
 function getPreviewRange(event: EventRow) {
   const start = event.previewStartTime ?? event.clipStartTime ?? event.videoTime ?? 0;
@@ -99,7 +100,7 @@ export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalP
       }
       await openFileFromHandle(handle);
     } catch (error) {
-      console.warn("Failed to open Sequence Replay:", error);
+      console.warn("Failed to open Key Moment Replay:", error);
       setStatus("error");
     }
   }, [activeProjectId, isLocalSource, openFileFromHandle, sourceFileName]);
@@ -187,7 +188,7 @@ export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalP
     }
   };
 
-  const title = isThai ? "รีเพลย์ลำดับเหตุการณ์" : "Sequence Replay";
+  const title = t('keyMoments.replayTitle', settings.uiLanguage);
   const statusMessage = status === "checking" || status === "loading"
     ? (isThai ? "กำลังตรวจสอบไฟล์วิดีโอ..." : "Checking the local video...")
     : status === "permission-required"
@@ -225,8 +226,8 @@ export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalP
             type="button"
             onClick={onClose}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/70 transition hover:bg-white/10 hover:text-white"
-            aria-label={isThai ? "ปิดรีเพลย์" : "Close Sequence Replay"}
-            title={isThai ? "ปิด" : "Close"}
+            aria-label={t('keyMoments.closeReplay', settings.uiLanguage)}
+            title={t('keyMoments.closeReplay', settings.uiLanguage)}
           >
             <X size={18} />
           </button>
@@ -306,7 +307,7 @@ export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalP
               className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-black text-white/80 transition hover:bg-white/10 disabled:opacity-40"
             >
               <RotateCcw size={14} />
-              {isThai ? "เริ่มช่วง" : "Start"}
+              {t('keyMoments.start', settings.uiLanguage)}
             </button>
             <button
               type="button"
@@ -315,11 +316,12 @@ export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalP
               className="inline-flex items-center gap-2 rounded-lg bg-sky-500 px-3 py-2 text-xs font-black text-white transition hover:bg-sky-400 disabled:opacity-40"
             >
               {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-              {isPlaying ? (isThai ? "พัก" : "Pause") : (isThai ? "เล่น" : "Play")}
+              {isPlaying ? t('keyMoments.pause', settings.uiLanguage) : t('keyMoments.play', settings.uiLanguage)}
             </button>
             <button
               type="button"
               onClick={() => setLoop((value) => !value)}
+              aria-pressed={loop}
               disabled={status !== "ready"}
               className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-black transition disabled:opacity-40 ${
                 loop
@@ -328,7 +330,7 @@ export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalP
               }`}
             >
               <Repeat size={14} />
-              {loop ? "Loop On" : "Loop Off"}
+              {loop ? t('keyMoments.loopOn', settings.uiLanguage) : t('keyMoments.loopOff', settings.uiLanguage)}
             </button>
           </div>
         </footer>

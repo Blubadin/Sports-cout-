@@ -8,7 +8,7 @@ import { indexedDbStorageAdapter } from '../utils/storageAdapter';
 import { createProjectRepository } from '../utils/projectRepository';
 import { getImportPayloadCounts, MAX_IMPORT_EVENTS, MAX_IMPORT_PROJECTS } from '../utils/importSafety';
 
-export type ProjectSaveStatus = 'loading' | 'idle' | 'saving' | 'saved' | 'error';
+export type ProjectSaveStatus = 'loading' | 'pending' | 'saving' | 'saved' | 'failed';
 
 const projectRepository = createProjectRepository(indexedDbStorageAdapter);
 
@@ -38,6 +38,7 @@ interface WorkspaceContextType {
   ) => void;
   openProject: (projectId: string) => void;
   saveCurrentProject: () => Promise<void>;
+  flushPendingSaves: () => Promise<void>;
   deleteProject: (projectId: string) => void;
   duplicateProject: (projectId: string) => void;
   renameProject: (projectId: string, newTitle: string) => void;
@@ -114,17 +115,25 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const persistProjects = useCallback(async (nextProjects: ScoutProject[]) => {
     const generation = ++saveGenerationRef.current;
     setSaveStatus('saving');
-    try {
-      await projectRepository.save(nextProjects);
-      if (generation === saveGenerationRef.current) {
-        setSaveStatus('saved');
-        setLastSavedAt(new Date().toISOString());
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await projectRepository.save(nextProjects);
+        if (generation === saveGenerationRef.current) {
+          setSaveStatus('saved');
+          setLastSavedAt(new Date().toISOString());
+        }
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 150 * (attempt + 1)));
+        }
       }
-    } catch (error) {
-      console.error('Failed to save projects to IndexedDB:', error);
-      if (generation === saveGenerationRef.current) setSaveStatus('error');
-      throw error;
     }
+    console.error('Failed to save projects to IndexedDB after retries:', lastError);
+    if (generation === saveGenerationRef.current) setSaveStatus('failed');
+    throw lastError;
   }, []);
 
   // IndexedDB becomes the source of truth. The original localStorage value is kept as a recovery backup.
@@ -171,7 +180,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         console.error('Failed to initialize project repository:', error);
         if (cancelled) return;
         setRepositoryReady(true);
-        setSaveStatus('error');
+        setSaveStatus('failed');
       }
     };
 
@@ -216,7 +225,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (isProjectLoading.current || !repositoryReady) return;
     
     if (activeProjectId) {
-      setSaveStatus('idle');
+      setSaveStatus('pending');
       const timeoutId = setTimeout(() => {
         if (isProjectLoading.current) return;
         setProjects(prev => {
@@ -228,6 +237,34 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       return () => clearTimeout(timeoutId);
     }
   }, [activeProjectId, repositoryReady, snapshotCurrentProject]);
+
+  const flushPendingSaves = useCallback(async () => {
+    if (!repositoryReady || !activeProjectId || isProjectLoading.current) return;
+    const nextProjects = projectsRef.current.map(project =>
+      project.id === activeProjectId ? snapshotCurrentProject(project) : project,
+    );
+    projectsRef.current = nextProjects;
+    explicitlyPersistedProjectsRef.current = nextProjects;
+    setProjects(nextProjects);
+    await persistProjects(nextProjects);
+  }, [activeProjectId, persistProjects, repositoryReady, snapshotCurrentProject]);
+
+  useEffect(() => {
+    const flush = () => {
+      // pagehide/visibilitychange cannot always await IndexedDB, but starting the
+      // write here closes the debounce window and preserves the latest snapshot.
+      void flushPendingSaves().catch(() => undefined);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [flushPendingSaves]);
 
   const updateProjectLastVideoTime = useCallback((time: number) => {
     if (activeProjectId) {
@@ -258,14 +295,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const nextProjects = projectsRef.current.map(project =>
-      project.id === activeProjectId ? snapshotCurrentProject(project) : project,
-    );
-    projectsRef.current = nextProjects;
-    explicitlyPersistedProjectsRef.current = nextProjects;
-    setProjects(nextProjects);
     try {
-      await persistProjects(nextProjects);
+      await flushPendingSaves();
       showToast(settings.uiLanguage === 'th' ? 'บันทึกโปรเจกต์แล้ว' : 'Project saved');
     } catch {
       showToast(settings.uiLanguage === 'th' ? 'บันทึกไม่สำเร็จ กรุณาลองอีกครั้ง' : 'Save failed. Please try again.');
@@ -346,8 +377,22 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     void switchProject();
   };
 
-  const deleteProject = (projectId: string) => {
-    const remaining = projects.filter(p => p.id !== projectId);
+  const deleteProject = async (projectId: string) => {
+    let currentProjects = projectsRef.current;
+    if (activeProjectId) {
+      currentProjects = currentProjects.map(project =>
+        project.id === activeProjectId ? snapshotCurrentProject(project) : project,
+      );
+    }
+    const remaining = currentProjects.filter(p => p.id !== projectId);
+    try {
+      await persistProjects(remaining);
+    } catch {
+      showToast(settings.uiLanguage === 'th' ? 'ลบโปรเจกต์ไม่สำเร็จ ข้อมูลเดิมยังอยู่' : 'Delete failed. Your data was kept.');
+      return;
+    }
+    projectsRef.current = remaining;
+    explicitlyPersistedProjectsRef.current = remaining;
     setProjects(remaining);
     
     if (activeProjectId === projectId) {
@@ -517,6 +562,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       createNewProject,
       openProject,
       saveCurrentProject,
+      flushPendingSaves,
       deleteProject,
       duplicateProject,
       renameProject,

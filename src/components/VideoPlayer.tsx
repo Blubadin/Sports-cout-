@@ -30,6 +30,9 @@ import {
   saveProjectVideoFileHandle,
   type PersistentVideoFileHandle,
 } from "../utils/videoFileStore";
+import { resolveLocalVideoState, type LocalVideoState } from "../utils/videoState";
+import { getLocalizedVideoError } from "../utils/videoError";
+import { t } from "../i18n";
 
 export default function VideoPlayer() {
   const playerRef = useRef<any>(null);
@@ -39,6 +42,7 @@ export default function VideoPlayer() {
 
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState("");
+  const [localVideoState, setLocalVideoState] = useState<LocalVideoState>('idle');
 
   const {
     isHUDMode,
@@ -140,6 +144,14 @@ export default function VideoPlayer() {
     updateProjectLastVideoTime,
   });
 
+  const localizedPlayerError = playerError
+    ? getLocalizedVideoError(
+        playerErrorType,
+        playerErrorCode,
+        settings.uiLanguage,
+      )
+    : null;
+
   // Timeline State
   const [showFineControls, setShowFineControls] = useState(false);
 
@@ -237,13 +249,27 @@ export default function VideoPlayer() {
 
   useEffect(() => {
     if (videoSourceType === 'local' && localFileName && !videoSrc) {
+       setLocalVideoState('loading');
        loadProjectVideoFileHandle(activeProjectId, localFileName).then(handle => {
-          if (handle) {
-             setCanRestoreAccess(true);
+          if (!handle) {
+             setCanRestoreAccess(false);
+             setLocalVideoState(resolveLocalVideoState({ hasSource: true, hasStoredHandle: false }));
+             return;
           }
+          setCanRestoreAccess(true);
+          const permissionPromise = handle.queryPermission
+            ? handle.queryPermission({ mode: 'read' })
+            : Promise.resolve('granted' as const);
+          void permissionPromise.then(permission => {
+            setLocalVideoState(resolveLocalVideoState({ hasSource: true, hasStoredHandle: true, permission }));
+          }).catch(() => setLocalVideoState('error'));
+       }).catch(() => {
+          setCanRestoreAccess(false);
+          setLocalVideoState('error');
        });
     } else {
        setCanRestoreAccess(false);
+       setLocalVideoState(videoSrc ? 'ready' : 'idle');
     }
   }, [activeProjectId, videoSourceType, localFileName, videoSrc]);
 
@@ -257,12 +283,13 @@ export default function VideoPlayer() {
          const perm = currentPermission === 'granted' || !handle.requestPermission
            ? currentPermission
            : await handle.requestPermission({ mode: 'read' });
-         if (perm === 'granted') {
+          if (perm === 'granted') {
             const file = await handle.getFile();
             if (videoSrc && videoSourceType === "local") URL.revokeObjectURL(videoSrc);
-            const url = URL.createObjectURL(file);
-            setVideoSrc(url);
-         }
+             const url = URL.createObjectURL(file);
+             setVideoSrc(url);
+             setLocalVideoState('ready');
+          }
       }
     } catch (e) {
       console.error(e);
@@ -281,10 +308,11 @@ export default function VideoPlayer() {
           URL.revokeObjectURL(videoSrc);
         }
         const url = URL.createObjectURL(file);
-        setVideoSrc(url);
-        setLocalFileName(file.name);
-        setVideoSourceType("local");
-        setIsPlaying(false);
+         setVideoSrc(url);
+         setLocalFileName(file.name);
+         setVideoSourceType("local");
+         setLocalVideoState('ready');
+         setIsPlaying(false);
         
         await saveProjectVideoFileHandle(activeProjectId, file.name, fileHandle);
       } catch (err) {
@@ -298,6 +326,12 @@ export default function VideoPlayer() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!file.type.startsWith('video/')) {
+        setLocalVideoState('unsupported');
+        showToast(settings.uiLanguage === 'th' ? 'ไฟล์นี้ไม่ใช่วิดีโอที่รองรับ' : 'This file is not a supported video.');
+        e.target.value = '';
+        return;
+      }
       if (videoSrc && videoSourceType === "local") {
         URL.revokeObjectURL(videoSrc);
       }
@@ -305,6 +339,7 @@ export default function VideoPlayer() {
       setVideoSrc(url);
       setLocalFileName(file.name);
       setVideoSourceType("local");
+      setLocalVideoState('ready');
       setIsPlaying(false);
     }
   };
@@ -417,10 +452,13 @@ export default function VideoPlayer() {
               className="hidden"
               onChange={handleFileChange}
             />
-            {localFileName && !videoSrc && (
+            {localFileName && !videoSrc && localVideoState !== 'idle' && (
               <div className="text-xs text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800 p-3 rounded-lg text-center flex flex-col gap-2">
                 <div>
                   {settings.uiLanguage === 'th' ? 'Project นี้มีการบันทึกไฟล์' : 'Project recorded video file'} <b>{localFileName}</b>
+                </div>
+                <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">
+                  {localVideoState === 'loading' ? 'Checking file access' : localVideoState === 'permission-required' ? 'Permission required' : localVideoState === 'missing' ? 'File not found' : localVideoState === 'unsupported' ? 'Unsupported file' : localVideoState === 'denied' ? 'Access denied' : 'Unable to open'}
                 </div>
                 {canRestoreAccess ? (
                    <button 
@@ -487,8 +525,7 @@ export default function VideoPlayer() {
               </button>
             </div>
             <p className="text-[10px] text-gray-500 italic">
-              YouTube อาจ seek ไม่ได้ละเอียดเท่า local video
-              หากต้องการความแม่นยำสูงแนะนำให้ใช้ Local Video
+              {t('video.youtubeSeekNotice', settings.uiLanguage)}
             </p>
           </div>
         )}
@@ -550,7 +587,9 @@ export default function VideoPlayer() {
 
               {isLoadingVideo && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10 pointer-events-none">
-                  <p className="text-white">กำลังโหลดวิดีโอ...</p>
+                  <p className="text-white">
+                    {t("video.loading", settings.uiLanguage)}
+                  </p>
                 </div>
               )}
 
@@ -564,11 +603,10 @@ export default function VideoPlayer() {
                     className="bg-sky-600 hover:bg-sky-500 text-white rounded-full px-6 py-3 font-bold flex items-center gap-2 shadow-lg"
                   >
                     <Play size={24} />
-                    Tap to Start YouTube
+                    {t("video.tapToStart", settings.uiLanguage)}
                   </button>
                   <p className="text-white/80 text-sm mt-4 text-center px-4 max-w-sm">
-                    เบราว์เซอร์บล็อกการเล่นอัตโนมัติ กรุณาแตะปุ่มเพื่อเริ่มเล่น
-                    หรือแตะที่ตัววิดีโอโดยตรง
+                    {t("video.autoplayBlockedHelp", settings.uiLanguage)}
                   </p>
                 </div>
               )}
@@ -579,12 +617,12 @@ export default function VideoPlayer() {
                     <div className="flex flex-col items-center gap-1">
                       <span className="text-red-500 text-3xl">⚠️</span>
                       <h3 className="text-red-400 font-bold text-base md:text-lg">
-                        โหลดหรือเล่นวิดีโอไม่สำเร็จ (Load / Playback Failed)
+                        {t('video.playbackFailed', settings.uiLanguage)}
                       </h3>
                     </div>
 
                     <p className="text-white/90 text-xs md:text-sm bg-red-500/10 p-3 rounded-lg border border-red-500/20 text-center">
-                      {playerError}
+                      {localizedPlayerError}
                     </p>
 
                     {/* Diagnostics Box */}
@@ -682,7 +720,7 @@ export default function VideoPlayer() {
                             onClick={() => handleYoutubeLoad()}
                             className="px-3.5 py-2.5 bg-sky-600 text-white rounded-xl hover:bg-sky-500 font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5"
                           >
-                            Try Reload
+                            {t("video.tryReload", settings.uiLanguage)}
                           </button>
                           <a
                             href={youtubeUrl}
@@ -690,7 +728,7 @@ export default function VideoPlayer() {
                             rel="noopener noreferrer"
                             className="px-3.5 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-500 font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5"
                           >
-                            Open YouTube
+                            {t("video.openYoutube", settings.uiLanguage)}
                           </a>
                           <button
                             onClick={() => {
@@ -712,11 +750,11 @@ export default function VideoPlayer() {
                                 } catch (e) {}
                                 document.body.removeChild(textArea);
                               }
-                              showToast("คัดลอก URL แล้ว");
+                              showToast(t("video.urlCopied", settings.uiLanguage));
                             }}
                             className="px-3.5 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-bold text-xs transition-all active:scale-95 border border-white/10 flex items-center justify-center gap-1.5"
                           >
-                            Copy URL
+                            {t("video.copyUrl", settings.uiLanguage)}
                           </button>
                         </>
                       )}
@@ -744,7 +782,7 @@ export default function VideoPlayer() {
                         }}
                         className="px-3.5 py-2.5 bg-gray-600 hover:bg-gray-500 text-white rounded-xl font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5 col-span-2 mt-1"
                       >
-                        Continue Scouting Without Video
+                        {t("video.continueWithoutVideo", settings.uiLanguage)}
                       </button>
                     </div>
                   </div>
@@ -846,7 +884,7 @@ export default function VideoPlayer() {
                   getDuration: getDurationSafe,
                   isPlaying,
                   playbackRate,
-                  videoError: playerError,
+                  videoError: localizedPlayerError,
                   retryVideo: () => {
                     if (videoSourceType === "youtube") {
                       handleYoutubeLoad();
@@ -938,10 +976,10 @@ export default function VideoPlayer() {
         <div className="bg-gray-100 dark:bg-gray-900 aspect-video rounded-lg flex items-center justify-center border border-dashed border-gray-300 dark:border-gray-700">
           <p className="text-gray-400 dark:text-gray-500 text-sm text-center px-4">
             {videoSourceType === "local"
-              ? "ยังไม่ได้เลือกไฟล์วิดีโอ"
-              : "ยังไม่ได้ใส่ URL YouTube"}
+              ? t('video.noLocalSelected', settings.uiLanguage)
+              : t('video.noYoutubeUrl', settings.uiLanguage)}
             <br />
-            (สามารถบันทึกข้อมูลได้โดยไม่ต้องมีวิดีโอ)
+            ({t('video.scoutWithoutVideo', settings.uiLanguage)})
           </p>
         </div>
       )}

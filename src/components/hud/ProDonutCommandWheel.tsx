@@ -254,6 +254,7 @@ export default function ProDonutCommandWheel({
   return (
     <div
       ref={containerRef}
+      data-controller-wheel={menuType}
       className="relative flex items-center justify-center select-none"
       style={{ width: size, height: size }}
     >

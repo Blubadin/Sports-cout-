@@ -12,6 +12,7 @@ import {
   createEventsExport,
   buildAnalyticsSummary,
   buildDataQualityReport,
+  buildDataQualityDrilldown,
   isAttackingSkill,
   isDefensiveSkill,
   SCOUT_EXPORT_SCHEMA_VERSION,
@@ -403,6 +404,25 @@ describe('buildDataQualityReport', () => {
     })];
     const report = buildDataQualityReport(events, mockTeams);
     expect(report.issues.some(i => i.code === 'invalid_team')).toBe(true);
+  });
+
+  it('groups data quality issues for coach drill-down without losing event references', () => {
+    const events = [
+      createMockEvent({ id: 'duplicate', actions: [] as any, eventText: '' }),
+      createMockEvent({ id: 'duplicate', actions: [] as any, eventText: '' }),
+    ];
+    const drilldown = buildDataQualityDrilldown(buildDataQualityReport(events));
+
+    expect(drilldown[0].severity).toBe('error');
+    expect(drilldown.find(group => group.code === 'missing_actions')?.count).toBe(2);
+    expect(drilldown.find(group => group.code === 'duplicate_event_id')?.eventNos).toEqual([1]);
+  });
+
+  it('adds unified analytics metadata to JSON exports without changing schema 1.1', () => {
+    const envelope = createEventsExport(createMockEventList(4));
+    expect(envelope.schemaVersion).toBe('1.1');
+    expect(envelope.analytics?.totalEvents).toBe(4);
+    expect(envelope.analytics?.totalActions).toBe(4);
   });
 });
 
