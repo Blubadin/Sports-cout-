@@ -7,6 +7,7 @@ import { getValidSportType, sanitizeEvents } from '../utils/scoutData';
 import { indexedDbStorageAdapter } from '../utils/storageAdapter';
 import { createProjectRepository } from '../utils/projectRepository';
 import { getImportPayloadCounts, MAX_IMPORT_EVENTS, MAX_IMPORT_PROJECTS } from '../utils/importSafety';
+import { sanitizeIdentifier, sanitizeUserText } from '../utils/security';
 
 export type ProjectSaveStatus = 'loading' | 'pending' | 'saving' | 'saved' | 'failed';
 
@@ -487,6 +488,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (!Array.isArray(project.events)) return false;
 
     project.sportType = getValidSportType(project.sportType);
+    project.title = sanitizeUserText(project.title, 160) || 'Imported Project';
 
     // Sanitize MatchInfo
     if (!project.matchInfo || typeof project.matchInfo !== 'object') {
@@ -501,15 +503,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       };
     } else {
       project.matchInfo = {
-        scouterName: typeof project.matchInfo.scouterName === 'string' ? project.matchInfo.scouterName : '',
-        nickname: typeof project.matchInfo.nickname === 'string' ? project.matchInfo.nickname : '',
-        matchName: typeof project.matchInfo.matchName === 'string' ? project.matchInfo.matchName : '',
-        matchType: typeof project.matchInfo.matchType === 'string' ? project.matchInfo.matchType : 'Team',
-        setOrGame: typeof project.matchInfo.setOrGame === 'string' ? project.matchInfo.setOrGame : '1',
-        currentPoint: typeof project.matchInfo.currentPoint === 'number' ? project.matchInfo.currentPoint : 1,
+        scouterName: sanitizeUserText(project.matchInfo.scouterName, 120),
+        nickname: sanitizeUserText(project.matchInfo.nickname, 80),
+        matchName: sanitizeUserText(project.matchInfo.matchName, 160),
+        matchType: project.matchInfo.matchType === 'Single' ? 'Single' : 'Team',
+        setOrGame: sanitizeUserText(project.matchInfo.setOrGame, 20) || '1',
+        currentPoint: typeof project.matchInfo.currentPoint === 'number' && Number.isFinite(project.matchInfo.currentPoint)
+          ? Math.max(0, Math.min(100_000, Math.round(project.matchInfo.currentPoint)))
+          : 1,
         sportType: project.sportType,
-        courtConfig: typeof project.matchInfo.courtConfig === 'string' ? project.matchInfo.courtConfig : 'standard',
-        gameFormat: typeof project.matchInfo.gameFormat === 'string' ? project.matchInfo.gameFormat : 'standard'
+        courtConfig: sanitizeUserText(project.matchInfo.courtConfig, 80) || 'standard',
+        gameFormat: sanitizeUserText(project.matchInfo.gameFormat, 80) || 'standard'
       };
     }
 
@@ -518,11 +522,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       project.teams = DEFAULT_TEAMS;
     } else {
       project.teams = project.teams.map((t: any, index: number) => ({
-        id: typeof t.id === 'string' ? t.id : `t${index + 1}`,
-        code: typeof t.code === 'string' ? t.code.toUpperCase() : `T${index + 1}`,
-        name: typeof t.name === 'string' ? t.name : `Team ${index + 1}`,
-        thaiName: typeof t.thaiName === 'string' ? t.thaiName : '',
-        icon: typeof t.icon === 'string' ? t.icon : '',
+        id: sanitizeIdentifier(t.id) || `t${index + 1}`,
+        code: sanitizeIdentifier(t.code, 12).toUpperCase() || `T${index + 1}`,
+        name: sanitizeUserText(t.name, 120) || `Team ${index + 1}`,
+        thaiName: sanitizeUserText(t.thaiName, 120),
+        icon: sanitizeUserText(t.icon, 8),
         teamType: t.teamType === 'country' || t.teamType === 'club' ? t.teamType : 'country'
       }));
     }

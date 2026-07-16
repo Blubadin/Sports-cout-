@@ -1,0 +1,57 @@
+import { expect, test } from '@playwright/test';
+
+const sampleSports = ['Volleyball', 'Football', 'Badminton', 'Basketball'];
+
+test('opens all four pilot sports and keeps Controller V1 opt-in', async ({ page }) => {
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { name: 'ยังไม่มีโครงการ' })).toBeVisible();
+  await page.getByRole('button', { name: 'โหลดตัวอย่าง Pilot ครบ 4 กีฬา' }).click();
+  await page.getByTestId('workspace-menu-toggle').click();
+
+  for (const sport of sampleSports) {
+    const projectName = `SPORTSCOUT Pilot - ${sport}`;
+    await expect(page.getByRole('button', { name: projectName, exact: true })).toBeVisible();
+    await page.getByRole('button', { name: projectName, exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'แผงบันทึก (Scout)' })).toBeVisible();
+    await expect(page.getByTestId('workspace-menu-toggle')).toContainText(projectName);
+    if (sport !== sampleSports.at(-1)) await page.getByTestId('workspace-menu-toggle').click();
+  }
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('heading', { name: 'ตั้งค่าระบบ' })).toBeVisible();
+  await page.getByTestId('settings-controller-tab').click();
+  await expect(page.getByTestId('controller-v1-toggle')).not.toBeChecked();
+
+  await page.getByTestId('settings-data-tab').click();
+  await expect(page.getByRole('button', { name: 'ส่งออกข้อมูลวินิจฉัย Pilot' })).toBeVisible();
+  await expect(page.getByText('SPORTSCOUT 0.11.0-pilot.1 · schema 1.1')).toBeVisible();
+});
+
+const viewportCases = [
+  { name: 'laptop', width: 1366, height: 768 },
+  { name: 'desktop', width: 1920, height: 1080 },
+  { name: 'tablet landscape', width: 1024, height: 768 },
+  { name: 'phone landscape', width: 844, height: 390 },
+];
+
+for (const viewport of viewportCases) {
+  test(`contains the workspace and Settings at ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto('/');
+
+    const horizontalOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 1,
+    );
+    expect(horizontalOverflow).toBe(false);
+
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await expect(page.getByRole('heading', { name: 'ตั้งค่าระบบ' })).toBeVisible();
+    const modalFits = await page.locator('#settings-modal > div').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.left >= 0 && rect.top >= 0
+        && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight;
+    });
+    expect(modalFits).toBe(true);
+  });
+}

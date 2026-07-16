@@ -1,5 +1,6 @@
 import { indexedDbStorageAdapter, type StorageAdapter } from '../utils/storageAdapter';
 import { createDefaultControllerProfile, createDefaultControllerProfiles } from './controllerProfiles';
+import { sanitizeImportedControllerProfile } from './controllerProfileEditing';
 import type {
   ControllerDeviceFamily,
   ControllerProfile,
@@ -8,6 +9,7 @@ import type {
 
 export const CONTROLLER_PROFILES_STORAGE_KEY = 'sportscout_controller_profiles_v1';
 export const CONTROLLER_PROFILE_SCHEMA_VERSION = '1.0' as const;
+export const MAX_CONTROLLER_PROFILES = 32;
 
 function createDefaultEnvelope(): ControllerProfileEnvelope {
   const profiles = createDefaultControllerProfiles();
@@ -32,18 +34,25 @@ function sanitizeEnvelope(value: unknown): ControllerProfileEnvelope {
     return defaults;
   }
 
-  const validProfiles = input.profiles
-    .filter((profile): profile is ControllerProfile =>
-      Boolean(
-        profile &&
-        typeof profile.id === 'string' &&
-        typeof profile.name === 'string' &&
-        profile.version === 1 &&
-        isDeviceFamily(profile.deviceFamily) &&
-        profile.bindings &&
-        profile.calibration,
-      ),
-    )
+  const seenIds = new Set<string>();
+  const sanitizedProfiles = input.profiles
+    .map((profile) => {
+      const sanitized = sanitizeImportedControllerProfile({
+        schemaVersion: CONTROLLER_PROFILE_SCHEMA_VERSION,
+        type: 'sportscout-controller-profile',
+        exportedAt: new Date(0).toISOString(),
+        profile,
+      });
+      if (!sanitized || seenIds.has(sanitized.id)) return null;
+      seenIds.add(sanitized.id);
+      const stored = profile as Partial<ControllerProfile>;
+      return {
+        ...sanitized,
+        createdAt: typeof stored.createdAt === 'string' ? stored.createdAt : sanitized.createdAt,
+        updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : sanitized.updatedAt,
+      };
+    })
+    .filter((profile): profile is ControllerProfile => Boolean(profile))
     .map((profile) => {
       const isLegacyDefaultCollision =
         profile.id === `default-${profile.deviceFamily}` &&
@@ -53,12 +62,14 @@ function sanitizeEnvelope(value: unknown): ControllerProfileEnvelope {
         ? { ...profile, bindings: { ...profile.bindings, cancel: 'left-stick' as const } }
         : profile;
     });
-  const profiles = [...validProfiles];
-  for (const defaultProfile of defaults.profiles) {
-    if (!profiles.some((profile) => profile.deviceFamily === defaultProfile.deviceFamily)) {
-      profiles.push(defaultProfile);
-    }
-  }
+  const missingDefaults = defaults.profiles.filter(
+    (defaultProfile) =>
+      !sanitizedProfiles.some((profile) => profile.deviceFamily === defaultProfile.deviceFamily),
+  );
+  const profiles = [
+    ...sanitizedProfiles.slice(0, MAX_CONTROLLER_PROFILES - missingDefaults.length),
+    ...missingDefaults,
+  ];
 
   const activeProfileByFamily = { ...defaults.activeProfileByFamily };
   for (const family of Object.keys(activeProfileByFamily) as ControllerDeviceFamily[]) {
@@ -98,7 +109,10 @@ export function createControllerProfileRepository(
     const existingIndex = state.profiles.findIndex((item) => item.id === profile.id);
     const profiles = [...state.profiles];
     if (existingIndex >= 0) profiles[existingIndex] = updatedProfile;
-    else profiles.push(updatedProfile);
+    else {
+      if (profiles.length >= MAX_CONTROLLER_PROFILES) throw new Error('Controller profile limit reached');
+      profiles.push(updatedProfile);
+    }
     const next: ControllerProfileEnvelope = {
       ...state,
       profiles,

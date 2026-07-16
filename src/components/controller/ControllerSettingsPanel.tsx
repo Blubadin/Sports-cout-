@@ -487,7 +487,7 @@ export default function ControllerSettingsPanel({
 
       <footer className="flex flex-col gap-3 border-t border-slate-700 bg-slate-950/75 p-4 lg:flex-row lg:items-center lg:justify-between">
         <label className="flex min-w-0 items-start gap-3">
-          <input type="checkbox" checked={controllerEnabled} onChange={(event) => onControllerEnabledChange(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-cyan-500" />
+          <input data-testid="controller-v1-toggle" type="checkbox" checked={controllerEnabled} onChange={(event) => onControllerEnabledChange(event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-cyan-500" />
           <span>
             <span className="block text-xs font-bold text-slate-200">{t('controller.experimental', language)}</span>
             <span className="block text-[11px] text-slate-500">{t('controller.experimentalHelp', language)}</span>

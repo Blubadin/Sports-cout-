@@ -42,4 +42,12 @@ describe('filtered event export', () => {
     expect(csv).toContain('true');
     expect(csv).toContain('"Coach said ""watch this"""');
   });
+
+  it('neutralizes spreadsheet formulas in user-authored cells', () => {
+    const csv = createEventsCsv([
+      createMockEvent({ note: '=HYPERLINK("https://example.test","open")' }),
+    ]);
+
+    expect(csv).toContain('"\'=HYPERLINK(""https://example.test"",""open"")"');
+  });
 });

@@ -6,7 +6,6 @@ import { t } from './i18n';
 import GeneralInfo from './components/GeneralInfo';
 import InputPanel from './components/InputPanel';
 import ScoutingTable from './components/ScoutingTable';
-import SettingsModal from './components/SettingsModal';
 import WorkspaceMenu from './components/WorkspaceMenu';
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
 import MatchInfoModal from './components/MatchInfoModal';
@@ -15,9 +14,13 @@ import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
 
 import VideoPlayer from './components/VideoPlayer';
-import Dashboard from './components/Dashboard';
-import BookmarksPanel from './components/BookmarksPanel';
 import { MAX_IMPORT_FILE_BYTES, validateImportFileSize } from './utils/importSafety';
+import { createPilotSampleProjects } from './utils/sampleProjects';
+import PWAUpdatePrompt from './components/PWAUpdatePrompt';
+
+const Dashboard = React.lazy(() => import('./components/Dashboard'));
+const BookmarksPanel = React.lazy(() => import('./components/BookmarksPanel'));
+const SettingsModal = React.lazy(() => import('./components/SettingsModal'));
 
 function Toast() {
   const { toastMessage } = useScoutContext();
@@ -67,6 +70,14 @@ function EmptyProjectState() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [selectedSport, setSelectedSport] = useState<SportType>(matchInfo.sportType || 'volleyball');
 
+  const loadPilotSamples = () => {
+    const sampleProjects = createPilotSampleProjects(`pilot-${Date.now()}`);
+    const importedCount = sampleProjects.reduce((count, project) => count + (importProject(project) ? 1 : 0), 0);
+    showToast(settings.uiLanguage === 'th'
+      ? `เพิ่มโปรเจกต์ตัวอย่าง ${importedCount} กีฬาแล้ว เปิดได้จากเมนูโฟลเดอร์ด้านบน`
+      : `Added ${importedCount} sport samples. Open one from the folder menu.`);
+  };
+
   const sportOptions = Object.values(SPORT_TEMPLATES).map(t => ({
     value: t.id,
     label: t.name,
@@ -110,7 +121,7 @@ function EmptyProjectState() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
-      <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl max-w-md w-full border border-gray-100 dark:border-gray-700 text-center">
+      <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl max-w-2xl w-full border border-gray-100 dark:border-gray-700 text-center">
         <div className="w-16 h-16 bg-sky-100 dark:bg-sky-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6 text-sky-500 shadow-inner">
           <Folder size={32} />
         </div>
@@ -142,6 +153,14 @@ function EmptyProjectState() {
             <Upload size={18} /> นำเข้าโครงการ
             <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImport} />
           </label>
+
+          <button
+            type="button"
+            onClick={loadPilotSamples}
+            className="w-full py-3 border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300 rounded-lg font-bold transition-colors"
+          >
+            {settings.uiLanguage === 'th' ? 'โหลดตัวอย่าง Pilot ครบ 4 กีฬา' : 'Load four-sport pilot samples'}
+          </button>
           
           <button 
             onClick={() => {
@@ -153,6 +172,20 @@ function EmptyProjectState() {
             เริ่มแบบไม่บันทึก (Draft)
           </button>
         </div>
+
+        <ol className="mt-7 grid grid-cols-2 gap-3 border-t border-gray-200 pt-5 text-left dark:border-gray-700 sm:grid-cols-4">
+          {[
+            settings.uiLanguage === 'th' ? 'เลือกกีฬาและสร้างโปรเจกต์' : 'Choose a sport and project',
+            settings.uiLanguage === 'th' ? 'เปิดวิดีโอการแข่งขัน' : 'Open the match video',
+            settings.uiLanguage === 'th' ? 'บันทึกเหตุการณ์ด้วยปุ่มหรือ HUD' : 'Tag events with controls or HUD',
+            settings.uiLanguage === 'th' ? 'ตรวจสถิติและส่งออกข้อมูล' : 'Review and export the analysis',
+          ].map((step, index) => (
+            <li key={step} className="flex gap-2 text-xs font-semibold leading-relaxed text-gray-600 dark:text-gray-300">
+              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-[11px] font-black text-white">{index + 1}</span>
+              <span>{step}</span>
+            </li>
+          ))}
+        </ol>
       </div>
     </div>
   );
@@ -416,10 +449,15 @@ function AppContent() {
         </main>
       )}
 
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      {isSettingsOpen && (
+        <React.Suspense fallback={<div className="fixed inset-0 z-[1000] bg-black/50" />}>
+          <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+        </React.Suspense>
+      )}
       <KeyboardShortcutsModal isOpen={isKeyboardShortcutsOpen} onClose={() => setIsKeyboardShortcutsOpen(false)} />
       <MatchInfoModal isOpen={isMatchInfoOpen} onClose={() => setIsMatchInfoOpen(false)} />
       <Toast />
+      <PWAUpdatePrompt />
     </div>
   );
 }

@@ -10,8 +10,8 @@ export default defineConfig(() => {
       react(), 
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
-        injectRegister: false, // We handle SW registration manually in main.tsx
+        registerType: 'prompt',
+        injectRegister: false, // PWAUpdatePrompt owns registration and update confirmation.
         manifest: {
           name: 'SPORTSCOUT',
           short_name: 'SPORTSCOUT',
@@ -19,7 +19,7 @@ export default defineConfig(() => {
           theme_color: '#4f46e5',
           background_color: '#f9fafb',
           display: 'standalone',
-          orientation: 'portrait',
+          orientation: 'any',
           start_url: '/',
           icons: [
             {
