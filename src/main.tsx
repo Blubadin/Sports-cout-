@@ -4,14 +4,6 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
-      console.warn('SW registration failed:', err);
-    });
-  });
-}
-
 // Monkeypatch HTMLMediaElement.prototype.play to catch unhandled play() promise rejections
 const originalPlay = HTMLMediaElement.prototype.play;
 HTMLMediaElement.prototype.play = function () {

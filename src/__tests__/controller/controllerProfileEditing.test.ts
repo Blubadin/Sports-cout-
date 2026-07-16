@@ -71,4 +71,16 @@ describe('controller profile editing', () => {
     expect(imported?.bindings.saveEvent).toBe('button-west');
     expect(imported?.bindings.openSkill).toBeUndefined();
   });
+
+  it('removes control characters from imported profile identity fields', () => {
+    const exported = createControllerProfileExport({
+      ...createDefaultControllerProfile('ps5'),
+      id: '../pilot\u0000-profile',
+      name: '  Coach\u0007 Profile  ',
+    });
+    const imported = sanitizeImportedControllerProfile(exported);
+
+    expect(imported?.id).toBe('pilot-profile');
+    expect(imported?.name).toBe('Coach Profile');
+  });
 });

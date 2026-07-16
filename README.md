@@ -1,4 +1,8 @@
-# Sports Scout Logger
+# SPORTSCOUT
+
+คู่มือ Pilot สำหรับโค้ช: [เริ่มใช้งาน SPORTSCOUT](docs/COACH_QUICK_GUIDE_TH.md)
+
+QA และ Design: [Hardware/Pilot Protocol](docs/pilot/HARDWARE_QA_TH.md) · [Overall Readiness Audit](docs/pilot/OVERALL_READINESS_AUDIT_TH.md) · [GridGeist สำหรับ SPORTSCOUT](docs/GRIDGEIST_USAGE_TH.md)
 
 Project Overview
 

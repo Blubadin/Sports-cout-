@@ -8,6 +8,8 @@ import type {
   Team,
 } from "../types";
 import { DETAILED_ZONE_LABELS, OUT_ZONE_LABELS, SPORT_TEMPLATES } from "../sports";
+import { SPORTSCOUT_APP_NAME, SPORTSCOUT_EXPORT_SCHEMA_VERSION } from "../appMetadata";
+import { sanitizeUserText } from "./security";
 import {
   buildAnalyticsSummary as buildUnifiedAnalyticsSummary,
   type AnalyticsSummary,
@@ -15,8 +17,8 @@ import {
 export { buildUnifiedAnalyticsSummary as buildAnalyticsSummary };
 export type { AnalyticsSummary };
 
-export const SCOUT_EXPORT_SCHEMA_VERSION = "1.1";
-export const SCOUT_EXPORT_APP_NAME = "Sports Scout Logger";
+export const SCOUT_EXPORT_SCHEMA_VERSION = SPORTSCOUT_EXPORT_SCHEMA_VERSION;
+export const SCOUT_EXPORT_APP_NAME = SPORTSCOUT_APP_NAME;
 
 export type ScoutExportEnvelopeType = "events" | "projects";
 
@@ -206,6 +208,9 @@ export function sanitizeEvents(eventsList: unknown[], fallbackSportType: SportTy
       eventText: typeof row?.eventText === "string" ? row.eventText : "",
       resultText: row?.resultText === "+1" || row?.resultText === "-1" || row?.resultText === "0" ? row.resultText : "0",
       createdAt: typeof row?.createdAt === "string" ? row.createdAt : new Date().toISOString(),
+      note: sanitizeUserText(row?.note, 2000) || undefined,
+      bookmarkNote: sanitizeUserText(row?.bookmarkNote, 1000) || undefined,
+      localFileName: sanitizeUserText(row?.localFileName, 255) || undefined,
     };
 
     if (/^\d+$/.test(nextRow.id) || seenEventIds.has(nextRow.id)) {
@@ -219,6 +224,8 @@ export function sanitizeEvents(eventsList: unknown[], fallbackSportType: SportTy
       const nextAction: Action = {
         ...action,
         id: typeof action?.id === "string" && action.id ? action.id : createScoutId(`action-${index}-${actionIndex}`),
+        playerName: sanitizeUserText(action?.playerName, 120) || undefined,
+        playerNumber: sanitizeUserText(action?.playerNumber, 20) || undefined,
       };
       if (/^\d+$/.test(String(nextAction.id)) || seenActionIds.has(String(nextAction.id))) {
         nextAction.id = createScoutId(`${nextAction.id || "action"}-${actionIndex}`);

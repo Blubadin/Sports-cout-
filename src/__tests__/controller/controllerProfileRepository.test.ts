@@ -116,4 +116,24 @@ describe('controller profile repository', () => {
     expect(reset.bindings.saveEvent).toBe('right-shoulder');
     expect(reset.name).toBe('Coach Layout');
   });
+
+  it('caps stored profiles and removes unknown identity fields', async () => {
+    const storage = createMemoryStorage();
+    const repository = createControllerProfileRepository(storage);
+    const defaults = await repository.load();
+    const template = defaults.profiles[0];
+    await storage.setItem(CONTROLLER_PROFILES_STORAGE_KEY, {
+      ...defaults,
+      profiles: Array.from({ length: 40 }, (_, index) => ({
+        ...template,
+        id: `custom-${index}`,
+        name: `Profile ${index}`,
+        rawDeviceId: `serial-${index}`,
+      })),
+    });
+
+    const sanitized = await repository.load();
+    expect(sanitized.profiles.length).toBeLessThanOrEqual(32);
+    expect(JSON.stringify(sanitized)).not.toContain('serial-');
+  });
 });

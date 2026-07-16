@@ -1,0 +1,257 @@
+{
+  "schemaVersion": "1.0",
+  "hardware": [
+    {
+      "device": "ps4",
+      "connection": "usb",
+      "browser": "chrome",
+      "status": "pending"
+    },
+    {
+      "device": "ps4",
+      "connection": "usb",
+      "browser": "edge",
+      "status": "pending"
+    },
+    {
+      "device": "ps4",
+      "connection": "bluetooth",
+      "browser": "chrome",
+      "status": "pending"
+    },
+    {
+      "device": "ps4",
+      "connection": "bluetooth",
+      "browser": "edge",
+      "status": "pending"
+    },
+    {
+      "device": "ps5",
+      "connection": "usb",
+      "browser": "chrome",
+      "status": "pending"
+    },
+    {
+      "device": "ps5",
+      "connection": "usb",
+      "browser": "edge",
+      "status": "pending"
+    },
+    {
+      "device": "ps5",
+      "connection": "bluetooth",
+      "browser": "chrome",
+      "status": "pending"
+    },
+    {
+      "device": "ps5",
+      "connection": "bluetooth",
+      "browser": "edge",
+      "status": "pending"
+    },
+    {
+      "device": "xbox",
+      "connection": "usb",
+      "browser": "chrome",
+      "status": "pending"
+    },
+    {
+      "device": "xbox",
+      "connection": "usb",
+      "browser": "edge",
+      "status": "pending"
+    },
+    {
+      "device": "xbox",
+      "connection": "bluetooth",
+      "browser": "chrome",
+      "status": "pending"
+    },
+    {
+      "device": "xbox",
+      "connection": "bluetooth",
+      "browser": "edge",
+      "status": "pending"
+    }
+  ],
+  "workflows": [
+    {
+      "sport": "volleyball",
+      "inputMode": "normal",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "volleyball",
+      "inputMode": "normal",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "volleyball",
+      "inputMode": "hud",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "volleyball",
+      "inputMode": "hud",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "volleyball",
+      "inputMode": "controller",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "volleyball",
+      "inputMode": "controller",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "football",
+      "inputMode": "normal",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "football",
+      "inputMode": "normal",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "football",
+      "inputMode": "hud",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "football",
+      "inputMode": "hud",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "football",
+      "inputMode": "controller",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "football",
+      "inputMode": "controller",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "badminton",
+      "inputMode": "normal",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "badminton",
+      "inputMode": "normal",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "badminton",
+      "inputMode": "hud",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "badminton",
+      "inputMode": "hud",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "badminton",
+      "inputMode": "controller",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "badminton",
+      "inputMode": "controller",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "basketball",
+      "inputMode": "normal",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "basketball",
+      "inputMode": "normal",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "basketball",
+      "inputMode": "hud",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "basketball",
+      "inputMode": "hud",
+      "videoSource": "youtube",
+      "status": "pending"
+    },
+    {
+      "sport": "basketball",
+      "inputMode": "controller",
+      "videoSource": "local",
+      "status": "pending"
+    },
+    {
+      "sport": "basketball",
+      "inputMode": "controller",
+      "videoSource": "youtube",
+      "status": "pending"
+    }
+  ],
+  "viewports": [
+    {
+      "name": "laptop",
+      "width": 1366,
+      "height": 768,
+      "status": "pending"
+    },
+    {
+      "name": "desktop",
+      "width": 1920,
+      "height": 1080,
+      "status": "pending"
+    },
+    {
+      "name": "tablet-landscape",
+      "width": 1024,
+      "height": 768,
+      "status": "pending"
+    },
+    {
+      "name": "phone-landscape",
+      "width": 844,
+      "height": 390,
+      "status": "pending"
+    }
+  ],
+  "endurance": {
+    "status": "pending",
+    "minutes": 0,
+    "duplicateEvents": 0,
+    "missedReleases": 0,
+    "severeFatigue": false
+  },
+  "pilotSessions": []
+}

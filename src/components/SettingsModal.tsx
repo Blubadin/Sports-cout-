@@ -2,11 +2,15 @@ import React from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { SportType } from '../types';
 import { SPORT_TEMPLATES } from '../sports';
-import { X, Save, Trash2, Download, Upload, Settings, RefreshCw, Gamepad2 } from 'lucide-react';
+import { X, Save, Trash2, Download, Upload, Settings, RefreshCw, Gamepad2, ShieldCheck } from 'lucide-react';
 import CustomSelect, { Option } from './ui/CustomSelect';
 import { t, SupportedLanguage } from '../i18n';
 import { motion, AnimatePresence } from 'motion/react';
 import ControllerSettingsPanel from './controller/ControllerSettingsPanel';
+import { useWorkspace } from '../context/WorkspaceContext';
+import { createPilotDiagnosticReport } from '../utils/pilotDiagnostics';
+import { sanitizeFileName } from '../utils/security';
+import { SPORTSCOUT_APP_VERSION } from '../appMetadata';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -14,6 +18,7 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+  const { projects, activeProjectId, saveStatus } = useWorkspace();
   const { 
     settings, setSettings, 
     matchInfo, changeSportType,
@@ -42,6 +47,24 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         });
       }
     });
+  };
+
+  const handleExportDiagnostics = async () => {
+    const storageEstimate = await navigator.storage?.estimate?.().catch(() => undefined);
+    const report = createPilotDiagnosticReport({
+      projects,
+      activeProjectId,
+      saveStatus,
+      storageEstimate,
+    });
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = sanitizeFileName(`sportscout-diagnostic-${new Date().toISOString().slice(0, 10)}.json`);
+    anchor.click();
+    URL.revokeObjectURL(url);
+    showToast(settings.uiLanguage === 'th' ? 'ส่งออกข้อมูลวินิจฉัยแล้ว' : 'Diagnostic report exported');
   };
 
   const sportOptions: Option[] = Object.values(SPORT_TEMPLATES).map(t => ({
@@ -105,6 +128,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               </button>
               <button
                 onClick={() => setActiveTab('controller')}
+                data-testid="settings-controller-tab"
                 aria-label={t('controller.tab', settings.uiLanguage)}
                 className={`min-w-0 px-1 py-2 rounded-lg text-xs sm:text-sm font-black transition-all border cursor-pointer ${
                   activeTab === 'controller'
@@ -116,6 +140,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               </button>
               <button
                 onClick={() => setActiveTab('data')}
+                data-testid="settings-data-tab"
                 className={`min-w-0 px-1 py-2 rounded-lg text-xs sm:text-sm font-black transition-all border cursor-pointer ${
                   activeTab === 'data'
                     ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
@@ -677,9 +702,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       {t('settings.dataManagement', settings.uiLanguage)}
                     </h3>
                     <div className="flex flex-col gap-3">
+                      <button onClick={handleExportDiagnostics} className="flex items-center justify-center gap-2 p-3 bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 rounded-lg font-bold hover:bg-sky-100 transition-colors cursor-pointer border border-sky-200 dark:border-sky-900/50">
+                        <ShieldCheck size={18} /> {settings.uiLanguage === 'th' ? 'ส่งออกข้อมูลวินิจฉัย Pilot' : 'Export Pilot Diagnostics'}
+                      </button>
+                      <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                        {settings.uiLanguage === 'th'
+                          ? 'รายงานนี้มีเฉพาะเวอร์ชัน จำนวนโปรเจกต์/เหตุการณ์ สถานะบันทึก และพื้นที่จัดเก็บ ไม่รวมชื่อทีม โน้ต วิดีโอ หรือข้อมูลจอยดิบ'
+                          : 'Contains only version, project/event counts, save state and storage totals. Team names, notes, video and raw device identity are excluded.'}
+                      </p>
                       <button onClick={handleClearData} className="flex items-center justify-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg font-bold hover:bg-red-100 transition-colors cursor-pointer border border-red-200 dark:border-red-900/50">
                         <Trash2 size={18} /> {t('settings.clearData', settings.uiLanguage)}
                       </button>
+                      <div className="pt-2 text-center text-[11px] font-mono text-gray-400">SPORTSCOUT {SPORTSCOUT_APP_VERSION} · schema 1.1</div>
                     </div>
                   </section>
                 </div>

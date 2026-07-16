@@ -1,4 +1,5 @@
 import { createDefaultControllerProfile } from './controllerProfiles';
+import { sanitizeIdentifier, sanitizeUserText } from '../utils/security';
 import type {
   ControllerButtonName,
   ControllerCalibration,
@@ -184,11 +185,11 @@ export function sanitizeImportedControllerProfile(value: unknown): ControllerPro
 
   const now = new Date().toISOString();
   return {
-    id: typeof envelope.profile.id === 'string' && envelope.profile.id.trim()
-      ? envelope.profile.id.trim().slice(0, 80)
+    id: sanitizeIdentifier(envelope.profile.id)
+      ? sanitizeIdentifier(envelope.profile.id)
       : `imported-${Date.now()}`,
-    name: typeof envelope.profile.name === 'string' && envelope.profile.name.trim()
-      ? envelope.profile.name.trim().slice(0, 80)
+    name: sanitizeUserText(envelope.profile.name, 80)
+      ? sanitizeUserText(envelope.profile.name, 80)
       : `${defaults.name} Imported`,
     version: 1,
     deviceFamily: family,

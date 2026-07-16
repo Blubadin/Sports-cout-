@@ -2,6 +2,7 @@ import { SPORT_TEMPLATES } from '../sports';
 import type { EventRow } from '../types';
 import { formatPreciseTime } from '../utils';
 import { getAreaLabel, getFoulLabel } from './scoutData';
+import { neutralizeSpreadsheetFormula } from './security';
 
 const CSV_HEADERS = [
   'Event ID', 'NO', 'Sport', 'PT', 'Teams', 'Skills', 'Players', 'Results',
@@ -15,7 +16,7 @@ const CSV_HEADERS = [
 const joinActionValues = (event: EventRow, getter: (action: EventRow['actions'][number]) => string | undefined): string =>
   event.actions?.map(getter).filter(Boolean).join('; ') || '';
 
-const escapeCsvCell = (value: unknown): string => `"${String(value ?? '').replace(/"/g, '""')}"`;
+const escapeCsvCell = (value: unknown): string => `"${neutralizeSpreadsheetFormula(value).replace(/"/g, '""')}"`;
 
 export function createEventsCsv(events: EventRow[], uiLanguage: 'th' | 'en' = 'en'): string {
   const rows = events.map(event => {

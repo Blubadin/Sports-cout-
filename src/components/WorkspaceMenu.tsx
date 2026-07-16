@@ -145,6 +145,7 @@ export default function WorkspaceMenu() {
       <div className="flex items-center gap-1.5">
         <button
           onClick={() => setIsOpen(!isOpen)}
+          data-testid="workspace-menu-toggle"
           className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors shadow-sm active:scale-95"
         >
           <Folder size={18} className="text-sky-500 shrink-0" />
