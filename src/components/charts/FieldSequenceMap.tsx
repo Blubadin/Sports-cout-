@@ -33,8 +33,8 @@ type FieldSequenceMapProps = {
 
 // Map components for each sport
 const VolleyballField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[700px] bg-sky-950/40 dark:bg-sky-950/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
-    <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
+  <div className="relative w-full max-w-[700px] bg-sky-950/40 dark:bg-sky-950/20 rounded-xl p-[5%] mx-auto flex items-center justify-center my-4">
+    <div className="absolute inset-[1%] border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
       <span className="text-white/30 text-xs font-bold uppercase tracking-widest">Out of Bounds</span>
     </div>
     <div className="relative w-full aspect-[2/1] bg-[#f0bd7e] border-4 border-white shadow-xl">
@@ -52,8 +52,8 @@ const VolleyballField = ({ children }: { children: React.ReactNode }) => (
 );
 
 const FootballField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[500px] bg-green-950/40 dark:bg-green-950/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
-    <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
+  <div className="relative w-full max-w-[500px] bg-green-950/40 dark:bg-green-950/20 rounded-xl p-[5%] mx-auto flex items-center justify-center my-4">
+    <div className="absolute inset-[1%] border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
       <span className="text-white/30 text-xs font-bold uppercase tracking-widest">Out of Bounds</span>
     </div>
     <div className="relative w-full aspect-[2/3] bg-green-600 border-4 border-white shadow-xl">
@@ -67,8 +67,8 @@ const FootballField = ({ children }: { children: React.ReactNode }) => (
 );
 
 const BadmintonField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[400px] bg-sky-950/40 dark:bg-sky-950/20 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
-    <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
+  <div className="relative w-full max-w-[400px] bg-sky-950/40 dark:bg-sky-950/20 rounded-xl p-[5%] mx-auto flex items-center justify-center my-4">
+    <div className="absolute inset-[1%] border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
       <span className="text-white/30 text-xs font-bold uppercase tracking-widest">Out of Bounds</span>
     </div>
     <div className="relative w-full aspect-[1/2.2] bg-[#3a8b64] border-4 border-white shadow-xl">
@@ -84,8 +84,8 @@ const BadmintonField = ({ children }: { children: React.ReactNode }) => (
 );
 
 const BasketballField = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative w-full max-w-[400px] bg-amber-900/20 dark:bg-amber-900/10 rounded-xl p-8 sm:p-12 mx-auto flex items-center justify-center my-4">
-    <div className="absolute inset-2 sm:inset-4 border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
+  <div className="relative w-full max-w-[400px] bg-amber-900/20 dark:bg-amber-900/10 rounded-xl p-[5%] mx-auto flex items-center justify-center my-4">
+    <div className="absolute inset-[1%] border-2 border-dashed border-white/20 rounded-lg flex items-start justify-start p-2 pointer-events-none">
       <span className="text-white/30 text-xs font-bold uppercase tracking-widest">Out of Bounds</span>
     </div>
     <div className="relative w-full aspect-[1/1.9] bg-[#dd9f60] border-4 border-white shadow-xl">
@@ -113,89 +113,6 @@ const SPORT_COMPONENTS: Record<SportType, React.FC<any>> = {
   football: FootballField,
   badminton: BadmintonField,
   basketball: BasketballField,
-};
-
-// Area coordinates mappings (percentage based)
-const AREA_COORDS: Record<SportType, Record<string, { top: number, left: number }>> = {
-  volleyball: {
-    'LN': { top: 40, left: 20 },
-    'CN': { top: 40, left: 50 },
-    'RN': { top: 40, left: 80 },
-    'LB': { top: 75, left: 20 },
-    'CB': { top: 75, left: 50 },
-    'RB': { top: 75, left: 80 },
-    'OUT': { top: 108, left: 50 },
-    'LONG_OUT': { top: 110, left: 50 },
-    'SIDE_OUT': { top: 50, left: -6 },
-    'NET_ERR': { top: 50, left: 50 },
-    'UNKNOWN': { top: 50, left: 50 },
-    // Detailed out zones
-    'long_out_opp': { top: -8, left: 50 },
-    'side_out_left_opp': { top: 25, left: -6 },
-    'side_out_right_opp': { top: 25, left: 106 },
-    'long_out_own': { top: 108, left: 50 },
-    'side_out_left_own': { top: 75, left: -6 },
-    'side_out_right_own': { top: 75, left: 106 },
-  },
-  football: {
-    'ATT_L': { top: 20, left: 20 },
-    'ATT_C': { top: 20, left: 50 },
-    'ATT_R': { top: 20, left: 80 },
-    'MID_L': { top: 50, left: 20 },
-    'MID_C': { top: 50, left: 50 },
-    'MID_R': { top: 50, left: 80 },
-    'DEF_L': { top: 80, left: 20 },
-    'DEF_C': { top: 80, left: 50 },
-    'DEF_R': { top: 80, left: 80 },
-    'BOX': { top: 10, left: 50 },
-    'GOAL': { top: 5, left: 50 },
-    'OUT': { top: 108, left: 50 },
-    'UNKNOWN': { top: 50, left: 50 },
-    // Detailed out zones
-    'opp_endline': { top: -8, left: 50 },
-    'left_touchline_mid': { top: 50, left: -6 },
-    'right_touchline_mid': { top: 50, left: 106 },
-    'own_endline': { top: 108, left: 50 },
-  },
-  badminton: {
-    'NET': { top: 48, left: 50 },
-    'FL': { top: 60, left: 25 },
-    'FC': { top: 60, left: 50 },
-    'FR': { top: 60, left: 75 },
-    'ML': { top: 75, left: 25 },
-    'MC': { top: 75, left: 50 },
-    'MR': { top: 75, left: 75 },
-    'BL': { top: 90, left: 25 },
-    'BC': { top: 90, left: 50 },
-    'BR': { top: 90, left: 75 },
-    'OUT': { top: 108, left: 50 },
-    'NET_ERR': { top: 50, left: 50 },
-    'UNKNOWN': { top: 50, left: 50 },
-    // Detailed out zones
-    'opp_back_out': { top: -8, left: 50 },
-    'side_left': { top: 50, left: -6 },
-    'side_right': { top: 50, left: 106 },
-    'own_back_out': { top: 108, left: 50 },
-  },
-  basketball: {
-    'HOOP': { top: 7.5, left: 50 },
-    'PAINT': { top: 15, left: 50 },
-    'LEFT_WING': { top: 25, left: 20 },
-    'TOP_KEY': { top: 35, left: 50 },
-    'RIGHT_WING': { top: 25, left: 80 },
-    'LEFT_CORNER': { top: 7.5, left: 10 },
-    'RIGHT_CORNER': { top: 7.5, left: 90 },
-    'MID_RANGE': { top: 22.5, left: 50 },
-    'THREE_PT': { top: 42.5, left: 50 },
-    'OUT': { top: 108, left: 50 },
-    'UNKNOWN': { top: 50, left: 50 },
-    // Detailed out zones
-    'endline': { top: -8, left: 50 },
-    'left_sideline': { top: 50, left: -6 },
-    'right_sideline': { top: 50, left: 106 },
-    'baseline_left': { top: 108, left: 25 },
-    'baseline_right': { top: 108, left: 75 },
-  }
 };
 
 const hashString = (str: string) => {
@@ -255,138 +172,8 @@ export default function FieldSequenceMap({
         if (skillFilter && a.skillCode !== skillFilter && skillFilter !== 'ALL') return;
         if (resultFilter && a.resultCode !== resultFilter && resultFilter !== 'ALL') return;
 
-        let coords = { top: 50, left: 50 };
-
-        // 1. Point tap:
-        if (a.pointX !== undefined && a.pointY !== undefined) {
-          const clamp = (val: number) => Math.max(0, Math.min(1, val));
-          coords = { top: clamp(a.pointY) * 100, left: clamp(a.pointX) * 100 };
-        }
-        // 2. Out Zone:
-        else if (a.outZone) {
-          const zone = a.outZone;
-          if (sportType === 'volleyball') {
-            if (zone === 'side_left_near') coords = { top: 75, left: -10 };
-            else if (zone === 'side_left_far') coords = { top: 25, left: -10 };
-            else if (zone === 'side_right_near') coords = { top: 75, left: 110 };
-            else if (zone === 'side_right_far') coords = { top: 25, left: 110 };
-            else if (zone === 'back_left') coords = { top: 110, left: 20 };
-            else if (zone === 'back_right') coords = { top: 110, left: 80 };
-            else if (zone === 'opp_back_left') coords = { top: -10, left: 20 };
-            else if (zone === 'opp_back_right') coords = { top: -10, left: 80 };
-            else if (zone === 'net_error' || zone === 'net_err') coords = { top: 50, left: 50 };
-            else coords = AREA_COORDS['volleyball']?.[zone] || { top: 110, left: 50 };
-          } else if (sportType === 'football') {
-            if (zone === 'left_touchline_def') coords = { top: 80, left: -10 };
-            else if (zone === 'left_touchline_mid') coords = { top: 50, left: -10 };
-            else if (zone === 'left_touchline_att') coords = { top: 20, left: -10 };
-            else if (zone === 'right_touchline_def') coords = { top: 80, left: 110 };
-            else if (zone === 'right_touchline_mid') coords = { top: 50, left: 110 };
-            else if (zone === 'right_touchline_att') coords = { top: 20, left: 110 };
-            else if (zone === 'own_endline' || zone === 'goal_kick') coords = { top: 110, left: 50 };
-            else if (zone === 'opp_endline') coords = { top: -10, left: 50 };
-            else if (zone === 'corner_left') coords = { top: -5, left: -5 };
-            else if (zone === 'corner_right') coords = { top: -5, left: 105 };
-            else coords = AREA_COORDS['football']?.[zone] || { top: 110, left: 50 };
-          } else if (sportType === 'badminton') {
-            if (zone === 'opp_back_out') coords = { top: -10, left: 50 };
-            else if (zone === 'own_back_out') coords = { top: 110, left: 50 };
-            else if (zone === 'side_left' || zone === 'side_left_near') coords = { top: 75, left: -10 };
-            else if (zone === 'side_left_far') coords = { top: 25, left: -10 };
-            else if (zone === 'side_right' || zone === 'side_right_near') coords = { top: 75, left: 110 };
-            else if (zone === 'side_right_far') coords = { top: 25, left: 110 };
-            else if (zone === 'back_left') coords = { top: 110, left: 25 };
-            else if (zone === 'back_right') coords = { top: 110, left: 75 };
-            else coords = AREA_COORDS['badminton']?.[zone] || { top: 110, left: 50 };
-          } else if (sportType === 'basketball') {
-            if (zone === 'endline') coords = { top: -10, left: 50 };
-            else if (zone === 'left_sideline') coords = { top: 50, left: -10 };
-            else if (zone === 'right_sideline') coords = { top: 50, left: 110 };
-            else if (zone === 'baseline_left') coords = { top: 110, left: 20 };
-            else if (zone === 'baseline_right') coords = { top: 110, left: 80 };
-            else coords = AREA_COORDS['basketball']?.[zone] || { top: 110, left: 50 };
-          } else {
-            coords = { top: 110, left: 50 };
-          }
-        }
-        // 3. Detailed grid / areaCode with detailed layout:
-        else if (a.areaMode === 'detailed' || (a.areaCode && a.areaCode.includes('-'))) {
-          if (sportType === 'football' && a.areaCode?.startsWith('F-')) {
-            const [, r, c] = a.areaCode.split('-');
-            coords = { 
-              top: (parseInt(r, 10) + 0.5) * (100 / 4), 
-              left: (parseInt(c, 10) + 0.5) * (100 / 4) 
-            };
-          } else if (sportType === 'volleyball') {
-            const code = a.areaCode || '';
-            const baseCode = code.split('-')[0];
-            const subGrid = code.split('-')[1];
-            
-            const isTeamA = a.courtSide === 'teamA';
-            const isTeamB = a.courtSide === 'teamB';
-            
-            if (['LN', 'CN', 'RN', 'LB', 'CB', 'RB'].includes(baseCode) && (isTeamA || isTeamB)) {
-              let top = 50;
-              let left = 50;
-              
-              if (['LN', 'CN', 'RN'].includes(baseCode)) top = 25;
-              if (['LB', 'CB', 'RB'].includes(baseCode)) top = 75;
-              
-              if (isTeamA) {
-                if (['LN', 'LB'].includes(baseCode)) left = 16;
-                if (['CN', 'CB'].includes(baseCode)) left = 33;
-                if (['RN', 'RB'].includes(baseCode)) left = 45;
-              } else {
-                if (['RN', 'RB'].includes(baseCode)) left = 55;
-                if (['CN', 'CB'].includes(baseCode)) left = 67;
-                if (['LN', 'LB'].includes(baseCode)) left = 84;
-              }
-              
-              if (subGrid) {
-                const subIdx = parseInt(subGrid, 10);
-                if (subIdx === 1) { top -= 10; left -= 5; }
-                if (subIdx === 2) { top -= 10; left += 5; }
-                if (subIdx === 3) { top += 10; left -= 5; }
-                if (subIdx === 4) { top += 10; left += 5; }
-              }
-              
-              coords = { top, left };
-            } else {
-              coords = AREA_COORDS[sportType]?.[a.areaCode || ''] || { top: 50, left: 50 };
-            }
-          } else {
-            if (a.gridX !== undefined && a.gridY !== undefined) {
-              coords = {
-                top: (a.gridY + 0.5) * 25,
-                left: (a.gridX + 0.5) * 25
-              };
-            } else {
-              coords = AREA_COORDS[sportType]?.[a.areaCode || ''] || { top: 50, left: 50 };
-            }
-          }
-        }
-        // 4. Standard areaCode fallback:
-        else {
-          let targetArea = a.areaCode || '';
-          if (targetArea === 'THREE_POINT') targetArea = 'THREE_PT';
-          if (['OUT', 'SIDE_OUT', 'LONG_OUT'].includes(targetArea)) {
-            coords = AREA_COORDS[sportType]?.[targetArea] || { top: 108, left: 50 };
-          } else {
-            coords = AREA_COORDS[sportType]?.[targetArea] || { top: 50, left: 50 };
-          }
-        }
-
-        // Apply courtSide reflection for full pitch sports (football, basketball)
-        if ((sportType === 'football' || sportType === 'basketball') && a.courtSide === 'teamB') {
-          coords = {
-            top: 100 - coords.top,
-            left: 100 - coords.left
-          };
-        }
-
-        const resolvedDisplayPoint = resolveAreaDisplayPoint(sportType, a);
-        if (!resolvedDisplayPoint) return;
-        coords = resolvedDisplayPoint;
+        const coords = resolveAreaDisplayPoint(sportType, a);
+        if (!coords) return;
 
         const idHash = Math.abs(hashString(a.id || `${eIdx}-${aIdx}`));
         const topJitter = (idHash % 10) - 5;

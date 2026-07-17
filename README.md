@@ -10,7 +10,7 @@ Sports Scout Logger เป็นเว็บแอปสำหรับบัน
 
 ระบบรองรับการดูวิดีโอการแข่งขันจากไฟล์วิดีโอในเครื่อง หรือ YouTube และสามารถบันทึกเหตุการณ์สำคัญระหว่างการแข่งขัน เช่น ทักษะที่เกิดขึ้น พื้นที่ในสนาม ทีม ผู้เล่น ผลลัพธ์ และข้อมูลประกอบอื่น ๆ เพื่อนำไปวิเคราะห์ต่อใน Dashboard, ตารางข้อมูล, Heatmap, Sequence Map และ Export ข้อมูลออกไปใช้งานภายนอก
 
-โปรเจคนี้ยังไม่มีระบบ AI วิเคราะห์วิดีโออัตโนมัติ ยังไม่มี backend/database/login และยังเก็บข้อมูลหลักผ่าน localStorage ของ browser
+โปรเจคนี้ยังไม่มีระบบ AI วิเคราะห์วิดีโออัตโนมัติ และยังไม่มี backend/database/login ข้อมูลโปรเจกต์หลักเก็บแบบ local-first ใน IndexedDB ส่วนการตั้งค่าขนาดเล็กและ legacy recovery backup ยังใช้ localStorage โดยจะไม่ลบข้อมูลเก่าระหว่างช่วง Pilot
 
 ---
 
@@ -34,7 +34,8 @@ Tech Stack
 - Recharts
 - ReactPlayer
 - PWA
-- localStorage
+- IndexedDB (`idb-keyval`) สำหรับ project/session data
+- localStorage สำหรับ settings และ legacy recovery backup
 
 ---
 
@@ -122,8 +123,11 @@ Core Files
 - "src/components/hud/"
   HUD-related components for full-screen / mobile scouting modes
 
+- "src/utils/projectRepository.ts"
+  IndexedDB project repository, migration, retry และ recovery envelope
+
 - "src/hooks/useLocalStorage.ts"
-  localStorage helper and quota handling
+  localStorage helper สำหรับ settings/legacy backup และ quota handling
 
 ---
 
@@ -347,6 +351,12 @@ When using Google AI Studio, follow these rules:
 ---
 
 Build Commands
+
+Interface feature flag:
+
+- Classic UI เป็นค่าเริ่มต้นสำหรับ Pilot
+- Workstation UI เปิดแบบ opt-in ด้วย `VITE_ENABLE_WORKSTATION=true`
+- ทั้งสอง interface ต้องอ่านและเขียนผ่าน project/event data layer ชุดเดียวกัน
 
 Install dependencies:
 

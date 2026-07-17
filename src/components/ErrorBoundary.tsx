@@ -1,6 +1,11 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { PROJECTS_REPOSITORY_KEY } from '../utils/projectRepository';
 import { indexedDbStorageAdapter } from '../utils/storageAdapter';
+import {
+  SPORTSCOUT_APP_NAME,
+  SPORTSCOUT_APP_VERSION,
+  SPORTSCOUT_EXPORT_SCHEMA_VERSION,
+} from '../appMetadata';
 
 interface Props {
   children: ReactNode;
@@ -44,8 +49,9 @@ export class ErrorBoundary extends Component<Props, State> {
       }, {});
 
       const backup = {
-        schemaVersion: '1.1',
-        app: 'Sports Scout Logger',
+        schemaVersion: SPORTSCOUT_EXPORT_SCHEMA_VERSION,
+        app: SPORTSCOUT_APP_NAME,
+        appVersion: SPORTSCOUT_APP_VERSION,
         type: 'localStorageRecovery',
         exportedAt: new Date().toISOString(),
         localStorage: localStorageSnapshot,

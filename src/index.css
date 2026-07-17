@@ -1,9 +1,20 @@
+@import "@fontsource-variable/noto-sans/index.css";
+@import "@fontsource-variable/noto-sans-thai/index.css";
 @import "tailwindcss";
 
 @variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
+    --coach-font-sans: "Noto Sans Thai Variable", "Noto Sans Variable", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
+    --coach-font-mono: ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+    --coach-page-title-size: 22px;
+    --coach-page-title-line: 32px;
+    --coach-panel-title-size: 16px;
+    --coach-panel-title-line: 24px;
+    --coach-body-size: 14px;
+    --coach-helper-size: 12px;
+    --coach-timecode-size: 13px;
     --coach-bg: #f4f7fb;
     --coach-bg-accent: rgba(14, 165, 233, 0.1);
     --coach-surface: rgba(255, 255, 255, 0.9);
@@ -35,6 +46,19 @@
 
   body {
     @apply overflow-x-hidden;
+    font-family: var(--coach-font-sans);
+    font-size: var(--coach-body-size);
+    line-height: 1.5;
+    letter-spacing: 0;
+  }
+
+  html:lang(th) body {
+    line-height: 1.6;
+  }
+
+  html:lang(th) :is(.uppercase, .tracking-wide, .tracking-wider, .tracking-widest) {
+    text-transform: none;
+    letter-spacing: 0;
   }
   button, a, select, input, [role="button"] {
     touch-action: manipulation;
@@ -97,7 +121,42 @@
 
   .coach-tab {
     border-radius: 12px;
-    min-height: 42px;
+    min-height: 44px;
+  }
+
+  .coach-page-title {
+    font-size: var(--coach-page-title-size);
+    line-height: var(--coach-page-title-line);
+  }
+
+  .coach-panel-title {
+    font-size: var(--coach-panel-title-size);
+    line-height: var(--coach-panel-title-line);
+  }
+
+  .coach-helper-text {
+    font-size: var(--coach-helper-size);
+    line-height: 1.5;
+  }
+
+  .coach-timecode,
+  .font-mono {
+    font-family: var(--coach-font-mono);
+  }
+
+  .coach-timecode {
+    font-size: var(--coach-timecode-size);
+    line-height: 20px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .coach-control-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  :where(.text-\[7px\], .text-\[8px\], .text-\[9px\], .text-\[10px\], .text-\[11px\], .text-\[11\.5px\]) {
+    font-size: 12px !important;
   }
 
   .coach-tab-active {
@@ -124,6 +183,14 @@
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     @apply bg-gray-400 dark:bg-gray-500;
+  }
+}
+
+@media (pointer: coarse) {
+  .coach-tab,
+  .coach-control-target {
+    min-height: 48px;
+    min-width: 48px;
   }
 }
 

@@ -80,6 +80,76 @@ const BROWSERS: PilotBrowser[] = ['chrome', 'edge'];
 const INPUT_MODES: PilotInputMode[] = ['normal', 'hud', 'controller'];
 const VIDEO_SOURCES: PilotVideoSource[] = ['local', 'youtube'];
 
+const CASE_STATUSES: PilotCaseStatus[] = ['pending', 'pass', 'fail'];
+const VIEWPORT_NAMES: ViewportEvidence['name'][] = ['laptop', 'desktop', 'tablet-landscape', 'phone-landscape'];
+const SESSION_KEYS = new Set<keyof PilotSessionObservation>([
+  'participantCode',
+  'sport',
+  'sessionSucceeded',
+  'unrecoverableDataLoss',
+  'totalEvents',
+  'incompleteEvents',
+  'projectReopenSucceeded',
+  'firstEventSeconds',
+  'controllerTasksAttempted',
+  'controllerTasksCompletedWithoutMouse',
+]);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value));
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+const isCaseStatus = (value: unknown): value is PilotCaseStatus => CASE_STATUSES.includes(value as PilotCaseStatus);
+const hasOnlyKeys = (value: Record<string, unknown>, keys: ReadonlySet<string>) =>
+  Object.keys(value).every((key) => keys.has(key));
+
+function isHardwareEvidence(value: unknown): value is HardwareEvidence {
+  return isRecord(value)
+    && DEVICES.includes(value.device as PilotDeviceFamily)
+    && CONNECTIONS.includes(value.connection as PilotConnection)
+    && BROWSERS.includes(value.browser as PilotBrowser)
+    && isCaseStatus(value.status);
+}
+
+function isWorkflowEvidence(value: unknown): value is WorkflowEvidence {
+  return isRecord(value)
+    && SPORTS.includes(value.sport as SportType)
+    && INPUT_MODES.includes(value.inputMode as PilotInputMode)
+    && VIDEO_SOURCES.includes(value.videoSource as PilotVideoSource)
+    && isCaseStatus(value.status);
+}
+
+function isViewportEvidence(value: unknown): value is ViewportEvidence {
+  return isRecord(value)
+    && VIEWPORT_NAMES.includes(value.name as ViewportEvidence['name'])
+    && isFiniteNumber(value.width)
+    && isFiniteNumber(value.height)
+    && isCaseStatus(value.status);
+}
+
+function isEnduranceEvidence(value: unknown): value is PilotEvidence['endurance'] {
+  return isRecord(value)
+    && isCaseStatus(value.status)
+    && isFiniteNumber(value.minutes)
+    && isFiniteNumber(value.duplicateEvents)
+    && isFiniteNumber(value.missedReleases)
+    && typeof value.severeFatigue === 'boolean';
+}
+
+function isPilotSessionObservation(value: unknown): value is PilotSessionObservation {
+  if (!isRecord(value) || !hasOnlyKeys(value, SESSION_KEYS)) return false;
+  return typeof value.participantCode === 'string'
+    && /^[A-Za-z0-9_-]{1,32}$/.test(value.participantCode)
+    && SPORTS.includes(value.sport as SportType)
+    && typeof value.sessionSucceeded === 'boolean'
+    && isFiniteNumber(value.unrecoverableDataLoss)
+    && isFiniteNumber(value.totalEvents)
+    && isFiniteNumber(value.incompleteEvents)
+    && typeof value.projectReopenSucceeded === 'boolean'
+    && isFiniteNumber(value.firstEventSeconds)
+    && isFiniteNumber(value.controllerTasksAttempted)
+    && isFiniteNumber(value.controllerTasksCompletedWithoutMouse);
+}
+
 const REQUIRED_VIEWPORTS: ViewportEvidence[] = [
   { name: 'laptop', width: 1366, height: 768, status: 'pending' },
   { name: 'desktop', width: 1920, height: 1080, status: 'pending' },
@@ -133,23 +203,33 @@ function evaluateRequiredCases<T extends { status: PilotCaseStatus }>(
 
 export function evaluatePilotReadiness(value: unknown): PilotReadinessReport {
   const evidence = value && typeof value === 'object' ? value as Partial<PilotEvidence> : {};
+  const hardwareEntries = Array.isArray(evidence.hardware) ? evidence.hardware.filter(isHardwareEvidence) : [];
+  const workflowEntries = Array.isArray(evidence.workflows) ? evidence.workflows.filter(isWorkflowEvidence) : [];
+  const viewportEntries = Array.isArray(evidence.viewports) ? evidence.viewports.filter(isViewportEvidence) : [];
+  const sessionEntries = Array.isArray(evidence.pilotSessions)
+    ? evidence.pilotSessions.filter(isPilotSessionObservation)
+    : [];
   const schemaValid = evidence.schemaVersion === '1.0'
     && Array.isArray(evidence.hardware)
+    && hardwareEntries.length === evidence.hardware.length
     && Array.isArray(evidence.workflows)
+    && workflowEntries.length === evidence.workflows.length
     && Array.isArray(evidence.viewports)
-    && Boolean(evidence.endurance && typeof evidence.endurance === 'object')
-    && Array.isArray(evidence.pilotSessions);
+    && viewportEntries.length === evidence.viewports.length
+    && isEnduranceEvidence(evidence.endurance)
+    && Array.isArray(evidence.pilotSessions)
+    && sessionEntries.length === evidence.pilotSessions.length;
   const template = createPilotEvidenceTemplate();
-  const hardware = evaluateRequiredCases(template.hardware, Array.isArray(evidence.hardware) ? evidence.hardware : [], hardwareKey);
-  const workflows = evaluateRequiredCases(template.workflows, Array.isArray(evidence.workflows) ? evidence.workflows : [], workflowKey);
-  const viewports = evaluateRequiredCases(template.viewports, Array.isArray(evidence.viewports) ? evidence.viewports : [], viewportKey);
+  const hardware = evaluateRequiredCases(template.hardware, hardwareEntries, hardwareKey);
+  const workflows = evaluateRequiredCases(template.workflows, workflowEntries, workflowKey);
+  const viewports = evaluateRequiredCases(template.viewports, viewportEntries, viewportKey);
   const endurancePass = evidence.endurance?.status === 'pass'
     && evidence.endurance.minutes >= 60
     && evidence.endurance.duplicateEvents === 0
     && evidence.endurance.missedReleases === 0
     && !evidence.endurance.severeFatigue;
 
-  const sessions = Array.isArray(evidence.pilotSessions) ? evidence.pilotSessions : [];
+  const sessions = sessionEntries;
   const participantCount = new Set(sessions.map((session) => session.participantCode)).size;
   const totalEvents = sessions.reduce((sum, session) => sum + Math.max(0, session.totalEvents), 0);
   const incompleteEvents = sessions.reduce((sum, session) => sum + Math.max(0, session.incompleteEvents), 0);

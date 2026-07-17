@@ -77,4 +77,22 @@ describe('pilot readiness gate', () => {
     expect(report.status).toBe('blocked');
     expect(report.failedGates).toContain('evidence-schema');
   });
+
+  it('blocks null matrix entries without throwing', () => {
+    const evidence = createPilotEvidenceTemplate() as unknown as Record<string, unknown>;
+    evidence.hardware = [null];
+
+    expect(() => evaluatePilotReadiness(evidence)).not.toThrow();
+    expect(evaluatePilotReadiness(evidence).failedGates).toContain('evidence-schema');
+  });
+
+  it('rejects free-text or personal-name fields in imported pilot sessions', () => {
+    const evidence = passAllEvidence() as unknown as Record<string, unknown>;
+    const sessions = evidence.pilotSessions as Array<Record<string, unknown>>;
+    sessions[0] = { ...sessions[0], participantName: 'Coach Name', notes: 'private observation' };
+
+    const report = evaluatePilotReadiness(evidence);
+    expect(report.status).toBe('blocked');
+    expect(report.failedGates).toContain('evidence-schema');
+  });
 });

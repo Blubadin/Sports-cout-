@@ -29,7 +29,19 @@ export default function AreaBoundaryFrame({
   const getZoneBySlot = (slot: string) => zones.find((z) => z.slot === slot);
 
   // Helper to render button
-  const renderZoneButton = (zone: BoundaryZone | undefined, extraClass = '') => {
+  const getCompactLabel = (zone: BoundaryZone) => {
+    const compactLabels: Record<string, string> = {
+      corner_left: 'CL', corner_right: 'CR',
+      left_touchline_att: 'L·A', left_touchline_mid: 'L·M', left_touchline_def: 'L·D',
+      right_touchline_att: 'R·A', right_touchline_mid: 'R·M', right_touchline_def: 'R·D',
+      side_left_far: 'L·F', side_left_near: 'L·N', side_right_far: 'R·F', side_right_near: 'R·N',
+      baseline_left: 'BL', baseline_right: 'BR',
+      back_left: 'BL', back_right: 'BR', opp_back_left: 'OBL', opp_back_right: 'OBR',
+    };
+    return compactLabels[zone.outZone] || zone.areaCode.slice(0, 3);
+  };
+
+  const renderZoneButton = (zone: BoundaryZone | undefined, extraClass = '', compact = false) => {
     if (!zone) return <div className="h-full w-full" />;
 
     const isSelected = selectedAreaCode === zone.areaCode && currentOutZone === zone.outZone;
@@ -39,6 +51,8 @@ export default function AreaBoundaryFrame({
     return (
       <button
         type="button"
+        title={uiLanguage === 'th' ? zone.thaiLabel : zone.label}
+        aria-label={uiLanguage === 'th' ? zone.thaiLabel : zone.label}
         onPointerDown={(e) => {
           e.preventDefault();
           onSelectOutZone({
@@ -57,8 +71,8 @@ export default function AreaBoundaryFrame({
             : 'bg-red-50/75 hover:bg-red-100/90 dark:bg-red-950/45 dark:hover:bg-red-900/40 text-red-700 dark:text-red-300 border-red-200/60 dark:border-red-900/30'
         } ${extraClass}`}
       >
-        <span className="font-extrabold text-[9px] sm:text-[10px] tracking-tight">{primaryLabel}</span>
-        {secondaryLabel && <span className="text-[7px] sm:text-[8px] font-medium opacity-75 mt-0.5">{secondaryLabel}</span>}
+        <span className="font-extrabold text-xs tracking-normal">{compact ? getCompactLabel(zone) : primaryLabel}</span>
+        {!compact && secondaryLabel && <span className="mt-0.5 text-xs font-medium opacity-75">{secondaryLabel}</span>}
       </button>
     );
   };
@@ -80,14 +94,14 @@ export default function AreaBoundaryFrame({
         {/* Volleyball Boundary Border Frame */}
         <div 
           className="w-full flex flex-col items-stretch overflow-visible border-2 border-red-200/50 dark:border-red-900/20 bg-red-50/10 dark:bg-red-950/5 p-1.5 rounded-2xl shadow-sm gap-1 sm:gap-1.5"
-          style={{ maxWidth: 'clamp(480px, 85vw, 850px)' }}
+          style={{ maxWidth: '850px' }}
         >
           {/* Top Row: SIDE LEFT NEAR & SIDE RIGHT FAR (Sidelines) */}
           <div className="grid grid-cols-2 gap-1 sm:gap-1.5">
-            <div className="h-10 sm:h-12">
+            <div className="h-8">
               {sideTopLeft && renderZoneButton(sideTopLeft, 'rounded-lg')}
             </div>
-            <div className="h-10 sm:h-12">
+            <div className="h-8">
               {sideTopRight && renderZoneButton(sideTopRight, 'rounded-lg')}
             </div>
           </div>
@@ -95,12 +109,12 @@ export default function AreaBoundaryFrame({
           {/* Middle Row: Left Rail (Back A) + Main Court + Right Rail (Back B) */}
           <div className="flex flex-row gap-1 sm:gap-1.5 items-stretch min-h-[170px] sm:min-h-[220px]">
             {/* Left Boundary Rail (Back A baselines) */}
-            <div className="flex flex-col gap-1 sm:gap-1.5 justify-between w-14 sm:w-18 shrink-0">
+            <div className="flex w-[5%] min-w-6 shrink-0 flex-col justify-between gap-1">
               <div className="flex-1">
-                {backLeftTop && renderZoneButton(backLeftTop, 'rounded-lg')}
+                {backLeftTop && renderZoneButton(backLeftTop, 'rounded-lg', true)}
               </div>
               <div className="flex-1 mt-1 sm:mt-1.5">
-                {backLeftBottom && renderZoneButton(backLeftBottom, 'rounded-lg')}
+                {backLeftBottom && renderZoneButton(backLeftBottom, 'rounded-lg', true)}
               </div>
             </div>
 
@@ -110,22 +124,22 @@ export default function AreaBoundaryFrame({
             </div>
 
             {/* Right Boundary Rail (Back B baselines) */}
-            <div className="flex flex-col gap-1 sm:gap-1.5 justify-between w-14 sm:w-18 shrink-0">
+            <div className="flex w-[5%] min-w-6 shrink-0 flex-col justify-between gap-1">
               <div className="flex-1">
-                {backRightTop && renderZoneButton(backRightTop, 'rounded-lg')}
+                {backRightTop && renderZoneButton(backRightTop, 'rounded-lg', true)}
               </div>
               <div className="flex-1 mt-1 sm:mt-1.5">
-                {backRightBottom && renderZoneButton(backRightBottom, 'rounded-lg')}
+                {backRightBottom && renderZoneButton(backRightBottom, 'rounded-lg', true)}
               </div>
             </div>
           </div>
 
           {/* Bottom Row: SIDE RIGHT NEAR & SIDE LEFT FAR (Sidelines) */}
           <div className="grid grid-cols-2 gap-1 sm:gap-1.5">
-            <div className="h-10 sm:h-12">
+            <div className="h-8">
               {sideBottomLeft && renderZoneButton(sideBottomLeft, 'rounded-lg')}
             </div>
-            <div className="h-10 sm:h-12">
+            <div className="h-8">
               {sideBottomRight && renderZoneButton(sideBottomRight, 'rounded-lg')}
             </div>
           </div>
@@ -164,16 +178,16 @@ export default function AreaBoundaryFrame({
       <div 
         className="grid gap-1 sm:gap-2 w-full items-stretch overflow-visible"
         style={{
-          maxWidth: 'clamp(480px, 85vw, 850px)',
-          gridTemplateColumns: `${hasLeftCol ? 'minmax(50px, 70px)' : '0px'} 1fr ${hasRightCol ? 'minmax(50px, 70px)' : '0px'}`,
+          maxWidth: '850px',
+          gridTemplateColumns: `${hasLeftCol ? '5%' : '0px'} minmax(0, 1fr) ${hasRightCol ? '5%' : '0px'}`,
         }}
       >
         {/* ROW 1: TOP BOUNDARIES */}
         {hasTopRow ? (
           <>
-            <div className="flex items-center justify-center p-0.5">{topLeft && renderZoneButton(topLeft)}</div>
+            <div className="flex items-center justify-center p-0.5">{topLeft && renderZoneButton(topLeft, '', true)}</div>
             <div className="flex items-center justify-center p-0.5">{topCenter && renderZoneButton(topCenter)}</div>
-            <div className="flex items-center justify-center p-0.5">{topRight && renderZoneButton(topRight)}</div>
+            <div className="flex items-center justify-center p-0.5">{topRight && renderZoneButton(topRight, '', true)}</div>
           </>
         ) : (
           <div className="col-span-3 h-0" />
@@ -182,9 +196,9 @@ export default function AreaBoundaryFrame({
         {/* ROW 2: SIDE BOUNDARIES + MAIN COURT */}
         {/* Left Column Stack */}
         <div className="flex flex-col justify-between gap-1.5 p-0.5">
-          {leftTop && <div className="flex-1 flex items-center">{renderZoneButton(leftTop)}</div>}
-          {leftMiddle && <div className="flex-1 flex items-center mt-1 sm:mt-1.5">{renderZoneButton(leftMiddle)}</div>}
-          {leftBottom && <div className="flex-1 flex items-center mt-1 sm:mt-1.5">{renderZoneButton(leftBottom)}</div>}
+          {leftTop && <div className="flex-1 flex items-center">{renderZoneButton(leftTop, '', true)}</div>}
+          {leftMiddle && <div className="flex-1 flex items-center mt-1 sm:mt-1.5">{renderZoneButton(leftMiddle, '', true)}</div>}
+          {leftBottom && <div className="flex-1 flex items-center mt-1 sm:mt-1.5">{renderZoneButton(leftBottom, '', true)}</div>}
           {!leftTop && !leftMiddle && !leftBottom && <div className="w-full" />}
         </div>
 
@@ -222,18 +236,18 @@ export default function AreaBoundaryFrame({
 
         {/* Right Column Stack */}
         <div className="flex flex-col justify-between gap-1.5 p-0.5">
-          {rightTop && <div className="flex-1 flex items-center">{renderZoneButton(rightTop)}</div>}
-          {rightMiddle && <div className="flex-1 flex items-center mt-1 sm:mt-1.5">{renderZoneButton(rightMiddle)}</div>}
-          {rightBottom && <div className="flex-1 flex items-center mt-1 sm:mt-1.5">{renderZoneButton(rightBottom)}</div>}
+          {rightTop && <div className="flex-1 flex items-center">{renderZoneButton(rightTop, '', true)}</div>}
+          {rightMiddle && <div className="flex-1 flex items-center mt-1 sm:mt-1.5">{renderZoneButton(rightMiddle, '', true)}</div>}
+          {rightBottom && <div className="flex-1 flex items-center mt-1 sm:mt-1.5">{renderZoneButton(rightBottom, '', true)}</div>}
           {!rightTop && !rightMiddle && !rightBottom && <div className="w-full" />}
         </div>
 
         {/* ROW 3: BOTTOM BOUNDARIES */}
         {hasBottomRow ? (
           <>
-            <div className="flex items-center justify-center p-0.5">{bottomLeft && renderZoneButton(bottomLeft)}</div>
+            <div className="flex items-center justify-center p-0.5">{bottomLeft && renderZoneButton(bottomLeft, '', true)}</div>
             <div className="flex items-center justify-center p-0.5">{bottomCenter && renderZoneButton(bottomCenter)}</div>
-            <div className="flex items-center justify-center p-0.5">{bottomRight && renderZoneButton(bottomRight)}</div>
+            <div className="flex items-center justify-center p-0.5">{bottomRight && renderZoneButton(bottomRight, '', true)}</div>
           </>
         ) : (
           <div className="col-span-3 h-0" />

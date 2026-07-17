@@ -482,6 +482,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       payload.areaMode = payload.areaMode || 'normal';
       payload.courtSide = payload.courtSide || 'neutral';
       payload.areaResolution = payload.areaResolution || 'normal';
+      payload.courtViewMode = payload.courtViewMode || settings.areaCourtViewMode || 'auto';
 
       if (payload.areaCode && !payload.areaLabel) {
         const areaObj = areas.find(a => a.code === payload.areaCode);
@@ -493,7 +494,8 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
                      prevAction.outZone === payload.outZone && 
                      prevAction.courtSide === payload.courtSide &&
                      prevAction.gridX === payload.gridX &&
-                     prevAction.gridY === payload.gridY;
+                     prevAction.gridY === payload.gridY &&
+                     prevAction.courtViewMode === payload.courtViewMode;
       
       const nextValueCode = isSame ? undefined : payload.areaCode;
       
@@ -509,6 +511,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
         pointY: isSame ? undefined : payload.pointY,
         outZone: isSame ? undefined : payload.outZone,
         areaResolution: isSame ? undefined : payload.areaResolution,
+        courtViewMode: isSame ? undefined : payload.courtViewMode,
       };
       
       setCurrentInputHistory(hist => [...hist, {
@@ -528,13 +531,14 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
           pointX: prevAction.pointX,
           pointY: prevAction.pointY,
           outZone: prevAction.outZone,
-          areaResolution: prevAction.areaResolution
+          areaResolution: prevAction.areaResolution,
+          courtViewMode: prevAction.courtViewMode,
         }
       }]);
 
       return next;
     });
-  }, [settings.uiLanguage, areas]);
+  }, [settings.uiLanguage, settings.areaCourtViewMode, areas]);
 
   const clearCurrentEvent = useCallback(() => {
     setCurrentActions([]);
@@ -760,9 +764,10 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
               if (p.gridY === undefined) delete next.gridY; else next.gridY = p.gridY;
               if (p.pointX === undefined) delete next.pointX; else next.pointX = p.pointX;
               if (p.pointY === undefined) delete next.pointY; else next.pointY = p.pointY;
-              if (p.outZone === undefined) delete next.outZone; else next.outZone = p.outZone;
-              if (p.areaResolution === undefined) delete next.areaResolution; else next.areaResolution = p.areaResolution;
-            } else {
+               if (p.outZone === undefined) delete next.outZone; else next.outZone = p.outZone;
+               if (p.areaResolution === undefined) delete next.areaResolution; else next.areaResolution = p.areaResolution;
+               if (p.courtViewMode === undefined) delete next.courtViewMode; else next.courtViewMode = p.courtViewMode;
+             } else {
               if (last.previousCourtSide === undefined) {
                 delete next.courtSide;
               } else {

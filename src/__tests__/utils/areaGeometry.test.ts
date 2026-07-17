@@ -29,8 +29,8 @@ describe("resolveAreaSelectionFromPoint court orientation", () => {
 
   it.each([
     ["volleyball", "LB", "teamA", "teamB"],
-    ["football", "BOX", "teamB", "teamA"],
-    ["badminton", "BR", "teamB", "teamA"],
+    ["football", "MID_R", "teamB", "teamA"],
+    ["badminton", "MID", "teamB", "teamA"],
     ["basketball", "LEFT_WING", "teamB", "teamA"],
   ] as const)(
     "keeps the visible %s zone stable and only swaps its physical court side",
@@ -46,13 +46,13 @@ describe("resolveAreaSelectionFromPoint court orientation", () => {
   it("does not mirror an out-of-bounds selection when the court side changes", () => {
     const normal = resolveAreaSelectionFromPoint({
       sportType: "volleyball",
-      point: { rx: 0.05, ry: 0.25 },
+      point: { rx: 0.03, ry: 0.25 },
       flipCourtSide: false,
       enableOutOfBoundsZones: true,
     });
     const flipped = resolveAreaSelectionFromPoint({
       sportType: "volleyball",
-      point: { rx: 0.05, ry: 0.25 },
+      point: { rx: 0.03, ry: 0.25 },
       flipCourtSide: true,
       enableOutOfBoundsZones: true,
     });
@@ -101,6 +101,6 @@ describe("field map display geometry", () => {
 
   it("keeps legacy OUT codes in an out lane instead of classifying them as a court zone", () => {
     expect(getAreaPrecision({ areaCode: "OUT" })).toBe("Out");
-    expect(resolveAreaDisplayPoint("badminton", { areaCode: "OUT" })).toEqual({ top: 108, left: 50 });
+    expect(resolveAreaDisplayPoint("badminton", { areaCode: "OUT" })).toEqual({ top: 105, left: 50 });
   });
 });

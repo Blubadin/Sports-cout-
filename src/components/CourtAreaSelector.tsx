@@ -6,7 +6,7 @@ import { SPORT_TEMPLATES, OUT_ZONE_LABELS, DETAILED_ZONE_LABELS, OUT_ZONE_VISUAL
 import AreaBoundaryFrame from './area/AreaBoundaryFrame';
 import CourtLayoutShell from './area/CourtLayoutShell';
 import { getAreaDisplay } from '../utils/areaHelper';
-import { resolveVisibleCourtSide } from '../utils/areaGeometry';
+import { buildAreaPreviewGrid, mapAreaViewPointToFullCourt, mapFullCourtPointToAreaView, resolveAreaSelectionFromPoint, resolveVisibleCourtSide } from '../utils/areaGeometry';
 
 export default function CourtAreaSelector() {
   const { matchInfo, currentAction, setCurrentAction, sportTemplate, currentInputHistory, setCurrentInputHistory, teams, settings, setSettings, selectArea } = useScoutContext();
@@ -119,6 +119,115 @@ export default function CourtAreaSelector() {
   const errorAreas = areas.filter(a => ['OUT', 'LONG_OUT', 'SIDE_OUT', 'NET_ERR', 'UNKNOWN'].includes(a.code))
     .filter(a => !(settings.enableOutOfBoundsZones && ['OUT', 'LONG_OUT', 'SIDE_OUT'].includes(a.code)));
 
+  const GeometrySelectionGrid = ({ sport }: { sport: 'volleyball' | 'football' | 'badminton' | 'basketball' }) => {
+    const precisionMode = settings.areaPrecisionMode || 'normal';
+    const preview = buildAreaPreviewGrid(
+      sport,
+      precisionMode,
+      settings.flipCourtSide,
+      settings.areaCourtViewMode || 'auto',
+      settings.uiLanguage,
+    );
+    const sportSurface = sport === 'football'
+      ? 'border-green-300 bg-green-50 dark:border-green-700/50 dark:bg-green-900/10'
+      : sport === 'badminton' || sport === 'volleyball'
+        ? 'border-sky-300 bg-sky-50 dark:border-sky-700/50 dark:bg-sky-950/10'
+        : 'border-amber-300 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/10';
+    if (precisionMode === 'point') {
+      const selectedViewPoint = typeof currentAction.pointX === 'number' && typeof currentAction.pointY === 'number'
+        ? mapFullCourtPointToAreaView(
+          sport,
+          { rx: 0.05 + currentAction.pointX * 0.9, ry: 0.05 + currentAction.pointY * 0.9 },
+          settings.areaCourtViewMode || 'auto',
+        )
+        : null;
+      return (
+        <button
+          type="button"
+          aria-label={settings.uiLanguage === 'th' ? 'เลือกตำแหน่งแบบจุดบนสนาม' : 'Select an exact point on the court'}
+          onPointerUp={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            const localX = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+            const localY = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+            const viewPoint = { rx: 0.05 + localX * 0.9, ry: 0.05 + localY * 0.9 };
+            const payload = resolveAreaSelectionFromPoint({
+              sportType: sport,
+              areas,
+              point: mapAreaViewPointToFullCourt(
+                sport,
+                viewPoint,
+                settings.areaCourtViewMode || 'auto',
+              ),
+              flipCourtSide: settings.flipCourtSide,
+              enableOutOfBoundsZones: false,
+              areaPrecisionMode: 'point',
+              uiLanguage: settings.uiLanguage,
+            });
+            if (payload) selectArea({ ...payload, courtViewMode: settings.areaCourtViewMode || 'auto' });
+          }}
+          className={`relative h-full min-h-[360px] w-full overflow-hidden rounded-xl border-2 ${sportSurface} cursor-crosshair focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2`}
+        >
+          <span className="absolute inset-0 grid grid-cols-6 grid-rows-8 opacity-35" aria-hidden="true">
+            {Array.from({ length: 48 }, (_, index) => <span key={index} className="border border-current/20" />)}
+          </span>
+          <span className="absolute inset-x-0 top-1/2 h-px bg-current/45" aria-hidden="true" />
+          {selectedViewPoint && (
+            <span
+              className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-sky-500 shadow-lg"
+              style={{
+                left: `${((selectedViewPoint.rx - 0.05) / 0.9) * 100}%`,
+                top: `${((selectedViewPoint.ry - 0.05) / 0.9) * 100}%`,
+              }}
+              aria-hidden="true"
+            />
+          )}
+          <span className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md bg-slate-950/80 px-3 py-2 text-sm font-semibold text-white">
+            {settings.uiLanguage === 'th' ? 'แตะตำแหน่งที่เหตุการณ์เกิดขึ้น' : 'Tap where the event happened'}
+          </span>
+        </button>
+      );
+    }
+
+    return (
+      <div
+        className={`grid h-full min-h-[360px] w-full gap-1 rounded-xl border-2 p-2 ${sportSurface}`}
+        style={{
+          gridTemplateColumns: `repeat(${preview.cols}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${preview.rows}, minmax(0, 1fr))`,
+        }}
+      >
+        {preview.cells.map(({ row, col, payload }) => {
+          if (!payload?.areaCode) return <span key={`${row}-${col}`} />;
+          const display = getAreaDisplay(payload.areaCode, settings.uiLanguage === 'th', payload.areaLabel || payload.areaCode);
+          const selected = currentAction.areaCode === payload.areaCode
+            && currentAction.courtSide === payload.courtSide
+            && (payload.gridX === undefined || currentAction.gridX === payload.gridX)
+            && (payload.gridY === undefined || currentAction.gridY === payload.gridY);
+          return (
+            <button
+              type="button"
+              key={`${row}-${col}-${payload.areaCode}-${payload.courtSide}`}
+              onClick={() => selectArea({ ...payload, courtViewMode: settings.areaCourtViewMode || 'auto' })}
+              data-scout-selectable="true"
+              data-scout-group="area"
+              data-scout-value={payload.areaCode}
+              data-court-side={payload.courtSide || 'neutral'}
+              title={`${display.main}${display.sub ? ` - ${display.sub}` : ''}`}
+              className={`flex min-h-11 min-w-0 flex-col items-center justify-center overflow-hidden rounded-md border px-1 py-1 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${
+                selected
+                  ? 'border-sky-700 bg-sky-600 text-white shadow-md'
+                  : 'border-white/60 bg-white/80 text-slate-800 hover:border-sky-400 hover:bg-sky-50 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-100 dark:hover:bg-sky-950/50'
+              }`}
+            >
+              <span className="max-w-full truncate font-mono text-sm font-extrabold">{display.main}</span>
+              {display.sub && <span className="max-w-full truncate text-xs opacity-75">{display.sub}</span>}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
   if (matchInfo.sportType === 'volleyball') {
     const teamA = teams[0]?.code || 'Team A';
     const teamB = teams[1]?.code || 'Team B';
@@ -127,6 +236,22 @@ export default function CourtAreaSelector() {
     const rightTeam = settings.flipCourtSide ? teamA : teamB;
     const leftCourtSide = primaryCourtSide;
     const rightCourtSide = opponentCourtSide;
+
+    if (settings.areaCourtViewMode === 'half') {
+      return (
+        <CourtLayoutShell
+          sport="volleyball"
+          titleEn="Focused Half Court"
+          titleTh="ครึ่งสนามที่กำลังวิเคราะห์"
+          flipLabelEn="Swap Sides"
+          flipLabelTh="สลับฝั่ง"
+          flipIcon="ArrowLeftRight"
+          maxWidthClass="max-w-3xl"
+        >
+          <GeometrySelectionGrid sport="volleyball" />
+        </CourtLayoutShell>
+      );
+    }
 
     return (
       <CourtLayoutShell
@@ -227,192 +352,54 @@ export default function CourtAreaSelector() {
 
   // Football Pitch
   if (matchInfo.sportType === 'football') {
+    const isHalfCourt = settings.areaCourtViewMode === 'half';
     return (
       <CourtLayoutShell
         sport="football"
-        titleEn="Full Pitch Area"
-        titleTh="พื้นที่สนาม (Full Pitch)"
+        titleEn={isHalfCourt ? 'Focused Half Pitch' : 'Full Pitch Area'}
+        titleTh={isHalfCourt ? 'ครึ่งสนามที่กำลังวิเคราะห์' : 'พื้นที่สนาม (Full Pitch)'}
         flipLabelEn="Swap Sides"
         flipLabelTh="สลับฝั่ง"
         flipIcon="ArrowUpDown"
         maxWidthClass="max-w-xl"
       >
-        <div className={`flex-1 rounded-xl border-2 border-green-300 dark:border-green-700/50 bg-green-50 dark:bg-green-900/10 p-3 relative overflow-hidden flex flex-col gap-1 transition-transform duration-300 ${settings.flipCourtSide ? 'rotate-180' : ''}`}>
-          
-          {/* Team B Side (Top Half) */}
-          <div className="relative z-10 grid grid-cols-3 gap-1 opacity-80 mb-1">
-            <AreaButton code="DEF_R" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="DEF_C" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="DEF_L" courtSide={opponentCourtSide} flipContent />
-            
-            <AreaButton code="MID_R" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="MID_C" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="MID_L" courtSide={opponentCourtSide} flipContent />
-
-            <AreaButton code="ATT_R" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="ATT_C" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="ATT_L" courtSide={opponentCourtSide} flipContent />
-          </div>
-
-          <div className="h-1 bg-green-400 dark:bg-green-600/50 my-1 flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full border-2 border-green-400 dark:border-green-600/50 bg-transparent" />
-          </div>
-
-          {/* Team A Side (Bottom Half) */}
-          <div className="relative z-10 grid grid-cols-3 gap-1 mt-1">
-            <AreaButton code="ATT_L" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="ATT_C" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="ATT_R" courtSide={primaryCourtSide} flipContent />
-
-            <AreaButton code="MID_L" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="MID_C" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="MID_R" courtSide={primaryCourtSide} flipContent />
-
-            <AreaButton code="DEF_L" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="DEF_C" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="DEF_R" courtSide={primaryCourtSide} flipContent />
-          </div>
-        </div>
+        <GeometrySelectionGrid sport="football" />
       </CourtLayoutShell>
     );
   }
 
   // Badminton Court
   if (matchInfo.sportType === 'badminton') {
+    const isHalfCourt = settings.areaCourtViewMode === 'half';
     return (
       <CourtLayoutShell
         sport="badminton"
-        titleEn="Area"
-        titleTh="พื้นที่ (Area)"
+        titleEn={isHalfCourt ? 'Focused Half Court' : 'Court Area'}
+        titleTh={isHalfCourt ? 'ครึ่งสนามที่กำลังวิเคราะห์' : 'พื้นที่สนามแบดมินตัน'}
         flipLabelEn="Swap Sides"
         flipLabelTh="สลับฝั่ง"
         flipIcon="ArrowUpDown"
         maxWidthClass="max-w-xl"
       >
-        <div className={`flex-1 rounded-xl border-2 border-sky-300 dark:border-sky-700/50 bg-sky-50 dark:bg-sky-950/10 p-3 relative overflow-hidden flex flex-col gap-1 transition-transform duration-300 ${settings.flipCourtSide ? 'rotate-180' : ''}`}>
-          {/* Opponent Side */}
-          <div className="relative z-10 grid grid-cols-3 gap-1 opacity-80 mb-1">
-            <AreaButton code="BR" className="aspect-square" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="BC" className="aspect-square" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="BL" className="aspect-square" courtSide={opponentCourtSide} flipContent />
-            
-            <AreaButton code="MR" className="aspect-square" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="MC" className="aspect-square" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="ML" className="aspect-square" courtSide={opponentCourtSide} flipContent />
-
-            <AreaButton code="FR" className="aspect-square" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="FC" className="aspect-square" courtSide={opponentCourtSide} flipContent />
-            <AreaButton code="FL" className="aspect-square" courtSide={opponentCourtSide} flipContent />
-          </div>
-
-          {/* NET */}
-          <div className="w-full h-4 mb-1 rounded-lg flex items-center justify-center font-bold text-xs bg-sky-200 dark:bg-sky-800/50 text-sky-900 dark:text-sky-200 border-b-2 border-white/50 dark:border-gray-800/50 z-10">
-            <div className={`${settings.flipCourtSide ? 'rotate-180 transition-transform' : 'transition-transform'}`}>NET</div>
-          </div>
-
-          {/* Our Side */}
-          <div className="relative z-10 grid grid-cols-3 gap-1 mt-1">
-            <AreaButton code="FL" className="aspect-square" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="FC" className="aspect-square" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="FR" className="aspect-square" courtSide={primaryCourtSide} flipContent />
-            
-            <AreaButton code="ML" className="aspect-square" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="MC" className="aspect-square" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="MR" className="aspect-square" courtSide={primaryCourtSide} flipContent />
-
-            <AreaButton code="BL" className="aspect-square" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="BC" className="aspect-square" courtSide={primaryCourtSide} flipContent />
-            <AreaButton code="BR" className="aspect-square" courtSide={primaryCourtSide} flipContent />
-          </div>
-        </div>
+        <GeometrySelectionGrid sport="badminton" />
       </CourtLayoutShell>
     );
   }
 
   // Basketball Half Court
   if (matchInfo.sportType === 'basketball') {
+    const isHalfCourt = settings.areaCourtViewMode === 'half';
     return (
       <CourtLayoutShell
         sport="basketball"
-        titleEn="Full Court Area"
-        titleTh="พื้นที่สนามเต็ม (Full Court Area)"
+        titleEn={isHalfCourt ? 'Focused Half Court' : 'Full Court Area'}
+        titleTh={isHalfCourt ? 'ครึ่งสนามที่กำลังวิเคราะห์' : 'พื้นที่สนามเต็ม'}
         flipLabelEn="Swap Sides"
         flipLabelTh="สลับฝั่ง"
         flipIcon="ArrowUpDown"
         maxWidthClass="max-w-xl"
       >
-        <div className={`flex-1 rounded-xl border-2 border-amber-300 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/10 p-3 relative overflow-hidden flex flex-col transition-transform duration-300 ${settings.flipCourtSide ? 'rotate-180' : ''}`}>
-          
-          {/* Team B Side (Top Half) */}
-          <div className="flex flex-col items-center w-full mb-1">
-            {/* Hoop / Paint */}
-            <div className="w-full flex justify-center mb-1">
-              <div className="w-1/3 flex flex-col gap-1 relative">
-                <div className="w-8 h-1 bg-amber-600 mx-auto rounded-full mb-0.5"></div>
-                <AreaButton code="PAINT" className="h-10 text-xs bg-amber-200 dark:bg-amber-800" courtSide={opponentCourtSide} flipContent />
-                
-                {/* Corners inside the hoop row for compact UI */}
-                <div className="absolute top-1 -left-[110%] w-[100%] h-full">
-                   <AreaButton code="LEFT_CORNER" className="h-full text-[10px]" courtSide={opponentCourtSide} flipContent />
-                </div>
-                <div className="absolute top-1 -right-[110%] w-[100%] h-full">
-                   <AreaButton code="RIGHT_CORNER" className="h-full text-[10px]" courtSide={opponentCourtSide} flipContent />
-                </div>
-              </div>
-            </div>
-
-            <div className="w-full relative z-10 grid grid-cols-3 gap-1 mb-1">
-              <AreaButton code="LEFT_WING" className="text-xs" courtSide={opponentCourtSide} flipContent />
-              <div className="flex flex-col gap-1">
-                <AreaButton code="MID_RANGE" className="text-[10px] h-8" courtSide={opponentCourtSide} flipContent />
-                <AreaButton code="TOP_KEY" className="text-xs h-8" courtSide={opponentCourtSide} flipContent />
-              </div>
-              <AreaButton code="RIGHT_WING" className="text-xs" courtSide={opponentCourtSide} flipContent />
-            </div>
-            
-            <div className="w-full">
-              <AreaButton code="THREE_PT" className="w-full py-1.5 text-xs" courtSide={opponentCourtSide} flipContent />
-            </div>
-          </div>
-
-          <div className="h-1 bg-amber-400 dark:bg-amber-600/50 my-1 flex items-center justify-center w-full">
-            <div className="w-6 h-6 rounded-full border-2 border-amber-400 dark:border-amber-600/50 bg-transparent" />
-          </div>
-
-          {/* Team A Side (Bottom Half) */}
-          <div className="flex flex-col items-center w-full mt-1">
-            <div className="w-full">
-              <AreaButton code="THREE_PT" className="w-full py-1.5 text-xs" courtSide={primaryCourtSide} flipContent />
-            </div>
-
-            <div className="w-full relative z-10 grid grid-cols-3 gap-1 mt-1">
-              <AreaButton code="LEFT_WING" className="text-xs" courtSide={primaryCourtSide} flipContent />
-              <div className="flex flex-col gap-1">
-                <AreaButton code="TOP_KEY" className="text-xs h-8" courtSide={primaryCourtSide} flipContent />
-                <AreaButton code="MID_RANGE" className="text-[10px] h-8" courtSide={primaryCourtSide} flipContent />
-              </div>
-              <AreaButton code="RIGHT_WING" className="text-xs" courtSide={primaryCourtSide} flipContent />
-            </div>
-
-            {/* Hoop / Paint */}
-            <div className="w-full flex justify-center mt-1">
-              <div className="w-1/3 flex flex-col gap-1 relative">
-                
-                {/* Corners inside the hoop row for compact UI */}
-                <div className="absolute bottom-1 -left-[110%] w-[100%] h-[calc(100%-4px)]">
-                   <AreaButton code="LEFT_CORNER" className="h-full text-[10px]" courtSide={primaryCourtSide} flipContent />
-                </div>
-                <div className="absolute bottom-1 -right-[110%] w-[100%] h-[calc(100%-4px)]">
-                   <AreaButton code="RIGHT_CORNER" className="h-full text-[10px]" courtSide={primaryCourtSide} flipContent />
-                </div>
-
-                <AreaButton code="PAINT" className="h-10 text-xs bg-amber-200 dark:bg-amber-800" courtSide={primaryCourtSide} flipContent />
-                <div className="w-8 h-1 bg-amber-600 mx-auto rounded-full mt-0.5"></div>
-              </div>
-            </div>
-          </div>
-
-        </div>
+        <GeometrySelectionGrid sport="basketball" />
       </CourtLayoutShell>
     );
   }

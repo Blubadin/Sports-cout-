@@ -22,6 +22,9 @@ const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const BookmarksPanel = React.lazy(() => import('./components/BookmarksPanel'));
 const SettingsModal = React.lazy(() => import('./components/SettingsModal'));
 
+type AnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks';
+const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks'];
+
 function Toast() {
   const { toastMessage } = useScoutContext();
   if (!toastMessage) return null;
@@ -198,7 +201,7 @@ function AppContent() {
   const [isKeyboardShortcutsOpen, setIsKeyboardShortcutsOpen] = useState(false);
   const [isMatchInfoOpen, setIsMatchInfoOpen] = useState(false);
   const { isInstallable, promptInstall } = usePWAInstall();
-  const [activeTab, setActiveTab] = useState<'input' | 'dashboard' | 'table' | 'bookmarks'>('input');
+  const [activeTab, setActiveTab] = useState<AnalysisTab>('input');
 
   useEffect(() => {
     document.documentElement.lang = settings.uiLanguage;
@@ -207,31 +210,41 @@ function AppContent() {
   useEffect(() => {
     if (!activeProjectId || isSettingsOpen || isKeyboardShortcutsOpen || isMatchInfoOpen) return;
 
-    const tabs: Array<'input' | 'dashboard' | 'table' | 'bookmarks'> = ['input', 'dashboard', 'table', 'bookmarks'];
     const handleTabKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.key !== 'Tab' || !event.ctrlKey || event.altKey || event.metaKey) return;
 
       const activeElement = document.activeElement as HTMLElement | null;
-      const isTyping =
-        activeElement?.tagName === 'INPUT' ||
-        activeElement?.tagName === 'TEXTAREA' ||
-        activeElement?.tagName === 'SELECT' ||
-        activeElement?.isContentEditable;
-
-      if (isTyping) return;
+      if (!activeElement?.closest('[role="tablist"]')) return;
 
       event.preventDefault();
       setActiveTab((current) => {
-        const currentIndex = tabs.indexOf(current);
+        const currentIndex = ANALYSIS_TABS.indexOf(current);
         const direction = event.shiftKey ? -1 : 1;
-        const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
-        return tabs[nextIndex];
+        const nextIndex = (currentIndex + direction + ANALYSIS_TABS.length) % ANALYSIS_TABS.length;
+        const nextTab = ANALYSIS_TABS[nextIndex];
+        requestAnimationFrame(() => document.getElementById(`analysis-tab-${nextTab}`)?.focus());
+        return nextTab;
       });
     };
 
     window.addEventListener('keydown', handleTabKey);
     return () => window.removeEventListener('keydown', handleTabKey);
   }, [activeProjectId, isSettingsOpen, isKeyboardShortcutsOpen, isMatchInfoOpen]);
+
+  const handleTablistKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+
+    const currentIndex = ANALYSIS_TABS.indexOf(activeTab);
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? ANALYSIS_TABS.length - 1
+        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + ANALYSIS_TABS.length) % ANALYSIS_TABS.length;
+    const nextTab = ANALYSIS_TABS[nextIndex];
+    setActiveTab(nextTab);
+    requestAnimationFrame(() => document.getElementById(`analysis-tab-${nextTab}`)?.focus());
+  };
 
   return (
     <div className="coach-shell min-h-screen text-gray-900 dark:text-gray-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden">
@@ -243,7 +256,7 @@ function AppContent() {
             <img src="/icons/SP_logo_black_white_transparent_512.png" alt="App Logo" className="w-full h-full object-contain drop-shadow-sm" />
           </div>
           <div className="hidden min-[400px]:block mr-2">
-            <h1 className="text-base sm:text-xl font-black tracking-wider bg-gradient-to-r from-sky-500 to-sky-600 dark:from-sky-400 dark:to-sky-500 bg-clip-text text-transparent leading-none uppercase">
+            <h1 className="coach-page-title font-black bg-gradient-to-r from-sky-500 to-sky-600 dark:from-sky-400 dark:to-sky-500 bg-clip-text text-transparent uppercase">
               {t('app.title', settings.uiLanguage)}
             </h1>
             <p className="text-xs text-gray-500 dark:text-gray-400 font-semibold tracking-wide uppercase mt-0.5">{matchInfo.sportType || 'Volleyball'} mode</p>
@@ -363,10 +376,12 @@ function AppContent() {
             {/* Top/Right Workspace: Tabs Interface */}
             <section className="lg:col-span-7 flex flex-col gap-4 lg:h-full lg:overflow-hidden">
               {/* Modern tabs navigation */}
-              <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'}>
+              <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'} onKeyDown={handleTablistKeyDown}>
                 <button
+                  id="analysis-tab-input"
                   role="tab"
                   aria-selected={activeTab === 'input'}
+                  aria-controls="analysis-panel-input"
                   onClick={() => setActiveTab('input')}
                   onPointerDown={() => setActiveTab('input')}
                   className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
@@ -379,8 +394,10 @@ function AppContent() {
                   <span>{settings.uiLanguage === 'th' ? 'แผงบันทึก (Scout)' : 'Scout Input'}</span>
                 </button>
                 <button
+                  id="analysis-tab-dashboard"
                   role="tab"
                   aria-selected={activeTab === 'dashboard'}
+                  aria-controls="analysis-panel-dashboard"
                   onClick={() => setActiveTab('dashboard')}
                   onPointerDown={() => setActiveTab('dashboard')}
                   className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
@@ -393,8 +410,10 @@ function AppContent() {
                   <span>{settings.uiLanguage === 'th' ? 'สถิติ / ชาร์ต' : 'Dashboard'}</span>
                 </button>
                 <button
+                  id="analysis-tab-table"
                   role="tab"
                   aria-selected={activeTab === 'table'}
+                  aria-controls="analysis-panel-table"
                   onClick={() => setActiveTab('table')}
                   onPointerDown={() => setActiveTab('table')}
                   className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
@@ -407,8 +426,10 @@ function AppContent() {
                   <span>{settings.uiLanguage === 'th' ? 'ตารางเหตุการณ์' : 'Events Table'}</span>
                 </button>
                 <button
+                  id="analysis-tab-bookmarks"
                   role="tab"
                   aria-selected={activeTab === 'bookmarks'}
+                  aria-controls="analysis-panel-bookmarks"
                   onClick={() => setActiveTab('bookmarks')}
                   onPointerDown={() => setActiveTab('bookmarks')}
                   className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
@@ -423,7 +444,12 @@ function AppContent() {
               </div>
 
               {/* Dynamic scrollable views wrapper */}
-              <div className="flex-1 overflow-y-auto pr-1 pb-4 custom-scrollbar">
+              <div
+                id={`analysis-panel-${activeTab}`}
+                role="tabpanel"
+                aria-labelledby={`analysis-tab-${activeTab}`}
+                className="flex-1 overflow-y-auto pr-1 pb-4 custom-scrollbar"
+              >
                 {activeTab === 'input' && (
                   <InputPanel />
                 )}

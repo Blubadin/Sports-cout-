@@ -16,6 +16,12 @@ describe('filtered event export', () => {
           skillCode: 'SPK',
           resultCode: 'Yes',
           areaCode: 'LN',
+          courtSide: 'teamA',
+          gridX: 2,
+          gridY: 1,
+          pointX: 0.25,
+          pointY: 0.75,
+          courtViewMode: 'full',
           foulCode: 'NET_TOUCH',
           playerNumber: '7',
           playerName: 'Mali',
@@ -40,6 +46,8 @@ describe('filtered event export', () => {
     expect(csv).toContain('NET_TOUCH');
     expect(csv).toContain('LN');
     expect(csv).toContain('true');
+    expect(csv).toContain('courtSide,gridX,gridY,pointX,pointY,courtViewMode');
+    expect(csv).toContain('"teamA","2","1","0.25","0.75","full"');
     expect(csv).toContain('"Coach said ""watch this"""');
   });
 

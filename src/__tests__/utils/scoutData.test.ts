@@ -19,6 +19,7 @@ import {
   SCOUT_EXPORT_APP_NAME,
 } from '../../utils/scoutData';
 import { SPORT_TEMPLATES } from '../../sports';
+import { SPORTSCOUT_APP_VERSION } from '../../appMetadata';
 import {
   createMockAction,
   createMockFoulAction,
@@ -303,9 +304,20 @@ describe('createEventsExport', () => {
     const envelope = createEventsExport(events);
     expect(envelope.schemaVersion).toBe(SCOUT_EXPORT_SCHEMA_VERSION);
     expect(envelope.app).toBe(SCOUT_EXPORT_APP_NAME);
+    expect(envelope.appVersion).toBe(SPORTSCOUT_APP_VERSION);
     expect(envelope.type).toBe('events');
     expect(envelope.exportedAt).toBeTruthy();
     expect(envelope.events).toHaveLength(3);
+  });
+});
+
+describe('createProjectsExport', () => {
+  it('includes the deployed app version without changing schema 1.1', async () => {
+    const { createProjectsExport } = await import('../../utils/scoutData');
+    const envelope = createProjectsExport([]);
+
+    expect(envelope.schemaVersion).toBe('1.1');
+    expect(envelope.appVersion).toBe(SPORTSCOUT_APP_VERSION);
   });
 });
 

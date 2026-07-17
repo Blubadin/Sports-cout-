@@ -1,8 +1,8 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useMemo, useState } from "react";
 import { Action, Area, SportType, Team, AreaSelectionPayload, OutZoneType } from "../../types";
 import { useScoutContext } from "../../context/ScoutContext";
 import { getAreaDisplay } from "../../utils/areaHelper";
-import { resolveAreaSelectionFromPoint } from "../../utils/areaGeometry";
+import { buildAreaPreviewGrid, mapAreaViewPointToFullCourt, resolveAreaSelectionFromPoint } from "../../utils/areaGeometry";
 import { OUT_ZONE_LABELS } from "../../sports";
 
 type ProAreaCommandPadProps = {
@@ -90,22 +90,30 @@ export default function ProAreaCommandPad({
       ry: Math.max(0, Math.min(1, 0.5 + dy / rangeY / 2)),
     };
 
-    const payload = resolveAreaSelectionFromPoint({
+    const canonicalPoint = mapAreaViewPointToFullCourt(
+      sportType,
+      nextPoint,
+      settings?.areaCourtViewMode || "auto",
+    );
+    const resolvedPayload = resolveAreaSelectionFromPoint({
       sportType,
       areas,
-      point: nextPoint,
+      point: canonicalPoint,
       flipCourtSide,
       enableOutOfBoundsZones,
       areaPrecisionMode: settings?.areaPrecisionMode,
       uiLanguage: settings?.uiLanguage,
       source: "absolute-pointer",
     });
+    const payload = resolvedPayload
+      ? { ...resolvedPayload, courtViewMode: settings?.areaCourtViewMode || "auto" }
+      : null;
 
     setLocalRx(nextPoint.rx);
     setLocalRy(nextPoint.ry);
     setHoveredPayload(payload);
     onHoverArea(payload);
-  }, [pointerX, pointerY, active, containerRect, sportType, areas, flipCourtSide, enableOutOfBoundsZones, settings?.areaPrecisionMode, settings?.uiLanguage, onHoverArea]);
+  }, [pointerX, pointerY, active, containerRect, sportType, areas, flipCourtSide, enableOutOfBoundsZones, settings?.areaPrecisionMode, settings?.areaCourtViewMode, settings?.uiLanguage, onHoverArea]);
 
   useEffect(() => {
     if (active) return;
@@ -167,12 +175,16 @@ export default function ProAreaCommandPad({
     );
   };
 
-  // Match CourtAreaSelector: top half = teamB (normal), teamA (flipped)
-  const attackCourtSide = flipCourtSide ? "teamA" : "teamB";
-
-  // Badminton: oppCourtSide = top (opponent), ourCourtSide = bottom (our team)
-  const oppCourtSide = flipCourtSide ? "teamA" : "teamB";
-  const ourCourtSide = flipCourtSide ? "teamB" : "teamA";
+  const previewGrid = useMemo(
+    () => buildAreaPreviewGrid(
+      sportType,
+      settings?.areaPrecisionMode || "normal",
+      flipCourtSide,
+      settings?.areaCourtViewMode || "auto",
+      settings?.uiLanguage,
+    ),
+    [flipCourtSide, settings?.areaCourtViewMode, settings?.areaPrecisionMode, settings?.uiLanguage, sportType],
+  );
 
   return (
     <div
@@ -188,15 +200,15 @@ export default function ProAreaCommandPad({
         <div className="w-1 h-1 bg-amber-300 rounded-full" />
       </div>
       {/* 1. OUT OF BOUNDS - TOP EDGE */}
-      <div className="absolute top-0 left-0 right-0 h-[14%] flex">
+      <div className="absolute top-0 left-0 right-0 h-[5%] flex">
         {enableOutOfBoundsZones ? (
           sportType === "volleyball" ? (
             <>
-              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="back_left" className={`flex-1 flex items-center justify-center border-b border-r border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "back_left") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "back_left") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
-                {getOutZoneLabel("back_left")}
+              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="opp_back_left" className={`flex-1 flex items-center justify-center border-b border-r border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "opp_back_left") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "opp_back_left") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
+                {getOutZoneLabel("opp_back_left")}
               </div>
-              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="back_right" className={`flex-1 flex items-center justify-center border-b border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "back_right") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "back_right") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
-                {getOutZoneLabel("back_right")}
+              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="opp_back_right" className={`flex-1 flex items-center justify-center border-b border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "opp_back_right") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "opp_back_right") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
+                {getOutZoneLabel("opp_back_right")}
               </div>
             </>
           ) : sportType === "football" ? (
@@ -213,11 +225,8 @@ export default function ProAreaCommandPad({
             </>
           ) : sportType === "badminton" ? (
             <>
-              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="back_left" className={`flex-1 flex items-center justify-center border-b border-r border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "back_left") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "back_left") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
-                {getOutZoneLabel("back_left")}
-              </div>
-              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="back_right" className={`flex-1 flex items-center justify-center border-b border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "back_right") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "back_right") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
-                {getOutZoneLabel("back_right")}
+              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="opp_back_out" className={`flex-1 flex items-center justify-center border-b border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "opp_back_out") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "opp_back_out") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
+                {getOutZoneLabel("opp_back_out")}
               </div>
             </>
           ) : (
@@ -238,9 +247,9 @@ export default function ProAreaCommandPad({
       </div>
 
       {/* 2. INNER COURT ROW (Contains LEFT EDGE | COURT CONTAINER | RIGHT EDGE) */}
-      <div className="flex-1 w-full flex my-[14%]">
+      <div className="flex-1 w-full flex my-[5%]">
         {/* LEFT EDGE */}
-        <div className="w-[15%] h-full flex flex-col">
+        <div className="w-[5%] h-full flex flex-col overflow-hidden">
           {enableOutOfBoundsZones ? (
             sportType === "volleyball" ? (
               <>
@@ -264,9 +273,14 @@ export default function ProAreaCommandPad({
                 </div>
               </>
             ) : sportType === "badminton" ? (
-              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="side_left" className={`flex-1 flex items-center justify-center border-r border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "side_left") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "side_left") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
-                {getOutZoneLabel("side_left")}
-              </div>
+              <>
+                <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="side_left_far" className={`flex-1 flex items-center justify-center border-r border-b border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "side_left_far") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "side_left_far") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
+                  {isThai ? "ไกล" : "Far"}
+                </div>
+                <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="side_left_near" className={`flex-1 flex items-center justify-center border-r border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "side_left_near") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "side_left_near") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
+                  {isThai ? "ใกล้" : "Near"}
+                </div>
+              </>
             ) : (
               <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="left_sideline" className={`flex-1 flex items-center justify-center border-r border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "left_sideline") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "left_sideline") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
                 {getOutZoneLabel("left_sideline")}
@@ -279,7 +293,7 @@ export default function ProAreaCommandPad({
 
         {/* CENTER ACTIVE COURT GRID */}
         <div className="flex-1 h-full p-2 relative bg-black/40 border border-white/10 rounded-xl overflow-hidden">
-          {sportType === "volleyball" && (
+          {sportType === "volleyball" && settings?.areaCourtViewMode !== "half" && (
             <div className="w-full h-full flex gap-1.5 items-stretch relative">
               {/* Left Side */}
               <div className="flex-1 grid grid-cols-2 grid-rows-3 gap-1.5">
@@ -310,85 +324,34 @@ export default function ProAreaCommandPad({
             </div>
           )}
 
-          {sportType === "football" && (
-            <div className="w-full h-full flex flex-col gap-1.5">
-              <div className="flex gap-1.5 h-[22%]">
-                {renderZoneBlock("GOAL", isThai ? "หน้าประตู" : "Goal Area", attackCourtSide, "flex-1")}
-                {renderZoneBlock("BOX", isThai ? "กรอบเขตโทษ" : "Penalty Box", attackCourtSide, "flex-1")}
-              </div>
-              <div className="flex-1 grid grid-cols-3 grid-rows-3 gap-1.5">
-                {renderZoneBlock("ATT_L", isThai ? "ซ้ายหน้า" : "Attack Left", attackCourtSide)}
-                {renderZoneBlock("ATT_C", isThai ? "หน้ากลาง" : "Attack Center", attackCourtSide)}
-                {renderZoneBlock("ATT_R", isThai ? "ขวาหน้า" : "Attack Right", attackCourtSide)}
-                {renderZoneBlock("MID_L", isThai ? "ซ้ายกลาง" : "Mid Left", attackCourtSide)}
-                {renderZoneBlock("MID_C", isThai ? "แดนกลาง" : "Mid Center", attackCourtSide)}
-                {renderZoneBlock("MID_R", isThai ? "ขวากลาง" : "Mid Right", attackCourtSide)}
-                {renderZoneBlock("DEF_L", isThai ? "ซ้ายหลัง" : "Defense Left", attackCourtSide)}
-                {renderZoneBlock("DEF_C", isThai ? "หลังกลาง" : "Defense Center", attackCourtSide)}
-                {renderZoneBlock("DEF_R", isThai ? "ขวาหลัง" : "Defense Right", attackCourtSide)}
-              </div>
-            </div>
-          )}
-
-          {sportType === "badminton" && (
-            <div className="w-full h-full flex flex-col gap-1 relative">
-              {/* Opponent Side */}
-              <div className="flex-1 grid grid-cols-3 gap-1 opacity-90">
-                {renderZoneBlock("BR", isThai ? "หลังขวา" : "Opp BR", oppCourtSide)}
-                {renderZoneBlock("BC", isThai ? "หลังกลาง" : "Opp BC", oppCourtSide)}
-                {renderZoneBlock("BL", isThai ? "หลังซ้าย" : "Opp BL", oppCourtSide)}
-                {renderZoneBlock("MR", isThai ? "กลางขวา" : "Opp MR", oppCourtSide)}
-                {renderZoneBlock("MC", isThai ? "กลาง" : "Opp MC", oppCourtSide)}
-                {renderZoneBlock("ML", isThai ? "กลางซ้าย" : "Opp ML", oppCourtSide)}
-                {renderZoneBlock("FR", isThai ? "หน้าขวา" : "Opp FR", oppCourtSide)}
-                {renderZoneBlock("FC", isThai ? "หน้ากลาง" : "Opp FC", oppCourtSide)}
-                {renderZoneBlock("FL", isThai ? "หน้าซ้าย" : "Opp FL", oppCourtSide)}
-              </div>
-
-              {/* Net divider line */}
-              <div 
-                data-scout-hover-area="NET_ERR"
-                className={`h-4 flex items-center justify-center rounded-lg border transition-all ${isCodeSelected("NET_ERR") ? "bg-amber-500 border-amber-400 text-white shadow-[0_0_10px_rgba(245,158,11,0.5)]" : isCodeHovered("NET_ERR") ? "bg-amber-500/20 border-amber-500 text-amber-300" : "bg-sky-950/30 border-sky-500/20 text-sky-300/40"} text-xs font-black uppercase tracking-widest`}>
-                NET
-              </div>
-
-              {/* Our Side */}
-              <div className="flex-1 grid grid-cols-3 gap-1">
-                {renderZoneBlock("FL", isThai ? "หน้าซ้าย" : "Our FL", ourCourtSide)}
-                {renderZoneBlock("FC", isThai ? "หน้ากลาง" : "Our FC", ourCourtSide)}
-                {renderZoneBlock("FR", isThai ? "หน้าขวา" : "Our FR", ourCourtSide)}
-                {renderZoneBlock("ML", isThai ? "กลางซ้าย" : "Our ML", ourCourtSide)}
-                {renderZoneBlock("MC", isThai ? "กลาง" : "Our MC", ourCourtSide)}
-                {renderZoneBlock("MR", isThai ? "กลางขวา" : "Our MR", ourCourtSide)}
-                {renderZoneBlock("BL", isThai ? "หลังซ้าย" : "Our BL", ourCourtSide)}
-                {renderZoneBlock("BC", isThai ? "หลังกลาง" : "Our BC", ourCourtSide)}
-                {renderZoneBlock("BR", isThai ? "หลังขวา" : "Our BR", ourCourtSide)}
-              </div>
-            </div>
-          )}
-
-          {sportType === "basketball" && (
-            <div className="w-full h-full flex flex-col gap-1.5">
-              <div className="flex gap-1.5 h-[24%]">
-                {renderZoneBlock("PAINT", isThai ? "กรอบเขตโทษ" : "The Paint", attackCourtSide, "flex-1")}
-              </div>
-              <div className="flex-1 grid grid-cols-3 grid-rows-2 gap-1.5">
-                {renderZoneBlock("LEFT_WING", isThai ? "ปีกซ้าย" : "Left Wing", attackCourtSide)}
-                {renderZoneBlock("TOP_KEY", isThai ? "หัวกะโหลก" : "Top of Key", attackCourtSide)}
-                {renderZoneBlock("RIGHT_WING", isThai ? "ปีกขวา" : "Right Wing", attackCourtSide)}
-                {renderZoneBlock("LEFT_CORNER", isThai ? "มุมซ้าย" : "Left Corner", attackCourtSide)}
-                {renderZoneBlock("MID_RANGE", isThai ? "ระยะกลาง" : "Mid Range", attackCourtSide)}
-                {renderZoneBlock("RIGHT_CORNER", isThai ? "มุมขวา" : "Right Corner", attackCourtSide)}
-              </div>
-              <div className="h-[18%] flex">
-                {renderZoneBlock("THREE_PT", isThai ? "นอกเส้น 3 คะแนน" : "3-Point Line", attackCourtSide, "w-full")}
-              </div>
+          {(sportType !== "volleyball" || settings?.areaCourtViewMode === "half") && (
+            <div
+              className="grid h-full w-full gap-1"
+              style={{
+                gridTemplateColumns: `repeat(${previewGrid.cols}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${previewGrid.rows}, minmax(0, 1fr))`,
+              }}
+            >
+              {previewGrid.cells.map(({ row, col, payload }) => {
+                if (!payload?.areaCode) return <div key={`${row}-${col}`} />;
+                const display = getAreaDisplay(payload.areaCode, isThai, payload.areaLabel || payload.areaCode);
+                return (
+                  <React.Fragment key={`${row}-${col}-${payload.areaCode}-${payload.courtSide}`}>
+                    {renderZoneBlock(
+                      payload.areaCode,
+                      display.sub || display.main,
+                      payload.courtSide,
+                      "min-h-0 p-1 rounded-md",
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </div>
           )}
         </div>
 
         {/* RIGHT EDGE */}
-        <div className="w-[15%] h-full flex flex-col">
+        <div className="w-[5%] h-full flex flex-col overflow-hidden">
           {enableOutOfBoundsZones ? (
             sportType === "volleyball" ? (
               <>
@@ -412,9 +375,14 @@ export default function ProAreaCommandPad({
                 </div>
               </>
             ) : sportType === "badminton" ? (
-              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="side_right" className={`flex-1 flex items-center justify-center border-l border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "side_right") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "side_right") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
-                {getOutZoneLabel("side_right")}
-              </div>
+              <>
+                <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="side_right_far" className={`flex-1 flex items-center justify-center border-l border-b border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "side_right_far") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "side_right_far") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
+                  {isThai ? "ไกล" : "Far"}
+                </div>
+                <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="side_right_near" className={`flex-1 flex items-center justify-center border-l border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "side_right_near") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "side_right_near") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
+                  {isThai ? "ใกล้" : "Near"}
+                </div>
+              </>
             ) : (
               <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="right_sideline" className={`flex-1 flex items-center justify-center border-l border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "right_sideline") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "right_sideline") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
                 {getOutZoneLabel("right_sideline")}
@@ -427,15 +395,12 @@ export default function ProAreaCommandPad({
       </div>
 
       {/* 3. OUT OF BOUNDS - BOTTOM EDGE */}
-      <div className="absolute bottom-0 left-0 right-0 h-[14%] flex">
+      <div className="absolute bottom-0 left-0 right-0 h-[5%] flex">
         {enableOutOfBoundsZones ? (
           sportType === "volleyball" ? (
             <>
-              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="back_left" className={`flex-1 flex items-center justify-center border-t border-r border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "back_left") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "back_left") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
-                {getOutZoneLabel("back_left")}
-              </div>
-              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="back_right" className={`flex-1 flex items-center justify-center border-t border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "back_right") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "back_right") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
-                {getOutZoneLabel("back_right")}
+              <div data-scout-hover-area="OUT" data-scout-hover-court-side="neutral" data-scout-hover-out-zone="own_back_out" className={`flex-1 flex items-center justify-center border-t border-dashed border-white/5 text-[9px] uppercase font-bold transition-all ${isCodeHovered("OUT", "neutral", "own_back_out") ? "bg-red-500/20 text-red-400" : isCodeSelected("OUT", "neutral", "own_back_out") ? "bg-red-500 text-white font-extrabold" : "text-white/20"}`}>
+                {getOutZoneLabel("own_back_out")}
               </div>
             </>
           ) : sportType === "football" ? (

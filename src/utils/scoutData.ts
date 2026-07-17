@@ -8,7 +8,11 @@ import type {
   Team,
 } from "../types";
 import { DETAILED_ZONE_LABELS, OUT_ZONE_LABELS, SPORT_TEMPLATES } from "../sports";
-import { SPORTSCOUT_APP_NAME, SPORTSCOUT_EXPORT_SCHEMA_VERSION } from "../appMetadata";
+import {
+  SPORTSCOUT_APP_NAME,
+  SPORTSCOUT_APP_VERSION,
+  SPORTSCOUT_EXPORT_SCHEMA_VERSION,
+} from "../appMetadata";
 import { sanitizeUserText } from "./security";
 import {
   buildAnalyticsSummary as buildUnifiedAnalyticsSummary,
@@ -25,6 +29,7 @@ export type ScoutExportEnvelopeType = "events" | "projects";
 export type ScoutExportEnvelope<T extends ScoutExportEnvelopeType> = {
   schemaVersion: string;
   app: string;
+  appVersion?: string;
   type: T;
   exportedAt: string;
   events?: EventRow[];
@@ -273,6 +278,7 @@ export function createEventsExport(events: EventRow[]): ScoutExportEnvelope<"eve
   return {
     schemaVersion: SCOUT_EXPORT_SCHEMA_VERSION,
     app: SCOUT_EXPORT_APP_NAME,
+    appVersion: SPORTSCOUT_APP_VERSION,
     exportedAt: new Date().toISOString(),
     type: "events",
     events: sanitizedEvents,
@@ -284,6 +290,7 @@ export function createProjectsExport(projects: ScoutProject[]): ScoutExportEnvel
   return {
     schemaVersion: SCOUT_EXPORT_SCHEMA_VERSION,
     app: SCOUT_EXPORT_APP_NAME,
+    appVersion: SPORTSCOUT_APP_VERSION,
     exportedAt: new Date().toISOString(),
     type: "projects",
     projects: projects.map((project) => ({

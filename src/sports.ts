@@ -248,9 +248,9 @@ export const SPORT_TEMPLATES: Record<string, SportTemplate> = {
       },
       detailed: {
         type: 'grid',
-        resolution: '2x3',
+        resolution: '3x3-per-side',
         rows: 3,
-        cols: 2,
+        cols: 3,
       },
       point: {
         type: 'point',
@@ -325,19 +325,22 @@ export const SPORT_TEMPLATES: Record<string, SportTemplate> = {
     playersEnabled: true,
     areaLayouts: {
       normal: {
-        type: 'grid',
-        resolution: '1x3',
-        rows: 3,
-        cols: 1,
+        type: 'zones',
+        resolution: 'shot-8',
         zones: [
           { id: 'paint', code: 'PAINT', label: 'Paint', gridX: 0, gridY: 0 },
-          { id: 'mid', code: 'MID_RANGE', label: 'Mid-Range', gridX: 0, gridY: 1 },
-          { id: 'three', code: 'THREE_PT', label: '3-Point', gridX: 0, gridY: 2 },
+          { id: 'left_wing', code: 'LEFT_WING', label: 'Left Wing' },
+          { id: 'right_wing', code: 'RIGHT_WING', label: 'Right Wing' },
+          { id: 'top_key', code: 'TOP_KEY', label: 'Top Key' },
+          { id: 'left_corner', code: 'LEFT_CORNER', label: 'Left Corner' },
+          { id: 'right_corner', code: 'RIGHT_CORNER', label: 'Right Corner' },
+          { id: 'mid', code: 'MID_RANGE', label: 'Mid-Range' },
+          { id: 'three', code: 'THREE_PT', label: '3-Point' },
         ]
       },
       detailed: {
         type: 'grid',
-        resolution: 'shot-14',
+        resolution: 'shot-12',
         rows: 4,
         cols: 3,
         // Using a 4x3 approximate grid for the 14 shot zones logic, but could just use the area codes.

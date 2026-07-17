@@ -48,6 +48,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
   const [courtConfig, setCourtConfig] = useState('standard');
   const [gameFormat, setGameFormat] = useState('standard');
   const [areaPrecision, setAreaPrecision] = useState<'normal' | 'detailed' | 'point'>('normal');
+  const [courtViewMode, setCourtViewMode] = useState<'auto' | 'full' | 'half'>('auto');
   const [outOfBounds, setOutOfBounds] = useState<'on' | 'off'>('off');
 
   // Teams tab states
@@ -134,6 +135,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
     // Construct settings snapshot
     const settingsSnapshot: Partial<AppSettings> = {
       areaPrecisionMode: areaPrecision,
+      areaCourtViewMode: courtViewMode,
       enableOutOfBoundsZones: outOfBounds === 'on',
       enableScoutHUDMode: false,
       hudDefaultMode: 'classic',
@@ -181,6 +183,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
     setCourtConfig('standard');
     setGameFormat('standard');
     setAreaPrecision('normal');
+    setCourtViewMode('auto');
     setOutOfBounds('off');
     setVideoSource('none');
     setYoutubeUrlInput('');
@@ -413,7 +416,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
                         <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-gray-700 pb-2 mb-4">
                           {isThai ? 'ความแม่นยำพิกัดและการระบุพื้นที่' : 'Area Precision & Field Geometry'}
                         </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
                           <div>
                             <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
                               {isThai ? 'ความละเอียดจุดพิกัด (Area Precision)' : 'Area Precision'}
@@ -467,6 +470,35 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
                               {outOfBounds === 'on' 
                                 ? (isThai ? 'แยกแยะโซนเสียแต้มว่าลูกออกซ้าย/ขวา/หลัง คอร์ทฝั่งไหน' : 'Splits out-of-bounds error zones into precise directions')
                                 : (isThai ? 'รวบพิกัดออกข้างเป็นโซน Out แบบทั่วไป' : 'Rolls all out-of-bounds events into generic "Out" area')}
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
+                              {isThai ? 'มุมมองสนามเริ่มต้น' : 'Default Court View'}
+                            </label>
+                            <div className="grid grid-cols-3 gap-2 bg-gray-50 dark:bg-gray-900/40 p-1.5 rounded-2xl border border-gray-150 dark:border-gray-700">
+                              {(['auto', 'full', 'half'] as const).map(view => (
+                                <button
+                                  key={view}
+                                  type="button"
+                                  onClick={() => setCourtViewMode(view)}
+                                  className={`coach-control-target px-1 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                                    courtViewMode === view
+                                      ? 'bg-sky-600 text-white shadow-sm'
+                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-150 dark:hover:bg-gray-800'
+                                  }`}
+                                >
+                                  {view === 'auto' && (isThai ? 'อัตโนมัติ' : 'Auto')}
+                                  {view === 'full' && (isThai ? 'เต็มสนาม' : 'Full')}
+                                  {view === 'half' && (isThai ? 'ครึ่งสนาม' : 'Half')}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="coach-helper-text text-gray-400 dark:text-gray-500 mt-1.5">
+                              {isThai
+                                ? 'เลือกค่าเริ่มต้นของโปรเจกต์ และเปลี่ยนชั่วคราวได้เหนือแผนผังสนามระหว่างบันทึก'
+                                : 'Sets the project default. You can temporarily switch it above the court while tagging.'}
                             </p>
                           </div>
                         </div>

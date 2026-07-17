@@ -14,6 +14,7 @@ export type Team = {
 export type AreaRequirement = "always" | "optional" | "never" | "optionalWhenOut";
 
 export type AreaPrecisionMode = 'normal' | 'detailed' | 'point';
+export type AreaCourtViewMode = 'auto' | 'full' | 'half';
 
 export type OutZoneType =
   | 'side_left_near'
@@ -59,6 +60,7 @@ export type AreaSelectionPayload = {
   pointY?: number;
   outZone?: OutZoneType;
   areaResolution?: string;
+  courtViewMode?: AreaCourtViewMode;
 };
 
 export type AreaLayoutConfig = {
@@ -152,6 +154,7 @@ export type Action = {
   pointY?: number; // normalized 0-1
   outZone?: OutZoneType;
   areaResolution?: string; // e.g. '6-zone', '9-zone', '4x6', 'shot-14'
+  courtViewMode?: AreaCourtViewMode;
   resultCode?: string;
   resultDetailCode?: string;
   foulCode?: string;
@@ -234,6 +237,7 @@ export type AppSettings = {
   enableArrowAreaNavigation?: boolean;
   areaAutoSelectOnArrow?: boolean;
   showDetailedAreaInDashboard?: boolean;
+  areaCourtViewMode?: AreaCourtViewMode;
   
   // Screen Marking Mode
   enableScreenMarkingMode?: boolean;

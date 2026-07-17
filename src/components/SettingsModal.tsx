@@ -713,7 +713,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       <button onClick={handleClearData} className="flex items-center justify-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg font-bold hover:bg-red-100 transition-colors cursor-pointer border border-red-200 dark:border-red-900/50">
                         <Trash2 size={18} /> {t('settings.clearData', settings.uiLanguage)}
                       </button>
-                      <div className="pt-2 text-center text-[11px] font-mono text-gray-400">SPORTSCOUT {SPORTSCOUT_APP_VERSION} · schema 1.1</div>
+                      <div className="pt-2 text-center text-xs font-mono text-gray-400">SPORTSCOUT {SPORTSCOUT_APP_VERSION} · schema 1.1</div>
                     </div>
                   </section>
                 </div>

@@ -11,10 +11,15 @@ const CSV_HEADERS = [
   'Sequence Start', 'Sequence End', 'Sequence Duration', 'Preview Start', 'Preview End',
   'Note', 'Created At', 'foulCode', 'foulRole', 'foulSeverity', 'foulLabel',
   'areaCode', 'areaLabel', 'outZone', 'areaMode', 'areaResolution',
+  'courtSide', 'gridX', 'gridY', 'pointX', 'pointY', 'courtViewMode',
 ];
 
-const joinActionValues = (event: EventRow, getter: (action: EventRow['actions'][number]) => string | undefined): string =>
-  event.actions?.map(getter).filter(Boolean).join('; ') || '';
+const joinActionValues = (event: EventRow, getter: (action: EventRow['actions'][number]) => unknown): string =>
+  event.actions
+    ?.map(getter)
+    .map(value => value === undefined || value === null ? '' : String(value))
+    .filter(Boolean)
+    .join('; ') || '';
 
 const escapeCsvCell = (value: unknown): string => `"${neutralizeSpreadsheetFormula(value).replace(/"/g, '""')}"`;
 
@@ -57,6 +62,12 @@ export function createEventsCsv(events: EventRow[], uiLanguage: 'th' | 'en' = 'e
       joinActionValues(event, action => action.outZone),
       joinActionValues(event, action => action.areaMode),
       joinActionValues(event, action => action.areaResolution),
+      joinActionValues(event, action => action.courtSide),
+      joinActionValues(event, action => action.gridX),
+      joinActionValues(event, action => action.gridY),
+      joinActionValues(event, action => action.pointX),
+      joinActionValues(event, action => action.pointY),
+      joinActionValues(event, action => action.courtViewMode),
     ];
   });
 
