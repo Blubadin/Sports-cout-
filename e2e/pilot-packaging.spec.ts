@@ -15,6 +15,19 @@ test('opens all four pilot sports and keeps Controller V1 opt-in', async ({ page
     await page.getByRole('button', { name: projectName, exact: true }).click();
     await expect(page.getByRole('tab', { name: 'แผงบันทึก (Scout)' })).toBeVisible();
     await expect(page.getByTestId('workspace-menu-toggle')).toContainText(projectName);
+
+    const courtSurface = page.locator(`[data-sport-surface="${sport.toLowerCase()}"]`);
+    await expect(courtSurface).toBeVisible();
+    await expect(page.getByTestId('court-team-near')).toBeVisible();
+    await expect(page.getByTestId('court-team-far')).toBeVisible();
+    expect(await courtSurface.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const parentRect = element.parentElement?.getBoundingClientRect();
+      return Boolean(parentRect)
+        && rect.left >= parentRect.left - 1
+        && rect.right <= parentRect.right + 1;
+    })).toBe(true);
+
     if (sport !== sampleSports.at(-1)) await page.getByTestId('workspace-menu-toggle').click();
   }
 

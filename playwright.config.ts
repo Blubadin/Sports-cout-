@@ -12,6 +12,9 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev -- --port 4173',
     url: 'http://127.0.0.1:4173',
+    env: {
+      VITE_ENABLE_WORKSTATION: 'true',
+    },
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

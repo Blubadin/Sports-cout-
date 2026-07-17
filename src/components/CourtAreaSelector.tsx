@@ -128,11 +128,7 @@ export default function CourtAreaSelector() {
       settings.areaCourtViewMode || 'auto',
       settings.uiLanguage,
     );
-    const sportSurface = sport === 'football'
-      ? 'border-green-300 bg-green-50 dark:border-green-700/50 dark:bg-green-900/10'
-      : sport === 'badminton' || sport === 'volleyball'
-        ? 'border-sky-300 bg-sky-50 dark:border-sky-700/50 dark:bg-sky-950/10'
-        : 'border-amber-300 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/10';
+    const sportSurface = 'border-white/40 bg-transparent';
     if (precisionMode === 'point') {
       const selectedViewPoint = typeof currentAction.pointX === 'number' && typeof currentAction.pointY === 'number'
         ? mapFullCourtPointToAreaView(
@@ -165,7 +161,7 @@ export default function CourtAreaSelector() {
             });
             if (payload) selectArea({ ...payload, courtViewMode: settings.areaCourtViewMode || 'auto' });
           }}
-          className={`relative h-full min-h-[360px] w-full overflow-hidden rounded-xl border-2 ${sportSurface} cursor-crosshair focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2`}
+          className={`relative h-full min-h-[360px] w-full overflow-hidden border-2 ${sportSurface} cursor-crosshair focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2`}
         >
           <span className="absolute inset-0 grid grid-cols-6 grid-rows-8 opacity-35" aria-hidden="true">
             {Array.from({ length: 48 }, (_, index) => <span key={index} className="border border-current/20" />)}
@@ -190,7 +186,7 @@ export default function CourtAreaSelector() {
 
     return (
       <div
-        className={`grid h-full min-h-[360px] w-full gap-1 rounded-xl border-2 p-2 ${sportSurface}`}
+        className={`grid h-full min-h-[360px] w-full gap-1 border-2 p-2 ${sportSurface}`}
         style={{
           gridTemplateColumns: `repeat(${preview.cols}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${preview.rows}, minmax(0, 1fr))`,
@@ -216,7 +212,7 @@ export default function CourtAreaSelector() {
               className={`flex min-h-11 min-w-0 flex-col items-center justify-center overflow-hidden rounded-md border px-1 py-1 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${
                 selected
                   ? 'border-sky-700 bg-sky-600 text-white shadow-md'
-                  : 'border-white/60 bg-white/80 text-slate-800 hover:border-sky-400 hover:bg-sky-50 dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-100 dark:hover:bg-sky-950/50'
+                  : 'border-white/60 bg-white/80 text-slate-900 hover:border-sky-300 hover:bg-sky-50/90 dark:border-white/15 dark:bg-slate-950/70 dark:text-slate-100 dark:hover:bg-sky-950/75'
               }`}
             >
               <span className="max-w-full truncate font-mono text-sm font-extrabold">{display.main}</span>

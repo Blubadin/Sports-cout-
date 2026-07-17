@@ -2,6 +2,9 @@ import React from 'react';
 import { ArrowLeftRight, ArrowUpDown } from 'lucide-react';
 import { useScoutContext } from '../../context/ScoutContext';
 import AreaBoundaryFrame from './AreaBoundaryFrame';
+import CourtTeamLegend from './CourtTeamLegend';
+import SportCourtSurface from './SportCourtSurface';
+import { resolveCourtTeamPresentation } from '../../utils/courtPresentation';
 
 interface CourtLayoutShellProps {
   sport: 'volleyball' | 'football' | 'badminton' | 'basketball';
@@ -24,8 +27,14 @@ export default function CourtLayoutShell({
   flipLabelTh,
   maxWidthClass = 'max-w-xl'
 }: CourtLayoutShellProps) {
-  const { currentAction, settings, setSettings, selectArea } = useScoutContext();
+  const { currentAction, settings, setSettings, selectArea, teams } = useScoutContext();
   const selectedAreaCode = currentAction.areaCode;
+  const teamPresentation = resolveCourtTeamPresentation({
+    teams,
+    sportType: sport,
+    flipCourtSide: settings.flipCourtSide,
+    courtViewMode: settings.areaCourtViewMode || 'auto',
+  });
   
   const FlipIconComponent = flipIcon === 'ArrowUpDown' ? ArrowUpDown : ArrowLeftRight;
 
@@ -63,6 +72,7 @@ export default function CourtLayoutShell({
       </div>
       
       <div className={`flex flex-col items-center gap-1 mx-auto w-full ${maxWidthClass} overflow-visible`}>
+        <CourtTeamLegend presentation={teamPresentation} language={settings.uiLanguage} />
         {settings.enableOutOfBoundsZones ? (
           <AreaBoundaryFrame
             sport={sport}
@@ -80,11 +90,11 @@ export default function CourtLayoutShell({
               });
             }}
           >
-            {children}
+            <SportCourtSurface sport={sport}>{children}</SportCourtSurface>
           </AreaBoundaryFrame>
         ) : (
           <div className="flex flex-row w-full items-stretch gap-1">
-            {children}
+            <SportCourtSurface sport={sport}>{children}</SportCourtSurface>
           </div>
         )}
       </div>

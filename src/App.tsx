@@ -3,24 +3,35 @@ import React, { useState, useEffect } from 'react';
 import { ScoutProvider, useScoutContext } from './context/ScoutContext';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { t } from './i18n';
-import GeneralInfo from './components/GeneralInfo';
-import InputPanel from './components/InputPanel';
-import ScoutingTable from './components/ScoutingTable';
 import WorkspaceMenu from './components/WorkspaceMenu';
-import KeyboardShortcutsModal from './components/KeyboardShortcutsModal';
-import MatchInfoModal from './components/MatchInfoModal';
 import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star } from 'lucide-react';
 import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
-
-import VideoPlayer from './components/VideoPlayer';
 import { MAX_IMPORT_FILE_BYTES, validateImportFileSize } from './utils/importSafety';
 import { createPilotSampleProjects } from './utils/sampleProjects';
 import PWAUpdatePrompt from './components/PWAUpdatePrompt';
+import { FEATURE_FLAGS } from './featureFlags';
+import {
+  getAnalysisTabForPreset,
+  getPresetForAnalysisTab,
+  resolveWorkspaceExperience,
+  type WorkbenchPresetId,
+} from './workstation/workstationModel';
+import {
+  WorkstationCommandBar,
+  WorkstationStatusBar,
+  WorkstationToolRail,
+  WorkstationTopBar,
+} from './components/workstation/WorkstationChrome';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const BookmarksPanel = React.lazy(() => import('./components/BookmarksPanel'));
 const SettingsModal = React.lazy(() => import('./components/SettingsModal'));
+const VideoPlayer = React.lazy(() => import('./components/VideoPlayer'));
+const InputPanel = React.lazy(() => import('./components/InputPanel'));
+const ScoutingTable = React.lazy(() => import('./components/ScoutingTable'));
+const KeyboardShortcutsModal = React.lazy(() => import('./components/KeyboardShortcutsModal'));
+const MatchInfoModal = React.lazy(() => import('./components/MatchInfoModal'));
 
 type AnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks';
 const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks'];
@@ -195,13 +206,44 @@ function EmptyProjectState() {
 }
 
 function AppContent() {
-  const { matchInfo, settings, setSettings, teams } = useScoutContext();
-  const { activeProjectId } = useWorkspace();
+  const {
+    matchInfo,
+    settings,
+    setSettings,
+    teams,
+    events,
+    videoTime,
+    canUndoEventAction,
+    canRedoEventAction,
+    undoEventAction,
+    redoEventAction,
+  } = useScoutContext();
+  const { activeProjectId, projects, saveStatus } = useWorkspace();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isKeyboardShortcutsOpen, setIsKeyboardShortcutsOpen] = useState(false);
   const [isMatchInfoOpen, setIsMatchInfoOpen] = useState(false);
   const { isInstallable, promptInstall } = usePWAInstall();
   const [activeTab, setActiveTab] = useState<AnalysisTab>('input');
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const workspaceExperience = resolveWorkspaceExperience({
+    featureEnabled: FEATURE_FLAGS.workstation,
+    preferredExperience: settings.workspaceExperience,
+    viewportWidth,
+  });
+  const isWorkstation = workspaceExperience === 'workstation';
+  const activeProject = projects.find(project => project.id === activeProjectId);
+  const activePreset = getPresetForAnalysisTab(activeTab);
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleWorkstationPreset = (preset: WorkbenchPresetId) => {
+    setSettings(current => ({ ...current, workbenchPreset: preset }));
+    setActiveTab(getAnalysisTabForPreset(preset));
+  };
 
   useEffect(() => {
     document.documentElement.lang = settings.uiLanguage;
@@ -247,10 +289,33 @@ function AppContent() {
   };
 
   return (
-    <div className="coach-shell min-h-screen text-gray-900 dark:text-gray-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden">
+    <div className={`${isWorkstation ? 'workstation-shell' : 'coach-shell'} min-h-screen text-gray-900 dark:text-gray-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden`}>
       <PwaIndicator />
+      {isWorkstation && (
+        <>
+          <WorkstationTopBar
+            language={settings.uiLanguage}
+            activePreset={activePreset}
+            onPresetChange={handleWorkstationPreset}
+            teams={teams}
+            matchInfo={matchInfo}
+            saveStatus={saveStatus}
+            onEditMatch={() => setIsMatchInfoOpen(true)}
+          />
+          <WorkstationCommandBar
+            language={settings.uiLanguage}
+            canUndo={canUndoEventAction}
+            canRedo={canRedoEventAction}
+            onUndo={undoEventAction}
+            onRedo={redoEventAction}
+            onOpenKeyMoments={() => setActiveTab('bookmarks')}
+            onOpenShortcuts={() => setIsKeyboardShortcutsOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
+        </>
+      )}
       {/* Header */}
-      <header className="coach-header px-4 sm:px-6 py-3 flex justify-between items-center gap-2 sticky top-0 z-[100]">
+      <header className={`${isWorkstation ? 'hidden' : 'coach-header'} px-4 sm:px-6 py-3 flex justify-between items-center gap-2 sticky top-0 z-[100]`}>
         <div className="flex items-center gap-2 sm:gap-4 shrink-0">
           <div className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center shrink-0">
             <img src="/icons/SP_logo_black_white_transparent_512.png" alt="App Logo" className="w-full h-full object-contain drop-shadow-sm" />
@@ -362,19 +427,28 @@ function AppContent() {
       {!activeProjectId ? (
         <EmptyProjectState />
       ) : (
-        <main className="mx-auto w-full max-w-[1800px] p-2 sm:p-4 lg:p-6 flex flex-col lg:flex-row gap-4 lg:gap-6 lg:h-[calc(100vh-76px)] lg:overflow-hidden">
+        <main className={isWorkstation
+          ? 'workstation-content-grid mx-auto w-full max-w-[1920px] lg:h-[calc(100vh-124px)] lg:overflow-hidden'
+          : 'mx-auto w-full max-w-[1800px] p-2 sm:p-4 lg:p-6 flex flex-col lg:flex-row gap-4 lg:gap-6 lg:h-[calc(100vh-76px)] lg:overflow-hidden'}>
+          {isWorkstation && (
+            <WorkstationToolRail
+              language={settings.uiLanguage}
+              activePreset={activePreset}
+              onPresetChange={handleWorkstationPreset}
+            />
+          )}
           {/* Main scouting workspace */}
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 lg:h-full lg:overflow-hidden">
+          <div className={`flex-1 grid grid-cols-1 lg:grid-cols-12 lg:h-full lg:overflow-hidden ${isWorkstation ? 'gap-px bg-[#263642] p-px' : 'gap-4 lg:gap-6'}`}>
             
             {/* Top/Left Workspace: Video Player */}
-            <section className="coach-panel lg:col-span-5 flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar">
+            <section className={`coach-panel ${isWorkstation ? 'lg:col-span-7' : 'lg:col-span-5'} flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar`}>
               <React.Suspense fallback={<div className="w-full aspect-video bg-gray-800 animate-pulse rounded-lg flex items-center justify-center text-gray-400">Loading Player...</div>}>
                 <VideoPlayer />
               </React.Suspense>
             </section>
 
             {/* Top/Right Workspace: Tabs Interface */}
-            <section className="lg:col-span-7 flex flex-col gap-4 lg:h-full lg:overflow-hidden">
+            <section className={`${isWorkstation ? 'lg:col-span-5 bg-[#0c1721] p-2' : 'lg:col-span-7'} flex flex-col gap-4 lg:h-full lg:overflow-hidden`}>
               {/* Modern tabs navigation */}
               <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'} onKeyDown={handleTablistKeyDown}>
                 <button
@@ -451,7 +525,9 @@ function AppContent() {
                 className="flex-1 overflow-y-auto pr-1 pb-4 custom-scrollbar"
               >
                 {activeTab === 'input' && (
-                  <InputPanel />
+                  <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800" />}>
+                    <InputPanel />
+                  </React.Suspense>
                 )}
                 {activeTab === 'dashboard' && (
                   <React.Suspense fallback={<div className="h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-xl"></div>}>
@@ -460,7 +536,9 @@ function AppContent() {
                 )}
                 {activeTab === 'table' && (
                   <section className="coach-panel p-4">
-                    <ScoutingTable />
+                    <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800" />}>
+                      <ScoutingTable />
+                    </React.Suspense>
                   </section>
                 )}
                 {activeTab === 'bookmarks' && (
@@ -475,13 +553,31 @@ function AppContent() {
         </main>
       )}
 
+      {isWorkstation && activeProjectId && (
+        <WorkstationStatusBar
+          language={settings.uiLanguage}
+          projectTitle={activeProject?.title || 'Untitled'}
+          sport={matchInfo.sportType}
+          eventCount={events.length}
+          videoTime={videoTime}
+        />
+      )}
+
       {isSettingsOpen && (
         <React.Suspense fallback={<div className="fixed inset-0 z-[1000] bg-black/50" />}>
           <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
         </React.Suspense>
       )}
-      <KeyboardShortcutsModal isOpen={isKeyboardShortcutsOpen} onClose={() => setIsKeyboardShortcutsOpen(false)} />
-      <MatchInfoModal isOpen={isMatchInfoOpen} onClose={() => setIsMatchInfoOpen(false)} />
+      {isKeyboardShortcutsOpen && (
+        <React.Suspense fallback={null}>
+          <KeyboardShortcutsModal isOpen={isKeyboardShortcutsOpen} onClose={() => setIsKeyboardShortcutsOpen(false)} />
+        </React.Suspense>
+      )}
+      {isMatchInfoOpen && (
+        <React.Suspense fallback={null}>
+          <MatchInfoModal isOpen={isMatchInfoOpen} onClose={() => setIsMatchInfoOpen(false)} />
+        </React.Suspense>
+      )}
       <Toast />
       <PWAUpdatePrompt />
     </div>

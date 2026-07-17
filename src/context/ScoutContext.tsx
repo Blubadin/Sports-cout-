@@ -132,6 +132,8 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     screenMarkingKey: 'Alt',
     skillInputLayout: 'grid',
     uiLanguage: 'th',
+    workspaceExperience: 'classic',
+    workbenchPreset: 'scout',
     
     // HUD Mode settings defaults
     enableScoutHUDMode: true,

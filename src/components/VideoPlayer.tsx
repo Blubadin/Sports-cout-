@@ -817,6 +817,7 @@ export default function VideoPlayer() {
                       progressInterval={100}
                       onProgress={({ playedSeconds }) => {
                         if (isScrubbing) return;
+                        if (!Number.isFinite(playedSeconds) || playedSeconds < 0) return;
                         setCurrentTimeDisplay(playedSeconds);
                         setVideoTime(playedSeconds);
                         

@@ -4,6 +4,8 @@ import { useScoutContext } from "../../context/ScoutContext";
 import { getAreaDisplay } from "../../utils/areaHelper";
 import { buildAreaPreviewGrid, mapAreaViewPointToFullCourt, resolveAreaSelectionFromPoint } from "../../utils/areaGeometry";
 import { OUT_ZONE_LABELS } from "../../sports";
+import SportCourtSurface from "../area/SportCourtSurface";
+import { resolveCourtTeamPresentation } from "../../utils/courtPresentation";
 
 type ProAreaCommandPadProps = {
   sportType: SportType;
@@ -24,6 +26,7 @@ export default function ProAreaCommandPad({
   sportType,
   areas,
   currentAction,
+  teams,
   onSelectArea,
   active,
   pointerX,
@@ -132,6 +135,12 @@ export default function ProAreaCommandPad({
   };
 
   const isThai = settings?.uiLanguage === "th";
+  const teamPresentation = resolveCourtTeamPresentation({
+    teams,
+    sportType,
+    flipCourtSide,
+    courtViewMode: settings?.areaCourtViewMode || "auto",
+  });
 
   // Helper to determine if an area/zone in our pad is selected
   const isCodeSelected = (code: string, courtSide?: string, outZone?: string) => {
@@ -292,7 +301,28 @@ export default function ProAreaCommandPad({
         </div>
 
         {/* CENTER ACTIVE COURT GRID */}
-        <div className="flex-1 h-full p-2 relative bg-black/40 border border-white/10 rounded-xl overflow-hidden">
+        <div className="flex-1 h-full relative bg-black/40 border border-white/10 rounded-xl overflow-hidden">
+          <SportCourtSurface sport={sportType}>
+            <div className="relative h-full p-2">
+              {teamPresentation.orientation === "vertical" ? (
+                <>
+                  <div className="absolute left-1/2 top-1 z-30 -translate-x-1/2 border border-sky-400/40 bg-slate-950/80 px-2 py-0.5 font-mono text-xs font-black text-sky-200">
+                    {teamPresentation.farTeam.code}
+                  </div>
+                  <div className="absolute bottom-1 left-1/2 z-30 -translate-x-1/2 border border-emerald-400/40 bg-slate-950/80 px-2 py-0.5 font-mono text-xs font-black text-emerald-200">
+                    {teamPresentation.nearTeam.code}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="absolute left-1 top-1/2 z-30 -translate-y-1/2 border border-emerald-400/40 bg-slate-950/80 px-2 py-0.5 font-mono text-xs font-black text-emerald-200">
+                    {teamPresentation.nearTeam.code}
+                  </div>
+                  <div className="absolute right-1 top-1/2 z-30 -translate-y-1/2 border border-sky-400/40 bg-slate-950/80 px-2 py-0.5 font-mono text-xs font-black text-sky-200">
+                    {teamPresentation.farTeam.code}
+                  </div>
+                </>
+              )}
           {sportType === "volleyball" && settings?.areaCourtViewMode !== "half" && (
             <div className="w-full h-full flex gap-1.5 items-stretch relative">
               {/* Left Side */}
@@ -348,6 +378,8 @@ export default function ProAreaCommandPad({
               })}
             </div>
           )}
+            </div>
+          </SportCourtSurface>
         </div>
 
         {/* RIGHT EDGE */}

@@ -11,6 +11,7 @@ import { useWorkspace } from '../context/WorkspaceContext';
 import { createPilotDiagnosticReport } from '../utils/pilotDiagnostics';
 import { sanitizeFileName } from '../utils/security';
 import { SPORTSCOUT_APP_VERSION } from '../appMetadata';
+import { FEATURE_FLAGS } from '../featureFlags';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -156,6 +157,49 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                   {/* --- COLUMN 1 --- */}
                   <div className="flex flex-col gap-6">
+                    {FEATURE_FLAGS.workstation && (
+                      <section className="border border-sky-200 bg-sky-50/70 p-4 dark:border-sky-900/70 dark:bg-sky-950/20">
+                        <div className="mb-3 flex items-start justify-between gap-4">
+                          <div>
+                            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                              {settings.uiLanguage === 'th' ? 'รูปแบบพื้นที่ทำงาน' : 'Workspace experience'}
+                            </h3>
+                            <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
+                              {settings.uiLanguage === 'th'
+                                ? 'Classic ใช้หน้าตาเดิม ส่วน Workstation Beta จัดวิดีโอ คำสั่ง และข้อมูลให้เหมือนเครื่องมือวิเคราะห์เกมบนเดสก์ท็อป'
+                                : 'Classic keeps the current interface. Workstation Beta uses a denser desktop analysis layout with the same project data.'}
+                            </p>
+                          </div>
+                          <span className="shrink-0 border border-sky-300 px-2 py-1 text-xs font-bold text-sky-700 dark:border-sky-800 dark:text-sky-300">Beta</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2" role="group" aria-label={settings.uiLanguage === 'th' ? 'เลือกรูปแบบพื้นที่ทำงาน' : 'Choose workspace experience'}>
+                          <button
+                            type="button"
+                            aria-pressed={(settings.workspaceExperience || 'classic') === 'classic'}
+                            onClick={() => setSettings(current => ({ ...current, workspaceExperience: 'classic' }))}
+                            className={`min-h-11 border px-3 text-sm font-bold transition-colors ${(settings.workspaceExperience || 'classic') === 'classic'
+                              ? 'border-sky-600 bg-sky-600 text-white'
+                              : 'border-gray-300 bg-white text-gray-700 hover:border-sky-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200'}`}
+                          >
+                            Classic
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={settings.workspaceExperience === 'workstation'}
+                            onClick={() => setSettings(current => ({ ...current, workspaceExperience: 'workstation' }))}
+                            className={`min-h-11 border px-3 text-sm font-bold transition-colors ${settings.workspaceExperience === 'workstation'
+                              ? 'border-sky-600 bg-sky-600 text-white'
+                              : 'border-gray-300 bg-white text-gray-700 hover:border-sky-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200'}`}
+                          >
+                            Workstation Beta
+                          </button>
+                        </div>
+                        <p className="mt-2 text-xs text-gray-500">
+                          {settings.uiLanguage === 'th' ? 'ใช้บนหน้าจอกว้างตั้งแต่ 1024px ขึ้นไป และกลับเป็น Classic อัตโนมัติบนมือถือ' : 'Available at 1024px and wider. Phones automatically keep the Classic interface.'}
+                        </p>
+                      </section>
+                    )}
+
                     {/* Active Sport */}
                     <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
                       <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
