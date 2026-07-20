@@ -7,6 +7,7 @@ import {
   ProjectRepositoryConflictError,
   createProjectRepository,
 } from "../../utils/projectRepository";
+import { createProjectWriteCoordinator } from "../../utils/projectWriteCoordinator";
 import { createMockEvent, mockTeams } from "../fixtures";
 
 function createMockProject(overrides: Partial<ScoutProject> = {}): ScoutProject {
@@ -256,5 +257,34 @@ describe("projectRepository", () => {
       revision: 1,
       projects: [{ id: "recovered" }],
     });
+  });
+
+  it("allows exactly one repository to save a shared expected revision", async () => {
+    const { adapter, values } = createMemoryAdapter();
+    const executeExclusively = createProjectWriteCoordinator();
+    const firstRepository = createProjectRepository(
+      adapter,
+      executeExclusively,
+    );
+    const secondRepository = createProjectRepository(
+      adapter,
+      executeExclusively,
+    );
+
+    const [firstResult, secondResult] = await Promise.allSettled([
+      firstRepository.save([createMockProject({ id: "first" })], 0),
+      secondRepository.save([createMockProject({ id: "second" })], 0),
+    ]);
+
+    expect(firstResult.status).toBe("fulfilled");
+    expect(secondResult.status).toBe("rejected");
+    if (firstResult.status !== "fulfilled") {
+      throw new Error("Expected the first save to win the FIFO lock");
+    }
+    if (secondResult.status !== "rejected") {
+      throw new Error("Expected the second save to detect a conflict");
+    }
+    expect(secondResult.reason).toBeInstanceOf(ProjectRepositoryConflictError);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toEqual(firstResult.value);
   });
 });

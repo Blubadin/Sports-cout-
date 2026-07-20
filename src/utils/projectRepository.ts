@@ -1,4 +1,8 @@
 import type { ScoutProject } from "../types";
+import {
+  executeProjectWriteExclusively,
+  type ExclusiveOperationExecutor,
+} from "./projectWriteCoordinator";
 import type { StorageAdapter } from "./storageAdapter";
 
 export const PROJECTS_REPOSITORY_KEY = "scout-projects:v1.1";
@@ -66,22 +70,15 @@ const createEnvelope = (
   projects,
 });
 
-export function createProjectRepository(adapter: StorageAdapter) {
-  let operationQueue: Promise<void> = Promise.resolve();
-
-  const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
-    const result = operationQueue.then(operation);
-    operationQueue = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
-  };
-
+export function createProjectRepository(
+  adapter: StorageAdapter,
+  executeExclusively: ExclusiveOperationExecutor =
+    executeProjectWriteExclusively,
+) {
   const initializeWithRevision = (
     legacyProjects: ScoutProject[],
   ): Promise<ProjectRepositoryState> =>
-    enqueue(async () => {
+    executeExclusively(async () => {
       const stored = await adapter.getItem(PROJECTS_REPOSITORY_KEY);
       if (stored && typeof stored === "object" && !Array.isArray(stored)) {
         const envelope = stored as Partial<ProjectRepositoryEnvelope>;
@@ -121,7 +118,7 @@ export function createProjectRepository(adapter: StorageAdapter) {
       projects: ScoutProject[],
       expectedRevision?: number,
     ): Promise<SavedProjectRepositoryEnvelope> {
-      return enqueue(async () => {
+      return executeExclusively(async () => {
         const stored = await adapter.getItem(PROJECTS_REPOSITORY_KEY);
         const currentRevision = getRevision(stored);
 
