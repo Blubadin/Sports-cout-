@@ -23,6 +23,7 @@ import {
   WorkstationToolRail,
   WorkstationTopBar,
 } from './components/workstation/WorkstationChrome';
+import WorkstationInspector from './components/workstation/WorkstationInspector';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const BookmarksPanel = React.lazy(() => import('./components/BookmarksPanel'));
@@ -441,14 +442,14 @@ function AppContent() {
           <div className={`flex-1 grid grid-cols-1 lg:grid-cols-12 lg:h-full lg:overflow-hidden ${isWorkstation ? 'gap-px bg-[#263642] p-px' : 'gap-4 lg:gap-6'}`}>
             
             {/* Top/Left Workspace: Video Player */}
-            <section className={`coach-panel ${isWorkstation ? 'lg:col-span-7' : 'lg:col-span-5'} flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar`}>
+            <section className={`coach-panel ${isWorkstation ? 'lg:col-span-7 xl:col-span-6' : 'lg:col-span-5'} flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar`}>
               <React.Suspense fallback={<div className="w-full aspect-video bg-gray-800 animate-pulse rounded-lg flex items-center justify-center text-gray-400">Loading Player...</div>}>
                 <VideoPlayer />
               </React.Suspense>
             </section>
 
             {/* Top/Right Workspace: Tabs Interface */}
-            <section className={`${isWorkstation ? 'lg:col-span-5 bg-[#0c1721] p-2' : 'lg:col-span-7'} flex flex-col gap-4 lg:h-full lg:overflow-hidden`}>
+            <section className={`${isWorkstation ? 'lg:col-span-5 xl:col-span-4 bg-[#0c1721] p-2' : 'lg:col-span-7'} flex flex-col gap-4 lg:h-full lg:overflow-hidden`}>
               {/* Modern tabs navigation */}
               <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'} onKeyDown={handleTablistKeyDown}>
                 <button
@@ -548,6 +549,12 @@ function AppContent() {
                 )}
               </div>
             </section>
+
+            {isWorkstation && (
+              <div className="hidden min-w-0 xl:col-span-2 xl:block">
+                <WorkstationInspector />
+              </div>
+            )}
 
           </div>
         </main>

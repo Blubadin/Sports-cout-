@@ -332,6 +332,84 @@
 .workstation-shell .coach-tab { border-radius: 2px; }
 .workstation-shell .coach-tab-active { background: #0b3042; box-shadow: inset 0 -2px var(--ws-accent); }
 
+.workstation-inspector {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--ws-border);
+  background: #09141d;
+  color: var(--ws-text);
+}
+.workstation-inspector > header {
+  display: grid;
+  gap: 12px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--ws-border);
+}
+.workstation-inspector > header > div { min-width: 0; }
+.workstation-inspector > header span:first-child {
+  display: block;
+  color: var(--ws-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.workstation-inspector h2 { margin: 2px 0 0; font-size: 16px; line-height: 24px; font-weight: 750; }
+.workstation-inspector-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  color: #9fb0bc;
+  font-size: 12px;
+  font-weight: 700;
+}
+.workstation-inspector-state.is-valid { color: #62dfa0; }
+.workstation-inspector-state.is-invalid { color: #fbbf6b; }
+.workstation-inspector-fields { display: grid; }
+.workstation-inspector-fields > div {
+  display: grid;
+  grid-template-columns: minmax(58px, .7fr) minmax(0, 1.3fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 42px;
+  padding: 7px 12px;
+  border-bottom: 1px solid #1d2b36;
+}
+.workstation-inspector-fields span { color: var(--ws-muted); font-size: 12px; }
+.workstation-inspector-fields strong {
+  overflow: hidden;
+  color: #dbe8ef;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workstation-inspector-validation {
+  display: flex;
+  gap: 8px;
+  margin: 14px 12px;
+  padding: 10px;
+  border: 1px solid #5b4326;
+  background: #231b11;
+  color: #fbbf6b;
+}
+.workstation-inspector-validation.is-valid { border-color: #1f5a42; background: #0d251b; color: #62dfa0; }
+.workstation-inspector-validation div { min-width: 0; display: grid; gap: 2px; }
+.workstation-inspector-validation strong { font-size: 12px; }
+.workstation-inspector-validation span { color: #b8c6cf; font-size: 12px; line-height: 1.45; }
+.workstation-inspector > footer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--ws-border);
+  color: var(--ws-muted);
+  font-size: 12px;
+}
+.workstation-inspector > footer code { margin-left: auto; color: #dbe8ef; font-size: 12px; }
+
 .workstation-statusbar {
   min-height: 34px;
   display: flex;
