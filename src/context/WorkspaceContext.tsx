@@ -5,13 +5,22 @@ import { useScoutContext } from './ScoutContext';
 import { DEFAULT_TEAMS } from '../data';
 import { getValidSportType, sanitizeEvents } from '../utils/scoutData';
 import { indexedDbStorageAdapter } from '../utils/storageAdapter';
-import { createProjectRepository } from '../utils/projectRepository';
+import { createProjectRepository, ProjectRepositoryConflictError } from '../utils/projectRepository';
+import {
+  createProjectPersistenceSession,
+  type ProjectPersistenceSession,
+} from '../utils/projectPersistenceSession';
 import { getImportPayloadCounts, MAX_IMPORT_EVENTS, MAX_IMPORT_PROJECTS } from '../utils/importSafety';
 import { sanitizeIdentifier, sanitizeUserText } from '../utils/security';
 
 export type ProjectSaveStatus = 'loading' | 'pending' | 'saving' | 'saved' | 'failed';
 
 const projectRepository = createProjectRepository(indexedDbStorageAdapter);
+
+const PROJECT_CONFLICT_MESSAGE = {
+  th: 'แท็บอื่นมีข้อมูลที่ใหม่กว่า โปรดสำรองข้อมูลในแท็บนี้ แล้วโหลดหน้าใหม่เพื่อดำเนินการต่อ',
+  en: 'Another tab has newer data. Back up this tab, then reload to continue.',
+} as const;
 
 function readLegacyProjects(): ScoutProject[] {
   if (typeof window === 'undefined') return [];
@@ -59,6 +68,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const projectsRef = React.useRef(projects);
   const saveGenerationRef = React.useRef(0);
   const explicitlyPersistedProjectsRef = React.useRef<ScoutProject[] | null>(null);
+  const persistenceSessionRef = React.useRef<ProjectPersistenceSession | null>(null);
   
   const { 
     events, setEvents, clearEventHistory, 
@@ -72,6 +82,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     localFileName, setLocalFileName,
     showToast
   } = useScoutContext();
+
+  const conflictUiRef = React.useRef({ language: settings.uiLanguage, showToast });
+  conflictUiRef.current = { language: settings.uiLanguage, showToast };
 
   const loadProjectState = useCallback((proj: Partial<ScoutProject> & { matchInfo: MatchInfo, teams: Team[], events: EventRow[], id?: string }) => {
     isProjectLoading.current = true;
@@ -115,34 +128,37 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const persistProjects = useCallback(async (nextProjects: ScoutProject[]) => {
     const generation = ++saveGenerationRef.current;
+    const session = persistenceSessionRef.current;
     setSaveStatus('saving');
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        await projectRepository.save(nextProjects);
-        if (generation === saveGenerationRef.current) {
-          setSaveStatus('saved');
-          setLastSavedAt(new Date().toISOString());
-        }
-        return;
-      } catch (error) {
-        lastError = error;
-        if (attempt < 2) {
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 150 * (attempt + 1)));
-        }
+    try {
+      if (!session) throw new Error('Project persistence session is not ready');
+      await session.save(nextProjects);
+      if (generation === saveGenerationRef.current) {
+        setSaveStatus('saved');
+        setLastSavedAt(new Date().toISOString());
       }
+    } catch (error) {
+      console.error('Failed to save projects to IndexedDB:', error);
+      if (generation === saveGenerationRef.current) setSaveStatus('failed');
+      throw error;
     }
-    console.error('Failed to save projects to IndexedDB after retries:', lastError);
-    if (generation === saveGenerationRef.current) setSaveStatus('failed');
-    throw lastError;
   }, []);
 
   // IndexedDB becomes the source of truth. The original localStorage value is kept as a recovery backup.
   useEffect(() => {
     let cancelled = false;
+    const session = createProjectPersistenceSession({
+      repository: projectRepository,
+      onConflict: () => {
+        setSaveStatus('failed');
+        const { language, showToast: showConflictToast } = conflictUiRef.current;
+        showConflictToast(PROJECT_CONFLICT_MESSAGE[language === 'th' ? 'th' : 'en']);
+      },
+    });
+    persistenceSessionRef.current = session;
     const initializeRepository = async () => {
       try {
-        let initializedProjects = await projectRepository.initialize(projectsRef.current);
+        let { projects: initializedProjects } = await session.initializeWithRevision(projectsRef.current);
         initializedProjects = initializedProjects
           .filter(project => project && project.id && project.title)
           .map(project => ({
@@ -164,7 +180,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             updatedAt: new Date().toISOString(),
           };
           initializedProjects = [recoveredProject];
-          await projectRepository.save(initializedProjects);
+          await session.save(initializedProjects);
           if (!activeProjectId) setActiveProjectId(recoveredId);
         }
 
@@ -188,6 +204,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     void initializeRepository();
     return () => {
       cancelled = true;
+      if (persistenceSessionRef.current === session) {
+        persistenceSessionRef.current = null;
+      }
+      session.close();
     };
   }, []);
 
@@ -299,7 +319,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     try {
       await flushPendingSaves();
       showToast(settings.uiLanguage === 'th' ? 'บันทึกโปรเจกต์แล้ว' : 'Project saved');
-    } catch {
+    } catch (error) {
+      if (error instanceof ProjectRepositoryConflictError) return;
       showToast(settings.uiLanguage === 'th' ? 'บันทึกไม่สำเร็จ กรุณาลองอีกครั้ง' : 'Save failed. Please try again.');
     }
   };
@@ -312,6 +333,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     settingsSnapshot?: AppSettings,
     videoMeta?: any
   ) => {
+    const createAfterFlush = async () => {
+      if (activeProjectId) {
+        try {
+          await flushPendingSaves();
+        } catch (error) {
+          if (!(error instanceof ProjectRepositoryConflictError)) {
+            showToast(settings.uiLanguage === 'th'
+              ? 'บันทึกโปรเจกต์ปัจจุบันไม่สำเร็จ จึงยกเลิกการสร้างโปรเจกต์ใหม่'
+              : 'Could not save the current project, so new project creation was cancelled.');
+          }
+          return;
+        }
+      }
     isProjectLoading.current = true;
     const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     const initMatchInfo: MatchInfo = {
@@ -349,6 +383,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
     setProjects(prev => [...prev, newProj]);
     loadProjectState(newProj);
+    };
+    void createAfterFlush();
   };
 
   const openProject = (projectId: string) => {
@@ -363,7 +399,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         setProjects(nextProjects);
         try {
           await persistProjects(nextProjects);
-        } catch {
+        } catch (error) {
+          if (error instanceof ProjectRepositoryConflictError) return;
           showToast(settings.uiLanguage === 'th'
             ? 'บันทึกโปรเจกต์ปัจจุบันไม่สำเร็จ จึงยังไม่สลับโปรเจกต์'
             : 'Could not save the current project, so the project switch was cancelled.');
@@ -388,7 +425,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     const remaining = currentProjects.filter(p => p.id !== projectId);
     try {
       await persistProjects(remaining);
-    } catch {
+    } catch (error) {
+      if (error instanceof ProjectRepositoryConflictError) return;
       showToast(settings.uiLanguage === 'th' ? 'ลบโปรเจกต์ไม่สำเร็จ ข้อมูลเดิมยังอยู่' : 'Delete failed. Your data was kept.');
       return;
     }
