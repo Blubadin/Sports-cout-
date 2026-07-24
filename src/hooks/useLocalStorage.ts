@@ -98,6 +98,7 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
             if (error instanceof DOMException && error.name === 'QuotaExceededError') {
               window.dispatchEvent(new CustomEvent('localStorageQuotaExceeded', { detail: { key } }));
             }
+            return currentStoredValue;
           }
         }
         return valueToStore;

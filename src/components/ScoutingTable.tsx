@@ -108,6 +108,7 @@ interface ScoutingTableRowProps {
   settings: any;
   copiedId: string | null;
   handleNoteChange: (id: string, field: 'point' | 'resultText' | 'note', value: any) => void;
+  handleResultTextChange: (id: string, newResultText: '+1' | '-1' | '0') => void;
   setEditingEvent: (row: EventRow) => void;
   replaySegment: (row: EventRow) => void;
   jumpToTimestamp: (row: EventRow) => void;
@@ -124,6 +125,7 @@ const ScoutingTableRow = React.memo(({
   settings,
   copiedId,
   handleNoteChange,
+  handleResultTextChange,
   setEditingEvent,
   replaySegment,
   jumpToTimestamp,
@@ -165,7 +167,7 @@ const ScoutingTableRow = React.memo(({
       <td className="px-4 py-2 text-center relative overflow-visible">
         <ResultSelect 
           value={row.resultText} 
-          onChange={(val) => handleNoteChange(row.id, 'resultText', val)} 
+          onChange={(val) => handleResultTextChange(row.id, val as '+1' | '-1' | '0')} 
         />
       </td>
       <td className="px-4 py-2 text-center">
@@ -389,10 +391,42 @@ export default function ScoutingTable() {
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<EventRow | null>(null);
 
-  const handleNoteChange = (id: string, field: keyof EventRow, value: string | number) => {
+  const handleResultTextChange = (id: string, newResultText: '+1' | '-1' | '0') => {
+    const row = events.find(e => e.id === id);
+    if (!row) return;
+
+    let newResultCode = 'Pass';
+    let outcomeStatus: 'success' | 'error' | 'neutral' = 'neutral';
+    if (newResultText === '+1') {
+      newResultCode = 'Yes';
+      outcomeStatus = 'success';
+    } else if (newResultText === '-1') {
+      newResultCode = 'Out';
+      outcomeStatus = 'error';
+    }
+
+    const updatedActions = (row.actions || []).map((act, idx) => {
+      if (idx === (row.actions || []).length - 1) {
+        return {
+          ...act,
+          resultCode: newResultCode,
+          outcomeStatus,
+        };
+      }
+      return act;
+    });
+
+    updateEventRow(id, {
+      ...row,
+      resultText: newResultText,
+      actions: updatedActions,
+    });
+  };
+
+  const handleNoteChange = (id: string, value: string) => {
     const row = events.find(e => e.id === id);
     if (row) {
-      updateEventRow(id, { ...row, [field]: value });
+      updateEventRow(id, { ...row, note: value });
     }
   };
 
@@ -422,11 +456,18 @@ export default function ScoutingTable() {
 
   const duplicateRow = (row: EventRow) => {
     saveEventsWithHistory(prev => {
-      const newRow = {
+      const timestamp = Date.now();
+      const newActions = (row.actions || []).map((act, actIdx) => ({
+        ...act,
+        id: `act-dup-${timestamp}-${actIdx}-${Math.random().toString(36).slice(2, 7)}`,
+      }));
+
+      const newRow: EventRow = {
         ...row,
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+        id: `event-dup-${timestamp}-${Math.random().toString(36).slice(2, 11)}`,
         no: prev.length + 1,
         createdAt: new Date().toISOString(),
+        actions: newActions,
       };
       
       return [...prev, newRow].map((e, index) => ({
@@ -595,6 +636,7 @@ export default function ScoutingTable() {
                   settings={settings}
                   copiedId={copiedId}
                   handleNoteChange={handleNoteChange}
+                  handleResultTextChange={handleResultTextChange}
                   setEditingEvent={setEditingEvent}
                   replaySegment={replaySegment}
                   jumpToTimestamp={jumpToTimestamp}

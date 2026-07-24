@@ -88,12 +88,38 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
       finalThaiMeaning = actions.map(a => getThaiMeaning(a)).join(' / ');
     }
 
+    let finalActions = isManualOverride ? (event.actions && event.actions.length > 0 ? event.actions : []) : [...actions];
+    
+    // Sync last action resultCode with resultText if actions exist
+    if (finalActions.length > 0) {
+      const lastIdx = finalActions.length - 1;
+      const lastAct = { ...finalActions[lastIdx] };
+      if (resultText === '+1') {
+        lastAct.resultCode = 'Yes';
+        lastAct.outcomeStatus = 'success';
+      } else if (resultText === '-1') {
+        lastAct.resultCode = 'Out';
+        lastAct.outcomeStatus = 'error';
+      } else {
+        lastAct.resultCode = 'Pass';
+        lastAct.outcomeStatus = 'neutral';
+      }
+      finalActions[lastIdx] = lastAct;
+    } else if (isManualOverride) {
+      // Create synthetic action for manual override so sanitizeEvents preserves resultText
+      finalActions = [{
+        id: `act-override-${event.id}`,
+        resultCode: resultText === '+1' ? 'Yes' : resultText === '-1' ? 'Out' : 'Pass',
+        outcomeStatus: resultText === '+1' ? 'success' : resultText === '-1' ? 'error' : 'neutral',
+      }];
+    }
+
     const updatedRow: EventRow = {
       ...event,
       point,
       note,
       resultText,
-      actions: isManualOverride ? [] : actions,
+      actions: finalActions,
       eventText: finalEventText,
       extendedEventText: finalExtendedText,
       thaiMeaningText: finalThaiMeaning,
