@@ -414,6 +414,17 @@ export function useProHUDMarkingController({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (
+        activeEl instanceof HTMLElement &&
+        (activeEl.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(activeEl.tagName))
+      ) {
+        return;
+      }
+      if (Boolean(document.querySelector('[role="dialog"]')) || Boolean(document.querySelector('.modal'))) {
+        return;
+      }
+
       isHoldingKeyRef.current[e.code] = true;
       const command = resolveKeyboardCoachCommand(
         e,

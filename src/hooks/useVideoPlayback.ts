@@ -409,19 +409,25 @@ export function useVideoPlayback({
       if (
         activeEl?.tagName === "INPUT" ||
         activeEl?.tagName === "TEXTAREA" ||
-        activeEl?.tagName === "SELECT"
+        activeEl?.tagName === "SELECT" ||
+        (activeEl as HTMLElement)?.isContentEditable ||
+        Boolean(document.querySelector('[role="dialog"]')) ||
+        Boolean(document.querySelector('.modal'))
       ) {
         return;
       }
       if (e.code === "Space") {
         e.preventDefault();
         togglePlay();
-      } else if (e.code === "ArrowLeft" || e.code === "KeyA") {
+      } else if (e.code === "ArrowLeft") {
         e.preventDefault();
         seekBySafe(e.shiftKey ? -1 : -3);
-      } else if (e.code === "ArrowRight" || e.code === "KeyD") {
+      } else if (e.code === "ArrowRight") {
         e.preventDefault();
         seekBySafe(e.shiftKey ? 1 : 3);
+      } else if (e.code === "KeyA" && (e.ctrlKey || e.metaKey)) {
+        // Allow Ctrl+A for select all without seeking video
+        return;
       } else if (e.key === "[") {
         e.preventDefault();
         seekBySafe(-1);

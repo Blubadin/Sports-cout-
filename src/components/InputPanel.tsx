@@ -109,7 +109,14 @@ export default function InputPanel() {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.defaultPrevented || e.repeat) return;
     const activeEl = document.activeElement;
-    if (activeEl?.tagName === 'INPUT' || activeEl?.tagName === 'TEXTAREA' || activeEl?.tagName === 'SELECT') {
+    if (
+      activeEl?.tagName === 'INPUT' ||
+      activeEl?.tagName === 'TEXTAREA' ||
+      activeEl?.tagName === 'SELECT' ||
+      (activeEl as HTMLElement)?.isContentEditable ||
+      Boolean(document.querySelector('[role="dialog"]')) ||
+      Boolean(document.querySelector('.modal'))
+    ) {
       return;
     }
 
