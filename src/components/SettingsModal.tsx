@@ -226,9 +226,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
                       <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{t('settings.workflow', settings.uiLanguage)}</h3>
                       <div className="flex flex-col gap-3">
-                        <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-150 dark:border-gray-800 cursor-pointer">
+                        <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
                           <div>
-                            <div className="font-semibold text-sm text-gray-800 dark:text-gray-250">{t('settings.fastMode', settings.uiLanguage)}</div>
+                            <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{t('settings.fastMode', settings.uiLanguage)}</div>
                             <div className="text-xs text-gray-500">
                               {settings.uiLanguage === 'th' 
                                 ? 'ข้ามการกดยืนยัน และบันทึกผลลัพธ์โดยอัตโนมัติทันที' 
@@ -238,9 +238,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           <input type="checkbox" checked={settings.fastMode} onChange={e => setSettings(p => ({...p, fastMode: e.target.checked}))} className="rounded-lg text-sky-600 w-5 h-5 cursor-pointer" />
                         </label>
 
-                        <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-150 dark:border-gray-800 cursor-pointer">
+                        <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
                           <div>
-                            <div className="font-semibold text-sm text-gray-800 dark:text-gray-250">{t('settings.advancedDetail', settings.uiLanguage)}</div>
+                            <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{t('settings.advancedDetail', settings.uiLanguage)}</div>
                             <div className="text-xs text-gray-500">
                               {settings.uiLanguage === 'th'
                                 ? 'แสดงตัวเลือกทักษะย่อยเพื่อบันทึกข้อมูลแบบละเอียดสูง'
@@ -250,9 +250,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           <input type="checkbox" checked={settings.advancedDetailMode} onChange={e => setSettings(p => ({...p, advancedDetailMode: e.target.checked}))} className="rounded-lg text-sky-600 w-5 h-5 cursor-pointer" />
                         </label>
                         
-                        <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-150 dark:border-gray-800 cursor-pointer">
+                        <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
                           <div>
-                            <div className="font-semibold text-sm text-gray-800 dark:text-gray-250">{t('settings.autoNextPoint', settings.uiLanguage)}</div>
+                            <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{t('settings.autoNextPoint', settings.uiLanguage)}</div>
                             <div className="text-xs text-gray-500">
                               {settings.uiLanguage === 'th'
                                 ? 'เพิ่มคะแนนให้อัตโนมัติเมื่อผลลัพธ์เป็นลูกได้แต้มหรือเสียแต้ม'
@@ -262,9 +262,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           <input type="checkbox" checked={settings.autoNextPoint} onChange={e => setSettings(p => ({...p, autoNextPoint: e.target.checked}))} className="rounded-lg text-sky-600 w-5 h-5 cursor-pointer" />
                         </label>
 
-                        <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-150 dark:border-gray-800">
+                        <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800">
                           <div>
-                            <div className="font-semibold text-sm text-gray-800 dark:text-gray-250">
+                            <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
                               {settings.uiLanguage === 'th' ? 'รูปแบบปุ่มบันทึก (Normal Mode Input Layout)' : 'Normal Mode Input Layout'}
                             </div>
                             <div className="text-xs text-gray-500">

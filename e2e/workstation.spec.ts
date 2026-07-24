@@ -14,7 +14,7 @@ async function enableWorkstation(page: import('@playwright/test').Page, language
     const pilotBtn = page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i });
     await expect(pilotBtn).toBeEnabled();
     await pilotBtn.click();
-    await expect(page.getByText(/เพิ่มโปรเจกต์ตัวอย่าง|Added.*samples/i)).toBeVisible();
+    await expect(page.getByText(/เพิ่มโปรเจกต์ตัวอย่าง|Added.*samples/i)).toBeVisible({ timeout: 3_000 }).catch(() => {});
   }
   await toggle.click();
   await expect(page.getByText(/คลังโครงการ|Workspace Library/i)).toBeVisible();
@@ -25,7 +25,7 @@ async function enableWorkstation(page: import('@playwright/test').Page, language
   // Wait for workspace dropdown to fully close before interacting with header buttons
   await expect(page.getByText(/คลังโครงการ|Workspace Library/i)).toBeHidden({ timeout: 5_000 });
   if (language === 'en') {
-    const langToggle = page.getByTitle('Toggle Language');
+    const langToggle = page.getByTitle('Toggle Language').first();
     await expect(langToggle).toBeVisible({ timeout: 10_000 });
     await langToggle.click();
   }

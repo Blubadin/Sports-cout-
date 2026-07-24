@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import {
   BarChart3,
   Bookmark,
@@ -177,6 +178,19 @@ interface WorkstationStatusBarProps {
 }
 
 export function WorkstationStatusBar({ language, projectTitle, sport, eventCount, videoTime }: WorkstationStatusBarProps) {
+  const [isOnline, setIsOnline] = React.useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
+
+  React.useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   const timecode = formatWorkstationTimecode(videoTime);
   return (
     <footer className="workstation-statusbar">
@@ -184,7 +198,12 @@ export function WorkstationStatusBar({ language, projectTitle, sport, eventCount
       <span><b>{language === 'th' ? 'กีฬา' : 'Sport'}:</b> {sport}</span>
       <span><b>{language === 'th' ? 'เวลา' : 'Time'}:</b> <code>{timecode}</code></span>
       <span><b>{language === 'th' ? 'เหตุการณ์' : 'Events'}:</b> {eventCount}</span>
-      <span className="workstation-offline"><i /> {language === 'th' ? 'พร้อมใช้งานออฟไลน์' : 'Offline ready'}</span>
+      <span className={isOnline ? "workstation-offline" : "workstation-offline text-amber-400"}>
+        <i className={isOnline ? "bg-emerald-400" : "bg-amber-400"} /> 
+        {isOnline 
+          ? (language === 'th' ? 'เชื่อมต่อออนไลน์' : 'Online connected') 
+          : (language === 'th' ? 'โหมดออฟไลน์' : 'Offline mode')}
+      </span>
     </footer>
   );
 }
