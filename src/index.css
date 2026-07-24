@@ -394,6 +394,7 @@
 }
 .workstation-inspector-state.is-valid { color: #62dfa0; }
 .workstation-inspector-state.is-invalid { color: #fbbf6b; }
+.workstation-inspector-state.is-empty { color: var(--ws-muted); }
 .workstation-inspector-fields { display: grid; }
 .workstation-inspector-fields > div {
   display: grid;
@@ -423,6 +424,7 @@
   color: #fbbf6b;
 }
 .workstation-inspector-validation.is-valid { border-color: #1f5a42; background: #0d251b; color: #62dfa0; }
+.workstation-inspector-validation.is-empty { border-color: #1d2b36; background: #09141d; color: var(--ws-muted); }
 .workstation-inspector-validation div { min-width: 0; display: grid; gap: 2px; }
 .workstation-inspector-validation strong { font-size: 12px; }
 .workstation-inspector-validation span { color: #b8c6cf; font-size: 12px; line-height: 1.45; }
@@ -656,3 +658,26 @@ body.scout-marking-active [data-scout-hovered="true"] {
     font-size: 11px;
   }
 }
+
+/* Workstation Dashboard Scoping */
+.workstation-shell .dashboard-card {
+  background-color: var(--ws-surface-1) !important;
+  border-color: var(--ws-border) !important;
+  color: var(--ws-text) !important;
+}
+.workstation-shell .dashboard-card-title {
+  color: var(--ws-text) !important;
+}
+.workstation-shell .dashboard-card-subtitle {
+  color: var(--ws-muted) !important;
+}
+
+/* Workstation Scouting Table Row Accents */
+.scouting-table-row {
+  border-left: 3px solid transparent;
+}
+.scouting-table-row[data-team-id] {
+  border-left: 3px solid var(--ws-border);
+}
+.scouting-table-row[data-team-id="THA"] { border-left-color: #3b82f6; }
+.scouting-table-row[data-team-id="JPN"] { border-left-color: #ef4444; }

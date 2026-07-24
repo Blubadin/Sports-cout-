@@ -14,6 +14,22 @@ import {
   Pause,
   Rewind,
   FastForward,
+import React, {
+  useRef,
+  useState,
+  useEffect,
+  Suspense,
+  lazy,
+  useCallback,
+} from "react";
+import ReactPlayer from "react-player";
+import { useScoutContext } from "../context/ScoutContext";
+import { useWorkspace } from "../context/WorkspaceContext";
+import {
+  Play,
+  Pause,
+  Rewind,
+  FastForward,
   Upload,
   Youtube,
   Settings2,
@@ -22,6 +38,7 @@ import {
 import { formatPreciseTime } from "../utils";
 import ScoutHUDWrapper from "./hud/ScoutHUDWrapper";
 import SegmentPreviewPanel from "./SegmentPreviewPanel";
+import CourtZoneOverlay from "./video/CourtZoneOverlay";
 import { useVideoResize } from "../hooks/useVideoResize";
 import { useVideoGestures } from "../hooks/useVideoGestures";
 import { useVideoPlayback } from "../hooks/useVideoPlayback";
@@ -43,6 +60,8 @@ export default function VideoPlayer() {
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState("");
   const [localVideoState, setLocalVideoState] = useState<LocalVideoState>('idle');
+  const [showCourtOverlay, setShowCourtOverlay] = useState(false);
+  const [isCalibratingCourt, setIsCalibratingCourt] = useState(false);
 
   const {
     isHUDMode,
@@ -73,7 +92,7 @@ export default function VideoPlayer() {
     getCurrentTimeRef,
   } = useScoutContext();
 
-  const { activeProjectId, projects, updateProjectLastVideoTime } = useWorkspace();
+  const { activeProjectId, projects, updateProjectLastVideoTime, updateProjectVideoCalibration } = useWorkspace();
   const activeProject = projects.find(project => project.id === activeProjectId);
 
   const {
@@ -585,6 +604,23 @@ export default function VideoPlayer() {
                 )
               )}
 
+              <CourtZoneOverlay
+                isVisible={showCourtOverlay || isCalibratingCourt}
+                isCalibrating={isCalibratingCourt}
+                onCalibrationComplete={(pts) => {
+                  if (pts.length === 4) {
+                    updateProjectVideoCalibration({ tl: pts[0], tr: pts[1], bl: pts[2], br: pts[3] });
+                  }
+                  setIsCalibratingCourt(false);
+                  setShowCourtOverlay(true);
+                }}
+                onCalibrationCancel={() => {
+                  setIsCalibratingCourt(false);
+                  setShowCourtOverlay(!!activeProject?.videoMeta?.courtCalibration);
+                }}
+                calibrationPoints={activeProject?.videoMeta?.courtCalibration}
+              />
+
               {isLoadingVideo && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10 pointer-events-none">
                   <p className="text-white">
@@ -820,247 +856,6 @@ export default function VideoPlayer() {
                         if (!Number.isFinite(playedSeconds) || playedSeconds < 0) return;
                         setCurrentTimeDisplay(playedSeconds);
                         setVideoTime(playedSeconds);
-                        
-                        // Auto-save time periodically
-                        if (Math.floor(playedSeconds) % 15 === 0) {
-                           updateProjectLastVideoTime(playedSeconds);
-                        }
-                      }}
-                      onDuration={(d: number) => {
-                        if (Number.isFinite(d) && d > 0) setDuration(d);
-                      }}
-                      onTimeUpdate={handleTimeUpdate}
-                      onDurationChange={(event: any) => {
-                        const d =
-                          event?.currentTarget?.duration ?? getDurationSafe();
-                        if (Number.isFinite(d) && d > 0) setDuration(d);
-                      }}
-                      onReady={handlePlayerReadyWithoutCaptions}
-                      onPlaying={() => {
-                        setIsLoadingVideo(false);
-                        setPlayerReady(true);
-                        setPlayerError(null);
-                        setActualPlaying(true);
-                        setIsAutoplayBlocked(false);
-                      }}
-                      onWaiting={() => {
-                        // optional buffering state
-                      }}
-                      onError={handlePlayerError}
-                      config={
-                        {
-                          youtube: {
-                            playerVars: {
-                              rel: 0,
-                              playsinline: 1,
-                              modestbranding: 1,
-                              enablejsapi: 1,
-                              cc_load_policy: 0,
-                              iv_load_policy: 3,
-                              fs: 1,
-                              origin: window.location.origin,
-                            },
-                          },
-                        } as Record<string, unknown>
-                      }
-                    />
-                  );
-                })()}
-              </Suspense>
-            </div>
-
-            {isHUDMode && (
-              <ScoutHUDWrapper
-                onClose={closeHUDMode}
-                containerRef={containerRef}
-                isPortrait={isPortrait}
-                videoControls={{
-                  play: playSafe,
-                  pause: pauseSafe,
-                  togglePlay,
-                  seekBy: seekBySafe,
-                  seekTo: seekToSafe,
-                  setSpeed: setSpeedSafe,
-                  getCurrentTime: getCurrentTimeSafe,
-                  getDuration: getDurationSafe,
-                  isPlaying,
-                  playbackRate,
-                  videoError: localizedPlayerError,
-                  retryVideo: () => {
-                    if (videoSourceType === "youtube") {
-                      handleYoutubeLoad();
-                    } else {
-                      setPlayerError(null);
-                      setPlayerErrorType(null);
-                      setPlayerErrorCode(null);
-                    }
-                  },
-                }}
-              />
-            )}
-
-            {!isHUDMode && (
-              <>
-                <div className="relative z-30 flex w-full flex-col border-t border-gray-800 bg-gray-900 px-3 py-1.5">
-                  {/* Draft time absolute tooltip above thumb */}
-                  {isScrubbing && safeDuration > 0 && (
-                    <div
-                      className="absolute top-0 -mt-6 bg-sky-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow z-40 transform -translate-x-1/2 pointer-events-none"
-                      style={{
-                        left: `calc(4rem + 0.75rem + ${(Math.min(visibleTime, safeDuration) / safeDuration) * 100}% * calc(100% - 8rem - 1.5rem))`,
-                      }}
-                    >
-                      {formatPreciseTime(visibleTime)}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3 w-full">
-                    <span className="text-[10px] font-mono text-gray-400 w-16 text-right shrink-0">
-                      {formatPreciseTime(visibleTime)}
-                    </span>
-                    <div className="relative flex-1 h-5 flex items-center group">
-                      {/* Custom Track */}
-                      <div className="absolute left-0 right-0 h-[2px] bg-gray-700 rounded-full overflow-hidden pointer-events-none">
-                        <div
-                          className="h-full bg-sky-500 transition-none"
-                          style={{
-                            width: `${safeDuration > 0 ? (visibleTime / safeDuration) * 100 : 0}%`,
-                          }}
-                        />
-                      </div>
-                      {/* Custom Thumb */}
-                      <div
-                        className="absolute h-2 w-2 bg-white rounded-full pointer-events-none shadow-sm -ml-1 transition-transform group-hover:scale-125"
-                        style={{
-                          left: `${safeDuration > 0 ? (Math.min(visibleTime, safeDuration) / safeDuration) * 100 : 0}%`,
-                        }}
-                      />
-                      <input
-                        type="range"
-                        min={0}
-                        max={safeDuration}
-                        step={0.01}
-                        value={Math.min(visibleTime, safeDuration || visibleTime)}
-                        onPointerDown={handleSeekPointerDown}
-                        onInput={handleSeekInput}
-                        onPointerUp={handleSeekPointerUp}
-                        onPointerCancel={handleSeekCancel}
-                        aria-label="Video timeline"
-                        aria-valuemin={0}
-                        aria-valuemax={safeDuration}
-                        aria-valuenow={visibleTime}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-                      />
-                    </div>
-                    <span className="text-[10px] font-mono text-gray-400 w-16 shrink-0">
-                      {formatPreciseTime(safeDuration)}
-                    </span>
-                  </div>
-                </div>
-
-                <div
-                  className="h-3 bg-gray-800 cursor-row-resize flex items-center justify-center hover:bg-gray-700 transition-colors z-30 border-t border-gray-900"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setIsResizing(true);
-                  }}
-                  onTouchStart={() => setIsResizing(true)}
-                  onDoubleClick={() => setVideoHeight("auto")}
-                  title="ลากเพื่อปรับขนาด (ดับเบิลคลิกเพื่อรีเซ็ต)"
-                >
-                  <div className="w-12 h-1 bg-gray-600 rounded-full" />
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="bg-gray-100 dark:bg-gray-900 aspect-video rounded-lg flex items-center justify-center border border-dashed border-gray-300 dark:border-gray-700">
-          <p className="text-gray-400 dark:text-gray-500 text-sm text-center px-4">
-            {videoSourceType === "local"
-              ? t('video.noLocalSelected', settings.uiLanguage)
-              : t('video.noYoutubeUrl', settings.uiLanguage)}
-            <br />
-            ({t('video.scoutWithoutVideo', settings.uiLanguage)})
-          </p>
-        </div>
-      )}
-
-      {hasVideo && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between text-xs font-mono text-gray-500 px-1">
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setVideoTime(getCurrentTimeSafe());
-                  showToast("Mark time แล้ว");
-                }}
-                className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
-              >
-                Mark Time
-              </button>
-            </div>
-            <div className="flex flex-col items-end gap-1">
-              <div className="flex flex-wrap gap-1 justify-end">
-                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => (
-                  <button
-                    key={speed}
-                    onClick={() => setSpeedSafe(speed)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] ${playbackRate === speed ? "bg-sky-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"}`}
-                  >
-                    {speed}x
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-center gap-2 sm:gap-4 relative">
-              <button
-                onClick={() => seekBySafe(-3)}
-                className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                title="-3s (Left)"
-              >
-                <Rewind size={18} />
-                <span className="text-[10px] block -mt-1">-3s</span>
-              </button>
-              <button
-                onClick={() => seekBySafe(-1)}
-                className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                title="-1s (Alt+Left)"
-              >
-                <span className="text-xs font-bold block">-1s</span>
-              </button>
-
-              <button
-                onClick={togglePlay}
-                className="p-4 rounded-full bg-sky-600 text-white hover:bg-sky-700 shadow-md mx-2"
-                title="Play/Pause (Space)"
-              >
-                {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-              </button>
-
-              <button
-                onClick={() => seekBySafe(1)}
-                className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                title="+1s (Alt+Right)"
-              >
-                <span className="text-xs font-bold block">+1s</span>
-              </button>
-              <button
-                onClick={() => seekBySafe(3)}
-                className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                title="+3s (Right)"
-              >
-                <FastForward size={18} />
-                <span className="text-[10px] block -mt-1">+3s</span>
-              </button>
-
-              <div className="absolute right-0 flex items-center gap-1">
-                {settings.enableScoutHUDMode !== false && (
-                  <button
-                    onClick={enterHUDMode}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-100 text-sky-600 dark:bg-sky-900/50 dark:text-sky-400 hover:bg-sky-200 dark:hover:bg-sky-800"
                     title="เปิดโหมด HUD เต็มจอสำหรับ Scouting"
                   >
                     <MonitorPlay size={16} />

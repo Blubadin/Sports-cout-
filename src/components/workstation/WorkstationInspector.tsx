@@ -51,7 +51,7 @@ export default function WorkstationInspector() {
           <span>{language === 'th' ? 'รายการปัจจุบัน' : 'Current action'}</span>
           <h2>{language === 'th' ? 'ตัวตรวจสอบ' : 'Inspector'}</h2>
         </div>
-        <span className={`workstation-inspector-state ${isValid ? 'is-valid' : hasInput ? 'is-invalid' : ''}`}>
+        <span className={`workstation-inspector-state ${isValid ? 'is-valid' : hasInput ? 'is-invalid' : 'is-empty'}`}>
           {isValid ? <CheckCircle2 size={15} /> : <CircleAlert size={15} />}
           {isValid
             ? (language === 'th' ? 'พร้อมบันทึก' : 'Valid')
@@ -70,7 +70,7 @@ export default function WorkstationInspector() {
         ))}
       </div>
 
-      <div className={`workstation-inspector-validation ${isValid ? 'is-valid' : ''}`} role="status">
+      <div className={`workstation-inspector-validation ${isValid ? 'is-valid' : hasInput ? 'is-invalid' : 'is-empty'}`} role="status">
         {isValid ? <CheckCircle2 size={16} /> : <CircleAlert size={16} />}
         <div>
           <strong>{language === 'th' ? 'การตรวจสอบ' : 'Validation'}</strong>

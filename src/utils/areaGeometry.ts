@@ -169,6 +169,81 @@ function resolveSidedAreaPoint(
   return null;
 }
 
+/**
+ * Calculates a 3x3 homography matrix from 4 source points to 4 destination points.
+ * Expects points as [x, y].
+ * (Used for mapping canonical 0-1 court bounds onto a video perspective quad)
+ */
+export function calculateHomography(
+  src: [number, number][],
+  dst: [number, number][]
+): number[] | null {
+  if (src.length !== 4 || dst.length !== 4) return null;
+
+  // Simple adjugate-based Gaussian elimination for 8 DOF
+  const A = [];
+  for (let i = 0; i < 4; i++) {
+    const x = src[i][0];
+    const y = src[i][1];
+    const u = dst[i][0];
+    const v = dst[i][1];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u]);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y, v]);
+  }
+
+  // Gaussian elimination (partial pivoting)
+  for (let i = 0; i < 8; i++) {
+    let maxRow = i;
+    for (let j = i + 1; j < 8; j++) {
+      if (Math.abs(A[j][i]) > Math.abs(A[maxRow][i])) {
+        maxRow = j;
+      }
+    }
+    const tmp = A[i];
+    A[i] = A[maxRow];
+    A[maxRow] = tmp;
+
+    if (Math.abs(A[i][i]) < 1e-10) return null; // Singular
+
+    for (let j = i + 1; j < 8; j++) {
+      const factor = A[j][i] / A[i][i];
+      for (let k = i; k < 9; k++) {
+        A[j][k] -= factor * A[i][k];
+      }
+    }
+  }
+
+  const h = new Array(9).fill(0);
+  h[8] = 1;
+  for (let i = 7; i >= 0; i--) {
+    let sum = 0;
+    for (let j = i + 1; j < 8; j++) {
+      sum += A[i][j] * h[j];
+    }
+    h[i] = (A[i][8] - sum) / A[i][i];
+  }
+
+  return h;
+}
+
+/**
+ * Creates a CSS matrix3d string from a 3x3 homography matrix.
+ */
+export function homographyToMatrix3d(h: number[]): string {
+  // Convert 3x3 to 4x4 for CSS matrix3d
+  // [h0, h1, h2]    [h0, h1, 0, h2]
+  // [h3, h4, h5] -> [h3, h4, 0, h5]
+  // [h6, h7, h8]    [ 0,  0, 1,  0]
+  //                 [h6, h7, 0, h8]
+  // CSS matrix3d is column-major.
+  return `matrix3d(
+    ${h[0]}, ${h[3]}, 0, ${h[6]},
+    ${h[1]}, ${h[4]}, 0, ${h[7]},
+    0, 0, 1, 0,
+    ${h[2]}, ${h[5]}, 0, ${h[8]}
+  )`;
+}
+
 export function getAreaPrecision(action: Pick<Action, "pointX" | "pointY" | "outZone" | "areaResolution" | "areaMode" | "areaCode">): AreaPrecision {
   if (Number.isFinite(action.pointX) && Number.isFinite(action.pointY)) return "Point";
   if (action.outZone || action.areaResolution === "out-zone" || ["OUT", "LONG_OUT", "SIDE_OUT"].includes(action.areaCode || "")) return "Out";

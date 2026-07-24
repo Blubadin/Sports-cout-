@@ -136,7 +136,10 @@ const ScoutingTableRow = React.memo(({
   showToast
 }: ScoutingTableRowProps) => {
   return (
-    <tr className="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+    <tr 
+      className="scouting-table-row bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+      data-team-id={row.actions[0]?.teamCode}
+    >
       <td className="px-4 py-2 text-center font-medium text-gray-900 dark:text-white">
         {row.no}
       </td>

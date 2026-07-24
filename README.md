@@ -338,7 +338,7 @@ When using Google AI Studio, follow these rules:
 5. Do not remove multi-sport support.
 6. Do not change the main data model unless necessary.
 7. Keep backward compatibility with existing localStorage data and JSON exports.
-8. Do not add backend, database, login, AI tracking, Electron, or Tauri unless explicitly requested.
+8. Do not add backend, database, login, Electron, or Tauri unless explicitly requested. AI tracking is approved only for the Task 9 Motion spike (client-side only, no backend).
 9. Prefer small, safe changes.
 10. After editing, always run:
 

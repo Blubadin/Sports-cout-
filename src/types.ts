@@ -331,6 +331,12 @@ export type ScoutProject = {
     localFileName?: string;
     lastVideoTime?: number;
     duration?: number;
+    courtCalibration?: {
+      tl: [number, number]; // Top-left [x,y] 0-1
+      tr: [number, number]; // Top-right [x,y] 0-1
+      bl: [number, number]; // Bottom-left [x,y] 0-1
+      br: [number, number]; // Bottom-right [x,y] 0-1
+    };
   };
   createdAt: string;
   updatedAt: string;

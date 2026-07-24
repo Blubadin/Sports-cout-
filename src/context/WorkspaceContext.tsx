@@ -55,6 +55,7 @@ interface WorkspaceContextType {
   renameProject: (projectId: string, newTitle: string) => void;
   importProject: (project: any) => boolean;
   updateProjectLastVideoTime: (time: number) => void;
+  updateProjectVideoCalibration: (calibration: { tl: [number, number]; tr: [number, number]; bl: [number, number]; br: [number, number] }) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -572,6 +573,20 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateProjectVideoCalibration = (calibration: { tl: [number, number]; tr: [number, number]; bl: [number, number]; br: [number, number] }) => {
+    if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
+    clearPendingProjectTimers();
+    if (activeProjectIdRef.current) {
+      const nextProjects = projectsRef.current.map(p =>
+        p.id === activeProjectIdRef.current
+          ? { ...p, videoMeta: { ...(p.videoMeta || { sourceType: videoSourceType }), courtCalibration: calibration }, updatedAt: new Date().toISOString() }
+          : p
+      );
+      projectsRef.current = nextProjects;
+      setProjects(nextProjects);
+    }
+  };
+
   const importProject = (project: any): boolean => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return false;
     clearPendingProjectTimers();
@@ -701,7 +716,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       duplicateProject,
       renameProject,
       importProject,
-      updateProjectLastVideoTime
+      updateProjectLastVideoTime,
+      updateProjectVideoCalibration
     }}>
       {children}
     </WorkspaceContext.Provider>
