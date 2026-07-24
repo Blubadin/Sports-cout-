@@ -7,14 +7,31 @@ async function enableWorkstation(page: import('@playwright/test').Page, language
     await page.getByRole('button', { name: /Classic/i }).click();
     await page.getByRole('button', { name: /ปิดการตั้งค่า|Close settings/i }).click();
   }
+  const toggle = page.getByTestId('workspace-menu-toggle').first();
+  await expect(toggle).toBeEnabled({ timeout: 10_000 });
   const canLoadPilot = await page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i }).count();
   if (canLoadPilot) {
-    await page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i }).click();
-    await page.getByTestId('workspace-menu-toggle').click();
-    await page.getByRole('button', { name: 'SPORTSCOUT Pilot - Football', exact: true }).click();
+    const pilotBtn = page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i });
+    await expect(pilotBtn).toBeEnabled();
+    await pilotBtn.click();
+    await expect(page.getByText(/เพิ่มโปรเจกต์ตัวอย่าง|Added.*samples/i)).toBeVisible();
   }
-  if (language === 'en') await page.getByTitle('Toggle Language').click();
-  await page.getByTitle('Settings').click();
+  await toggle.click();
+  await expect(page.getByText(/คลังโครงการ|Workspace Library/i)).toBeVisible();
+  const footballBtn = page.getByRole('button', { name: 'SPORTSCOUT Pilot - Football', exact: true });
+  await expect(footballBtn).toBeVisible();
+  await footballBtn.click();
+  await expect(toggle).toContainText('SPORTSCOUT Pilot - Football');
+  // Wait for workspace dropdown to fully close before interacting with header buttons
+  await expect(page.getByText(/คลังโครงการ|Workspace Library/i)).toBeHidden({ timeout: 5_000 });
+  if (language === 'en') {
+    const langToggle = page.getByTitle('Toggle Language');
+    await expect(langToggle).toBeVisible({ timeout: 10_000 });
+    await langToggle.click();
+  }
+  const settingsBtn = page.locator('button[title="Settings"], button[aria-label="Settings"], button[aria-label="ตั้งค่า"]').first();
+  await expect(settingsBtn).toBeVisible({ timeout: 10_000 });
+  await settingsBtn.click();
   await page.getByRole('button', { name: /Workstation Beta/i }).click();
   await page.getByRole('button', { name: /ปิดการตั้งค่า|Close settings/i }).click();
 }

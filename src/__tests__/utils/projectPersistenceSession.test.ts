@@ -42,7 +42,7 @@ function createSavedEnvelope(
   revision: number,
 ): SavedProjectRepositoryEnvelope {
   return {
-    schemaVersion: "1.1",
+    schemaVersion: "1.2",
     revision,
     updatedAt: "2026-01-01T00:00:00.000Z",
     projects,
@@ -126,6 +126,37 @@ describe("projectPersistenceSession", () => {
     expect(session.getExternalRevision()).toBeUndefined();
   });
 
+  it("includes initialization in drain", async () => {
+    const { repository, initializeWithRevision } = createRepository();
+    const sync = createSyncChannelHarness();
+    let releaseInitialize: (() => void) | undefined;
+    const initializeReleased = new Promise<void>((resolve) => {
+      releaseInitialize = resolve;
+    });
+    initializeWithRevision.mockImplementation(async () => {
+      await initializeReleased;
+      return { projects: [], revision: 3 };
+    });
+    const session = createProjectPersistenceSession({
+      repository,
+      syncChannel: sync.channel,
+    });
+
+    const initialize = session.initializeWithRevision([]);
+    let drained = false;
+    const drain = session.drain().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+
+    expect(drained).toBe(false);
+
+    releaseInitialize?.();
+    await expect(initialize).resolves.toMatchObject({ revision: 3 });
+    await drain;
+    expect(drained).toBe(true);
+  });
+
   it("runs same-tab saves FIFO and reads the latest revision when each starts", async () => {
     const { repository, save } = createRepository({ projects: [], revision: 4 });
     const sync = createSyncChannelHarness();
@@ -187,8 +218,12 @@ describe("projectPersistenceSession", () => {
     const sync = createSyncChannelHarness();
     const wait = vi.fn(async () => undefined);
     save
-      .mockRejectedValueOnce(new Error("storage unavailable"))
-      .mockRejectedValueOnce(new Error("storage unavailable"))
+      .mockRejectedValueOnce(
+        new DOMException("transaction aborted", "AbortError"),
+      )
+      .mockRejectedValueOnce(
+        new DOMException("storage state is unknown", "UnknownError"),
+      )
       .mockResolvedValueOnce(createSavedEnvelope([createProject("saved")], 2));
     const session = createProjectPersistenceSession({
       repository,
@@ -209,7 +244,7 @@ describe("projectPersistenceSession", () => {
     const { repository, save } = createRepository();
     const sync = createSyncChannelHarness();
     const wait = vi.fn(async () => undefined);
-    const failure = new Error("storage unavailable");
+    const failure = new DOMException("transaction aborted", "AbortError");
     save.mockRejectedValue(failure);
     const session = createProjectPersistenceSession({
       repository,
@@ -222,6 +257,40 @@ describe("projectPersistenceSession", () => {
     expect(save).toHaveBeenCalledTimes(3);
     expect(wait).toHaveBeenCalledTimes(2);
     expect(sync.publish).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["generic errors", new Error("programming failure")],
+    ["type errors", new TypeError("invalid repository result")],
+    [
+      "validation errors",
+      new DOMException("invalid data", "DataError"),
+    ],
+    [
+      "quota errors",
+      new DOMException("storage quota exceeded", "QuotaExceededError"),
+    ],
+    [
+      "security errors",
+      new DOMException("storage access denied", "SecurityError"),
+    ],
+  ])("does not retry %s", async (_label, failure) => {
+    const { repository, save } = createRepository();
+    const sync = createSyncChannelHarness();
+    const wait = vi.fn(async () => undefined);
+    save.mockRejectedValue(failure);
+    const session = createProjectPersistenceSession({
+      repository,
+      syncChannel: sync.channel,
+      wait,
+    });
+    await session.initializeWithRevision([]);
+
+    await expect(session.save([createProject("failed")])).rejects.toBe(
+      failure,
+    );
+    expect(save).toHaveBeenCalledOnce();
+    expect(wait).not.toHaveBeenCalled();
   });
 
   it("never retries repository conflicts and reports external/current state", async () => {
@@ -283,6 +352,74 @@ describe("projectPersistenceSession", () => {
     });
     expect(save).not.toHaveBeenCalled();
     expect(session.getCurrentRevision()).toBe(4);
+  });
+
+  it("deduplicates a broadcast conflict followed by the matching repository conflict", async () => {
+    const { repository, save } = createRepository({ projects: [], revision: 2 });
+    const sync = createSyncChannelHarness();
+    const onConflict = vi.fn();
+    let releaseSave: (() => void) | undefined;
+    const saveReleased = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const conflict = new ProjectRepositoryConflictError(2, 3);
+    save.mockImplementation(async () => {
+      await saveReleased;
+      throw conflict;
+    });
+    const session = createProjectPersistenceSession({
+      repository,
+      syncChannel: sync.channel,
+      onConflict,
+    });
+    await session.initializeWithRevision([]);
+
+    const pendingSave = session.save([createProject("stale")]);
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce());
+    sync.emit(3);
+    releaseSave?.();
+
+    await expect(pendingSave).rejects.toBe(conflict);
+    expect(onConflict).toHaveBeenCalledOnce();
+    expect(onConflict.mock.calls[0]?.[0]).toMatchObject({
+      expectedRevision: 2,
+      currentRevision: 3,
+    });
+  });
+
+  it("allows saves accepted before close and rejects future saves", async () => {
+    const { repository, save } = createRepository();
+    const sync = createSyncChannelHarness();
+    let releaseFirst: (() => void) | undefined;
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    save.mockImplementation(async (projects, expectedRevision) => {
+      if (projects[0]?.id === "first") await firstReleased;
+      return createSavedEnvelope(projects, (expectedRevision ?? -1) + 1);
+    });
+    const session = createProjectPersistenceSession({
+      repository,
+      syncChannel: sync.channel,
+    });
+    await session.initializeWithRevision([]);
+
+    const first = session.save([createProject("first")]);
+    const second = session.save([createProject("second")]);
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce());
+    session.close();
+    const afterClose = session.save([createProject("after-close")]);
+    releaseFirst?.();
+
+    await expect(Promise.all([first, second])).resolves.toMatchObject([
+      { revision: 1, projects: [{ id: "first" }] },
+      { revision: 2, projects: [{ id: "second" }] },
+    ]);
+    await expect(afterClose).rejects.toThrow(
+      "Project persistence session is closed",
+    );
+    await session.drain();
+    expect(save).toHaveBeenCalledTimes(2);
   });
 
   it("drains queued work and closes the subscription and channel once", async () => {

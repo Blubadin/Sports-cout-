@@ -79,8 +79,28 @@ import { SPORT_TEMPLATES } from './sports';
 import type { SportType } from './types';
 import CustomSelect from './components/ui/CustomSelect';
 
+function RepositoryLoadingState({ language }: { language: 'th' | 'en' | undefined }) {
+  const message = language === 'th'
+    ? '\u0e01\u0e33\u0e25\u0e31\u0e07\u0e40\u0e15\u0e23\u0e35\u0e22\u0e21\u0e1e\u0e37\u0e49\u0e19\u0e17\u0e35\u0e48\u0e17\u0e33\u0e07\u0e32\u0e19'
+    : 'Preparing workspace';
+
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center px-4">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        className="flex items-center gap-3 text-sm font-semibold text-gray-600 dark:text-gray-300"
+      >
+        <RefreshCw aria-hidden="true" size={18} className="animate-spin text-sky-500" />
+        <span>{message}</span>
+      </div>
+    </div>
+  );
+}
+
 function EmptyProjectState() {
-  const { createNewProject, importProject } = useWorkspace();
+  const { createNewProject, importProject, repositoryReady } = useWorkspace();
   const { matchInfo, showToast, setSettings, settings } = useScoutContext();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [selectedSport, setSelectedSport] = useState<SportType>(matchInfo.sportType || 'volleyball');
@@ -172,17 +192,20 @@ function EmptyProjectState() {
           <button
             type="button"
             onClick={loadPilotSamples}
-            className="w-full py-3 border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300 rounded-lg font-bold transition-colors"
+            disabled={!repositoryReady}
+            className="w-full py-3 border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300 rounded-lg font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {settings.uiLanguage === 'th' ? 'โหลดตัวอย่าง Pilot ครบ 4 กีฬา' : 'Load four-sport pilot samples'}
           </button>
           
           <button 
+            type="button"
             onClick={() => {
               // start without saving (create a draft)
               createNewProject(`Draft ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, selectedSport);
             }}
-            className="w-full py-3 mt-4 text-sky-600 dark:text-sky-400 font-semibold hover:underline"
+            disabled={!repositoryReady}
+            className="w-full py-3 mt-4 text-sky-600 dark:text-sky-400 font-semibold hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
           >
             เริ่มแบบไม่บันทึก (Draft)
           </button>
@@ -219,7 +242,7 @@ function AppContent() {
     undoEventAction,
     redoEventAction,
   } = useScoutContext();
-  const { activeProjectId, projects, saveStatus } = useWorkspace();
+  const { activeProjectId, projects, repositoryReady, saveStatus } = useWorkspace();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isKeyboardShortcutsOpen, setIsKeyboardShortcutsOpen] = useState(false);
   const [isMatchInfoOpen, setIsMatchInfoOpen] = useState(false);
@@ -288,6 +311,10 @@ function AppContent() {
     setActiveTab(nextTab);
     requestAnimationFrame(() => document.getElementById(`analysis-tab-${nextTab}`)?.focus());
   };
+
+  if (!repositoryReady) {
+    return <RepositoryLoadingState language={settings.uiLanguage} />;
+  }
 
   return (
     <div className={`${isWorkstation ? 'workstation-shell' : 'coach-shell'} min-h-screen text-gray-900 dark:text-gray-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden`}>

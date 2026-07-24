@@ -2,9 +2,20 @@ import { expect, test } from '@playwright/test';
 
 async function openSportHud(page: import('@playwright/test').Page, sportName: string) {
   await page.goto('/');
-  await page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i }).click();
-  await page.getByTestId('workspace-menu-toggle').click();
-  await page.getByRole('button', { name: `SPORTSCOUT Pilot - ${sportName}`, exact: true }).click();
+  const toggle = page.getByTestId('workspace-menu-toggle');
+  await expect(toggle).toBeEnabled({ timeout: 10_000 });
+  const canLoadPilot = await page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i }).count();
+  if (canLoadPilot) {
+    const pilotBtn = page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i });
+    await expect(pilotBtn).toBeEnabled();
+    await pilotBtn.click();
+    await expect(page.getByText(/เพิ่มโปรเจกต์ตัวอย่าง|Added.*samples/i)).toBeVisible();
+  }
+  await toggle.click();
+  const sportBtn = page.getByRole('button', { name: `SPORTSCOUT Pilot - ${sportName}`, exact: true });
+  await expect(sportBtn).toBeVisible();
+  await sportBtn.click();
+  await expect(toggle).toContainText(`SPORTSCOUT Pilot - ${sportName}`);
   await page.getByRole('button', { name: 'YouTube', exact: true }).click();
   await page.getByPlaceholder('YouTube URL...').fill('https://www.youtube.com/watch?v=kejGdB0Y2c4');
   await page.getByRole('button', { name: 'Load', exact: true }).click();

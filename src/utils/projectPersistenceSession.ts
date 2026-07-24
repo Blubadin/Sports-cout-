@@ -15,6 +15,10 @@ import {
 } from "./projectSyncChannel";
 
 const MAX_SAVE_ATTEMPTS = 3;
+const TRANSIENT_INDEXED_DB_ERROR_NAMES = new Set([
+  "AbortError",
+  "UnknownError",
+]);
 
 export type ProjectPersistenceRepository = {
   initializeWithRevision(
@@ -59,6 +63,14 @@ const defaultWait: ProjectPersistenceWait = (retryAttempt) =>
     setTimeout(resolve, retryAttempt * 100);
   });
 
+function isTransientIndexedDbError(error: unknown): boolean {
+  return (
+    typeof DOMException !== "undefined" &&
+    error instanceof DOMException &&
+    TRANSIENT_INDEXED_DB_ERROR_NAMES.has(error.name)
+  );
+}
+
 export function createProjectPersistenceSession({
   repository,
   saveQueue = createProjectSaveQueue(),
@@ -68,9 +80,18 @@ export function createProjectPersistenceSession({
 }: ProjectPersistenceSessionOptions): ProjectPersistenceSession {
   let currentRevision: number | undefined;
   let externalRevision: number | undefined;
+  let lastNotifiedExternalRevision: number | undefined;
   let closed = false;
 
   const notifyConflict = (conflict: ProjectRepositoryConflictError) => {
+    if (
+      lastNotifiedExternalRevision !== undefined &&
+      conflict.currentRevision <= lastNotifiedExternalRevision
+    ) {
+      return;
+    }
+    lastNotifiedExternalRevision = conflict.currentRevision;
+
     try {
       onConflict?.(conflict);
     } catch {
@@ -110,6 +131,15 @@ export function createProjectPersistenceSession({
 
   const unsubscribe = syncChannel.subscribe(handleExternalRevision);
 
+  const enqueueWhileOpen = <T>(callback: () => Promise<T>): Promise<T> => {
+    if (closed) {
+      return Promise.reject(
+        new Error("Project persistence session is closed"),
+      );
+    }
+    return saveQueue.enqueue(callback);
+  };
+
   const getBlockingConflict = () => {
     if (
       currentRevision === undefined ||
@@ -125,28 +155,27 @@ export function createProjectPersistenceSession({
   };
 
   return {
-    async initializeWithRevision(legacyProjects) {
-      const state = await repository.initializeWithRevision(legacyProjects);
-      currentRevision = state.revision;
+    initializeWithRevision(legacyProjects) {
+      return enqueueWhileOpen(async () => {
+        const state = await repository.initializeWithRevision(legacyProjects);
+        currentRevision = state.revision;
 
-      if (
-        externalRevision !== undefined &&
-        externalRevision <= currentRevision
-      ) {
-        externalRevision = undefined;
-      } else {
-        const conflict = getBlockingConflict();
-        if (conflict) notifyConflict(conflict);
-      }
+        if (
+          externalRevision !== undefined &&
+          externalRevision <= currentRevision
+        ) {
+          externalRevision = undefined;
+        } else {
+          const conflict = getBlockingConflict();
+          if (conflict) notifyConflict(conflict);
+        }
 
-      return state;
+        return state;
+      });
     },
 
     save(projects) {
-      return saveQueue.enqueue(async () => {
-        if (closed) {
-          throw new Error("Project persistence session is closed");
-        }
+      return enqueueWhileOpen(async () => {
         if (currentRevision === undefined) {
           throw new Error("Project persistence session is not initialized");
         }
@@ -175,7 +204,12 @@ export function createProjectPersistenceSession({
               markConflict(error);
               throw error;
             }
-            if (attempt === MAX_SAVE_ATTEMPTS) throw error;
+            if (
+              attempt === MAX_SAVE_ATTEMPTS ||
+              !isTransientIndexedDbError(error)
+            ) {
+              throw error;
+            }
 
             await wait(attempt, error);
             const retryConflict = getBlockingConflict();

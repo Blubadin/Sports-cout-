@@ -312,11 +312,11 @@ describe('createEventsExport', () => {
 });
 
 describe('createProjectsExport', () => {
-  it('includes the deployed app version without changing schema 1.1', async () => {
+  it('includes the deployed app version without changing schema 1.2', async () => {
     const { createProjectsExport } = await import('../../utils/scoutData');
     const envelope = createProjectsExport([]);
 
-    expect(envelope.schemaVersion).toBe('1.1');
+    expect(envelope.schemaVersion).toBe('1.2');
     expect(envelope.appVersion).toBe(SPORTSCOUT_APP_VERSION);
   });
 });
@@ -430,9 +430,9 @@ describe('buildDataQualityReport', () => {
     expect(drilldown.find(group => group.code === 'duplicate_event_id')?.eventNos).toEqual([1]);
   });
 
-  it('adds unified analytics metadata to JSON exports without changing schema 1.1', () => {
+  it('adds unified analytics metadata to JSON exports without changing schema 1.2', () => {
     const envelope = createEventsExport(createMockEventList(4));
-    expect(envelope.schemaVersion).toBe('1.1');
+    expect(envelope.schemaVersion).toBe('1.2');
     expect(envelope.analytics?.totalEvents).toBe(4);
     expect(envelope.analytics?.totalActions).toBe(4);
   });

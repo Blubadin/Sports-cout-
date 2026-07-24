@@ -2,9 +2,20 @@ import { expect, test } from '@playwright/test';
 
 async function openPilotWorkspace(page: import('@playwright/test').Page) {
   await page.goto('/');
-  await page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i }).click();
-  await page.getByTestId('workspace-menu-toggle').click();
-  await page.getByRole('button', { name: 'SPORTSCOUT Pilot - Volleyball', exact: true }).click();
+  const toggle = page.getByTestId('workspace-menu-toggle');
+  await expect(toggle).toBeEnabled({ timeout: 10_000 });
+  const canLoadPilot = await page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i }).count();
+  if (canLoadPilot) {
+    const pilotBtn = page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i });
+    await expect(pilotBtn).toBeEnabled();
+    await pilotBtn.click();
+    await expect(page.getByText(/เพิ่มโปรเจกต์ตัวอย่าง|Added.*samples/i)).toBeVisible();
+  }
+  await toggle.click();
+  const vballBtn = page.getByRole('button', { name: 'SPORTSCOUT Pilot - Volleyball', exact: true });
+  await expect(vballBtn).toBeVisible();
+  await vballBtn.click();
+  await expect(toggle).toContainText('SPORTSCOUT Pilot - Volleyball');
 }
 
 test('uses offline Noto typography and preserves native Tab navigation', async ({ page }) => {
@@ -29,9 +40,10 @@ test('switches analysis views with scoped Ctrl+Tab and arrow keys', async ({ pag
   await tabs.nth(0).focus();
   await page.keyboard.press('Control+Tab');
   await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(tabs.nth(1)).toBeFocused();
 
-  await tabs.nth(1).press('End');
-  await expect(tabs.nth(3)).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('End');
+  await expect(tabs.nth(3)).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
   await expect(tabs.nth(3)).toBeFocused();
 });
 

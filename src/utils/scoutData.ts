@@ -198,46 +198,47 @@ export function deriveEventResultText(actions: Action[]): EventRow["resultText"]
   return "0";
 }
 
+import { decodeEventRow } from "./eventDecoder";
+
 export function sanitizeEvents(eventsList: unknown[], fallbackSportType: SportType = "volleyball"): EventRow[] {
   if (!Array.isArray(eventsList)) return [];
   const seenEventIds = new Set<string>();
 
   return eventsList.map((row: any, index) => {
-    const nextRow: EventRow = {
-      ...row,
-      id: typeof row?.id === "string" && row.id ? row.id : createScoutId(`event-${index}`),
-      no: typeof row?.no === "number" ? row.no : index + 1,
-      point: typeof row?.point === "number" ? row.point : index + 1,
-      sportType: getValidSportType(row?.sportType, fallbackSportType),
-      actions: [],
-      eventText: typeof row?.eventText === "string" ? row.eventText : "",
-      resultText: row?.resultText === "+1" || row?.resultText === "-1" || row?.resultText === "0" ? row.resultText : "0",
-      createdAt: typeof row?.createdAt === "string" ? row.createdAt : new Date().toISOString(),
-      note: sanitizeUserText(row?.note, 2000) || undefined,
-      bookmarkNote: sanitizeUserText(row?.bookmarkNote, 1000) || undefined,
-      localFileName: sanitizeUserText(row?.localFileName, 255) || undefined,
-    };
+    if (row && typeof row === 'object' && !Array.isArray(row.actions) && typeof row.eventText === 'string') {
+      row.actions = parseLegacyActions(row.eventText, index);
+    }
+
+    const { event: nextRow } = decodeEventRow(row);
+
+    if (!nextRow.sportType) {
+      nextRow.sportType = fallbackSportType;
+    }
+
+    if (typeof row?.no !== "number") nextRow.no = index + 1;
+    if (typeof row?.point !== "number") nextRow.point = index + 1;
 
     if (/^\d+$/.test(nextRow.id) || seenEventIds.has(nextRow.id)) {
       nextRow.id = createScoutId(`${nextRow.id || "event"}-${index}`);
     }
     seenEventIds.add(nextRow.id);
 
-    const rawActions = Array.isArray(row?.actions) ? row.actions : parseLegacyActions(row?.eventText, index);
     const seenActionIds = new Set<string>();
-    nextRow.actions = rawActions.map((action: any, actionIndex: number) => {
-      const nextAction: Action = {
-        ...action,
-        id: typeof action?.id === "string" && action.id ? action.id : createScoutId(`action-${index}-${actionIndex}`),
-        playerName: sanitizeUserText(action?.playerName, 120) || undefined,
-        playerNumber: sanitizeUserText(action?.playerNumber, 20) || undefined,
-      };
+    nextRow.actions = (nextRow.actions || []).map((action, actionIndex) => {
+      const nextAction = { ...action };
+      nextAction.playerName = sanitizeUserText(nextAction.playerName, 120) || undefined;
+      nextAction.playerNumber = sanitizeUserText(nextAction.playerNumber, 20) || undefined;
+
       if (/^\d+$/.test(String(nextAction.id)) || seenActionIds.has(String(nextAction.id))) {
         nextAction.id = createScoutId(`${nextAction.id || "action"}-${actionIndex}`);
       }
       seenActionIds.add(String(nextAction.id));
       return nextAction;
     });
+
+    nextRow.note = sanitizeUserText(nextRow.note, 2000) || undefined;
+    nextRow.bookmarkNote = sanitizeUserText(nextRow.bookmarkNote, 1000) || undefined;
+    nextRow.localFileName = sanitizeUserText(nextRow.localFileName, 255) || undefined;
 
     if (!nextRow.eventText && nextRow.actions.length > 0) {
       const template = getTemplateForEvent(nextRow);

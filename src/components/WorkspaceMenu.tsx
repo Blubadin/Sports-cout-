@@ -145,8 +145,9 @@ export default function WorkspaceMenu() {
       <div className="flex items-center gap-1.5">
         <button
           onClick={() => setIsOpen(!isOpen)}
+          disabled={!repositoryReady}
           data-testid="workspace-menu-toggle"
-          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors shadow-sm active:scale-95"
+          className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Folder size={18} className="text-sky-500 shrink-0" />
           <span className="text-sm font-bold text-gray-700 dark:text-gray-200 truncate max-w-[130px] sm:max-w-[240px]">
@@ -175,7 +176,8 @@ export default function WorkspaceMenu() {
         
         <button
           onClick={openCreateModal}
-          className="p-1.5 sm:p-2 bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400 rounded-lg hover:bg-sky-200 dark:hover:bg-sky-800/60 transition-colors shadow-sm active:scale-95"
+          disabled={!repositoryReady}
+          className="p-1.5 sm:p-2 bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400 rounded-lg hover:bg-sky-200 dark:hover:bg-sky-800/60 transition-colors shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           title="New Scout Project"
         >
           <Plus size={20} />
@@ -195,7 +197,10 @@ export default function WorkspaceMenu() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute top-full right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[70vh] origin-top-right"
+            className={classNames(
+              "absolute top-full right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[70vh] origin-top-right",
+              !isOpen && "pointer-events-none"
+            )}
           >
             <div className="p-3 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">

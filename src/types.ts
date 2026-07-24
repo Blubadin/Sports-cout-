@@ -141,6 +141,47 @@ export type SportTemplate = {
   fouls?: FoulOption[];
 };
 
+export type VolleyballDomainPayload = {
+  type: 'volleyball';
+  rotation?: 1 | 2 | 3 | 4 | 5 | 6;
+  server?: 'teamA' | 'teamB';
+  rallyPhase?: 'serve' | 'reception' | 'set' | 'attack' | 'block' | 'dig';
+  attackGrade?: string;
+  receptionGrade?: string;
+};
+
+export type FootballDomainPayload = {
+  type: 'football';
+  possessionTeam?: string;
+  phase?: 'build_up' | 'attack' | 'transition' | 'set_piece' | 'dead_ball';
+  startCoord?: { x: number; y: number };
+  endCoord?: { x: number; y: number };
+  passSequenceIndex?: number;
+};
+
+export type BadmintonDomainPayload = {
+  type: 'badminton';
+  strokeType?: string;
+  contactZone?: string;
+  landingZone?: string;
+  rallyStrokeIndex?: number;
+};
+
+export type BasketballDomainPayload = {
+  type: 'basketball';
+  possessionTeam?: string;
+  shotClockRemaining?: number;
+  periodType?: string;
+  pointValue?: 1 | 2 | 3;
+  reboundType?: 'offensive' | 'defensive';
+};
+
+export type SportDomainPayload =
+  | VolleyballDomainPayload
+  | FootballDomainPayload
+  | BadmintonDomainPayload
+  | BasketballDomainPayload;
+
 export type Action = {
   id?: string;
   teamCode?: string;
@@ -168,6 +209,10 @@ export type Action = {
   videoTimeEnd?: number;
   duration?: number;
   realTime?: number;
+  outcomeStatus?: 'success' | 'error' | 'neutral' | 'continued';
+  scoreDelta?: number;
+  actionCategory?: 'attack' | 'defense' | 'transition' | 'set_piece' | 'violation';
+  domainPayload?: SportDomainPayload;
 };
 
 export type EventRow = {
@@ -199,6 +244,10 @@ export type EventRow = {
   sportType?: SportType;
   note?: string;
   createdAt: string;
+  scoreDelta?: number;
+  outcomeStatus?: 'success' | 'error' | 'neutral' | 'continued';
+  rallyId?: string;
+  phaseType?: string;
 };
 
 export type MatchInfo = {

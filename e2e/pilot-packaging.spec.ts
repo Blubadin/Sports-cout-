@@ -5,19 +5,31 @@ const sampleSports = ['Volleyball', 'Football', 'Badminton', 'Basketball'];
 test('opens all four pilot sports and keeps Controller V1 opt-in', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: 'ยังไม่มีโครงการ' })).toBeVisible();
-  await page.getByRole('button', { name: 'โหลดตัวอย่าง Pilot ครบ 4 กีฬา' }).click();
-  await page.getByTestId('workspace-menu-toggle').click();
+  const toggle = page.getByTestId('workspace-menu-toggle');
+  await expect(toggle).toBeEnabled({ timeout: 10_000 });
+  const canLoadPilot = await page.getByRole('button', { name: 'โหลดตัวอย่าง Pilot ครบ 4 กีฬา' }).count();
+  if (canLoadPilot) {
+    await expect(page.getByRole('heading', { name: 'ยังไม่มีโครงการ' })).toBeVisible();
+    await page.getByRole('button', { name: 'โหลดตัวอย่าง Pilot ครบ 4 กีฬา' }).click();
+    await expect(page.getByText(/เพิ่มโปรเจกต์ตัวอย่าง|Added.*samples/i)).toBeVisible();
+  }
+  await toggle.click();
 
   for (const sport of sampleSports) {
     const projectName = `SPORTSCOUT Pilot - ${sport}`;
+    const isToggleMenuOpen = await page.getByText(/คลังโครงการ|Workspace Library/i).isVisible();
+    if (!isToggleMenuOpen) {
+      await toggle.click();
+    }
     await expect(page.getByRole('button', { name: projectName, exact: true })).toBeVisible();
     await page.getByRole('button', { name: projectName, exact: true }).click();
     await expect(page.getByRole('tab', { name: 'แผงบันทึก (Scout)' })).toBeVisible();
     await expect(page.getByTestId('workspace-menu-toggle')).toContainText(projectName);
 
     const courtSurface = page.locator(`[data-sport-surface="${sport.toLowerCase()}"]`);
-    await expect(courtSurface).toBeVisible();
+    // Vite compiles the lazy VideoPlayer/InputPanel chunks on first use in the
+    // development server, which can exceed the default 5s under parallel E2E load.
+    await expect(courtSurface).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('court-team-near')).toBeVisible();
     await expect(page.getByTestId('court-team-far')).toBeVisible();
     expect(await courtSurface.evaluate((element) => {

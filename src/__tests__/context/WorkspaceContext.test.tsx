@@ -6,7 +6,10 @@ import {
   WorkspaceProvider,
   useWorkspace,
 } from "../../context/WorkspaceContext";
-import { ProjectRepositoryConflictError } from "../../utils/projectRepository";
+import {
+  ProjectRepositoryConflictError,
+  type ProjectRepositoryState,
+} from "../../utils/projectRepository";
 
 const persistence = vi.hoisted(() => {
   const repository = {
@@ -73,6 +76,54 @@ function savedEnvelope(projects: ScoutProject[], revision = 2) {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function interceptProjectAutosaveTimers() {
+  const pending = new Map<number, () => void>();
+  const nativeSetTimeout = window.setTimeout.bind(window);
+  const nativeClearTimeout = window.clearTimeout.bind(window);
+  let nextTimerId = 100_000;
+
+  const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(
+    ((handler: TimerHandler, timeout?: number, ...args: any[]) => {
+      if (timeout === 250 && typeof handler === "function") {
+        const timerId = nextTimerId;
+        nextTimerId += 1;
+        pending.set(timerId, () => handler(...args));
+        return timerId;
+      }
+      return nativeSetTimeout(handler, timeout, ...args);
+    }) as typeof window.setTimeout,
+  );
+  const clearTimeoutSpy = vi.spyOn(window, "clearTimeout").mockImplementation(
+    (timerId) => {
+      if (pending.delete(Number(timerId))) return;
+      nativeClearTimeout(timerId);
+    },
+  );
+
+  return {
+    fireAll() {
+      const callbacks = [...pending.values()];
+      pending.clear();
+      callbacks.forEach((callback) => callback());
+    },
+    get pendingCount() {
+      return pending.size;
+    },
+    restore() {
+      clearTimeoutSpy.mockRestore();
+      setTimeoutSpy.mockRestore();
+    },
+  };
+}
+
 let workspace: ReturnType<typeof useWorkspace> | undefined;
 let scout: ReturnType<typeof useScoutContext> | undefined;
 
@@ -82,12 +133,19 @@ function ContextProbe() {
   return null;
 }
 
-function renderWorkspace(initialProjects: ScoutProject[]) {
+function renderWorkspace(
+  initialProjects: ScoutProject[],
+  initialization?: Promise<ProjectRepositoryState>,
+) {
   persistence.repository.initialize.mockResolvedValue(initialProjects);
-  persistence.session.initializeWithRevision.mockResolvedValue({
-    projects: initialProjects,
-    revision: 1,
-  });
+  if (initialization) {
+    persistence.session.initializeWithRevision.mockReturnValue(initialization);
+  } else {
+    persistence.session.initializeWithRevision.mockResolvedValue({
+      projects: initialProjects,
+      revision: 1,
+    });
+  }
 
   const rendered = render(
     <ScoutProvider>
@@ -130,7 +188,7 @@ afterEach(() => {
 });
 
 describe("WorkspaceProvider persistence integration", () => {
-  it("initializes from the persistence session revision state and closes it on cleanup", async () => {
+  it("initializes from the persistence session revision state and drains before closing on cleanup", async () => {
     const legacyProjects = [createProject("legacy")];
     const storedProjects = [createProject("stored")];
     window.localStorage.setItem("scout_projects", JSON.stringify(legacyProjects));
@@ -149,7 +207,11 @@ describe("WorkspaceProvider persistence integration", () => {
     expect(workspace?.projects.map((project) => project.id)).toEqual(["stored"]);
 
     rendered.unmount();
-    expect(persistence.session.close).toHaveBeenCalledOnce();
+    await waitFor(() => expect(persistence.session.drain).toHaveBeenCalledOnce());
+    await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+    expect(persistence.session.drain.mock.invocationCallOrder[0]).toBeLessThan(
+      persistence.session.close.mock.invocationCallOrder[0],
+    );
   });
 
   it("routes flush saves through the session and exposes saving then saved status", async () => {
@@ -171,8 +233,8 @@ describe("WorkspaceProvider persistence integration", () => {
       flush = workspace?.flushPendingSaves();
     });
 
-    expect(persistence.session.save).toHaveBeenCalledOnce();
-    expect(workspace?.saveStatus).toBe("saving");
+    await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+    await waitFor(() => expect(workspace?.saveStatus).toBe("saving"));
 
     releaseSave?.(savedEnvelope(initialProjects));
     await act(async () => {
@@ -229,7 +291,7 @@ describe("WorkspaceProvider persistence integration", () => {
       workspace?.createNewProject("New project", "volleyball");
     });
 
-    expect(persistence.session.save).toHaveBeenCalledOnce();
+    await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
     expect(workspace?.projects).toHaveLength(1);
     expect(workspace?.activeProjectId).toBe("current");
 
@@ -278,7 +340,7 @@ describe("WorkspaceProvider persistence integration", () => {
 
     await rendered.ready();
 
-    expect(persistence.session.save).toHaveBeenCalledOnce();
+    await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
     expect(persistence.session.save.mock.calls[0]?.[0]).toMatchObject([
       {
         title: "Recovered Scout",
@@ -307,7 +369,7 @@ describe("WorkspaceProvider persistence integration", () => {
       workspace?.openProject("next");
     });
 
-    expect(persistence.session.save).toHaveBeenCalledOnce();
+    await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
     expect(workspace?.activeProjectId).toBe("current");
 
     releaseSave?.(savedEnvelope(initialProjects));
@@ -333,12 +395,344 @@ describe("WorkspaceProvider persistence integration", () => {
       workspace?.deleteProject("delete");
     });
 
-    expect(persistence.session.save).toHaveBeenCalledOnce();
+    await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
     expect(workspace?.projects).toHaveLength(2);
 
     releaseSave?.(savedEnvelope([initialProjects[0]]));
     await waitFor(() => expect(workspace?.projects).toHaveLength(1));
     expect(workspace?.projects[0]?.id).toBe("current");
     rendered.unmount();
+  });
+
+  it("does not let a pending project autosave restore a deleted project", async () => {
+    const autosaveTimers = interceptProjectAutosaveTimers();
+    const initialProjects = [createProject("current"), createProject("delete")];
+    const deleteSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+      await waitFor(() => expect(autosaveTimers.pendingCount).toBeGreaterThan(0));
+      persistence.session.save.mockImplementationOnce(() => deleteSave.promise);
+
+      act(() => {
+        workspace?.deleteProject("delete");
+      });
+      await waitFor(() =>
+        expect(persistence.session.save).toHaveBeenCalledOnce(),
+      );
+
+      act(() => {
+        workspace?.renameProject("current", "Latest current");
+      });
+      await waitFor(() => expect(autosaveTimers.pendingCount).toBeGreaterThan(0));
+
+      act(() => {
+        autosaveTimers.fireAll();
+      });
+      expect(persistence.session.save).toHaveBeenCalledOnce();
+
+      deleteSave.resolve(savedEnvelope([initialProjects[0]]));
+      await waitFor(() =>
+        expect(persistence.session.save).toHaveBeenCalledTimes(2),
+      );
+      expect(
+        persistence.session.save.mock.calls.map(([projects]) =>
+          projects.map((project: ScoutProject) => project.id),
+        ),
+      ).toEqual([["current"], ["current"]]);
+
+      await waitFor(() =>
+        expect(workspace?.projects.map((project) => project.id)).toEqual([
+          "current",
+        ]),
+      );
+    } finally {
+      deleteSave.resolve(savedEnvelope([initialProjects[0]]));
+      rendered.unmount();
+      autosaveTimers.restore();
+    }
+  });
+
+  it("serializes rapid deletes so each deletion uses the latest projects", async () => {
+    const autosaveTimers = interceptProjectAutosaveTimers();
+    const initialProjects = [
+      createProject("current"),
+      createProject("delete-first"),
+      createProject("delete-second"),
+    ];
+    const firstDeleteSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+      persistence.session.save.mockImplementationOnce(
+        () => firstDeleteSave.promise,
+      );
+
+      act(() => {
+        workspace?.deleteProject("delete-first");
+        workspace?.deleteProject("delete-second");
+      });
+
+      await waitFor(() =>
+        expect(persistence.session.save).toHaveBeenCalledOnce(),
+      );
+
+      firstDeleteSave.resolve(
+        savedEnvelope([
+          initialProjects[0],
+          initialProjects[2],
+        ]),
+      );
+      await waitFor(() =>
+        expect(persistence.session.save).toHaveBeenCalledTimes(2),
+      );
+      await waitFor(() =>
+        expect(workspace?.projects.map((project) => project.id)).toEqual([
+          "current",
+        ]),
+      );
+      expect(
+        persistence.session.save.mock.calls.map(([projects]) =>
+          projects.map((project: ScoutProject) => project.id),
+        ),
+      ).toEqual([
+        ["current", "delete-second"],
+        ["current"],
+      ]);
+    } finally {
+      firstDeleteSave.resolve(savedEnvelope(initialProjects));
+      rendered.unmount();
+      autosaveTimers.restore();
+    }
+  });
+
+  it("waits for transition and session queues before closing during cleanup", async () => {
+    const initialProjects = [createProject("current")];
+    const queuedSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const sessionDrain = createDeferred<void>();
+    const rendered = renderWorkspace(initialProjects);
+    await rendered.ready();
+    await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+    persistence.session.save.mockImplementationOnce(() => queuedSave.promise);
+    persistence.session.drain.mockReturnValueOnce(sessionDrain.promise);
+
+    let flush: Promise<void> | undefined;
+    try {
+      act(() => {
+        flush = workspace?.flushPendingSaves();
+      });
+      await waitFor(() =>
+        expect(persistence.session.save).toHaveBeenCalledOnce(),
+      );
+
+      rendered.unmount();
+      expect(persistence.session.close).not.toHaveBeenCalled();
+
+      queuedSave.resolve(savedEnvelope(initialProjects));
+      await act(async () => {
+        await flush;
+      });
+      await waitFor(() => expect(persistence.session.drain).toHaveBeenCalledOnce());
+      expect(persistence.session.close).not.toHaveBeenCalled();
+
+      sessionDrain.resolve();
+      await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+    } finally {
+      queuedSave.resolve(savedEnvelope(initialProjects));
+      sessionDrain.resolve();
+    }
+  });
+
+  it("rejects project creation before repository initialization preserves stored projects", async () => {
+    const storedProjects = [createProject("stored")];
+    const initialization = createDeferred<ProjectRepositoryState>();
+    const rendered = renderWorkspace(storedProjects, initialization.promise);
+
+    act(() => {
+      workspace?.createNewProject("Too early", "volleyball");
+    });
+    expect(workspace?.projects).toEqual([]);
+
+    initialization.resolve({ projects: storedProjects, revision: 1 });
+    await rendered.ready();
+    expect(workspace?.projects.map((project) => project.id)).toEqual(["stored"]);
+    rendered.unmount();
+  });
+
+  it("rejects project import before repository initialization preserves stored projects", async () => {
+    const storedProjects = [createProject("stored")];
+    const initialization = createDeferred<ProjectRepositoryState>();
+    const rendered = renderWorkspace(storedProjects, initialization.promise);
+    let imported: boolean | undefined;
+
+    act(() => {
+      imported = workspace?.importProject(createProject("too-early"));
+    });
+    expect(imported).toBe(false);
+  });
+
+  it("Test 1: import into empty workspace survives immediate flush before debounce", async () => {
+    const rendered = renderWorkspace([]);
+    await rendered.ready();
+
+    act(() => {
+      workspace?.importProject(createProject("imported-1"));
+      workspace?.flushPendingSaves();
+    });
+
+    await waitFor(() => expect(persistence.session.save).toHaveBeenCalled());
+    const savedCalls = persistence.session.save.mock.calls;
+    const lastSavedProjects = savedCalls[savedCalls.length - 1][0];
+    expect(lastSavedProjects.some((p: ScoutProject) => p.title.includes("imported-1"))).toBe(true);
+  });
+
+  it("Test 2: create project survives unmount while project loading state is true", async () => {
+    const rendered = renderWorkspace([]);
+    await rendered.ready();
+
+    act(() => {
+      workspace?.createNewProject("Fresh Project", "volleyball");
+    });
+
+    rendered.unmount();
+
+    await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+    const savedCalls = persistence.session.save.mock.calls;
+    const allSavedProjects = savedCalls.flatMap(([projects]) => projects);
+    expect(allSavedProjects.some((p: ScoutProject) => p.title === "Fresh Project")).toBe(true);
+  });
+
+  it("Test 3: cleanup persists pending rename before closing session", async () => {
+    const autosaveTimers = interceptProjectAutosaveTimers();
+    const initialProjects = [createProject("proj-1")];
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      act(() => {
+        workspace?.renameProject("proj-1", "Renamed Project Title");
+      });
+
+      rendered.unmount();
+
+      await waitFor(() => expect(persistence.session.drain).toHaveBeenCalledOnce());
+      await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+
+      const savedCalls = persistence.session.save.mock.calls;
+      const lastSavedProjects = savedCalls[savedCalls.length - 1][0];
+      expect(lastSavedProjects[0]?.title).toBe("Renamed Project Title");
+    } finally {
+      autosaveTimers.restore();
+    }
+  });
+
+  it("Test 4: cleanup persists pending duplicate and import before closing session", async () => {
+    const autosaveTimers = interceptProjectAutosaveTimers();
+    const initialProjects = [createProject("proj-1")];
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      act(() => {
+        workspace?.duplicateProject("proj-1");
+        workspace?.importProject(createProject("imported-2"));
+      });
+
+      rendered.unmount();
+
+      await waitFor(() => expect(persistence.session.drain).toHaveBeenCalledOnce());
+      await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+
+      const savedCalls = persistence.session.save.mock.calls;
+      const lastSavedProjects = savedCalls[savedCalls.length - 1][0];
+      expect(lastSavedProjects).toHaveLength(3);
+    } finally {
+      autosaveTimers.restore();
+    }
+  });
+
+  it("Test 5: slow delete does not lose concurrent rename", async () => {
+    const autosaveTimers = interceptProjectAutosaveTimers();
+    const initialProjects = [createProject("A"), createProject("B")];
+    const deleteSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      persistence.session.save.mockImplementationOnce(() => deleteSave.promise);
+
+      act(() => {
+        workspace?.deleteProject("B");
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+
+      act(() => {
+        workspace?.renameProject("A", "Renamed A");
+      });
+
+      deleteSave.resolve(savedEnvelope([initialProjects[0]]));
+
+      await waitFor(() => expect(workspace?.projects.map((p) => p.id)).toEqual(["A"]));
+      await waitFor(() => expect(workspace?.projects[0]?.title).toBe("Renamed A"));
+
+      act(() => {
+        autosaveTimers.fireAll();
+      });
+
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
+      const savedCalls = persistence.session.save.mock.calls;
+      const finalSaveProjects = savedCalls[savedCalls.length - 1][0];
+      expect(finalSaveProjects.find((p: ScoutProject) => p.id === "A")?.title).toBe("Renamed A");
+    } finally {
+      deleteSave.resolve(savedEnvelope(initialProjects));
+      autosaveTimers.restore();
+      rendered.unmount();
+    }
+  });
+
+  it("Test 6: slow delete does not lose concurrent import or video-time update", async () => {
+    const autosaveTimers = interceptProjectAutosaveTimers();
+    const initialProjects = [createProject("A"), createProject("B")];
+    const deleteSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      persistence.session.save.mockImplementationOnce(() => deleteSave.promise);
+
+      act(() => {
+        workspace?.deleteProject("B");
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+
+      const importedC = createProject("C");
+      act(() => {
+        workspace?.importProject(importedC);
+        workspace?.updateProjectLastVideoTime(42.5);
+      });
+
+      deleteSave.resolve(savedEnvelope([initialProjects[0]]));
+
+      await waitFor(() => expect(workspace?.projects.map((p) => p.id)).toContain("C"));
+      expect(workspace?.projects.find((p) => p.id === "A")?.videoMeta?.lastVideoTime).toBe(42.5);
+
+      act(() => {
+        autosaveTimers.fireAll();
+      });
+
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
+      const savedCalls = persistence.session.save.mock.calls;
+      const finalSaved = savedCalls[savedCalls.length - 1][0];
+      expect(finalSaved.some((p: ScoutProject) => p.id === "C")).toBe(true);
+      expect(finalSaved.find((p: ScoutProject) => p.id === "A")?.videoMeta?.lastVideoTime).toBe(42.5);
+    } finally {
+      deleteSave.resolve(savedEnvelope(initialProjects));
+      autosaveTimers.restore();
+      rendered.unmount();
+    }
   });
 });

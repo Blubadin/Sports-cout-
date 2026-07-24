@@ -59,7 +59,7 @@ describe("projectRepository", () => {
     expect(projects).toEqual([legacyProject]);
     expect(values.get(PROJECTS_BACKUP_KEY)).toEqual([legacyProject]);
     expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
-      schemaVersion: "1.1",
+      schemaVersion: "1.2",
       projects: [legacyProject],
     });
   });
@@ -69,7 +69,7 @@ describe("projectRepository", () => {
     const staleProject = createMockProject({ id: "stale-project" });
     const { adapter } = createMemoryAdapter({
       [PROJECTS_REPOSITORY_KEY]: {
-        schemaVersion: "1.1",
+        schemaVersion: "1.2",
         updatedAt: new Date().toISOString(),
         projects: [storedProject],
       },
@@ -83,7 +83,7 @@ describe("projectRepository", () => {
   it("reports revision zero when initializing from a legacy envelope", async () => {
     const storedProject = createMockProject({ id: "stored-project" });
     const storedEnvelope = {
-      schemaVersion: "1.1",
+      schemaVersion: "1.2",
       updatedAt: "2026-01-01T00:00:00.000Z",
       projects: [storedProject],
     };
@@ -102,7 +102,7 @@ describe("projectRepository", () => {
   it("preserves the stored revision when initializing repository state", async () => {
     const storedProject = createMockProject({ id: "stored-project" });
     const storedEnvelope = {
-      schemaVersion: "1.1",
+      schemaVersion: "1.2",
       revision: 7,
       updatedAt: "2026-01-01T00:00:00.000Z",
       projects: [storedProject],
@@ -127,7 +127,7 @@ describe("projectRepository", () => {
     const saved = await repository.save([project] as ScoutProject[]);
 
     expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
-      schemaVersion: "1.1",
+      schemaVersion: "1.2",
       revision: 1,
       projects: [project],
     });
@@ -139,7 +139,7 @@ describe("projectRepository", () => {
     const nextProject = createMockProject({ id: "next-project" });
     const { adapter } = createMemoryAdapter({
       [PROJECTS_REPOSITORY_KEY]: {
-        schemaVersion: "1.1",
+        schemaVersion: "1.2",
         updatedAt: "2026-01-01T00:00:00.000Z",
         projects: [existingProject],
       },
@@ -155,7 +155,7 @@ describe("projectRepository", () => {
     const storedProject = createMockProject({ id: "stored-project" });
     const staleProject = createMockProject({ id: "stale-project" });
     const storedEnvelope = {
-      schemaVersion: "1.1",
+      schemaVersion: "1.2",
       revision: 3,
       updatedAt: "2026-01-01T00:00:00.000Z",
       projects: [storedProject],

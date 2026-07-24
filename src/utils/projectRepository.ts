@@ -5,11 +5,11 @@ import {
 } from "./projectWriteCoordinator";
 import type { StorageAdapter } from "./storageAdapter";
 
-export const PROJECTS_REPOSITORY_KEY = "scout-projects:v1.1";
+export const PROJECTS_REPOSITORY_KEY = "scout-projects:v1.2";
 export const PROJECTS_BACKUP_KEY = "scout-projects:legacy-backup";
 
 export type ProjectRepositoryEnvelope = {
-  schemaVersion: "1.1";
+  schemaVersion: "1.2";
   revision?: number;
   updatedAt: string;
   projects: ScoutProject[];
@@ -64,7 +64,7 @@ const createEnvelope = (
   projects: ScoutProject[],
   revision = 0,
 ): SavedProjectRepositoryEnvelope => ({
-  schemaVersion: "1.1",
+  schemaVersion: "1.2",
   revision,
   updatedAt: new Date().toISOString(),
   projects,

@@ -120,9 +120,9 @@ export const SPORT_TEMPLATES: Record<string, SportTemplate> = {
       },
       detailed: {
         type: 'grid',
-        resolution: '4x6',
-        rows: 4,
-        cols: 6,
+        resolution: '5x3',
+        rows: 3,
+        cols: 5,
       },
       point: {
         type: 'point',
