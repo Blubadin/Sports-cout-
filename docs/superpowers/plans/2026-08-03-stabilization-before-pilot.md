@@ -726,3 +726,19 @@ Create a review package from the branch merge base through current `HEAD`, then 
 - [ ] Add RED coverage: edit the active project's live state, reject a project switch save, unmount before the 800ms retry, and assert cleanup persistence contains the live edit.
 - [ ] On cleanup, cancel timers but construct the final candidate with `snapshotCurrentProjectRef(projectsRef.current)` before saving; keep refs/selection atomic and avoid duplicate/stale writes.
 - [ ] Run focused context tests and lint; commit as `fix: flush live snapshot during workspace cleanup`.
+
+### Task 16: Reject duplicate IDs while initializing canonical v1.2 data
+
+**Files:** `src/utils/projectRepository.ts`, `src/__tests__/utils/projectRepository.test.ts`
+
+- [ ] Add RED coverage for a structurally complete v1.2 envelope containing duplicate project IDs alongside a valid v1.1 recovery source.
+- [ ] Make v1.2 envelope acceptance require unique project IDs, using the same identity invariant enforced before save. A valid empty v1.2 remains canonical.
+- [ ] Run repository tests and lint; commit as `fix: reject duplicate project ids during initialization`.
+
+### Task 17: Preserve active-project edits accepted while a switch/create save is in flight
+
+**Files:** `src/context/WorkspaceContext.tsx`, `src/__tests__/context/WorkspaceContext.test.tsx`
+
+- [ ] Add delayed-save RED cases for `openProject` and `createNewProject`: after the old snapshot save begins, edit the still-active project, then resolve the old save. The later edit must be durably flushed before switching/loading the next project.
+- [ ] Before committing a project-changing operation after awaited persistence, detect a newer pending live generation for the operation's original owner. Persist/flush that newer snapshot in FIFO order, or abort/defer the switch until it is durable. Never cancel a newer accepted edit by loading the next project.
+- [ ] Run focused context tests and lint; commit as `fix: flush edits accepted during project transitions`.
