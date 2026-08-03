@@ -1,43 +1,66 @@
-# Task 1: Complete Checkpoint 5-6
+### Task 1: Repair the accidental commit and preserve a clean worktree boundary
 
-## Goal
-Finish the existing uncommitted Pro HUD Area and Workstation Inspector WIP without changing scouting data behavior.
+**Files:**
+- Modify: `src/components/VideoPlayer.tsx` (restore exactly to `799eab0^`)
+- Modify: `docs/superpowers/specs/2026-08-03-sportscout-stabilization-design.md:3` (remove Markdown trailing whitespace)
+- Create: `docs/superpowers/plans/2026-08-03-stabilization-before-pilot.md`
 
-## Existing WIP
-- `src/components/hud/ProAreaCommandPad.tsx`
-- `src/utils/proAreaLayout.ts`
-- `src/__tests__/utils/proAreaLayout.test.ts`
-- `e2e/hud-area.spec.ts`
-- `src/components/workstation/WorkstationInspector.tsx`
-- `src/App.tsx`
-- `src/index.css`
-- `e2e/workstation.spec.ts`
+**Interfaces:**
+- Consumes: `799eab0^:src/components/VideoPlayer.tsx`, the last known good calibration UI.
+- Produces: a follow-up commit that removes only the unintended staged VideoPlayer refactor while retaining the stabilization design.
 
-## Requirements
-1. Pro HUD area/out-zone controls stay inside the court pad for Volleyball, Football, Badminton, and Basketball.
-2. `proAreaLayout` must be used by production rendering as the shared out-zone layout contract, not only by tests. Keep existing saved `outZone` values backward compatible.
-3. Preserve hold `W`, pointer aim, release, Escape cancel, keyboard/gamepad commands, flip-court semantics, and minimum 44px interactive targets.
-4. Workstation Inspector reads `currentAction`, validation, and video time from existing `ScoutContext`; it must not create parallel state or validation logic.
-5. Inspector copy must work in Thai and English, expose status without relying on color alone, and avoid overflow.
-6. Inspector is visible only in Workstation at widths >=1280px. At 1024-1279 Workstation remains 7/5; Classic and phone layouts remain unchanged.
-7. Add focused unit/E2E coverage for empty/incomplete/valid Inspector states, TH/EN copy, responsive visibility, and four-sport HUD area bounds.
-8. Do not change `Action`, `EventRow`, export schema, storage, analytics, or controller command behavior.
+- [ ] **Step 1: Capture the exact repair baseline**
 
-## Validation
-Run focused tests first, then:
+Run:
 
 ```powershell
-npm.cmd run lint
-npm.cmd test
-npm.cmd run check-icons
-npm.cmd run build
-npx.cmd playwright test
+$git = 'C:\Users\Sport-Science-R3909\AppData\Local\GitHubDesktop\app-3.6.3\resources\app\git\cmd\git.exe'
+& $git -C . status --short --branch
+& $git -C . show --stat --oneline 799eab0
+& $git -C . diff 799eab0^ 799eab0 -- src/components/VideoPlayer.tsx
 ```
 
-Check rendered Workstation at 1366x768 and 1920x1080 for unintended horizontal overflow.
+Expected: `799eab0` contains the plan document and the unintended `VideoPlayer.tsx` change; other current worktree modifications remain unstaged.
 
-## Working Rules
-- Follow TDD for missing behavior.
-- Work with existing edits and do not revert unrelated changes.
-- Do not commit; the coordinating agent will review and commit.
-- Write the completion report to `.superpowers/sdd/task-1-report.md`.
+- [ ] **Step 2: Restore only the unintended VideoPlayer content**
+
+Run:
+
+```powershell
+& $git -C . restore --source=799eab0^ --staged --worktree -- src/components/VideoPlayer.tsx
+```
+
+Expected: calibration UI imports, state, and `CourtZoneOverlay` caller match the parent revision; unrelated `App`, `Dashboard`, `CourtZoneOverlay`, and workstation edits remain unchanged.
+
+- [ ] **Step 3: Correct the design-document whitespace**
+
+Change the metadata line to exactly:
+
+```markdown
+Date: 2026-08-03
+```
+
+Do not use trailing spaces for Markdown line breaks in tracked project files.
+
+- [ ] **Step 4: Verify the repair before commit**
+
+Run:
+
+```powershell
+& $git -C . add docs/superpowers/specs/2026-08-03-sportscout-stabilization-design.md
+& $git -C . diff --check --cached
+& $git -C . diff --cached -- src/components/VideoPlayer.tsx docs/superpowers/specs/2026-08-03-sportscout-stabilization-design.md
+npm.cmd test -- src/__tests__/utils/courtHomography.test.ts
+```
+
+Expected: the staged diff reverts only the accidental VideoPlayer change plus the design-document whitespace; homography tests pass.
+
+- [ ] **Step 5: Commit the repair only**
+
+```powershell
+& $git -C . add src/components/VideoPlayer.tsx docs/superpowers/specs/2026-08-03-sportscout-stabilization-design.md
+& $git -C . commit -m 'fix: restore court calibration player integration'
+```
+
+Expected: one follow-up commit; all pre-existing uncommitted report/workstation/spike files remain uncommitted.
+

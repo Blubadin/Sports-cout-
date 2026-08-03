@@ -72,6 +72,9 @@ const isScoutProject = (value: unknown): value is ScoutProject =>
 const normalizeProjects = (value: unknown): ScoutProject[] =>
   Array.isArray(value) ? value.filter(isScoutProject) : [];
 
+const hasUniqueProjectIds = (projects: readonly ScoutProject[]): boolean =>
+  new Set(projects.map(project => project.id)).size === projects.length;
+
 const isV12Envelope = (
   value: unknown,
 ): value is Partial<ProjectRepositoryEnvelope> & { projects: unknown[] } =>
@@ -83,6 +86,9 @@ const isV12Envelope = (
       Array.isArray((value as Partial<ProjectRepositoryEnvelope>).projects) &&
       (value as Partial<ProjectRepositoryEnvelope>).projects!.every(
         isScoutProject,
+      ) &&
+      hasUniqueProjectIds(
+        (value as Partial<ProjectRepositoryEnvelope>).projects as ScoutProject[],
       ),
   );
 
@@ -107,8 +113,7 @@ const createEnvelope = (
 });
 
 const assertUniqueProjectIds = (projects: ScoutProject[]) => {
-  const projectIds = new Set(projects.map(project => project.id));
-  if (projectIds.size !== projects.length) {
+  if (!hasUniqueProjectIds(projects)) {
     throw new Error("Project IDs must be unique before persistence");
   }
 };

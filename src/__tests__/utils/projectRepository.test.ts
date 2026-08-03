@@ -173,6 +173,42 @@ describe("projectRepository", () => {
     expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toBe(legacyEnvelope);
   });
 
+  it("recovers valid v1.1 projects when the v1.2 envelope contains duplicate project identities", async () => {
+    const legacyProject = createMockProject({ id: "recovered-unique-v1-1" });
+    const legacyEnvelope = {
+      schemaVersion: "1.1",
+      revision: 4,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      projects: [legacyProject],
+    };
+    const duplicateId = "duplicate-v1-2";
+    const { adapter, values } = createMemoryAdapter({
+      [PROJECTS_REPOSITORY_KEY]: {
+        schemaVersion: "1.2",
+        revision: 9,
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        projects: [
+          createMockProject({ id: duplicateId, title: "First duplicate" }),
+          createMockProject({ id: duplicateId, title: "Second duplicate" }),
+        ],
+      },
+      [PROJECTS_LEGACY_REPOSITORY_KEY]: legacyEnvelope,
+    });
+
+    const state = await createProjectRepository(adapter).initializeWithRevision(
+      [],
+    );
+
+    expect(state).toEqual({ projects: [legacyProject], revision: 4 });
+    expect(values.get(PROJECTS_BACKUP_KEY)).toEqual([legacyProject]);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
+      schemaVersion: "1.2",
+      revision: 4,
+      projects: [legacyProject],
+    });
+    expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toBe(legacyEnvelope);
+  });
+
   it("recovers a complete v1.1 project when the v1.2 project is structurally incomplete", async () => {
     const legacyProject = createMockProject({ id: "complete-v1-1" });
     const legacyEnvelope = {

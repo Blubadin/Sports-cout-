@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MediaPipe Pose Spike</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <style>
+    body { font-family: sans-serif; background: #111; color: white; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+    .container { position: relative; width: 640px; height: 480px; background: #000; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+    video { display: none; }
+    canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+    #status { margin-top: 10px; font-family: monospace; color: #4ade80; }
+  </style>
+</head>
+<body>
+  <h2>MediaPipe Pose Tracking - Client-Side Spike</h2>
+  <div class="container">
+    <video class="input_video"></video>
+    <canvas class="output_canvas" width="640" height="480"></canvas>
+  </div>
+  <div id="status">Initializing...</div>
+
+  <script type="module">
+    const videoElement = document.getElementsByClassName('input_video')[0];
+    const canvasElement = document.getElementsByClassName('output_canvas')[0];
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusElement = document.getElementById('status');
+
+    let frameCount = 0;
+    let lastTime = performance.now();
+
+    function onResults(results) {
+      frameCount++;
+      const now = performance.now();
+      if (now - lastTime >= 1000) {
+        statusElement.innerText = \`FPS: \${frameCount}\`;
+        frameCount = 0;
+        lastTime = now;
+      }
+
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      
+      // Draw image
+      canvasCtx.drawImage(
+          results.image, 0, 0, canvasElement.width, canvasElement.height);
+          
+      // Draw pose
+      if (results.poseLandmarks) {
+        drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS,
+                       {color: '#00FF00', lineWidth: 4});
+        drawLandmarks(canvasCtx, results.poseLandmarks,
+                      {color: '#FF0000', lineWidth: 2});
+      }
+      canvasCtx.restore();
+    }
+
+    const pose = new Pose({locateFile: (file) => {
+      return \`https://cdn.jsdelivr.net/npm/@mediapipe/pose/\${file}\`;
+    }});
+    
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      smoothSegmentation: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    
+    pose.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({image: videoElement});
+      },
+      width: 640,
+      height: 480
+    });
+    
+    camera.start().then(() => {
+      statusElement.innerText = "Camera started, waiting for first frame...";
+    }).catch(err => {
+      statusElement.innerText = "Error accessing camera: " + err.message;
+    });
+  </script>
+</body>
+</html>
