@@ -468,9 +468,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         nextProjects = nextProjects.map(project =>
           project.id === activeProjectIdRef.current ? snapshotCurrentProjectRef.current(project) : project,
         );
-        projectsRef.current = nextProjects;
-        explicitlyPersistedProjectsRef.current = nextProjects;
-        setProjects(nextProjects);
         try {
           await persistProjects(nextProjects);
         } catch (error) {
@@ -480,6 +477,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             : 'Could not save the current project, so the project switch was cancelled.');
           return;
         }
+        explicitlyPersistedProjectsRef.current = nextProjects;
+        projectsRef.current = nextProjects;
+        setProjects(nextProjects);
       }
 
       const project = nextProjects.find(candidate => candidate.id === projectId);

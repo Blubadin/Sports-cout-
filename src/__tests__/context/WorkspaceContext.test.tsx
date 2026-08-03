@@ -377,6 +377,44 @@ describe("WorkspaceProvider persistence integration", () => {
     rendered.unmount();
   });
 
+  it("keeps the current project snapshot and selection when switching projects fails to persist", async () => {
+    const initialProjects = [createProject("current"), createProject("next")];
+    const rendered = renderWorkspace(initialProjects);
+    await rendered.ready();
+    await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+
+    await act(async () => {
+      scout?.setMatchInfo((current) => ({
+        ...current,
+        matchName: "Unsaved current match",
+      }));
+    });
+    await waitFor(() =>
+      expect(scout?.matchInfo.matchName).toBe("Unsaved current match"),
+    );
+
+    persistence.session.save.mockRejectedValueOnce(
+      new Error("IndexedDB unavailable"),
+    );
+
+    act(() => {
+      workspace?.openProject("next");
+    });
+
+    await waitFor(() => expect(workspace?.saveStatus).toBe("failed"));
+    expect(persistence.session.save).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "current",
+        matchInfo: expect.objectContaining({ matchName: "Unsaved current match" }),
+      }),
+      expect.objectContaining({ id: "next" }),
+    ]);
+    expect(workspace?.projects).toEqual(initialProjects);
+    expect(workspace?.activeProjectId).toBe("current");
+    expect(scout?.toastMessage).toMatch(/could not save.*switch.*cancelled/i);
+    rendered.unmount();
+  });
+
   it("waits for the session save before deleting a project", async () => {
     const initialProjects = [createProject("current"), createProject("delete")];
     const rendered = renderWorkspace(initialProjects);
