@@ -18,6 +18,79 @@ export type AreaSelectionPoint = {
   ry: number;
 };
 
+export type CourtCalibration = {
+  tl: [number, number];
+  tr: [number, number];
+  bl: [number, number];
+  br: [number, number];
+};
+
+export type CourtCalibrationValidationResult =
+  | { valid: true }
+  | {
+    valid: false;
+    reason: 'missing-corners' | 'non-finite' | 'out-of-range' | 'degenerate' | 'self-intersecting';
+  };
+
+const COURT_CALIBRATION_CORNERS = ['tl', 'tr', 'bl', 'br'] as const;
+
+function hasStrictSegmentIntersection(
+  firstStart: [number, number],
+  firstEnd: [number, number],
+  secondStart: [number, number],
+  secondEnd: [number, number],
+) {
+  const orientation = (start: [number, number], end: [number, number], point: [number, number]) =>
+    (end[0] - start[0]) * (point[1] - start[1]) - (end[1] - start[1]) * (point[0] - start[0]);
+  const firstStartSide = orientation(firstStart, firstEnd, secondStart);
+  const firstEndSide = orientation(firstStart, firstEnd, secondEnd);
+  const secondStartSide = orientation(secondStart, secondEnd, firstStart);
+  const secondEndSide = orientation(secondStart, secondEnd, firstEnd);
+
+  return firstStartSide * firstEndSide < 0 && secondStartSide * secondEndSide < 0;
+}
+
+export function validateCourtCalibration(calibration: unknown): CourtCalibrationValidationResult {
+  if (!calibration || typeof calibration !== 'object') {
+    return { valid: false, reason: 'missing-corners' };
+  }
+
+  const candidate = calibration as Record<string, unknown>;
+  if (
+    Object.keys(candidate).length !== COURT_CALIBRATION_CORNERS.length
+    || !COURT_CALIBRATION_CORNERS.every(corner => Object.prototype.hasOwnProperty.call(candidate, corner))
+  ) {
+    return { valid: false, reason: 'missing-corners' };
+  }
+
+  const points = COURT_CALIBRATION_CORNERS.map(corner => candidate[corner]);
+  if (!points.every(point => Array.isArray(point) && point.length === 2 && point.every(value => typeof value === 'number' && Number.isFinite(value)))) {
+    return { valid: false, reason: 'non-finite' };
+  }
+
+  const [tl, tr, bl, br] = points as [number, number][];
+  if (![tl, tr, bl, br].every(([x, y]) => x >= 0 && x <= 1 && y >= 0 && y <= 1)) {
+    return { valid: false, reason: 'out-of-range' };
+  }
+
+  if (
+    hasStrictSegmentIntersection(tl, tr, br, bl)
+    || hasStrictSegmentIntersection(tr, br, bl, tl)
+  ) {
+    return { valid: false, reason: 'self-intersecting' };
+  }
+
+  const doubleArea = Math.abs(
+    tl[0] * tr[1] - tr[0] * tl[1]
+    + tr[0] * br[1] - br[0] * tr[1]
+    + br[0] * bl[1] - bl[0] * br[1]
+    + bl[0] * tl[1] - tl[0] * bl[1],
+  );
+  if (doubleArea <= 1e-10) return { valid: false, reason: 'degenerate' };
+
+  return { valid: true };
+}
+
 export type AreaSelectionSource = "absolute-pointer" | "joystick-cursor" | "gamepad-stick";
 export type VisibleCourtRegion = "primary" | "opponent";
 

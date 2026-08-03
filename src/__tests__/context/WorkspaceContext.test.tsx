@@ -404,6 +404,29 @@ describe("WorkspaceProvider persistence integration", () => {
     rendered.unmount();
   });
 
+  it("does not persist an invalid court calibration", async () => {
+    const initialProjects = [createProject("current")];
+    const rendered = renderWorkspace(initialProjects);
+    await rendered.ready();
+    await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+
+    act(() => {
+      workspace?.updateProjectVideoCalibration({
+        tl: [0, 0],
+        tr: [1, 1],
+        bl: [1, 0],
+        br: [0, 1],
+      });
+    });
+
+    await waitFor(() =>
+      expect(scout?.toastMessage).toMatch(/calibration.*invalid/i),
+    );
+    expect(persistence.session.save).not.toHaveBeenCalled();
+    expect(workspace?.projects[0]?.videoMeta?.courtCalibration).toBeUndefined();
+    rendered.unmount();
+  });
+
   it("keeps projects and active selection when deleting the active project fails", async () => {
     const initialProjects = [createProject("current"), createProject("next")];
     const rendered = renderWorkspace(initialProjects);

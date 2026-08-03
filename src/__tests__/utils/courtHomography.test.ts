@@ -1,7 +1,37 @@
 import { describe, it, expect } from 'vitest';
-import { calculateHomography, homographyToMatrix3d } from '../../utils/areaGeometry';
+import {
+  calculateHomography,
+  homographyToMatrix3d,
+  validateCourtCalibration,
+} from '../../utils/areaGeometry';
 
 describe('Court Homography Math', () => {
+  it('accepts a finite, in-bounds court calibration in named corner order', () => {
+    expect(validateCourtCalibration({
+      tl: [0, 0],
+      tr: [1, 0],
+      bl: [0, 1],
+      br: [1, 1],
+    })).toEqual({ valid: true });
+  });
+
+  it.each([
+    ['non-finite', {
+      tl: [0, 0], tr: [Number.NaN, 0], bl: [0, 1], br: [1, 1],
+    }],
+    ['out-of-range', {
+      tl: [0, 0], tr: [1.1, 0], bl: [0, 1], br: [1, 1],
+    }],
+    ['degenerate', {
+      tl: [0, 0], tr: [0.5, 0.5], bl: [0.5, 0.5], br: [1, 1],
+    }],
+    ['self-intersecting', {
+      tl: [0, 0], tr: [1, 1], bl: [1, 0], br: [0, 1],
+    }],
+  ])('rejects %s named court calibration', (reason, calibration) => {
+    expect(validateCourtCalibration(calibration)).toEqual({ valid: false, reason });
+  });
+
   it('should return null for invalid number of points', () => {
     const src: [number, number][] = [[0, 0], [1, 0]];
     const dst: [number, number][] = [[0, 0], [1, 0]];

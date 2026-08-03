@@ -13,6 +13,7 @@ import {
 import { createProjectSaveQueue } from '../utils/projectSaveQueue';
 import { getImportPayloadCounts, MAX_IMPORT_EVENTS, MAX_IMPORT_PROJECTS } from '../utils/importSafety';
 import { sanitizeIdentifier, sanitizeUserText } from '../utils/security';
+import { validateCourtCalibration, type CourtCalibration } from '../utils/areaGeometry';
 
 export type ProjectSaveStatus = 'loading' | 'pending' | 'saving' | 'saved' | 'failed';
 
@@ -55,7 +56,7 @@ interface WorkspaceContextType {
   renameProject: (projectId: string, newTitle: string) => void;
   importProject: (project: any) => boolean;
   updateProjectLastVideoTime: (time: number) => void;
-  updateProjectVideoCalibration: (calibration: { tl: [number, number]; tr: [number, number]; bl: [number, number]; br: [number, number] }) => void;
+  updateProjectVideoCalibration: (calibration: CourtCalibration) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -579,11 +580,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const updateProjectVideoCalibration = (calibration: { tl: [number, number]; tr: [number, number]; bl: [number, number]; br: [number, number] }) => {
+  const updateProjectVideoCalibration = (calibration: CourtCalibration) => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
-    clearPendingProjectTimers();
     const projectId = activeProjectIdRef.current;
     if (!projectId) return;
+    if (!validateCourtCalibration(calibration).valid) {
+      showToast(settings.uiLanguage === 'th'
+        ? 'จุดปรับมุมสนามไม่ถูกต้อง โปรดเลือกมุมทั้งสี่ใหม่'
+        : 'Court calibration is invalid. Select the four corners again.');
+      return;
+    }
+    clearPendingProjectTimers();
     void enqueueProjectMutation(current => current.map(project =>
       project.id === projectId
         ? { ...project, videoMeta: { ...(project.videoMeta || { sourceType: videoSourceType }), courtCalibration: calibration }, updatedAt: new Date().toISOString() }
