@@ -117,7 +117,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const loadProjectState = useCallback((proj: Partial<ScoutProject> & { matchInfo: MatchInfo, teams: Team[], events: EventRow[], id?: string }) => {
     isProjectLoading.current = true;
-    if (proj.id) setActiveProjectId(proj.id);
+    if (proj.id) {
+      activeProjectIdRef.current = proj.id;
+      setActiveProjectId(proj.id);
+    }
     
     setMatchInfo(proj.matchInfo);
     setTeams(proj.teams);
@@ -242,12 +245,23 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       acceptingProjectOperationsRef.current = false;
       clearPendingProjectTimers();
+      const cleanupActiveProjectId = activeProjectIdRef.current;
+      const cleanupSnapshotCurrentProject = snapshotCurrentProjectRef.current;
       void (async () => {
         try {
           await projectOperationQueueRef.current.drain().catch(error => {
             console.error('Failed to drain project operation queue during cleanup:', error);
           });
-          const finalProjects = projectsRef.current;
+          const canApplyCleanupSnapshot = cleanupActiveProjectId
+            && activeProjectIdRef.current === cleanupActiveProjectId
+            && !isProjectLoading.current;
+          const finalProjects = canApplyCleanupSnapshot
+            ? projectsRef.current.map(project =>
+              project.id === cleanupActiveProjectId
+                ? cleanupSnapshotCurrentProject(project)
+                : project,
+            )
+            : projectsRef.current;
           if (repositoryReadyRef.current && session) {
             await session.save(finalProjects);
           }

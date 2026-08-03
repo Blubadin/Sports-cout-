@@ -510,6 +510,95 @@ describe("WorkspaceProvider persistence integration", () => {
     }
   });
 
+  it("flushes the live current-project snapshot when unmounted before a failed-switch retry", async () => {
+    const snapshotTimers = interceptProjectSnapshotTimers();
+    const initialProjects = [createProject("current"), createProject("next")];
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Flush this live match during cleanup",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+
+      persistence.session.save.mockRejectedValueOnce(
+        new Error("IndexedDB unavailable"),
+      );
+      act(() => {
+        workspace?.openProject("next");
+      });
+
+      await waitFor(() => expect(workspace?.saveStatus).toBe("failed"));
+      expect(snapshotTimers.pendingCount).toBe(1);
+
+      rendered.unmount();
+
+      await waitFor(() =>
+        expect(persistence.session.save).toHaveBeenCalledTimes(2),
+      );
+      expect(persistence.session.save.mock.calls[1]?.[0]).toEqual([
+        expect.objectContaining({
+          id: "current",
+          matchInfo: expect.objectContaining({
+            matchName: "Flush this live match during cleanup",
+          }),
+        }),
+        expect.objectContaining({ id: "next" }),
+      ]);
+      expect(snapshotTimers.pendingCount).toBe(0);
+      await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+    } finally {
+      rendered.unmount();
+      snapshotTimers.restore();
+    }
+  });
+
+  it("does not apply the old live snapshot when a queued switch completes during cleanup", async () => {
+    const initialProjects = [createProject("current"), createProject("next")];
+    const switchSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Current live state only",
+        }));
+      });
+      persistence.session.save.mockImplementationOnce(() => switchSave.promise);
+
+      act(() => {
+        workspace?.openProject("next");
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+
+      rendered.unmount();
+      switchSave.resolve(savedEnvelope(initialProjects));
+
+      await waitFor(() =>
+        expect(persistence.session.save).toHaveBeenCalledTimes(2),
+      );
+      const cleanupProjects = persistence.session.save.mock.calls[1]?.[0] as ScoutProject[];
+      expect(cleanupProjects.find((project) => project.id === "current")?.matchInfo.matchName)
+        .toBe("Current live state only");
+      expect(cleanupProjects.find((project) => project.id === "next")?.matchInfo.matchName)
+        .toBe("Match next");
+      await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+    } finally {
+      switchSave.resolve(savedEnvelope(initialProjects));
+      rendered.unmount();
+    }
+  });
+
   it("waits for the session save before deleting a project", async () => {
     const initialProjects = [createProject("current"), createProject("delete")];
     const rendered = renderWorkspace(initialProjects);
