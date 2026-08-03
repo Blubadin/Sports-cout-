@@ -426,7 +426,7 @@ describe("WorkspaceProvider persistence integration", () => {
       act(() => {
         workspace?.renameProject("current", "Latest current");
       });
-      await waitFor(() => expect(autosaveTimers.pendingCount).toBeGreaterThan(0));
+      expect(autosaveTimers.pendingCount).toBe(0);
 
       act(() => {
         autosaveTimers.fireAll();
@@ -655,7 +655,7 @@ describe("WorkspaceProvider persistence integration", () => {
     }
   });
 
-  it("Test 5: slow delete does not lose concurrent rename", async () => {
+  it("Test 5: slow delete serializes a concurrent rename without a stale overwrite", async () => {
     const autosaveTimers = interceptProjectAutosaveTimers();
     const initialProjects = [createProject("A"), createProject("B")];
     const deleteSave = createDeferred<ReturnType<typeof savedEnvelope>>();
@@ -676,17 +676,20 @@ describe("WorkspaceProvider persistence integration", () => {
 
       deleteSave.resolve(savedEnvelope([initialProjects[0]]));
 
-      await waitFor(() => expect(workspace?.projects.map((p) => p.id)).toEqual(["A"]));
-      await waitFor(() => expect(workspace?.projects[0]?.title).toBe("Renamed A"));
-
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
+      expect(persistence.session.save.mock.calls[0]?.[0]).toEqual([
+        expect.objectContaining({ id: "A", title: "Project A" }),
+      ]);
+      expect(persistence.session.save.mock.calls[1]?.[0]).toEqual([
+        expect.objectContaining({ id: "A", title: "Renamed A" }),
+      ]);
+      expect(autosaveTimers.pendingCount).toBe(0);
       act(() => {
         autosaveTimers.fireAll();
       });
-
-      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
-      const savedCalls = persistence.session.save.mock.calls;
-      const finalSaveProjects = savedCalls[savedCalls.length - 1][0];
-      expect(finalSaveProjects.find((p: ScoutProject) => p.id === "A")?.title).toBe("Renamed A");
+      expect(persistence.session.save).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(workspace?.projects.map((p) => p.id)).toEqual(["A"]));
+      await waitFor(() => expect(workspace?.projects[0]?.title).toBe("Renamed A"));
     } finally {
       deleteSave.resolve(savedEnvelope(initialProjects));
       autosaveTimers.restore();
@@ -694,7 +697,7 @@ describe("WorkspaceProvider persistence integration", () => {
     }
   });
 
-  it("Test 6: slow delete does not lose concurrent import or video-time update", async () => {
+  it("Test 6: slow delete serializes concurrent import and video-time updates", async () => {
     const autosaveTimers = interceptProjectAutosaveTimers();
     const initialProjects = [createProject("A"), createProject("B")];
     const deleteSave = createDeferred<ReturnType<typeof savedEnvelope>>();
@@ -717,22 +720,45 @@ describe("WorkspaceProvider persistence integration", () => {
 
       deleteSave.resolve(savedEnvelope([initialProjects[0]]));
 
-      await waitFor(() => expect(workspace?.projects.map((p) => p.id)).toContain("C"));
-      expect(workspace?.projects.find((p) => p.id === "A")?.videoMeta?.lastVideoTime).toBe(42.5);
-
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(3));
+      expect(persistence.session.save.mock.calls[0]?.[0]).toEqual([
+        expect.objectContaining({ id: "A", title: "Project A" }),
+      ]);
+      expect(persistence.session.save.mock.calls[1]?.[0]).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ title: "Project C" }),
+        ]),
+      );
+      const finalSaveProjects = persistence.session.save.mock.calls[2]?.[0] as ScoutProject[];
+      expect(finalSaveProjects.some((project) => project.title === "Project C")).toBe(true);
+      expect(finalSaveProjects.find((project) => project.id === "A")?.videoMeta?.lastVideoTime).toBe(42.5);
+      expect(autosaveTimers.pendingCount).toBe(0);
       act(() => {
         autosaveTimers.fireAll();
       });
+      expect(persistence.session.save).toHaveBeenCalledTimes(3);
 
-      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
-      const savedCalls = persistence.session.save.mock.calls;
-      const finalSaved = savedCalls[savedCalls.length - 1][0];
-      expect(finalSaved.some((p: ScoutProject) => p.id === "C")).toBe(true);
-      expect(finalSaved.find((p: ScoutProject) => p.id === "A")?.videoMeta?.lastVideoTime).toBe(42.5);
+      await waitFor(() => expect(workspace?.projects.some((project) => project.title === "Project C")).toBe(true));
+      expect(workspace?.projects.find((p) => p.id === "A")?.videoMeta?.lastVideoTime).toBe(42.5);
     } finally {
       deleteSave.resolve(savedEnvelope(initialProjects));
       autosaveTimers.restore();
       rendered.unmount();
     }
+  });
+
+  it("assigns fresh identities when the same project payload is imported twice", async () => {
+    const rendered = renderWorkspace([]);
+    await rendered.ready();
+    const importedProject = createProject("duplicate-source");
+
+    act(() => {
+      workspace?.importProject(importedProject);
+      workspace?.importProject(importedProject);
+    });
+
+    await waitFor(() => expect(workspace?.projects).toHaveLength(2));
+    const importedIds = workspace?.projects.map((project) => project.id) ?? [];
+    expect(new Set(importedIds).size).toBe(importedIds.length);
   });
 });

@@ -82,6 +82,13 @@ const createEnvelope = (
   projects,
 });
 
+const assertUniqueProjectIds = (projects: ScoutProject[]) => {
+  const projectIds = new Set(projects.map(project => project.id));
+  if (projectIds.size !== projects.length) {
+    throw new Error("Project IDs must be unique before persistence");
+  }
+};
+
 export function createProjectRepository(
   adapter: StorageAdapter,
   executeExclusively: ExclusiveOperationExecutor =
@@ -160,8 +167,10 @@ export function createProjectRepository(
           );
         }
 
+        const normalizedProjects = normalizeProjects(projects);
+        assertUniqueProjectIds(normalizedProjects);
         const envelope = createEnvelope(
-          normalizeProjects(projects),
+          normalizedProjects,
           currentRevision + 1,
         );
         await adapter.setItem(PROJECTS_REPOSITORY_KEY, envelope);

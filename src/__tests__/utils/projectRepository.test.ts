@@ -264,6 +264,16 @@ describe("projectRepository", () => {
     expect(saved).toEqual(values.get(PROJECTS_REPOSITORY_KEY));
   });
 
+  it("rejects duplicate project identities before writing the repository envelope", async () => {
+    const duplicate = createMockProject({ id: "duplicate-id" });
+    const { adapter, writes } = createMemoryAdapter();
+
+    await expect(
+      createProjectRepository(adapter).save([duplicate, { ...duplicate }]),
+    ).rejects.toThrow("Project IDs must be unique before persistence");
+    expect(writes).toEqual([]);
+  });
+
   it("treats an envelope without a revision as revision zero", async () => {
     const existingProject = createMockProject({ id: "existing-project" });
     const nextProject = createMockProject({ id: "next-project" });

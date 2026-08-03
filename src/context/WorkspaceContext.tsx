@@ -336,12 +336,28 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       nextProjects = nextProjects.map(project =>
         project.id === activeProjectIdRef.current ? snapshotCurrentProjectRef.current(project) : project
       );
-      projectsRef.current = nextProjects;
-      setProjects(nextProjects);
     }
     explicitlyPersistedProjectsRef.current = nextProjects;
     await persistProjects(nextProjects);
+    projectsRef.current = nextProjects;
+    setProjects(nextProjects);
   }, [clearPendingProjectTimers, persistProjects]);
+
+  const enqueueProjectMutation = useCallback((
+    mutate: (current: ScoutProject[]) => ScoutProject[],
+    options: {
+      afterCommit?: (next: ScoutProject[]) => void;
+    } = {},
+  ) => projectOperationQueueRef.current.enqueue(async () => {
+    if (!repositoryReadyRef.current) return;
+    const nextProjects = mutate(projectsRef.current);
+    await persistProjects(nextProjects);
+    explicitlyPersistedProjectsRef.current = nextProjects;
+    projectsRef.current = nextProjects;
+    setProjects(nextProjects);
+    options.afterCommit?.(nextProjects);
+    return nextProjects;
+  }), [persistProjects]);
 
   const flushPendingSaves = useCallback(async () => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
@@ -392,60 +408,51 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
     clearPendingProjectTimers();
-    void projectOperationQueueRef.current.enqueue(async () => {
-      if (!repositoryReadyRef.current) return;
-      if (activeProjectIdRef.current) {
-        try {
-          await flushPendingSavesInQueue();
-        } catch (error) {
-          if (!(error instanceof ProjectRepositoryConflictError)) {
-            showToast(settings.uiLanguage === 'th'
-              ? 'บันทึกโปรเจกต์ปัจจุบันไม่สำเร็จ จึงยกเลิกการสร้างโปรเจกต์ใหม่'
-              : 'Could not save the current project, so new project creation was cancelled.');
-          }
-          return;
-        }
-      }
-      isProjectLoading.current = true;
-      const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-      const initMatchInfo: MatchInfo = {
+    const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const newProject: ScoutProject = {
+      id: newId,
+      title,
+      sportType,
+      matchInfo: {
         scouterName: customMatchInfo?.scouterName ?? matchInfo.scouterName,
         nickname: customMatchInfo?.nickname ?? matchInfo.nickname,
         matchName: customMatchInfo?.matchName ?? '',
         matchType: customMatchInfo?.matchType ?? 'Team',
         setOrGame: customMatchInfo?.setOrGame ?? '1',
         currentPoint: customMatchInfo?.currentPoint ?? 1,
-        sportType: sportType,
-        courtConfig: customMatchInfo?.courtConfig || 'standard',
-        gameFormat: customMatchInfo?.gameFormat || 'standard'
-      };
-
-      const initialTeams = customTeams || DEFAULT_TEAMS;
-      const finalSettings = settingsSnapshot ? { ...settings, ...settingsSnapshot } : settings;
-
-      const newProj: ScoutProject = {
-        id: newId,
-        title,
         sportType,
-        matchInfo: initMatchInfo,
-        teams: initialTeams,
-        events: [],
-        settingsSnapshot: finalSettings,
-        videoMeta: videoMeta || {
-          sourceType: 'none',
-          youtubeUrl: '',
-          youtubeVideoId: undefined,
-          localFileName: undefined
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
+        courtConfig: customMatchInfo?.courtConfig || 'standard',
+        gameFormat: customMatchInfo?.gameFormat || 'standard',
+      },
+      teams: customTeams || DEFAULT_TEAMS,
+      events: [],
+      settingsSnapshot: settingsSnapshot ? { ...settings, ...settingsSnapshot } : settings,
+      videoMeta: videoMeta || {
+        sourceType: 'none',
+        youtubeUrl: '',
+        youtubeVideoId: undefined,
+        localFileName: undefined,
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-      const nextProjects = [...projectsRef.current, newProj];
-      projectsRef.current = nextProjects;
-      setProjects(nextProjects);
-      loadProjectStateRef.current(newProj);
+    void enqueueProjectMutation(current => {
+      const currentSnapshot = activeProjectIdRef.current && !isProjectLoading.current
+        ? current.map(project =>
+          project.id === activeProjectIdRef.current
+            ? snapshotCurrentProjectRef.current(project)
+            : project,
+        )
+        : current;
+      return [...currentSnapshot, newProject];
+    }, {
+      afterCommit: () => {
+        isProjectLoading.current = true;
+        loadProjectStateRef.current(newProject);
+      },
     }).catch(error => {
+      if (error instanceof ProjectRepositoryConflictError) return;
       console.error('Failed to create new project:', error);
     });
   };
@@ -484,24 +491,27 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const deleteProject = async (projectId: string) => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
     clearPendingProjectTimers();
-    let currentProjects = projectsRef.current;
-    if (activeProjectIdRef.current && !isProjectLoading.current) {
-      currentProjects = currentProjects.map(project =>
-        project.id === activeProjectIdRef.current ? snapshotCurrentProjectRef.current(project) : project,
-      );
-    }
-    const remaining = currentProjects.filter(p => p.id !== projectId);
-    projectsRef.current = remaining;
-
-    if (activeProjectIdRef.current === projectId) {
-      isProjectLoading.current = true;
-      if (remaining.length > 0) {
-        loadProjectStateRef.current(remaining[0]);
-      } else {
+    return enqueueProjectMutation(current => {
+      const currentSnapshot = activeProjectIdRef.current && !isProjectLoading.current
+        ? current.map(project =>
+          project.id === activeProjectIdRef.current
+            ? snapshotCurrentProjectRef.current(project)
+            : project,
+        )
+        : current;
+      return currentSnapshot.filter(project => project.id !== projectId);
+    }, {
+      afterCommit: (remaining) => {
+        if (activeProjectIdRef.current !== projectId) return;
+        isProjectLoading.current = true;
+        if (remaining.length > 0) {
+          loadProjectStateRef.current(remaining[0]);
+          return;
+        }
         loadProjectStateRef.current({
           id: undefined,
           matchInfo: {
-            scouterName: matchInfo.scouterName, nickname: matchInfo.nickname, matchName: '', matchType: 'Team', setOrGame: '1', currentPoint: 1, sportType: 'volleyball'
+            scouterName: matchInfo.scouterName, nickname: matchInfo.nickname, matchName: '', matchType: 'Team', setOrGame: '1', currentPoint: 1, sportType: 'volleyball',
           },
           teams: DEFAULT_TEAMS,
           events: [],
@@ -509,82 +519,79 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             sourceType: 'local',
             localFileName: null,
             youtubeUrl: '',
-            youtubeVideoId: undefined
-          }
+            youtubeVideoId: undefined,
+          },
         });
         setActiveProjectId(null);
-      }
-    }
-
-    return projectOperationQueueRef.current.enqueue(async () => {
-      if (!repositoryReadyRef.current) return;
-      try {
-        explicitlyPersistedProjectsRef.current = remaining;
-        await persistProjects(remaining);
-      } catch (error) {
-        if (error instanceof ProjectRepositoryConflictError) return;
-        showToast(settings.uiLanguage === 'th' ? 'ลบโปรเจกต์ไม่สำเร็จ ข้อมูลเดิมยังอยู่' : 'Delete failed. Your data was kept.');
-        return;
-      }
-      setProjects(projectsRef.current);
+      },
+    }).catch(error => {
+      if (error instanceof ProjectRepositoryConflictError) return;
+      showToast(settings.uiLanguage === 'th' ? 'ลบโปรเจกต์ไม่สำเร็จ ข้อมูลเดิมยังอยู่' : 'Delete failed. Your data was kept.');
     });
   };
 
   const duplicateProject = (projectId: string) => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
     clearPendingProjectTimers();
-    const proj = projectsRef.current.find(p => p.id === projectId);
-    if (proj) {
+    void enqueueProjectMutation(current => {
+      const project = current.find(candidate => candidate.id === projectId);
+      if (!project) return current;
       const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       const copy: ScoutProject = {
-        ...structuredClone(proj),
+        ...structuredClone(project),
         id: newId,
-        title: `${proj.title} (Copy)`,
+        title: `${project.title} (Copy)`,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       };
-      const nextProjects = [...projectsRef.current, copy];
-      projectsRef.current = nextProjects;
-      setProjects(nextProjects);
-    }
+      return [...current, copy];
+    }).catch(error => {
+      if (error instanceof ProjectRepositoryConflictError) return;
+      console.error('Failed to duplicate project:', error);
+    });
   };
 
   const renameProject = (projectId: string, newTitle: string) => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
     clearPendingProjectTimers();
-    const nextProjects = projectsRef.current.map(p =>
-      p.id === projectId ? { ...p, title: newTitle, updatedAt: new Date().toISOString() } : p
-    );
-    projectsRef.current = nextProjects;
-    setProjects(nextProjects);
+    void enqueueProjectMutation(current => current.map(project =>
+      project.id === projectId
+        ? { ...project, title: newTitle, updatedAt: new Date().toISOString() }
+        : project,
+    )).catch(error => {
+      if (error instanceof ProjectRepositoryConflictError) return;
+      console.error('Failed to rename project:', error);
+    });
   };
 
   const updateProjectLastVideoTime = (videoTime: number) => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
     clearPendingProjectTimers();
-    if (activeProjectIdRef.current) {
-      const nextProjects = projectsRef.current.map(p =>
-        p.id === activeProjectIdRef.current
-          ? { ...p, videoMeta: { ...(p.videoMeta || { sourceType: videoSourceType }), lastVideoTime: videoTime }, updatedAt: new Date().toISOString() }
-          : p
-      );
-      projectsRef.current = nextProjects;
-      setProjects(nextProjects);
-    }
+    const projectId = activeProjectIdRef.current;
+    if (!projectId) return;
+    void enqueueProjectMutation(current => current.map(project =>
+      project.id === projectId
+        ? { ...project, videoMeta: { ...(project.videoMeta || { sourceType: videoSourceType }), lastVideoTime: videoTime }, updatedAt: new Date().toISOString() }
+        : project,
+    )).catch(error => {
+      if (error instanceof ProjectRepositoryConflictError) return;
+      console.error('Failed to update project video time:', error);
+    });
   };
 
   const updateProjectVideoCalibration = (calibration: { tl: [number, number]; tr: [number, number]; bl: [number, number]; br: [number, number] }) => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
     clearPendingProjectTimers();
-    if (activeProjectIdRef.current) {
-      const nextProjects = projectsRef.current.map(p =>
-        p.id === activeProjectIdRef.current
-          ? { ...p, videoMeta: { ...(p.videoMeta || { sourceType: videoSourceType }), courtCalibration: calibration }, updatedAt: new Date().toISOString() }
-          : p
-      );
-      projectsRef.current = nextProjects;
-      setProjects(nextProjects);
-    }
+    const projectId = activeProjectIdRef.current;
+    if (!projectId) return;
+    void enqueueProjectMutation(current => current.map(project =>
+      project.id === projectId
+        ? { ...project, videoMeta: { ...(project.videoMeta || { sourceType: videoSourceType }), courtCalibration: calibration }, updatedAt: new Date().toISOString() }
+        : project,
+    )).catch(error => {
+      if (error instanceof ProjectRepositoryConflictError) return;
+      console.error('Failed to update project calibration:', error);
+    });
   };
 
   const importProject = (project: any): boolean => {
@@ -679,17 +686,18 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     // Sanitize Event rows
     project.events = sanitizeEvents(project.events, project.sportType);
 
-    // ID safety: sanitize provided ID or generate fresh ID if empty
-    const sanitizedId = sanitizeIdentifier(project.id);
-    project.id = sanitizedId || `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-
     // Timestamp safety
     project.createdAt = typeof project.createdAt === 'string' ? project.createdAt : new Date().toISOString();
     project.updatedAt = new Date().toISOString();
 
-    const nextProjects = [...projectsRef.current, project];
-    projectsRef.current = nextProjects;
-    setProjects(nextProjects);
+    const importedProject: ScoutProject = {
+      ...project,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+    };
+    void enqueueProjectMutation(current => [...current, importedProject]).catch(error => {
+      if (error instanceof ProjectRepositoryConflictError) return;
+      console.error('Failed to import project:', error);
+    });
 
     return true;
   };
