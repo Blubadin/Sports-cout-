@@ -105,9 +105,10 @@ function EmptyProjectState() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [selectedSport, setSelectedSport] = useState<SportType>(matchInfo.sportType || 'volleyball');
 
-  const loadPilotSamples = () => {
+  const loadPilotSamples = async () => {
     const sampleProjects = createPilotSampleProjects(`pilot-${Date.now()}`);
-    const importedCount = sampleProjects.reduce((count, project) => count + (importProject(project) ? 1 : 0), 0);
+    const importResults = await Promise.all(sampleProjects.map(project => importProject(project)));
+    const importedCount = importResults.filter(Boolean).length;
     showToast(settings.uiLanguage === 'th'
       ? `เพิ่มโปรเจกต์ตัวอย่าง ${importedCount} กีฬาแล้ว เปิดได้จากเมนูโฟลเดอร์ด้านบน`
       : `Added ${importedCount} sport samples. Open one from the folder menu.`);
@@ -131,7 +132,7 @@ function EmptyProjectState() {
     }
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const content = e.target?.result as string;
         const imported = JSON.parse(content);
@@ -140,11 +141,9 @@ function EmptyProjectState() {
         const originalTitle = imported.title || 'Imported Project';
         imported.title = `${originalTitle} (Imported)`;
 
-        const success = importProject(imported);
+        const success = await importProject(imported);
         if (success) {
           showToast(`Imported: ${originalTitle}`);
-        } else {
-          showToast('Invalid Project JSON format or schema');
         }
       } catch (err) {
         showToast('Failed to parse JSON');

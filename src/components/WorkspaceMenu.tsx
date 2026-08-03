@@ -118,7 +118,7 @@ export default function WorkspaceMenu() {
     }
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const content = e.target?.result as string;
         const imported = JSON.parse(content);
@@ -126,11 +126,9 @@ export default function WorkspaceMenu() {
         const originalTitle = imported.title || 'Imported Project';
         imported.title = `${originalTitle} (Imported)`;
 
-        const success = importProject(imported);
+        const success = await importProject(imported);
         if (success) {
           showToast(`Imported: ${originalTitle}`);
-        } else {
-          showToast('Invalid Project JSON format or schema');
         }
       } catch (err) {
         showToast('Failed to parse JSON');

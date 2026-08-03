@@ -54,7 +54,7 @@ interface WorkspaceContextType {
   deleteProject: (projectId: string) => void;
   duplicateProject: (projectId: string) => void;
   renameProject: (projectId: string, newTitle: string) => void;
-  importProject: (project: any) => boolean;
+  importProject: (project: any) => Promise<boolean>;
   updateProjectLastVideoTime: (time: number) => void;
   updateProjectVideoCalibration: (calibration: CourtCalibration) => void;
 }
@@ -601,8 +601,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const importProject = (project: any): boolean => {
-    if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return false;
+  const importProject = async (project: any): Promise<boolean> => {
+    const reportImportFailure = () => {
+      showToast(settings.uiLanguage === 'th'
+        ? 'นำเข้าโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง'
+        : 'Import failed. Please try again.');
+    };
+
+    if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) {
+      reportImportFailure();
+      return false;
+    }
     clearPendingProjectTimers();
     const importCounts = getImportPayloadCounts(project);
     if (importCounts.projects > MAX_IMPORT_PROJECTS || importCounts.events > MAX_IMPORT_EVENTS) {
@@ -629,22 +638,27 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         events: project.events
       };
     } else if (project?.type === 'projects' && Array.isArray(project.projects)) {
-      return project.projects.map((p: any) => importProject(p)).some(Boolean);
+      const results = await Promise.all(project.projects.map((p: any) => importProject(p)));
+      return results.some(Boolean);
     } else if (Array.isArray(project?.indexedDbProjects?.projects)) {
-      return project.indexedDbProjects.projects.map((p: any) => importProject(p)).some(Boolean);
+      const results = await Promise.all(project.indexedDbProjects.projects.map((p: any) => importProject(p)));
+      return results.some(Boolean);
     } else if (project?.localStorage?.scout_projects) {
       try {
         const restoredProjects = JSON.parse(project.localStorage.scout_projects);
         if (Array.isArray(restoredProjects)) {
-          return importProject({ type: 'projects', projects: restoredProjects });
+          return await importProject({ type: 'projects', projects: restoredProjects });
         }
       } catch {
+        reportImportFailure();
         return false;
       }
     }
 
-    if (!project || typeof project !== 'object') return false;
-    if (!Array.isArray(project.events)) return false;
+    if (!project || typeof project !== 'object' || !Array.isArray(project.events)) {
+      reportImportFailure();
+      return false;
+    }
 
     project.sportType = getValidSportType(project.sportType);
     project.title = sanitizeUserText(project.title, 160) || 'Imported Project';
@@ -697,16 +711,26 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     project.createdAt = typeof project.createdAt === 'string' ? project.createdAt : new Date().toISOString();
     project.updatedAt = new Date().toISOString();
 
-    const importedProject: ScoutProject = {
-      ...project,
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
-    };
-    void enqueueProjectMutation(current => [...current, importedProject]).catch(error => {
-      if (error instanceof ProjectRepositoryConflictError) return;
+    try {
+      const committed = await enqueueProjectMutation(current => {
+        const existingIds = new Set(current.map(candidate => candidate.id));
+        const baseId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+        let collisionIndex = 0;
+        let importedId = baseId;
+        while (existingIds.has(importedId)) {
+          collisionIndex += 1;
+          importedId = `${baseId}-${collisionIndex}`;
+        }
+        return [...current, { ...project, id: importedId } as ScoutProject];
+      });
+      if (committed) return true;
+    } catch (error) {
+      if (error instanceof ProjectRepositoryConflictError) return false;
       console.error('Failed to import project:', error);
-    });
+    }
 
-    return true;
+    reportImportFailure();
+    return false;
   };
 
   // Clear loading flag after state updates have committed

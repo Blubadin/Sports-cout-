@@ -612,10 +612,81 @@ describe("WorkspaceProvider persistence integration", () => {
     const rendered = renderWorkspace(storedProjects, initialization.promise);
     let imported: boolean | undefined;
 
-    act(() => {
-      imported = workspace?.importProject(createProject("too-early"));
+    await act(async () => {
+      imported = await workspace?.importProject(createProject("too-early"));
     });
     expect(imported).toBe(false);
+  });
+
+  it("returns false without committing an import when persistence rejects", async () => {
+    const rendered = renderWorkspace([]);
+    await rendered.ready();
+    persistence.session.save.mockRejectedValueOnce(new Error("IndexedDB unavailable"));
+
+    let imported: boolean | undefined;
+    await act(async () => {
+      imported = await workspace?.importProject(createProject("rejected-import"));
+    });
+
+    expect(imported).toBe(false);
+    expect(workspace?.projects).toEqual([]);
+    expect(scout?.toastMessage).toMatch(/import failed/i);
+    rendered.unmount();
+  });
+
+  it("resolves a successful import only after its persistence completes", async () => {
+    const rendered = renderWorkspace([]);
+    await rendered.ready();
+    const pendingSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    persistence.session.save.mockImplementationOnce(() => pendingSave.promise);
+
+    let importResult: Promise<boolean> | undefined;
+    act(() => {
+      importResult = workspace?.importProject(createProject("delayed-import"));
+    });
+
+    await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+    expect(workspace?.projects).toEqual([]);
+
+    let resolved = false;
+    void importResult?.then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    await act(async () => {
+      pendingSave.resolve(savedEnvelope([createProject("delayed-import")]));
+      await expect(importResult).resolves.toBe(true);
+    });
+    await waitFor(() => expect(workspace?.projects).toHaveLength(1));
+    rendered.unmount();
+  });
+
+  it("assigns a distinct persisted identity when generated import IDs collide", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const rendered = renderWorkspace([]);
+
+    try {
+      await rendered.ready();
+      let firstImport: Promise<boolean> | undefined;
+      let secondImport: Promise<boolean> | undefined;
+      await act(async () => {
+        firstImport = workspace?.importProject(createProject("collision-one"));
+        secondImport = workspace?.importProject(createProject("collision-two"));
+        await expect(firstImport).resolves.toBe(true);
+        await expect(secondImport).resolves.toBe(true);
+      });
+
+      const importedIds = workspace?.projects.map((project) => project.id) ?? [];
+      expect(importedIds).toHaveLength(2);
+      expect(new Set(importedIds).size).toBe(2);
+    } finally {
+      rendered.unmount();
+      randomSpy.mockRestore();
+      nowSpy.mockRestore();
+    }
   });
 
   it("Test 1: import into empty workspace survives immediate flush before debounce", async () => {
