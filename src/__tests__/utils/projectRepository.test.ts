@@ -91,6 +91,19 @@ describe("projectRepository", () => {
     const repository = createProjectRepository(adapter);
 
     await repository.initializeWithRevision([]);
+    expect(writes).toHaveLength(2);
+    expect(writes).toContainEqual({
+      key: PROJECTS_BACKUP_KEY,
+      value: [legacyProject],
+    });
+    expect(writes).toContainEqual({
+      key: PROJECTS_REPOSITORY_KEY,
+      value: expect.objectContaining({
+        schemaVersion: "1.2",
+        revision: 2,
+        projects: [legacyProject],
+      }),
+    });
     const writesAfterMigration = [...writes];
     const second = await repository.initializeWithRevision([]);
 
