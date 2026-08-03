@@ -136,9 +136,10 @@ vi.mock('../hooks/useVideoPlayback', () => ({
 vi.mock('../components/SegmentPreviewPanel', () => ({ default: () => null }));
 vi.mock('../components/hud/ScoutHUDWrapper', () => ({ default: () => null }));
 vi.mock('../components/video/CourtZoneOverlay', () => ({
-  default: ({ isVisible, isCalibrating, onCalibrationCancel }: {
+  default: ({ isVisible, isCalibrating, onCalibrationComplete, onCalibrationCancel }: {
     isVisible: boolean;
     isCalibrating: boolean;
+    onCalibrationComplete: (points: [number, number][]) => void;
     onCalibrationCancel: () => void;
   }) => (
     <div
@@ -146,7 +147,14 @@ vi.mock('../components/video/CourtZoneOverlay', () => ({
       data-visible={String(isVisible)}
       data-calibrating={String(isCalibrating)}
     >
-      {isCalibrating && <button onClick={onCalibrationCancel}>Cancel calibration</button>}
+      {isCalibrating && (
+        <>
+          <button onClick={() => onCalibrationComplete([
+            [0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9],
+          ])}>Save calibration</button>
+          <button onClick={onCalibrationCancel}>Cancel calibration</button>
+        </>
+      )}
     </div>
   ),
 }));
@@ -178,8 +186,12 @@ describe('VideoPlayer court calibration controls', () => {
     expect(testState.gesturePointerDown).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel calibration' }));
+    expect(testState.updateProjectVideoCalibration).not.toHaveBeenCalled();
     expect(screen.getByTestId('court-zone-overlay')).toHaveAttribute('data-calibrating', 'false');
     expect(screen.getByTestId('court-zone-overlay')).toHaveAttribute('data-visible', 'true');
+
+    fireEvent.pointerDown(gestureCapture!);
+    expect(testState.gesturePointerDown).toHaveBeenCalledTimes(1);
   });
 
   it('starts a new calibration through its accessible action', () => {
@@ -190,5 +202,22 @@ describe('VideoPlayer court calibration controls', () => {
 
     expect(screen.getByTestId('court-zone-overlay')).toHaveAttribute('data-calibrating', 'true');
     expect(screen.getByTestId('court-zone-overlay')).toHaveAttribute('data-visible', 'true');
+  });
+
+  it('persists a completed calibration once and restores gesture capture afterward', () => {
+    render(<VideoPlayer />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recalibrate court' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save calibration' }));
+
+    expect(testState.updateProjectVideoCalibration).toHaveBeenCalledTimes(1);
+    expect(testState.updateProjectVideoCalibration).toHaveBeenCalledWith({
+      tl: [0.1, 0.1], tr: [0.9, 0.1], bl: [0.1, 0.9], br: [0.9, 0.9],
+    });
+    expect(screen.getByTestId('court-zone-overlay')).toHaveAttribute('data-calibrating', 'false');
+    expect(screen.getByTestId('court-zone-overlay')).toHaveAttribute('data-visible', 'true');
+
+    fireEvent.pointerDown(document.querySelector('.touch-none')!);
+    expect(testState.gesturePointerDown).toHaveBeenCalledTimes(1);
   });
 });
