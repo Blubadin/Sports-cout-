@@ -38,15 +38,36 @@ export class ProjectRepositoryConflictError extends Error {
   }
 }
 
-const isScoutProject = (value: unknown): value is ScoutProject => {
-  if (!value || typeof value !== "object") return false;
-  const project = value as Partial<ScoutProject>;
-  return Boolean(
-    typeof project.id === "string" &&
-    typeof project.title === "string" &&
-    Array.isArray(project.events),
-  );
-};
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const isPersistedMatchInfo = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.scouterName === "string" &&
+  typeof value.nickname === "string" &&
+  typeof value.matchName === "string" &&
+  typeof value.matchType === "string" &&
+  typeof value.setOrGame === "string" &&
+  typeof value.currentPoint === "number" &&
+  Number.isFinite(value.currentPoint) &&
+  typeof value.sportType === "string";
+
+/**
+ * Persistence boundary for the required runtime project shape. This is
+ * intentionally structural rather than exhaustive: optional metadata and
+ * enum membership remain forwards-compatible, while fields loaded directly
+ * into workspace state must have their expected container/primitive types.
+ */
+const isScoutProject = (value: unknown): value is ScoutProject =>
+  isRecord(value) &&
+  typeof value.id === "string" &&
+  typeof value.title === "string" &&
+  typeof value.sportType === "string" &&
+  isPersistedMatchInfo(value.matchInfo) &&
+  Array.isArray(value.teams) &&
+  Array.isArray(value.events) &&
+  typeof value.createdAt === "string" &&
+  typeof value.updatedAt === "string";
 
 const normalizeProjects = (value: unknown): ScoutProject[] =>
   Array.isArray(value) ? value.filter(isScoutProject) : [];
