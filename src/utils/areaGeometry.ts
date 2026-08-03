@@ -50,6 +50,24 @@ function hasStrictSegmentIntersection(
   return firstStartSide * firstEndSide < 0 && secondStartSide * secondEndSide < 0;
 }
 
+function hasStrictlyConvexPerimeter(points: [number, number][]) {
+  let turnSign = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const previous = points[(index + points.length - 1) % points.length];
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    const turn = (current[0] - previous[0]) * (next[1] - current[1])
+      - (current[1] - previous[1]) * (next[0] - current[0]);
+
+    if (Math.abs(turn) <= 1e-10) return false;
+    const nextTurnSign = Math.sign(turn);
+    if (turnSign !== 0 && turnSign !== nextTurnSign) return false;
+    turnSign = nextTurnSign;
+  }
+
+  return true;
+}
+
 export function validateCourtCalibration(calibration: unknown): CourtCalibrationValidationResult {
   if (!calibration || typeof calibration !== 'object') {
     return { valid: false, reason: 'missing-corners' };
@@ -87,6 +105,10 @@ export function validateCourtCalibration(calibration: unknown): CourtCalibration
     + bl[0] * tl[1] - tl[0] * bl[1],
   );
   if (doubleArea <= 1e-10) return { valid: false, reason: 'degenerate' };
+
+  if (!hasStrictlyConvexPerimeter([tl, tr, br, bl])) {
+    return { valid: false, reason: 'self-intersecting' };
+  }
 
   return { valid: true };
 }

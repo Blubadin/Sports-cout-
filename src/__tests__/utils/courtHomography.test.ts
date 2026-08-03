@@ -32,6 +32,20 @@ describe('Court Homography Math', () => {
     expect(validateCourtCalibration(calibration)).toEqual({ valid: false, reason });
   });
 
+  it.each([
+    ['a collinear, overlapping perimeter', {
+      tl: [0, 0], tr: [1, 0], br: [0.25, 0], bl: [0.75, 1],
+    }],
+    ['a concave perimeter', {
+      tl: [0, 0], tr: [1, 0], br: [0.4, 0.4], bl: [0, 1],
+    }],
+  ])('rejects %s as non-strictly-convex', (_description, calibration) => {
+    expect(validateCourtCalibration(calibration)).toEqual({
+      valid: false,
+      reason: 'self-intersecting',
+    });
+  });
+
   it('should return null for invalid number of points', () => {
     const src: [number, number][] = [[0, 0], [1, 0]];
     const dst: [number, number][] = [[0, 0], [1, 0]];
