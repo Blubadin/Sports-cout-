@@ -417,6 +417,10 @@ export default function VideoPlayer() {
   const hasVideo =
     (videoSourceType === "local" && videoSrc) ||
     (videoSourceType === "youtube" && youtubeUrl);
+  const hasCourtCalibration = Boolean(activeProject?.videoMeta?.courtCalibration);
+  const calibrationControlLabel = hasCourtCalibration
+    ? "Recalibrate court"
+    : "Calibrate court";
   const rawVisibleTime = draftSeekTime ?? currentTimeDisplay;
   const visibleTime = isNaN(rawVisibleTime) || typeof rawVisibleTime !== 'number' ? 0 : rawVisibleTime;
   const safeDuration = isNaN(duration) || typeof duration !== 'number' || duration <= 0 ? 0 : duration;
@@ -568,11 +572,11 @@ export default function VideoPlayer() {
               {/* Gesture Overlay */}
               {settings.enableVideoGestures !== false ? (
                 <div
-                  className={`absolute inset-0 z-20 touch-none ${videoSourceType === "youtube" && !actualPlaying ? "pointer-events-none" : ""}`}
-                  onPointerDown={handleVideoPointerDown}
-                  onPointerMove={handleVideoPointerMove}
-                  onPointerUp={handleVideoPointerUp}
-                  onPointerCancel={handleVideoPointerCancel}
+                  className={`absolute inset-0 z-20 touch-none ${isCalibratingCourt || (videoSourceType === "youtube" && !actualPlaying) ? "pointer-events-none" : ""}`}
+                  onPointerDown={isCalibratingCourt ? undefined : handleVideoPointerDown}
+                  onPointerMove={isCalibratingCourt ? undefined : handleVideoPointerMove}
+                  onPointerUp={isCalibratingCourt ? undefined : handleVideoPointerUp}
+                  onPointerCancel={isCalibratingCourt ? undefined : handleVideoPointerCancel}
                 >
                   {gestureOverlayText && (
                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/60 text-white px-4 py-2 rounded-xl text-lg font-bold pointer-events-none backdrop-blur-sm">
@@ -1019,6 +1023,17 @@ export default function VideoPlayer() {
                 className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
               >
                 Mark Time
+              </button>
+              <button
+                type="button"
+                aria-label={calibrationControlLabel}
+                onClick={() => {
+                  setShowCourtOverlay(true);
+                  setIsCalibratingCourt(true);
+                }}
+                className="px-2 py-1 bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300 hover:bg-sky-200 dark:hover:bg-sky-800 rounded"
+              >
+                {calibrationControlLabel}
               </button>
             </div>
             <div className="flex flex-col items-end gap-1">
