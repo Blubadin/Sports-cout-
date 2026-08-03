@@ -17,6 +17,11 @@ import { validateCourtCalibration, type CourtCalibration } from '../utils/areaGe
 
 export type ProjectSaveStatus = 'loading' | 'pending' | 'saving' | 'saved' | 'failed';
 
+type LiveSnapshotToken = {
+  projectId: string;
+  generation: number;
+};
+
 const projectRepository = createProjectRepository(indexedDbStorageAdapter);
 
 const PROJECT_CONFLICT_MESSAGE = {
@@ -79,8 +84,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const projectSnapshotTimeoutRef = React.useRef<number | null>(null);
   const acceptingProjectOperationsRef = React.useRef(true);
   const liveSnapshotGenerationRef = React.useRef(0);
-  const pendingLiveSnapshotRef = React.useRef<{ projectId: string; generation: number } | null>(null);
+  const pendingLiveSnapshotRef = React.useRef<LiveSnapshotToken | null>(null);
   const durableLiveSnapshotGenerationRef = React.useRef(0);
+  const liveSnapshotCandidateTokensRef = React.useRef(new WeakMap<ScoutProject[], LiveSnapshotToken>());
 
   activeProjectIdRef.current = activeProjectId;
   repositoryReadyRef.current = repositoryReady;
@@ -165,6 +171,31 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     projectsRef.current = projects;
   }, [projects]);
 
+  const associateLiveSnapshotCandidate = useCallback((
+    candidate: ScoutProject[],
+    token: LiveSnapshotToken | null | undefined,
+  ) => {
+    if (token) liveSnapshotCandidateTokensRef.current.set(candidate, token);
+    return candidate;
+  }, []);
+
+  const markLiveSnapshotCandidateDurable = useCallback((candidate: ScoutProject[]) => {
+    const token = liveSnapshotCandidateTokensRef.current.get(candidate);
+    if (!token) return;
+    durableLiveSnapshotGenerationRef.current = Math.max(
+      durableLiveSnapshotGenerationRef.current,
+      token.generation,
+    );
+    const pending = pendingLiveSnapshotRef.current;
+    if (
+      pending
+      && pending.projectId === token.projectId
+      && pending.generation <= token.generation
+    ) {
+      pendingLiveSnapshotRef.current = null;
+    }
+  }, []);
+
   const persistProjects = useCallback(async (nextProjects: ScoutProject[]) => {
     const generation = ++saveGenerationRef.current;
     const session = persistenceSessionRef.current;
@@ -172,6 +203,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     try {
       if (!session) throw new Error('Project persistence session is not ready');
       await session.save(nextProjects);
+      markLiveSnapshotCandidateDurable(nextProjects);
       if (generation === saveGenerationRef.current && acceptingProjectOperationsRef.current) {
         setSaveStatus('saved');
         setLastSavedAt(new Date().toISOString());
@@ -183,7 +215,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
       throw error;
     }
-  }, []);
+  }, [markLiveSnapshotCandidateDurable]);
 
   // IndexedDB becomes the source of truth. The original localStorage value is kept as a recovery backup.
   useEffect(() => {
@@ -265,15 +297,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             && activeProjectIdRef.current === cleanupActiveProjectId
             && !isProjectLoading.current;
           const finalProjects = canApplyCleanupSnapshot
-            ? projectsRef.current.map(project =>
-              project.id === cleanupActiveProjectId
-                ? cleanupSnapshotCurrentProject(project)
-                : project,
+            ? associateLiveSnapshotCandidate(
+              projectsRef.current.map(project =>
+                project.id === cleanupActiveProjectId
+                  ? cleanupSnapshotCurrentProject(project)
+                  : project,
+              ),
+              cleanupPendingLiveSnapshot,
             )
             : projectsRef.current;
           if (canApplyCleanupSnapshot && repositoryReadyRef.current && session) {
-            await session.save(finalProjects);
-            durableLiveSnapshotGenerationRef.current = cleanupPendingLiveSnapshot.generation;
+            await persistProjects(finalProjects);
           }
         } catch (error) {
           console.error('Failed to save final projects during cleanup:', error);
@@ -289,7 +323,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         }
       })();
     };
-  }, [clearPendingProjectTimers]);
+  }, [associateLiveSnapshotCandidate, clearPendingProjectTimers, persistProjects]);
 
   useEffect(() => {
     if (!repositoryReady) return;
@@ -335,6 +369,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const snapshotCurrentProjectRef = React.useRef(snapshotCurrentProject);
   snapshotCurrentProjectRef.current = snapshotCurrentProject;
 
+  const prepareProjectsForPersistence = useCallback((current: ScoutProject[]) => {
+    const snapshotProjectId = activeProjectIdRef.current;
+    if (!snapshotProjectId || isProjectLoading.current) return current;
+    const pendingLiveSnapshot = pendingLiveSnapshotRef.current?.projectId === snapshotProjectId
+      ? pendingLiveSnapshotRef.current
+      : null;
+    return associateLiveSnapshotCandidate(current.map(project =>
+      project.id === snapshotProjectId
+        ? snapshotCurrentProjectRef.current(project)
+        : project,
+    ), pendingLiveSnapshot);
+  }, [associateLiveSnapshotCandidate]);
+
   const scheduleCurrentProjectSnapshot = useCallback((markPending = true) => {
     if (
       isProjectLoading.current
@@ -359,15 +406,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (isProjectLoading.current || !activeProjectIdRef.current) return;
       setProjects(prev => {
         const prevArr = Array.isArray(prev) ? prev : [];
-        return prevArr.map(project =>
-          project.id === activeProjectIdRef.current
-            ? snapshotCurrentProjectRef.current(project)
-            : project,
-        );
+        return prepareProjectsForPersistence(prevArr);
       });
     }, 800);
     projectSnapshotTimeoutRef.current = timeoutId;
-  }, [clearPendingProjectSnapshot]);
+  }, [clearPendingProjectSnapshot, prepareProjectsForPersistence]);
 
   // Debounced project snapshot; repository persistence is handled separately above.
   useEffect(() => {
@@ -385,17 +428,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const flushPendingSavesInQueue = useCallback(async () => {
     if (!repositoryReadyRef.current) return;
     clearPendingProjectTimers();
-    let nextProjects = projectsRef.current;
-    if (activeProjectIdRef.current && !isProjectLoading.current) {
-      nextProjects = nextProjects.map(project =>
-        project.id === activeProjectIdRef.current ? snapshotCurrentProjectRef.current(project) : project
-      );
-    }
-    explicitlyPersistedProjectsRef.current = nextProjects;
+    const nextProjects = prepareProjectsForPersistence(projectsRef.current);
     await persistProjects(nextProjects);
+    explicitlyPersistedProjectsRef.current = nextProjects;
     projectsRef.current = nextProjects;
+    if (!acceptingProjectOperationsRef.current) return;
     setProjects(nextProjects);
-  }, [clearPendingProjectTimers, persistProjects]);
+  }, [clearPendingProjectTimers, persistProjects, prepareProjectsForPersistence]);
 
   const enqueueProjectMutation = useCallback((
     mutate: (current: ScoutProject[]) => ScoutProject[],
@@ -404,14 +443,20 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     } = {},
   ) => projectOperationQueueRef.current.enqueue(async () => {
     if (!repositoryReadyRef.current) return;
-    const nextProjects = mutate(projectsRef.current);
+    const preparedProjects = prepareProjectsForPersistence(projectsRef.current);
+    const nextProjects = mutate(preparedProjects);
+    associateLiveSnapshotCandidate(
+      nextProjects,
+      liveSnapshotCandidateTokensRef.current.get(preparedProjects),
+    );
     await persistProjects(nextProjects);
     explicitlyPersistedProjectsRef.current = nextProjects;
     projectsRef.current = nextProjects;
+    if (!acceptingProjectOperationsRef.current) return nextProjects;
     setProjects(nextProjects);
     options.afterCommit?.(nextProjects);
     return nextProjects;
-  }), [persistProjects]);
+  }), [associateLiveSnapshotCandidate, persistProjects, prepareProjectsForPersistence]);
 
   const flushPendingSaves = useCallback(async () => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
@@ -491,16 +536,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       updatedAt: new Date().toISOString(),
     };
 
-    void enqueueProjectMutation(current => {
-      const currentSnapshot = activeProjectIdRef.current && !isProjectLoading.current
-        ? current.map(project =>
-          project.id === activeProjectIdRef.current
-            ? snapshotCurrentProjectRef.current(project)
-            : project,
-        )
-        : current;
-      return [...currentSnapshot, newProject];
-    }, {
+    void enqueueProjectMutation(current => [...current, newProject], {
       afterCommit: () => {
         isProjectLoading.current = true;
         loadProjectStateRef.current(newProject);
@@ -518,13 +554,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       if (!repositoryReadyRef.current) return;
       let nextProjects = projectsRef.current;
       if (activeProjectIdRef.current) {
-        const snapshotProjectId = activeProjectIdRef.current;
-        const pendingLiveSnapshot = pendingLiveSnapshotRef.current?.projectId === snapshotProjectId
-          ? pendingLiveSnapshotRef.current
-          : null;
-        nextProjects = nextProjects.map(project =>
-          project.id === snapshotProjectId ? snapshotCurrentProjectRef.current(project) : project,
-        );
+        nextProjects = prepareProjectsForPersistence(nextProjects);
         try {
           await persistProjects(nextProjects);
         } catch (error) {
@@ -535,12 +565,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             ? 'บันทึกโปรเจกต์ปัจจุบันไม่สำเร็จ จึงยังไม่สลับโปรเจกต์'
             : 'Could not save the current project, so the project switch was cancelled.');
           return;
-        }
-        if (pendingLiveSnapshot) {
-          durableLiveSnapshotGenerationRef.current = Math.max(
-            durableLiveSnapshotGenerationRef.current,
-            pendingLiveSnapshot.generation,
-          );
         }
         explicitlyPersistedProjectsRef.current = nextProjects;
         projectsRef.current = nextProjects;
@@ -558,16 +582,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const deleteProject = async (projectId: string) => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
     clearPendingProjectTimers();
-    return enqueueProjectMutation(current => {
-      const currentSnapshot = activeProjectIdRef.current && !isProjectLoading.current
-        ? current.map(project =>
-          project.id === activeProjectIdRef.current
-            ? snapshotCurrentProjectRef.current(project)
-            : project,
-        )
-        : current;
-      return currentSnapshot.filter(project => project.id !== projectId);
-    }, {
+    return enqueueProjectMutation(current => current.filter(project => project.id !== projectId), {
       afterCommit: (remaining) => {
         if (activeProjectIdRef.current !== projectId) return;
         isProjectLoading.current = true;

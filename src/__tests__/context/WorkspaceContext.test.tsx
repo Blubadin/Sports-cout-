@@ -180,6 +180,24 @@ function ContextProbe() {
   return null;
 }
 
+function ScoutProbe() {
+  scout = useScoutContext();
+  return null;
+}
+
+function WorkspaceUnmountHarness({ showWorkspace }: { showWorkspace: boolean }) {
+  return (
+    <ScoutProvider>
+      <ScoutProbe />
+      {showWorkspace ? (
+        <WorkspaceProvider>
+          <ContextProbe />
+        </WorkspaceProvider>
+      ) : null}
+    </ScoutProvider>
+  );
+}
+
 function renderWorkspace(
   initialProjects: ScoutProject[],
   initialization?: Promise<ProjectRepositoryState>,
@@ -211,6 +229,26 @@ function renderWorkspace(
       await waitFor(() => {
         expect(workspace?.saveStatus).toBe("saved");
       });
+    },
+  };
+}
+
+function renderWorkspaceKeepingScout(initialProjects: ScoutProject[]) {
+  persistence.repository.initialize.mockResolvedValue(initialProjects);
+  persistence.session.initializeWithRevision.mockResolvedValue({
+    projects: initialProjects,
+    revision: 1,
+  });
+  const rendered = render(<WorkspaceUnmountHarness showWorkspace />);
+
+  return {
+    ...rendered,
+    unmountWorkspace() {
+      rendered.rerender(<WorkspaceUnmountHarness showWorkspace={false} />);
+    },
+    async ready() {
+      await waitFor(() => expect(workspace?.repositoryReady).toBe(true));
+      await waitFor(() => expect(workspace?.saveStatus).toBe("saved"));
     },
   };
 }
@@ -598,6 +636,88 @@ describe("WorkspaceProvider persistence integration", () => {
     } finally {
       switchSave.resolve(savedEnvelope(initialProjects));
       rendered.unmount();
+    }
+  });
+
+  it("does not save again on cleanup after the live snapshot autosave succeeds", async () => {
+    const snapshotTimers = interceptProjectSnapshotTimers();
+    const initialProjects = [createProject("current")];
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Already durable through autosave",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+
+      act(() => {
+        snapshotTimers.fireAll();
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+      expect(
+        (persistence.session.save.mock.calls[0]?.[0] as ScoutProject[])[0]
+          ?.matchInfo.matchName,
+      ).toBe("Already durable through autosave");
+
+      rendered.unmount();
+
+      await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+      expect(persistence.session.save).toHaveBeenCalledOnce();
+    } finally {
+      rendered.unmount();
+      snapshotTimers.restore();
+    }
+  });
+
+  it("does not commit generic mutation UI or save twice when it resolves during cleanup", async () => {
+    const snapshotTimers = interceptProjectSnapshotTimers();
+    const initialProjects = [createProject("current")];
+    const mutationSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const rendered = renderWorkspaceKeepingScout(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Durable before mutation cleanup",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+      persistence.session.save.mockImplementationOnce(() => mutationSave.promise);
+
+      act(() => {
+        workspace?.createNewProject("Queued during cleanup", "volleyball");
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+      const persistedMutation = persistence.session.save.mock.calls[0]?.[0] as ScoutProject[];
+      expect(persistedMutation).toHaveLength(2);
+      expect(persistedMutation.find((project) => project.id === "current")?.matchInfo.matchName)
+        .toBe("Durable before mutation cleanup");
+      expect(persistedMutation.some((project) => project.title === "Queued during cleanup"))
+        .toBe(true);
+
+      rendered.unmountWorkspace();
+      mutationSave.resolve(savedEnvelope(persistedMutation));
+
+      await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+      expect(persistence.session.save).toHaveBeenCalledOnce();
+      expect(scout?.matchInfo.matchName).toBe("Durable before mutation cleanup");
+      expect(window.localStorage.getItem("active_scout_project_id"))
+        .toBe(JSON.stringify("current"));
+      expect(snapshotTimers.pendingCount).toBe(0);
+    } finally {
+      mutationSave.resolve(savedEnvelope(initialProjects));
+      rendered.unmount();
+      snapshotTimers.restore();
     }
   });
 
