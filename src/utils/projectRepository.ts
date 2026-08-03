@@ -6,6 +6,7 @@ import {
 import type { StorageAdapter } from "./storageAdapter";
 
 export const PROJECTS_REPOSITORY_KEY = "scout-projects:v1.2";
+export const PROJECTS_LEGACY_REPOSITORY_KEY = "scout-projects:v1.1";
 export const PROJECTS_BACKUP_KEY = "scout-projects:legacy-backup";
 
 export type ProjectRepositoryEnvelope = {
@@ -50,6 +51,17 @@ const isScoutProject = (value: unknown): value is ScoutProject => {
 const normalizeProjects = (value: unknown): ScoutProject[] =>
   Array.isArray(value) ? value.filter(isScoutProject) : [];
 
+const isV12Envelope = (
+  value: unknown,
+): value is Partial<ProjectRepositoryEnvelope> & { projects: unknown[] } =>
+  Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      (value as Partial<ProjectRepositoryEnvelope>).schemaVersion === "1.2" &&
+      Array.isArray((value as Partial<ProjectRepositoryEnvelope>).projects),
+  );
+
 const getRevision = (value: unknown): number => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
   const revision = (value as Partial<ProjectRepositoryEnvelope>).revision;
@@ -80,14 +92,11 @@ export function createProjectRepository(
   ): Promise<ProjectRepositoryState> =>
     executeExclusively(async () => {
       const stored = await adapter.getItem(PROJECTS_REPOSITORY_KEY);
-      if (stored && typeof stored === "object" && !Array.isArray(stored)) {
-        const envelope = stored as Partial<ProjectRepositoryEnvelope>;
-        if (Array.isArray(envelope.projects)) {
-          return {
-            projects: normalizeProjects(envelope.projects),
-            revision: getRevision(envelope),
-          };
-        }
+      if (isV12Envelope(stored)) {
+        return {
+          projects: normalizeProjects(stored.projects),
+          revision: getRevision(stored),
+        };
       }
 
       const storedProjects = normalizeProjects(stored);
@@ -95,6 +104,25 @@ export function createProjectRepository(
         const envelope = createEnvelope(storedProjects);
         await adapter.setItem(PROJECTS_REPOSITORY_KEY, envelope);
         return { projects: storedProjects, revision: envelope.revision };
+      }
+
+      const legacyStored = await adapter.getItem(PROJECTS_LEGACY_REPOSITORY_KEY);
+      const legacyEnvelope =
+        legacyStored &&
+        typeof legacyStored === "object" &&
+        !Array.isArray(legacyStored)
+          ? (legacyStored as Partial<ProjectRepositoryEnvelope>)
+          : null;
+      const migratedProjects = normalizeProjects(
+        legacyEnvelope ? legacyEnvelope.projects : legacyStored,
+      );
+
+      if (migratedProjects.length > 0) {
+        const revision = getRevision(legacyEnvelope);
+        await adapter.setItem(PROJECTS_BACKUP_KEY, migratedProjects);
+        const envelope = createEnvelope(migratedProjects, revision);
+        await adapter.setItem(PROJECTS_REPOSITORY_KEY, envelope);
+        return { projects: migratedProjects, revision };
       }
 
       const safeLegacyProjects = normalizeProjects(legacyProjects);

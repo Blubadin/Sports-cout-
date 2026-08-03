@@ -3,6 +3,7 @@ import type { ScoutProject } from "../../types";
 import type { StorageAdapter } from "../../utils/storageAdapter";
 import {
   PROJECTS_BACKUP_KEY,
+  PROJECTS_LEGACY_REPOSITORY_KEY,
   PROJECTS_REPOSITORY_KEY,
   ProjectRepositoryConflictError,
   createProjectRepository,
@@ -49,6 +50,100 @@ function createMemoryAdapter(initial: Record<string, unknown> = {}) {
 }
 
 describe("projectRepository", () => {
+  it("migrates a v1.1 IndexedDB envelope without losing projects", async () => {
+    const legacyProject = createMockProject({ id: "v1-legacy" });
+    const legacyEnvelope = {
+      schemaVersion: "1.1",
+      revision: 4,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      projects: [legacyProject],
+    };
+    const { adapter, values } = createMemoryAdapter({
+      [PROJECTS_LEGACY_REPOSITORY_KEY]: legacyEnvelope,
+    });
+
+    const state = await createProjectRepository(adapter).initializeWithRevision(
+      [],
+    );
+
+    expect(state).toEqual({ projects: [legacyProject], revision: 4 });
+    expect(values.get(PROJECTS_BACKUP_KEY)).toEqual([legacyProject]);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
+      schemaVersion: "1.2",
+      revision: 4,
+      projects: [legacyProject],
+    });
+    expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toEqual(legacyEnvelope);
+  });
+
+  it("prefers a valid v1.2 envelope over a v1.1 envelope", async () => {
+    const currentProject = createMockProject({ id: "v1-2-current" });
+    const legacyProject = createMockProject({ id: "v1-1-legacy" });
+    const legacyEnvelope = {
+      schemaVersion: "1.1",
+      revision: 8,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      projects: [legacyProject],
+    };
+    const currentEnvelope = {
+      schemaVersion: "1.2",
+      revision: 9,
+      updatedAt: "2026-08-01T00:00:00.000Z",
+      projects: [currentProject],
+    };
+    const { adapter, values } = createMemoryAdapter({
+      [PROJECTS_REPOSITORY_KEY]: currentEnvelope,
+      [PROJECTS_LEGACY_REPOSITORY_KEY]: legacyEnvelope,
+    });
+
+    const state = await createProjectRepository(adapter).initializeWithRevision(
+      [],
+    );
+
+    expect(state).toEqual({ projects: [currentProject], revision: 9 });
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toBe(currentEnvelope);
+    expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toBe(legacyEnvelope);
+    expect(values.has(PROJECTS_BACKUP_KEY)).toBe(false);
+  });
+
+  it("keeps the v1.1 envelope readable when its v1.2 migration write fails", async () => {
+    const legacyProject = createMockProject({ id: "v1-write-failure" });
+    const legacyEnvelope = {
+      schemaVersion: "1.1",
+      revision: 6,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      projects: [legacyProject],
+    };
+    const values = new Map<string, unknown>([
+      [PROJECTS_LEGACY_REPOSITORY_KEY, legacyEnvelope],
+    ]);
+    const adapter: StorageAdapter = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        if (key === PROJECTS_REPOSITORY_KEY) {
+          throw new Error("v1.2 write unavailable");
+        }
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+
+    await expect(
+      createProjectRepository(adapter).initializeWithRevision([]),
+    ).rejects.toThrow("v1.2 write unavailable");
+
+    expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toBe(legacyEnvelope);
+    expect(await adapter.getItem(PROJECTS_LEGACY_REPOSITORY_KEY)).toBe(
+      legacyEnvelope,
+    );
+    expect(values.get(PROJECTS_BACKUP_KEY)).toEqual([legacyProject]);
+    expect(values.has(PROJECTS_REPOSITORY_KEY)).toBe(false);
+  });
+
   it("migrates legacy projects once and preserves a recovery backup", async () => {
     const legacyProject = createMockProject({ id: "legacy-project" });
     const { adapter, values } = createMemoryAdapter();
