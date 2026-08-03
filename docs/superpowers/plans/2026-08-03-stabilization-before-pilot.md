@@ -644,3 +644,61 @@ Mark Checkpoint 7 `PASS` only if every automated gate and the six real-browser s
 - [ ] **Step 5: Request final code review**
 
 Create a review package from the branch merge base through current `HEAD`, then request a read-only review covering migration, queue ordering, import identity, report rendering, calibration validation, and test evidence. Address every Critical or Important finding before merge.
+
+### Task 9: Recover valid v1.1 data when the v1.2 envelope contains corrupt records
+
+**Files:**
+- Modify: `src/utils/projectRepository.ts`
+- Modify: `src/__tests__/utils/projectRepository.test.ts`
+
+**Interfaces:**
+- Consumes: v1.2 and legacy v1.1 persisted envelopes.
+- Produces: v1.2 remains canonical only when every stored project record is valid; a valid intentionally-empty v1.2 remains canonical; otherwise valid v1.1 is recovered safely.
+
+- [ ] Add RED cases for a valid v1.1 envelope alongside (a) v1.2 containing `{}` and (b) an intentionally empty valid v1.2. The first must recover v1.1; the second must return its empty v1.2 state.
+- [ ] Make envelope parsing distinguish a structurally valid empty v1.2 from a v1.2 envelope containing invalid project records. Do not silently filter corrupt v1.2 projects and return a partial/empty list when a valid v1.1 recovery source exists.
+- [ ] Run `npm.cmd test -- src/__tests__/utils/projectRepository.test.ts`, then commit only those files as `fix: recover legacy projects from corrupt envelopes`.
+
+### Task 10: Make project import success contingent on durable persistence
+
+**Files:**
+- Modify: `src/context/WorkspaceContext.tsx`
+- Modify: import call sites such as `src/App.tsx` and `src/components/WorkspaceMenu.tsx`
+- Modify: `src/__tests__/context/WorkspaceContext.test.tsx`
+
+**Interfaces:**
+- `importProject(project)` returns `Promise<boolean>`.
+- `true` means the unique-ID import was persisted and committed; `false` means it was not persisted and an existing localized failure notification was shown.
+
+- [ ] Add RED tests for a rejected import persistence call: import returns false, projects do not change, and success is not shown by callers. Add a success case that resolves only after persistence.
+- [ ] Await the queue-owned import mutation. Generate/verify a fresh collision-free identity inside the queued operation, and show success only after it resolves. On rejection, use the existing localized toast/error channel rather than only `console.error`.
+- [ ] Run focused context tests and lint, then commit only scoped files as `fix: report durable project import results`.
+
+### Task 11: Persist the current-project snapshot before committing it in memory
+
+**Files:**
+- Modify: `src/context/WorkspaceContext.tsx`
+- Modify: `src/__tests__/context/WorkspaceContext.test.tsx`
+
+**Interfaces:**
+- Consumes: project-open snapshot and `persistProjects`.
+- Produces: project selection and snapshot state change only after the snapshot's write succeeds.
+
+- [ ] Add a RED regression where opening another project triggers a rejected persistence call; assert both the original `projects` snapshot and active project remain unchanged.
+- [ ] Stage the snapshot as a candidate, persist it, then commit refs/React state and selection only on success. Retain localized failure reporting.
+- [ ] Run focused context tests and lint, then commit only scoped files as `fix: persist project snapshots before activation`.
+
+### Task 12: Provide an accessible calibration entry point and prevent gesture interception
+
+**Files:**
+- Modify: `src/components/VideoPlayer.tsx`
+- Modify: `src/components/video/CourtZoneOverlay.tsx` only if required for event-layer coordination
+- Add or modify: focused component/E2E test already used by the player
+
+**Interfaces:**
+- Consumes: persisted `courtCalibration` and the existing overlay callbacks.
+- Produces: a visible keyboard-accessible control to start/reopen calibration; pointer events reach calibration points while calibrating; cancel restores the prior display state.
+
+- [ ] Add a RED UI test proving an accessible calibration action enters calibration mode and the overlay is above/has priority over gesture capture. Include a keyboard-accessible name.
+- [ ] Add the smallest explicit player control (for example, an aria-labelled button beside existing player controls), set calibration visibility/mode from it, and disable or lower the gesture-capture layer while calibration is active. Preserve normal gesture controls otherwise.
+- [ ] Run focused player/component tests, `npm.cmd run lint`, and relevant Playwright coverage. Commit only scoped files as `fix: enable accessible court calibration`.
