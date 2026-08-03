@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   BarChart3,
   Bookmark,
+  FileText,
   FolderOpen,
   Gamepad2,
   Keyboard,
@@ -25,6 +26,7 @@ const PRESETS: Array<{
   { id: 'scout', icon: Gamepad2, label: { th: 'บันทึก', en: 'Scout' } },
   { id: 'review', icon: Table2, label: { th: 'ทบทวน', en: 'Review' } },
   { id: 'analysis', icon: BarChart3, label: { th: 'วิเคราะห์', en: 'Analysis' } },
+  { id: 'report', icon: FileText, label: { th: 'รายงาน', en: 'Report' } },
 ];
 
 interface WorkstationTopBarProps {

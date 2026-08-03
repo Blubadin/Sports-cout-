@@ -54,4 +54,24 @@ describe('Coach Reports Generator (Checkpoint 15)', () => {
     expect(html).toContain('Thailand');
     expect(html).toContain('SPORTSCOUT Match Summary Report');
   });
+
+  it('escapes untrusted report fields before embedding them in HTML', () => {
+    const reportData = generateMatchReportData(mockProject);
+    const html = printMatchReportHTML({
+      ...reportData,
+      projectTitle: '<img src=x onerror=alert(1)>',
+      sportType: 'volley<script>alert(1)</script>',
+      teamAName: '<script>alert(1)</script>',
+      teamBName: 'O\'Brien & Sons',
+      earnedPointsTeamA: Number.NaN,
+    });
+
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).not.toContain('<img src=x onerror=alert(1)>');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).toContain('O&#39;Brien &amp; Sons');
+    expect(html).toContain('Earned Points: 0');
+    expect(html).not.toContain('Earned Points: NaN');
+  });
 });

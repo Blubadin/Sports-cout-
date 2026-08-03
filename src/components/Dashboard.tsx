@@ -20,7 +20,7 @@ import ResultDistributionChart from './charts/ResultDistributionChart';
 import SportSpecificKPIs from './charts/SportSpecificKPIs';
 
 interface DashboardProps {
-  variant?: 'classic' | 'workstation';
+  variant?: 'classic' | 'workstation' | 'report';
 }
 
 export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) {

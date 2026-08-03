@@ -47,12 +47,40 @@ export function generateMatchReportData(project: ScoutProject): MatchReportData 
   };
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function finiteMetric(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function formatGeneratedAt(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Invalid date' : date.toLocaleString();
+}
+
 export function printMatchReportHTML(reportData: MatchReportData): string {
+  const projectTitle = escapeHtml(reportData.projectTitle);
+  const sportType = escapeHtml(String(reportData.sportType ?? '').toUpperCase());
+  const teamAName = escapeHtml(reportData.teamAName);
+  const teamBName = escapeHtml(reportData.teamBName);
+  const generatedAt = escapeHtml(formatGeneratedAt(reportData.generatedAt));
+  const earnedPointsTeamA = finiteMetric(reportData.earnedPointsTeamA);
+  const earnedPointsTeamB = finiteMetric(reportData.earnedPointsTeamB);
+  const totalEvents = finiteMetric(reportData.totalEvents);
+  const keyMomentsCount = finiteMetric(reportData.keyMomentsCount);
+
   return `
     <!DOCTYPE html>
     <html>
       <head>
-        <title>SPORTSCOUT Match Report - ${reportData.projectTitle}</title>
+        <title>SPORTSCOUT Match Report - ${projectTitle}</title>
         <style>
           body { font-family: Arial, sans-serif; margin: 2rem; color: #111; }
           h1 { color: #0284c7; border-bottom: 2px solid #0284c7; padding-bottom: 0.5rem; }
@@ -64,24 +92,24 @@ export function printMatchReportHTML(reportData: MatchReportData): string {
       </head>
       <body>
         <h1>SPORTSCOUT Match Summary Report</h1>
-        <p><strong>Project:</strong> ${reportData.projectTitle} (${reportData.sportType.toUpperCase()})</p>
-        <p><strong>Generated:</strong> ${new Date(reportData.generatedAt).toLocaleString()}</p>
+        <p><strong>Project:</strong> ${projectTitle} (${sportType})</p>
+        <p><strong>Generated:</strong> ${generatedAt}</p>
         
         <div class="grid">
           <div class="card">
-            <h3>${reportData.teamAName}</h3>
-            <div class="metric-val">Earned Points: ${reportData.earnedPointsTeamA}</div>
+            <h3>${teamAName}</h3>
+            <div class="metric-val">Earned Points: ${earnedPointsTeamA}</div>
           </div>
           <div class="card">
-            <h3>${reportData.teamBName}</h3>
-            <div class="metric-val">Earned Points: ${reportData.earnedPointsTeamB}</div>
+            <h3>${teamBName}</h3>
+            <div class="metric-val">Earned Points: ${earnedPointsTeamB}</div>
           </div>
         </div>
 
         <div class="card" style="margin-top: 1rem;">
           <h3>Match Overview</h3>
-          <p>Total Events Logged: <strong>${reportData.totalEvents}</strong></p>
-          <p>Key Moments (Bookmarked): <strong>${reportData.keyMomentsCount}</strong></p>
+          <p>Total Events Logged: <strong>${totalEvents}</strong></p>
+          <p>Key Moments (Bookmarked): <strong>${keyMomentsCount}</strong></p>
         </div>
       </body>
     </html>

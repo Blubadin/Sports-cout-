@@ -4,7 +4,7 @@ import { ScoutProvider, useScoutContext } from './context/ScoutContext';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { t } from './i18n';
 import WorkspaceMenu from './components/WorkspaceMenu';
-import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star } from 'lucide-react';
+import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star, FileText } from 'lucide-react';
 import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { MAX_IMPORT_FILE_BYTES, validateImportFileSize } from './utils/importSafety';
@@ -34,8 +34,8 @@ const ScoutingTable = React.lazy(() => import('./components/ScoutingTable'));
 const KeyboardShortcutsModal = React.lazy(() => import('./components/KeyboardShortcutsModal'));
 const MatchInfoModal = React.lazy(() => import('./components/MatchInfoModal'));
 
-type AnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks';
-const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks'];
+type AnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks' | 'report';
+const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks', 'report'];
 
 function Toast() {
   const { toastMessage } = useScoutContext();
@@ -543,6 +543,22 @@ function AppContent() {
                   <Star size={18} />
                   <span>{t('keyMoments.title', settings.uiLanguage)}</span>
                 </button>
+                <button
+                  id="analysis-tab-report"
+                  role="tab"
+                  aria-selected={activeTab === 'report'}
+                  aria-controls="analysis-panel-report"
+                  onClick={() => setActiveTab('report')}
+                  onPointerDown={() => setActiveTab('report')}
+                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
+                    activeTab === 'report'
+                      ? 'coach-tab-active'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <FileText size={18} />
+                  <span>{settings.uiLanguage === 'th' ? 'รายงาน' : 'Report'}</span>
+                </button>
               </div>
 
               {/* Dynamic scrollable views wrapper */}
@@ -558,8 +574,13 @@ function AppContent() {
                   </React.Suspense>
                 )}
                 {activeTab === 'dashboard' && (
-                  <React.Suspense fallback={<div className="h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-xl"></div>}>
-                    <Dashboard />
+                  <React.Suspense fallback={<div className="p-4 sm:p-6 text-center text-gray-500">Loading dashboard...</div>}>
+                    <Dashboard variant={isWorkstation ? 'workstation' : 'classic'} />
+                  </React.Suspense>
+                )}
+                {activeTab === 'report' && (
+                  <React.Suspense fallback={<div className="p-4 sm:p-6 text-center text-gray-500">Loading report...</div>}>
+                    <Dashboard variant="report" />
                   </React.Suspense>
                 )}
                 {activeTab === 'table' && (

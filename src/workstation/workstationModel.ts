@@ -1,7 +1,7 @@
 import type { WorkspaceExperience } from '../types';
 
-export type WorkbenchPresetId = 'scout' | 'review' | 'analysis';
-export type WorkstationAnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks';
+export type WorkbenchPresetId = 'scout' | 'review' | 'analysis' | 'report';
+export type WorkstationAnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks' | 'report';
 
 export function resolveWorkspaceExperience(_options: {
   featureEnabled: boolean;
@@ -16,6 +16,7 @@ const PRESET_TO_TAB: Record<WorkbenchPresetId, WorkstationAnalysisTab> = {
   scout: 'input',
   review: 'table',
   analysis: 'dashboard',
+  report: 'report',
 };
 
 export function getAnalysisTabForPreset(preset: WorkbenchPresetId): WorkstationAnalysisTab {
@@ -24,6 +25,7 @@ export function getAnalysisTabForPreset(preset: WorkbenchPresetId): WorkstationA
 
 export function getPresetForAnalysisTab(tab: WorkstationAnalysisTab): WorkbenchPresetId {
   if (tab === 'table' || tab === 'bookmarks') return 'review';
+  if (tab === 'report') return 'report';
   return tab === 'dashboard' ? 'analysis' : 'scout';
 }
 

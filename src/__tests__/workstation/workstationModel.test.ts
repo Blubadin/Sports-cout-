@@ -40,6 +40,7 @@ describe('workstation model', () => {
     ['scout', 'input'],
     ['review', 'table'],
     ['analysis', 'dashboard'],
+    ['report', 'report'],
   ] as const)('maps the %s preset to the %s analysis view', (preset, tab) => {
     expect(getAnalysisTabForPreset(preset)).toBe(tab);
     expect(getPresetForAnalysisTab(tab)).toBe(preset);
