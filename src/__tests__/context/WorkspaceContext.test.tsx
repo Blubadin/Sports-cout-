@@ -404,6 +404,26 @@ describe("WorkspaceProvider persistence integration", () => {
     rendered.unmount();
   });
 
+  it("keeps projects and active selection when deleting the active project fails", async () => {
+    const initialProjects = [createProject("current"), createProject("next")];
+    const rendered = renderWorkspace(initialProjects);
+    await rendered.ready();
+    await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+    persistence.session.save.mockRejectedValueOnce(new Error("storage unavailable"));
+
+    act(() => {
+      workspace?.deleteProject("current");
+    });
+
+    await waitFor(() => expect(workspace?.saveStatus).toBe("failed"));
+    expect(workspace?.projects.map((project) => project.id)).toEqual([
+      "current",
+      "next",
+    ]);
+    expect(workspace?.activeProjectId).toBe("current");
+    rendered.unmount();
+  });
+
   it("does not let a pending project autosave restore a deleted project", async () => {
     const autosaveTimers = interceptProjectAutosaveTimers();
     const initialProjects = [createProject("current"), createProject("delete")];
