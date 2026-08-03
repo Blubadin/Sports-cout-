@@ -35,18 +35,20 @@ function createMockProject(overrides: Partial<ScoutProject> = {}): ScoutProject 
 
 function createMemoryAdapter(initial: Record<string, unknown> = {}) {
   const values = new Map(Object.entries(initial));
+  const writes: Array<{ key: string; value: unknown }> = [];
   const adapter: StorageAdapter = {
     async getItem(key) {
       return values.has(key) ? values.get(key) ?? null : null;
     },
     async setItem(key, value) {
+      writes.push({ key, value });
       values.set(key, value);
     },
     async removeItem(key) {
       values.delete(key);
     },
   };
-  return { adapter, values };
+  return { adapter, values, writes };
 }
 
 describe("projectRepository", () => {
@@ -74,6 +76,26 @@ describe("projectRepository", () => {
       projects: [legacyProject],
     });
     expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toEqual(legacyEnvelope);
+  });
+
+  it("does not rewrite migration state on a second initialization", async () => {
+    const legacyProject = createMockProject({ id: "idempotent-v1" });
+    const { adapter, writes } = createMemoryAdapter({
+      [PROJECTS_LEGACY_REPOSITORY_KEY]: {
+        schemaVersion: "1.1",
+        revision: 2,
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        projects: [legacyProject],
+      },
+    });
+    const repository = createProjectRepository(adapter);
+
+    await repository.initializeWithRevision([]);
+    const writesAfterMigration = [...writes];
+    const second = await repository.initializeWithRevision([]);
+
+    expect(second).toEqual({ projects: [legacyProject], revision: 2 });
+    expect(writes).toEqual(writesAfterMigration);
   });
 
   it("prefers a valid v1.2 envelope over a v1.1 envelope", async () => {
