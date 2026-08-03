@@ -78,10 +78,12 @@ function savedEnvelope(projects: ScoutProject[], revision = 2) {
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function interceptProjectAutosaveTimers() {
@@ -513,6 +515,7 @@ describe("WorkspaceProvider persistence integration", () => {
   it("flushes the live current-project snapshot when unmounted before a failed-switch retry", async () => {
     const snapshotTimers = interceptProjectSnapshotTimers();
     const initialProjects = [createProject("current"), createProject("next")];
+    const switchSave = createDeferred<ReturnType<typeof savedEnvelope>>();
     const rendered = renderWorkspace(initialProjects);
 
     try {
@@ -527,17 +530,14 @@ describe("WorkspaceProvider persistence integration", () => {
       });
       await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
 
-      persistence.session.save.mockRejectedValueOnce(
-        new Error("IndexedDB unavailable"),
-      );
+      persistence.session.save.mockImplementationOnce(() => switchSave.promise);
       act(() => {
         workspace?.openProject("next");
       });
 
-      await waitFor(() => expect(workspace?.saveStatus).toBe("failed"));
-      expect(snapshotTimers.pendingCount).toBe(1);
-
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
       rendered.unmount();
+      switchSave.reject(new Error("IndexedDB unavailable"));
 
       await waitFor(() =>
         expect(persistence.session.save).toHaveBeenCalledTimes(2),
@@ -554,12 +554,13 @@ describe("WorkspaceProvider persistence integration", () => {
       expect(snapshotTimers.pendingCount).toBe(0);
       await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
     } finally {
+      switchSave.reject(new Error("IndexedDB unavailable"));
       rendered.unmount();
       snapshotTimers.restore();
     }
   });
 
-  it("does not apply the old live snapshot when a queued switch completes during cleanup", async () => {
+  it("does not commit a queued switch or save twice when it completes during cleanup", async () => {
     const initialProjects = [createProject("current"), createProject("next")];
     const switchSave = createDeferred<ReturnType<typeof savedEnvelope>>();
     const rendered = renderWorkspace(initialProjects);
@@ -580,19 +581,20 @@ describe("WorkspaceProvider persistence integration", () => {
         workspace?.openProject("next");
       });
       await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+      expect(
+        (persistence.session.save.mock.calls[0]?.[0] as ScoutProject[])
+          .find((project) => project.id === "current")?.matchInfo.matchName,
+      ).toBe("Current live state only");
+      expect(window.localStorage.getItem("active_scout_project_id"))
+        .toBe(JSON.stringify("current"));
 
       rendered.unmount();
       switchSave.resolve(savedEnvelope(initialProjects));
 
-      await waitFor(() =>
-        expect(persistence.session.save).toHaveBeenCalledTimes(2),
-      );
-      const cleanupProjects = persistence.session.save.mock.calls[1]?.[0] as ScoutProject[];
-      expect(cleanupProjects.find((project) => project.id === "current")?.matchInfo.matchName)
-        .toBe("Current live state only");
-      expect(cleanupProjects.find((project) => project.id === "next")?.matchInfo.matchName)
-        .toBe("Match next");
       await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
+      expect(persistence.session.save).toHaveBeenCalledOnce();
+      expect(window.localStorage.getItem("active_scout_project_id"))
+        .toBe(JSON.stringify("current"));
     } finally {
       switchSave.resolve(savedEnvelope(initialProjects));
       rendered.unmount();
