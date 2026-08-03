@@ -328,9 +328,9 @@ Expected: PASS. This task intentionally adds a regression test for an already-co
 - Consumes: `projectOperationQueueRef.current.enqueue`, `projectsRef.current`, `persistProjects`, `snapshotCurrentProjectRef`.
 - Produces: `enqueueProjectMutation(mutate, options)` internal helper; unique project-ID validation before repository save; queued create/delete/rename/duplicate/import/video-time/calibration mutations.
 
-- [ ] **Step 1: Write a failing first-write race test**
+- [ ] **Step 1: Write failing FIFO-persistence race tests**
 
-Replace the current delete/rename test's eventual-autosave assertion with an assertion on the first deferred delete save:
+Replace the current delete/rename test's eventual-autosave assertion with an assertion that the first deferred delete save reflects the state at the delete operation's queue turn. After that save has started, each later accepted mutation must receive its own immediate FIFO persistence (a later mutation cannot safely amend an IndexedDB payload that has already been handed to storage):
 
 ```ts
 deleteSave.resolve(savedEnvelope([{
@@ -341,12 +341,12 @@ deleteSave.resolve(savedEnvelope([{
 await waitFor(() => {
   const firstSave = persistence.session.save.mock.calls[0][0];
   expect(firstSave).toEqual([
-    expect.objectContaining({ id: 'A', title: 'Renamed A' }),
+    expect.objectContaining({ id: 'A' }),
   ]);
 });
 ```
 
-Add equivalent focused cases for import and `lastVideoTime`, and a duplicate-import case:
+Then release the deferred delete write and assert the subsequent queued save contains the later rename. Add equivalent focused cases for import and `lastVideoTime`; assert no debounce timer emits a stale follow-up. Add a duplicate-import case:
 
 ```ts
 workspace?.importProject(createProject('A'));
@@ -363,7 +363,7 @@ Run:
 npm.cmd test -- src/__tests__/context/WorkspaceContext.test.tsx
 ```
 
-Expected: the first-write race assertion fails because `deleteProject()` captures `remaining` before queue execution; duplicate import either duplicates the ID or proves the test setup needs a collision payload.
+Expected: direct mutations following the delete are debounced or use stale pre-queue snapshots; duplicate import either duplicates the ID or proves the test setup needs a collision payload.
 
 - [ ] **Step 3: Implement one queue-owned mutation helper**
 
@@ -416,7 +416,7 @@ npm.cmd test -- src/__tests__/context/WorkspaceContext.test.tsx src/__tests__/ut
 npm.cmd run lint
 ```
 
-Expected: all race cases verify the first persisted post-delete envelope; duplicate import creates independently addressable projects; no duplicate IDs reach storage.
+Expected: all mutation sequences persist truthfully in FIFO order, without any stale debounce follow-up; duplicate import creates independently addressable projects; no duplicate IDs reach storage.
 
 - [ ] **Step 5: Commit mutation safety**
 
