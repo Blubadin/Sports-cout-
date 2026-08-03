@@ -702,3 +702,27 @@ Create a review package from the branch merge base through current `HEAD`, then 
 - [ ] Add a RED UI test proving an accessible calibration action enters calibration mode and the overlay is above/has priority over gesture capture. Include a keyboard-accessible name.
 - [ ] Add the smallest explicit player control (for example, an aria-labelled button beside existing player controls), set calibration visibility/mode from it, and disable or lower the gesture-capture layer while calibration is active. Preserve normal gesture controls otherwise.
 - [ ] Run focused player/component tests, `npm.cmd run lint`, and relevant Playwright coverage. Commit only scoped files as `fix: enable accessible court calibration`.
+
+### Task 13: Make the committed tree independently buildable
+
+**Files:** `src/components/Dashboard.tsx`, `src/components/video/CourtZoneOverlay.tsx`
+
+- [ ] Demonstrate that parsing/type-checking the files from `git show HEAD:<path>` fails even though the dirty worktree passes.
+- [ ] Review and commit the existing narrowly relevant Dashboard reconstruction (balanced JSX, real newline, missing map filter/time helpers) and CourtZoneOverlay `Area` field correction. Preserve all unrelated scratch files.
+- [ ] Verify the staged tree itself, not only the worktree: parse/type-check staged source or create a temporary detached archive/worktree without destructive commands. Run lint and focused tests. Commit as `fix: make dashboard and court overlay buildable`.
+
+### Task 14: Require complete persisted project structure before v1.2 wins recovery precedence
+
+**Files:** `src/utils/projectRepository.ts`, `src/__tests__/utils/projectRepository.test.ts`
+
+- [ ] Add RED recovery coverage for a v1.2 record containing only `id`, `title`, and `events`, alongside a complete valid v1.1 project.
+- [ ] Extend the persisted project predicate to validate the required runtime fields used by `loadProjectState` (`sportType`, `matchInfo`, `teams`, timestamps, and other required top-level fields) without rejecting a valid intentionally empty envelope.
+- [ ] Run repository tests and lint; commit as `fix: reject incomplete persisted projects`.
+
+### Task 15: Preserve a pending live snapshot when failed project switch is followed by immediate unmount
+
+**Files:** `src/context/WorkspaceContext.tsx`, `src/__tests__/context/WorkspaceContext.test.tsx`
+
+- [ ] Add RED coverage: edit the active project's live state, reject a project switch save, unmount before the 800ms retry, and assert cleanup persistence contains the live edit.
+- [ ] On cleanup, cancel timers but construct the final candidate with `snapshotCurrentProjectRef(projectsRef.current)` before saving; keep refs/selection atomic and avoid duplicate/stale writes.
+- [ ] Run focused context tests and lint; commit as `fix: flush live snapshot during workspace cleanup`.
