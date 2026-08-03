@@ -95,7 +95,7 @@ export default function CourtZoneOverlay({
                 return (
                   <div key={area.code} className="border border-sky-400/50 flex items-center justify-center">
                     <span className="text-sky-400 font-bold text-2xl drop-shadow-md bg-black/30 px-3 py-1 rounded backdrop-blur-sm">
-                      {settings.uiLanguage === 'th' ? area.thaiLabel : area.label}
+                      {settings.uiLanguage === 'th' ? area.thaiName : area.code}
                     </span>
                   </div>
                 );

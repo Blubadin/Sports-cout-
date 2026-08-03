@@ -606,8 +606,6 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
               </div>
             )}
           </div>
-        </div>
-        
     </>
   );
 
@@ -646,7 +644,8 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
       </div>
     </>
   );
-\n  return (
+
+  return (
     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
       <CoachPrintSummary
         language={settings.uiLanguage}
@@ -868,5 +867,62 @@ function CoachPrintSummary({
         <div><h2>{t('dashboard.dataQuality', language)}</h2><p>{t('dashboard.valid', language)}<strong>{dataQuality.validEvents}</strong></p><p>{t('dashboard.warnings', language)}<strong>{dataQuality.warnings}</strong></p><p>{t('dashboard.legacy', language)}<strong>{dataQuality.legacyEvents}</strong></p></div>
       </div>
     </section>
+  );
+}
+function MapFilterSelect({
+  label,
+  value,
+  options,
+  allLabel,
+  specialLabel,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  allLabel: string;
+  specialLabel?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1 text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400">
+      {label}
+      <select
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        className="h-9 min-w-0 rounded-md border border-gray-300 bg-white px-2 text-xs font-normal normal-case text-gray-800 outline-none focus:border-sky-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+      >
+        <option value="ALL">{allLabel}</option>
+        {options.map(option => (
+          <option key={option} value={option}>{option === 'with-foul' ? specialLabel : option}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function MapTimeInput({
+  label,
+  value,
+  invalid = false,
+  onChange,
+}: {
+  label: string;
+  value?: number;
+  invalid?: boolean;
+  onChange: (value?: number) => void;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1 text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400">
+      {label}
+      <input
+        type="number"
+        min="0"
+        step="0.1"
+        value={value ?? ''}
+        onChange={event => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
+        className={`h-9 min-w-0 rounded-md border bg-white px-2 text-xs font-normal text-gray-800 outline-none focus:border-sky-500 dark:bg-gray-900 dark:text-gray-100 ${invalid ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}`}
+      />
+    </label>
   );
 }
