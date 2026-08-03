@@ -1,6 +1,6 @@
 # SPORTSCOUT Stabilization Before Pilot — Design
 
-Date: 2026-08-03  
+Date: 2026-08-03
 Status: Approved design; implementation requires a separate plan and approval.
 
 ## Purpose
