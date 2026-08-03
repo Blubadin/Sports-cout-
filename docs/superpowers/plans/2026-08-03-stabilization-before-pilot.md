@@ -183,7 +183,140 @@ Expected: all repository tests and TypeScript pass for this task's change.
 & $git -C . commit -m 'fix: migrate legacy IndexedDB project envelopes'
 ```
 
-### Task 3: Serialize project mutations and enforce unique import identities
+### Task 3: Restore a buildable VideoPlayer and reapply only court-overlay integration
+
+**Files:**
+- Modify: `src/components/VideoPlayer.tsx`
+- Test: `npm.cmd run lint`
+
+**Interfaces:**
+- Consumes: the last known buildable `66358f8:src/components/VideoPlayer.tsx`, `CourtZoneOverlay`, and `updateProjectVideoCalibration` from `WorkspaceContext`.
+- Produces: a parseable `VideoPlayer` that retains the existing player controls and restores only the court-calibration integration intended by `a45e52b`.
+
+- [ ] **Step 1: Reproduce the compiler failure (RED)**
+
+Run:
+
+```powershell
+npm.cmd run lint
+```
+
+Expected: FAIL with duplicate-import syntax errors near line 17 and unmatched JSX near line 861 of `VideoPlayer.tsx`.
+
+- [ ] **Step 2: Reconstruct from the last known buildable file**
+
+Restore the pre-broken player body without touching unrelated working-tree files:
+
+```powershell
+& $git -C . restore --source=66358f8 --staged --worktree -- src/components/VideoPlayer.tsx
+```
+
+Then reapply only these four additions from the intended calibration feature:
+
+```ts
+import CourtZoneOverlay from './video/CourtZoneOverlay';
+
+const [showCourtOverlay, setShowCourtOverlay] = useState(false);
+const [isCalibratingCourt, setIsCalibratingCourt] = useState(false);
+
+const { activeProjectId, projects, updateProjectLastVideoTime, updateProjectVideoCalibration } = useWorkspace();
+```
+
+Place the overlay immediately inside the relative video container, after gesture feedback and before loading/error layers:
+
+```tsx
+<CourtZoneOverlay
+  isVisible={showCourtOverlay || isCalibratingCourt}
+  isCalibrating={isCalibratingCourt}
+  calibrationPoints={activeProject?.videoMeta?.courtCalibration}
+  onCalibrationComplete={(points) => {
+    if (points.length === 4) {
+      updateProjectVideoCalibration({
+        tl: points[0], tr: points[1], bl: points[2], br: points[3],
+      });
+    }
+    setIsCalibratingCourt(false);
+    setShowCourtOverlay(true);
+  }}
+  onCalibrationCancel={() => {
+    setIsCalibratingCourt(false);
+    setShowCourtOverlay(Boolean(activeProject?.videoMeta?.courtCalibration));
+  }}
+/>
+```
+
+Do not copy the malformed duplicate imports or truncated JSX from `a45e52b`.
+
+- [ ] **Step 3: Verify GREEN**
+
+Run:
+
+```powershell
+npm.cmd run lint
+npm.cmd test -- src/__tests__/utils/courtHomography.test.ts
+& $git -C . diff --check -- src/components/VideoPlayer.tsx
+```
+
+Expected: lint is no longer blocked by `VideoPlayer`; the four homography tests pass; the VideoPlayer diff contains only the court-overlay integration relative to `66358f8`.
+
+- [ ] **Step 4: Commit the isolated reconstruction**
+
+```powershell
+& $git -C . add src/components/VideoPlayer.tsx
+& $git -C . commit -m 'fix: restore buildable video player with calibration overlay'
+```
+
+### Task 4: Add an idempotence regression test for completed migration
+
+**Files:**
+- Modify: `src/__tests__/utils/projectRepository.test.ts`
+
+**Interfaces:**
+- Consumes: `PROJECTS_LEGACY_REPOSITORY_KEY`, `PROJECTS_REPOSITORY_KEY`, `PROJECTS_BACKUP_KEY`, and `initializeWithRevision()`.
+- Produces: a regression test proving a second initialization reads the migrated v1.2 envelope without re-writing the backup or v1.2 state.
+
+- [ ] **Step 1: Add a repeat-initialization regression case**
+
+Extend the in-memory adapter helper to record writes, then add:
+
+```ts
+it('does not rewrite migration state on a second initialization', async () => {
+  const legacyProject = createMockProject({ id: 'idempotent-v1' });
+  const { adapter, writes } = createMemoryAdapter({
+    [PROJECTS_LEGACY_REPOSITORY_KEY]: {
+      schemaVersion: '1.1', revision: 2, updatedAt: '2026-07-01T00:00:00.000Z',
+      projects: [legacyProject],
+    },
+  });
+  const repository = createProjectRepository(adapter);
+
+  await repository.initializeWithRevision([]);
+  const writesAfterMigration = [...writes];
+  const second = await repository.initializeWithRevision([]);
+
+  expect(second).toEqual({ projects: [legacyProject], revision: 2 });
+  expect(writes).toEqual(writesAfterMigration);
+});
+```
+
+- [ ] **Step 2: Verify the existing implementation satisfies the regression**
+
+Run:
+
+```powershell
+npm.cmd test -- src/__tests__/utils/projectRepository.test.ts
+```
+
+Expected: PASS. This task intentionally adds a regression test for an already-correct code path identified by review; it does not modify production migration code.
+
+- [ ] **Step 3: Commit the regression test**
+
+```powershell
+& $git -C . add src/__tests__/utils/projectRepository.test.ts
+& $git -C . commit -m 'test: cover idempotent project migration'
+```
+
+### Task 5: Serialize project mutations and enforce unique import identities
 
 **Files:**
 - Modify: `src/context/WorkspaceContext.tsx:331-695`
@@ -292,7 +425,7 @@ Expected: all race cases verify the first persisted post-delete envelope; duplic
 & $git -C . commit -m 'fix: serialize project mutations and import identities'
 ```
 
-### Task 4: Make report navigation type-safe, accessible, and safe to render
+### Task 6: Make report navigation type-safe, accessible, and safe to render
 
 **Files:**
 - Modify: `src/types.ts:265-268`
@@ -391,7 +524,7 @@ Expected: TypeScript passes; report tab is both keyboard-navigable and visible; 
 & $git -C . commit -m 'fix: complete accessible report navigation'
 ```
 
-### Task 5: Verify calibration persistence and isolate unsupported motion artifacts
+### Task 7: Verify calibration persistence and isolate unsupported motion artifacts
 
 **Files:**
 - Modify: `src/components/video/CourtZoneOverlay.tsx`
@@ -455,7 +588,7 @@ Commit only the calibration production files and tests:
 & $git -C . commit -m 'fix: validate persisted court calibration'
 ```
 
-### Task 6: Run Checkpoint 7 closeout verification and record evidence gaps
+### Task 8: Run Checkpoint 7 closeout verification and record evidence gaps
 
 **Files:**
 - Modify: `docs/pilot/` only if an existing evidence template is available and actual evidence is recorded.
