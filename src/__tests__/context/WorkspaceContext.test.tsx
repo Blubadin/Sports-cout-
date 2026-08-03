@@ -124,6 +124,51 @@ function interceptProjectAutosaveTimers() {
   };
 }
 
+function interceptProjectSnapshotTimers() {
+  const pending = new Map<number, () => void>();
+  const nativeSetTimeout = window.setTimeout.bind(window);
+  const nativeClearTimeout = window.clearTimeout.bind(window);
+  let nextTimerId = 200_000;
+  let scheduledCount = 0;
+
+  const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(
+    ((handler: TimerHandler, timeout?: number, ...args: any[]) => {
+      if (timeout === 800 && typeof handler === "function") {
+        const timerId = nextTimerId;
+        nextTimerId += 1;
+        scheduledCount += 1;
+        pending.set(timerId, () => handler(...args));
+        return timerId;
+      }
+      return nativeSetTimeout(handler, timeout, ...args);
+    }) as typeof window.setTimeout,
+  );
+  const clearTimeoutSpy = vi.spyOn(window, "clearTimeout").mockImplementation(
+    (timerId) => {
+      if (pending.delete(Number(timerId))) return;
+      nativeClearTimeout(timerId);
+    },
+  );
+
+  return {
+    fireAll() {
+      const callbacks = [...pending.values()];
+      pending.clear();
+      callbacks.forEach((callback) => callback());
+    },
+    get pendingCount() {
+      return pending.size;
+    },
+    get scheduledCount() {
+      return scheduledCount;
+    },
+    restore() {
+      clearTimeoutSpy.mockRestore();
+      setTimeoutSpy.mockRestore();
+    },
+  };
+}
+
 let workspace: ReturnType<typeof useWorkspace> | undefined;
 let scout: ReturnType<typeof useScoutContext> | undefined;
 
@@ -413,6 +458,56 @@ describe("WorkspaceProvider persistence integration", () => {
     expect(workspace?.activeProjectId).toBe("current");
     expect(scout?.toastMessage).toMatch(/could not save.*switch.*cancelled/i);
     rendered.unmount();
+  });
+
+  it("rearms the current-project snapshot after a failed project switch", async () => {
+    const snapshotTimers = interceptProjectSnapshotTimers();
+    const initialProjects = [createProject("current"), createProject("next")];
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Retry this current match",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+      const snapshotsBeforeSwitch = snapshotTimers.scheduledCount;
+
+      persistence.session.save.mockRejectedValueOnce(
+        new Error("IndexedDB unavailable"),
+      );
+      act(() => {
+        workspace?.openProject("next");
+      });
+
+      await waitFor(() => expect(workspace?.saveStatus).toBe("failed"));
+      expect(snapshotTimers.scheduledCount).toBe(snapshotsBeforeSwitch + 1);
+      expect(snapshotTimers.pendingCount).toBe(1);
+
+      act(() => {
+        snapshotTimers.fireAll();
+      });
+
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
+      expect(persistence.session.save.mock.calls[1]?.[0]).toEqual([
+        expect.objectContaining({
+          id: "current",
+          matchInfo: expect.objectContaining({
+            matchName: "Retry this current match",
+          }),
+        }),
+        expect.objectContaining({ id: "next" }),
+      ]);
+      expect(workspace?.activeProjectId).toBe("current");
+    } finally {
+      rendered.unmount();
+      snapshotTimers.restore();
+    }
   });
 
   it("waits for the session save before deleting a project", async () => {

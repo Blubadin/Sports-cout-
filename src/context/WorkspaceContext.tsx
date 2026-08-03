@@ -76,7 +76,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const persistenceSessionRef = React.useRef<ProjectPersistenceSession | null>(null);
   const projectOperationQueueRef = React.useRef(createProjectSaveQueue());
   const projectAutosaveTimeoutRef = React.useRef<number | null>(null);
-  const projectSnapshotTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const projectSnapshotTimeoutRef = React.useRef<number | null>(null);
   const acceptingProjectOperationsRef = React.useRef(true);
 
   activeProjectIdRef.current = activeProjectId;
@@ -90,7 +90,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   const clearPendingProjectSnapshot = useCallback(() => {
     if (projectSnapshotTimeoutRef.current === null) return;
-    clearTimeout(projectSnapshotTimeoutRef.current);
+    window.clearTimeout(projectSnapshotTimeoutRef.current);
     projectSnapshotTimeoutRef.current = null;
   }, []);
 
@@ -311,23 +311,44 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const snapshotCurrentProjectRef = React.useRef(snapshotCurrentProject);
   snapshotCurrentProjectRef.current = snapshotCurrentProject;
 
+  const scheduleCurrentProjectSnapshot = useCallback((markPending = true) => {
+    if (
+      isProjectLoading.current
+      || !repositoryReadyRef.current
+      || !activeProjectIdRef.current
+    ) {
+      return;
+    }
+    clearPendingProjectSnapshot();
+    if (markPending) setSaveStatus('pending');
+    const timeoutId = window.setTimeout(() => {
+      if (projectSnapshotTimeoutRef.current !== timeoutId) return;
+      projectSnapshotTimeoutRef.current = null;
+      if (isProjectLoading.current || !activeProjectIdRef.current) return;
+      setProjects(prev => {
+        const prevArr = Array.isArray(prev) ? prev : [];
+        return prevArr.map(project =>
+          project.id === activeProjectIdRef.current
+            ? snapshotCurrentProjectRef.current(project)
+            : project,
+        );
+      });
+    }, 800);
+    projectSnapshotTimeoutRef.current = timeoutId;
+  }, [clearPendingProjectSnapshot]);
+
   // Debounced project snapshot; repository persistence is handled separately above.
   useEffect(() => {
-    if (isProjectLoading.current || !repositoryReady) return;
-    
-    if (activeProjectId) {
-      setSaveStatus('pending');
-      const timeoutId = setTimeout(() => {
-        if (isProjectLoading.current) return;
-        setProjects(prev => {
-          const prevArr = Array.isArray(prev) ? prev : [];
-          return prevArr.map(p => p.id === activeProjectId ? snapshotCurrentProject(p) : p);
-        });
-      }, 800);
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [activeProjectId, repositoryReady, snapshotCurrentProject]);
+    if (isProjectLoading.current || !repositoryReady || !activeProjectId) return;
+    scheduleCurrentProjectSnapshot();
+    return clearPendingProjectSnapshot;
+  }, [
+    activeProjectId,
+    clearPendingProjectSnapshot,
+    repositoryReady,
+    scheduleCurrentProjectSnapshot,
+    snapshotCurrentProject,
+  ]);
 
   const flushPendingSavesInQueue = useCallback(async () => {
     if (!repositoryReadyRef.current) return;
@@ -471,6 +492,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         try {
           await persistProjects(nextProjects);
         } catch (error) {
+          scheduleCurrentProjectSnapshot(false);
           if (error instanceof ProjectRepositoryConflictError) return;
           showToast(settings.uiLanguage === 'th'
             ? 'บันทึกโปรเจกต์ปัจจุบันไม่สำเร็จ จึงยังไม่สลับโปรเจกต์'
