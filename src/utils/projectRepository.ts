@@ -59,7 +59,10 @@ const isV12Envelope = (
       typeof value === "object" &&
       !Array.isArray(value) &&
       (value as Partial<ProjectRepositoryEnvelope>).schemaVersion === "1.2" &&
-      Array.isArray((value as Partial<ProjectRepositoryEnvelope>).projects),
+      Array.isArray((value as Partial<ProjectRepositoryEnvelope>).projects) &&
+      (value as Partial<ProjectRepositoryEnvelope>).projects!.every(
+        isScoutProject,
+      ),
   );
 
 const getRevision = (value: unknown): number => {

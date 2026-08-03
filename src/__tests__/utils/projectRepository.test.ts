@@ -141,6 +141,66 @@ describe("projectRepository", () => {
     expect(values.has(PROJECTS_BACKUP_KEY)).toBe(false);
   });
 
+  it("recovers valid v1.1 projects when the v1.2 envelope contains corrupt records", async () => {
+    const legacyProject = createMockProject({ id: "recovered-v1-1" });
+    const legacyEnvelope = {
+      schemaVersion: "1.1",
+      revision: 4,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      projects: [legacyProject],
+    };
+    const { adapter, values } = createMemoryAdapter({
+      [PROJECTS_REPOSITORY_KEY]: {
+        schemaVersion: "1.2",
+        revision: 9,
+        updatedAt: "2026-08-01T00:00:00.000Z",
+        projects: [{}],
+      },
+      [PROJECTS_LEGACY_REPOSITORY_KEY]: legacyEnvelope,
+    });
+
+    const state = await createProjectRepository(adapter).initializeWithRevision(
+      [],
+    );
+
+    expect(state).toEqual({ projects: [legacyProject], revision: 4 });
+    expect(values.get(PROJECTS_BACKUP_KEY)).toEqual([legacyProject]);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
+      schemaVersion: "1.2",
+      revision: 4,
+      projects: [legacyProject],
+    });
+    expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toBe(legacyEnvelope);
+  });
+
+  it("keeps an intentionally empty valid v1.2 envelope canonical", async () => {
+    const legacyProject = createMockProject({ id: "v1-1-not-recovered" });
+    const currentEnvelope = {
+      schemaVersion: "1.2",
+      revision: 9,
+      updatedAt: "2026-08-01T00:00:00.000Z",
+      projects: [],
+    };
+    const { adapter, values, writes } = createMemoryAdapter({
+      [PROJECTS_REPOSITORY_KEY]: currentEnvelope,
+      [PROJECTS_LEGACY_REPOSITORY_KEY]: {
+        schemaVersion: "1.1",
+        revision: 4,
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        projects: [legacyProject],
+      },
+    });
+
+    const state = await createProjectRepository(adapter).initializeWithRevision(
+      [],
+    );
+
+    expect(state).toEqual({ projects: [], revision: 9 });
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toBe(currentEnvelope);
+    expect(values.has(PROJECTS_BACKUP_KEY)).toBe(false);
+    expect(writes).toEqual([]);
+  });
+
   it("keeps the v1.1 envelope readable when its v1.2 migration write fails", async () => {
     const legacyProject = createMockProject({ id: "v1-write-failure" });
     const legacyEnvelope = {
