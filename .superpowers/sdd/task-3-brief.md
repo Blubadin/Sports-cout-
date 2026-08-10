@@ -80,4 +80,3 @@ Expected: lint is no longer blocked by `VideoPlayer`; the four homography tests 
 & $git -C . add src/components/VideoPlayer.tsx
 & $git -C . commit -m 'fix: restore buildable video player with calibration overlay'
 ```
-

@@ -93,4 +93,3 @@ Expected: all repository tests and TypeScript pass for this task's change.
 & $git -C . add src/utils/projectRepository.ts src/__tests__/utils/projectRepository.test.ts
 & $git -C . commit -m 'fix: migrate legacy IndexedDB project envelopes'
 ```
-

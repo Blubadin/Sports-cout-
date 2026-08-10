@@ -63,4 +63,3 @@ Expected: the staged diff reverts only the accidental VideoPlayer change plus th
 ```
 
 Expected: one follow-up commit; all pre-existing uncommitted report/workstation/spike files remain uncommitted.
-

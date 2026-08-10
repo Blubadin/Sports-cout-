@@ -47,4 +47,3 @@ Expected: PASS. This task intentionally adds a regression test for an already-co
 & $git -C . add src/__tests__/utils/projectRepository.test.ts
 & $git -C . commit -m 'test: cover idempotent project migration'
 ```
-
