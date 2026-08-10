@@ -2,12 +2,16 @@ import { expect, test } from '@playwright/test';
 
 async function enableWorkstation(page: import('@playwright/test').Page, language: 'th' | 'en' = 'th') {
   await page.goto('/');
-  if (await page.getByRole('navigation', { name: /Workstation modes/i }).count()) {
+  const activeAppHeader = page.locator('header.coach-header, header.workstation-topbar').filter({ visible: true });
+  await expect(activeAppHeader).toHaveCount(1, { timeout: 10_000 });
+  if (await activeAppHeader.evaluate(header => header.classList.contains('workstation-topbar'))) {
     await page.getByRole('button', { name: /Settings|ตั้งค่า/i }).first().click();
     await page.getByRole('button', { name: /Classic/i }).click();
     await page.getByRole('button', { name: /ปิดการตั้งค่า|Close settings/i }).click();
   }
-  const toggle = page.getByTestId('workspace-menu-toggle').first();
+  const currentHeader = page.locator('header.coach-header').filter({ visible: true });
+  await expect(currentHeader).toHaveCount(1);
+  const toggle = currentHeader.getByTestId('workspace-menu-toggle');
   await expect(toggle).toBeEnabled({ timeout: 10_000 });
   const canLoadPilot = await page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i }).count();
   if (canLoadPilot) {
@@ -25,7 +29,7 @@ async function enableWorkstation(page: import('@playwright/test').Page, language
   // Wait for workspace dropdown to fully close before interacting with header buttons
   await expect(page.getByText(/คลังโครงการ|Workspace Library/i)).toBeHidden({ timeout: 5_000 });
   if (language === 'en') {
-    const langToggle = page.getByTitle('Toggle Language').first();
+    const langToggle = currentHeader.getByTitle('Toggle Language', { exact: true });
     await expect(langToggle).toBeVisible({ timeout: 10_000 });
     await langToggle.click();
   }
