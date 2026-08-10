@@ -78,6 +78,53 @@ describe("projectRepository", () => {
     expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toEqual(legacyEnvelope);
   });
 
+  it("repairs duplicate v1.1 project IDs without changing the recovery backup", async () => {
+    const originalProjects = [
+      createMockProject({ id: "legacy-duplicate", title: "First" }),
+      createMockProject({ id: "legacy-duplicate", title: "Second" }),
+      createMockProject({
+        id: "legacy-duplicate-1",
+        title: "Reserved suffix",
+      }),
+      createMockProject({ id: "legacy-duplicate", title: "Third" }),
+    ];
+    const legacyEnvelope = {
+      schemaVersion: "1.1",
+      revision: 4,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      projects: originalProjects,
+    };
+    const { adapter, values, writes } = createMemoryAdapter({
+      [PROJECTS_LEGACY_REPOSITORY_KEY]: legacyEnvelope,
+    });
+    const repository = createProjectRepository(adapter);
+
+    const first = await repository.initializeWithRevision([]);
+    const writesAfterMigration = [...writes];
+    const second = await repository.initializeWithRevision([]);
+
+    expect(first.projects.map(project => project.id)).toEqual([
+      "legacy-duplicate",
+      "legacy-duplicate-2",
+      "legacy-duplicate-1",
+      "legacy-duplicate-3",
+    ]);
+    expect(first.revision).toBe(4);
+    expect(second).toEqual(first);
+    expect(writes).toEqual(writesAfterMigration);
+    expect(writes[0]).toEqual({
+      key: PROJECTS_BACKUP_KEY,
+      value: originalProjects,
+    });
+    expect(values.get(PROJECTS_BACKUP_KEY)).toEqual(originalProjects);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
+      schemaVersion: "1.2",
+      revision: 4,
+      projects: first.projects,
+    });
+    expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toBe(legacyEnvelope);
+  });
+
   it("does not rewrite migration state on a second initialization", async () => {
     const legacyProject = createMockProject({ id: "idempotent-v1" });
     const { adapter, writes } = createMemoryAdapter({
@@ -324,6 +371,80 @@ describe("projectRepository", () => {
     expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
       schemaVersion: "1.2",
       projects: [legacyProject],
+    });
+  });
+
+  it("repairs duplicate IDs in a legacy array under the current key", async () => {
+    const originalProjects = [
+      createMockProject({ id: "current-key-duplicate", title: "First" }),
+      createMockProject({ id: "current-key-duplicate", title: "Second" }),
+      createMockProject({
+        id: "current-key-duplicate-1",
+        title: "Reserved suffix",
+      }),
+    ];
+    const { adapter, values, writes } = createMemoryAdapter({
+      [PROJECTS_REPOSITORY_KEY]: originalProjects,
+    });
+    const repository = createProjectRepository(adapter);
+
+    const first = await repository.initializeWithRevision([]);
+    const writesAfterMigration = [...writes];
+    const second = await repository.initializeWithRevision([]);
+
+    expect(first.projects.map(project => project.id)).toEqual([
+      "current-key-duplicate",
+      "current-key-duplicate-2",
+      "current-key-duplicate-1",
+    ]);
+    expect(first.revision).toBe(0);
+    expect(second).toEqual(first);
+    expect(writes).toEqual(writesAfterMigration);
+    expect(writes[0]).toEqual({
+      key: PROJECTS_BACKUP_KEY,
+      value: originalProjects,
+    });
+    expect(values.get(PROJECTS_BACKUP_KEY)).toEqual(originalProjects);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
+      schemaVersion: "1.2",
+      revision: 0,
+      projects: first.projects,
+    });
+  });
+
+  it("repairs duplicate IDs from localStorage fallback input", async () => {
+    const originalProjects = [
+      createMockProject({ id: "fallback-duplicate", title: "First" }),
+      createMockProject({ id: "fallback-duplicate", title: "Second" }),
+      createMockProject({
+        id: "fallback-duplicate-1",
+        title: "Reserved suffix",
+      }),
+    ];
+    const { adapter, values, writes } = createMemoryAdapter();
+    const repository = createProjectRepository(adapter);
+
+    const first = await repository.initializeWithRevision(originalProjects);
+    const writesAfterMigration = [...writes];
+    const second = await repository.initializeWithRevision(originalProjects);
+
+    expect(first.projects.map(project => project.id)).toEqual([
+      "fallback-duplicate",
+      "fallback-duplicate-2",
+      "fallback-duplicate-1",
+    ]);
+    expect(first.revision).toBe(0);
+    expect(second).toEqual(first);
+    expect(writes).toEqual(writesAfterMigration);
+    expect(writes[0]).toEqual({
+      key: PROJECTS_BACKUP_KEY,
+      value: originalProjects,
+    });
+    expect(values.get(PROJECTS_BACKUP_KEY)).toEqual(originalProjects);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
+      schemaVersion: "1.2",
+      revision: 0,
+      projects: first.projects,
     });
   });
 

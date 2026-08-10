@@ -75,6 +75,29 @@ const normalizeProjects = (value: unknown): ScoutProject[] =>
 const hasUniqueProjectIds = (projects: readonly ScoutProject[]): boolean =>
   new Set(projects.map(project => project.id)).size === projects.length;
 
+const repairDuplicateProjectIds = (
+  projects: readonly ScoutProject[],
+): ScoutProject[] => {
+  const reservedIds = new Set(projects.map(project => project.id));
+  const assignedIds = new Set<string>();
+
+  return projects.map(project => {
+    if (!assignedIds.has(project.id)) {
+      assignedIds.add(project.id);
+      return project;
+    }
+
+    let suffix = 1;
+    let repairedId = `${project.id}-${suffix}`;
+    while (reservedIds.has(repairedId) || assignedIds.has(repairedId)) {
+      suffix += 1;
+      repairedId = `${project.id}-${suffix}`;
+    }
+    assignedIds.add(repairedId);
+    return { ...project, id: repairedId };
+  });
+};
+
 const isV12Envelope = (
   value: unknown,
 ): value is Partial<ProjectRepositoryEnvelope> & { projects: unknown[] } =>
@@ -137,9 +160,11 @@ export function createProjectRepository(
 
       const storedProjects = normalizeProjects(stored);
       if (storedProjects.length > 0) {
-        const envelope = createEnvelope(storedProjects);
+        await adapter.setItem(PROJECTS_BACKUP_KEY, storedProjects);
+        const repairedProjects = repairDuplicateProjectIds(storedProjects);
+        const envelope = createEnvelope(repairedProjects);
         await adapter.setItem(PROJECTS_REPOSITORY_KEY, envelope);
-        return { projects: storedProjects, revision: envelope.revision };
+        return { projects: repairedProjects, revision: envelope.revision };
       }
 
       const legacyStored = await adapter.getItem(PROJECTS_LEGACY_REPOSITORY_KEY);
@@ -156,18 +181,20 @@ export function createProjectRepository(
       if (migratedProjects.length > 0) {
         const revision = getRevision(legacyEnvelope);
         await adapter.setItem(PROJECTS_BACKUP_KEY, migratedProjects);
-        const envelope = createEnvelope(migratedProjects, revision);
+        const repairedProjects = repairDuplicateProjectIds(migratedProjects);
+        const envelope = createEnvelope(repairedProjects, revision);
         await adapter.setItem(PROJECTS_REPOSITORY_KEY, envelope);
-        return { projects: migratedProjects, revision };
+        return { projects: repairedProjects, revision };
       }
 
       const safeLegacyProjects = normalizeProjects(legacyProjects);
       if (safeLegacyProjects.length > 0) {
         await adapter.setItem(PROJECTS_BACKUP_KEY, safeLegacyProjects);
       }
-      const envelope = createEnvelope(safeLegacyProjects);
+      const repairedProjects = repairDuplicateProjectIds(safeLegacyProjects);
+      const envelope = createEnvelope(repairedProjects);
       await adapter.setItem(PROJECTS_REPOSITORY_KEY, envelope);
-      return { projects: safeLegacyProjects, revision: envelope.revision };
+      return { projects: repairedProjects, revision: envelope.revision };
     });
 
   return {
