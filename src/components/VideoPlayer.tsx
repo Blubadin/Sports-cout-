@@ -38,7 +38,7 @@ import CourtZoneOverlay from "./video/CourtZoneOverlay";
 export default function VideoPlayer() {
   const playerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const previousProjectIdRef = useRef<string | null>(null);
+  const previousProjectIdRef = useRef<string | null | undefined>(undefined);
   const restoredPlaybackKeyRef = useRef<string | null>(null);
 
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -164,8 +164,15 @@ export default function VideoPlayer() {
 
   useEffect(() => {
     const previousProjectId = previousProjectIdRef.current;
+    if (previousProjectId === undefined) {
+      previousProjectIdRef.current = activeProjectId;
+      return;
+    }
+    if (previousProjectId === activeProjectId) return;
+
     previousProjectIdRef.current = activeProjectId;
-    if (!previousProjectId || previousProjectId === activeProjectId) return;
+    setIsCalibratingCourt(false);
+    setShowCourtOverlay(Boolean(activeProject?.videoMeta?.courtCalibration));
 
     if (videoSrc) URL.revokeObjectURL(videoSrc);
     setVideoSrc(null);
@@ -173,7 +180,7 @@ export default function VideoPlayer() {
     setPlayerReady(false);
     setCurrentTimeDisplay(0);
     restoredPlaybackKeyRef.current = null;
-  }, [activeProjectId, videoSrc]);
+  }, [activeProject?.videoMeta?.courtCalibration, activeProjectId, videoSrc]);
 
   useEffect(() => {
     const resumeTime = activeProject?.videoMeta?.lastVideoTime;
