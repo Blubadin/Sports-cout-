@@ -415,10 +415,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const persistTransitionCandidate = useCallback(async (
     initialCandidate: ScoutProject[],
     ownerProjectId: string | null,
+    onFailure?: (durableCandidate: ScoutProject[] | null) => void,
   ) => {
     let candidate = initialCandidate;
+    let durableCandidate: ScoutProject[] | null = null;
     try {
       await persistProjects(candidate);
+      durableCandidate = candidate;
 
       while (
         ownerProjectId
@@ -445,6 +448,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             : project,
         ), pending);
         await persistProjects(candidate);
+        durableCandidate = candidate;
       }
 
       return candidate;
@@ -459,6 +463,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       ) {
         scheduleCurrentProjectSnapshot(false);
       }
+      onFailure?.(durableCandidate);
       throw error;
     }
   }, [
@@ -611,14 +616,28 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
 
       const nextProjects = [...durableOwnerProjects, newProject];
-      await persistProjects(nextProjects);
-      explicitlyPersistedProjectsRef.current = nextProjects;
-      projectsRef.current = nextProjects;
-      if (!acceptingProjectOperationsRef.current) return nextProjects;
-      setProjects(nextProjects);
+      const committedProjects = await persistTransitionCandidate(
+        nextProjects,
+        transitionOwnerProjectId,
+        durableCandidate => {
+          if (
+            !acceptingProjectOperationsRef.current
+            || !durableCandidate?.some(project => project.id === newProject.id)
+          ) {
+            return;
+          }
+          explicitlyPersistedProjectsRef.current = durableCandidate;
+          projectsRef.current = durableCandidate;
+          setProjects(durableCandidate);
+        },
+      );
+      explicitlyPersistedProjectsRef.current = committedProjects;
+      projectsRef.current = committedProjects;
+      if (!acceptingProjectOperationsRef.current) return committedProjects;
+      setProjects(committedProjects);
       isProjectLoading.current = true;
       loadProjectStateRef.current(newProject);
-      return nextProjects;
+      return committedProjects;
     }).catch(error => {
       if (error instanceof ProjectRepositoryConflictError) return;
       console.error('Failed to create new project:', error);

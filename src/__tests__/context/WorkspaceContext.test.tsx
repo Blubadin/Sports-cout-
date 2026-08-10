@@ -456,6 +456,80 @@ describe("WorkspaceProvider persistence integration", () => {
     }
   });
 
+  it("drains live edits accepted during the final create save before switching", async () => {
+    const snapshotTimers = interceptProjectSnapshotTimers();
+    const initialProjects = [createProject("current")];
+    const finalCreateSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const firstPostCreateCatchUp = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const finalPostCreateCatchUp = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+      persistence.session.save
+        .mockResolvedValueOnce(savedEnvelope(initialProjects))
+        .mockImplementationOnce(() => finalCreateSave.promise)
+        .mockImplementationOnce(() => firstPostCreateCatchUp.promise)
+        .mockImplementationOnce(() => finalPostCreateCatchUp.promise);
+
+      act(() => {
+        workspace?.createNewProject("New after final catch-up", "volleyball");
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
+      const finalCreateProjects = persistence.session.save.mock.calls[1]?.[0] as ScoutProject[];
+      expect(finalCreateProjects.some((project) => project.title === "New after final catch-up"))
+        .toBe(true);
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Edit during final create save",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+
+      finalCreateSave.resolve(savedEnvelope(finalCreateProjects));
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(3));
+      const firstCatchUpProjects = persistence.session.save.mock.calls[2]?.[0] as ScoutProject[];
+      expect(firstCatchUpProjects.some((project) => project.title === "New after final catch-up"))
+        .toBe(true);
+      expect(firstCatchUpProjects.find((project) => project.id === "current")?.matchInfo.matchName)
+        .toBe("Edit during final create save");
+      expect(workspace?.activeProjectId).toBe("current");
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Edit during post-create catch-up",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+
+      firstPostCreateCatchUp.resolve(savedEnvelope(firstCatchUpProjects));
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(4));
+      const finalCatchUpProjects = persistence.session.save.mock.calls[3]?.[0] as ScoutProject[];
+      expect(finalCatchUpProjects.some((project) => project.title === "New after final catch-up"))
+        .toBe(true);
+      expect(finalCatchUpProjects.find((project) => project.id === "current")?.matchInfo.matchName)
+        .toBe("Edit during post-create catch-up");
+      expect(workspace?.activeProjectId).toBe("current");
+
+      finalPostCreateCatchUp.resolve(savedEnvelope(finalCatchUpProjects));
+
+      await waitFor(() => expect(workspace?.activeProjectId).not.toBe("current"));
+      expect(
+        workspace?.projects.find((project) => project.id === "current")?.matchInfo.matchName,
+      ).toBe("Edit during post-create catch-up");
+    } finally {
+      finalCreateSave.resolve(savedEnvelope(initialProjects));
+      firstPostCreateCatchUp.resolve(savedEnvelope(initialProjects));
+      finalPostCreateCatchUp.resolve(savedEnvelope(initialProjects));
+      rendered.unmount();
+      snapshotTimers.restore();
+    }
+  });
+
   it("cancels new-project creation when flushing the current project fails", async () => {
     const initialProjects = [createProject("current")];
     const rendered = renderWorkspace(initialProjects);
@@ -620,6 +694,73 @@ describe("WorkspaceProvider persistence integration", () => {
     expect(workspace?.projects).toEqual(initialProjects);
     expect(workspace?.activeProjectId).toBe("current");
     rendered.unmount();
+  });
+
+  it("shows a durable new project without switching when post-create catch-up fails", async () => {
+    const snapshotTimers = interceptProjectSnapshotTimers();
+    const initialProjects = [createProject("current")];
+    const finalCreateSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    let durableProjects = initialProjects;
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+      persistence.session.save
+        .mockImplementationOnce(async (candidate: ScoutProject[]) => {
+          durableProjects = candidate;
+          return savedEnvelope(candidate);
+        })
+        .mockImplementationOnce((candidate: ScoutProject[]) =>
+          finalCreateSave.promise.then((result) => {
+            durableProjects = candidate;
+            return result;
+          }))
+        .mockRejectedValueOnce(new Error("post-create catch-up unavailable"));
+
+      act(() => {
+        workspace?.createNewProject("Durable but not switched", "volleyball");
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
+      const finalCreateProjects = persistence.session.save.mock.calls[1]?.[0] as ScoutProject[];
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Pending owner edit after durable create",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+      const schedulesBeforePostCreateCatchUp = snapshotTimers.scheduledCount;
+
+      finalCreateSave.resolve(savedEnvelope(finalCreateProjects));
+
+      await waitFor(() => expect(workspace?.saveStatus).toBe("failed"));
+      expect(persistence.session.save).toHaveBeenCalledTimes(3);
+      expect(durableProjects.some((project) => project.title === "Durable but not switched"))
+        .toBe(true);
+      expect(workspace?.projects.some((project) => project.title === "Durable but not switched"))
+        .toBe(true);
+      expect(workspace?.activeProjectId).toBe("current");
+      expect(scout?.matchInfo.matchName).toBe("Pending owner edit after durable create");
+      expect(snapshotTimers.scheduledCount).toBe(schedulesBeforePostCreateCatchUp + 1);
+      expect(snapshotTimers.pendingCount).toBe(1);
+
+      act(() => {
+        snapshotTimers.fireAll();
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(4));
+      const retriedProjects = persistence.session.save.mock.calls[3]?.[0] as ScoutProject[];
+      expect(retriedProjects.some((project) => project.title === "Durable but not switched"))
+        .toBe(true);
+      expect(retriedProjects.find((project) => project.id === "current")?.matchInfo.matchName)
+        .toBe("Pending owner edit after durable create");
+      expect(workspace?.activeProjectId).toBe("current");
+    } finally {
+      finalCreateSave.resolve(savedEnvelope(initialProjects));
+      rendered.unmount();
+      snapshotTimers.restore();
+    }
   });
 
   it("drains newer live edits before completing a delayed project switch", async () => {
