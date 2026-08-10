@@ -774,3 +774,19 @@ Create a review package from the branch merge base through current `HEAD`, then 
 
 - [ ] Replace the broad `.first()` language-control locator with a visible/current-header scoped locator.
 - [ ] Run the focused test repeatedly and the full Playwright suite; commit as `test: stabilize workstation language control`.
+
+### Task 22: Reject invalid project batches instead of silently deleting records on save
+
+**Files:** `src/utils/projectRepository.ts`, `src/__tests__/utils/projectRepository.test.ts`
+
+- [ ] Add RED cases where one project in a save batch has blank/invalid identity; assert the whole write rejects and the prior envelope stays unchanged.
+- [ ] Validate every input project before normalization/persistence; never filter malformed records out of a save batch.
+- [ ] Run repository tests and lint; commit as `fix: reject invalid project save batches`.
+
+### Task 23: Reset calibration drafts and disclose experimental overlay status
+
+**Files:** `src/components/video/CourtZoneOverlay.tsx`, focused overlay/player tests
+
+- [ ] Add RED coverage: cancel after 1–3 points, reopen, and assert no stale draft points remain.
+- [ ] Clear draft points on cancel/exit, add an accessible name to the icon-only cancel control, and render a localized experimental/approximate disclosure without claiming canonical zone accuracy.
+- [ ] Run focused tests, lint, and relevant accessibility E2E; commit as `fix: reset and label experimental calibration`.
