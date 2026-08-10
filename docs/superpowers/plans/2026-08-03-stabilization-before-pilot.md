@@ -742,3 +742,11 @@ Create a review package from the branch merge base through current `HEAD`, then 
 - [ ] Add delayed-save RED cases for `openProject` and `createNewProject`: after the old snapshot save begins, edit the still-active project, then resolve the old save. The later edit must be durably flushed before switching/loading the next project.
 - [ ] Before committing a project-changing operation after awaited persistence, detect a newer pending live generation for the operation's original owner. Persist/flush that newer snapshot in FIFO order, or abort/defer the switch until it is durable. Never cancel a newer accepted edit by loading the next project.
 - [ ] Run focused context tests and lint; commit as `fix: flush edits accepted during project transitions`.
+
+### Task 18: Repair duplicate project identities from every legacy migration source
+
+**Files:** `src/utils/projectRepository.ts`, `src/__tests__/utils/projectRepository.test.ts`
+
+- [ ] Add RED cases for duplicate complete IDs from the legacy v1.1 store, a legacy array under the current key, and localStorage fallback input.
+- [ ] Before promoting legacy data to canonical v1.2, preserve the original recovery backup and deterministically assign fresh collision-free IDs to repeated records (first occurrence keeps its ID). Never write a v1.2 envelope with duplicates.
+- [ ] Run repository tests and lint; commit as `fix: repair duplicate ids during legacy migration`.
