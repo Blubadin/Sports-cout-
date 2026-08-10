@@ -392,6 +392,7 @@ describe("WorkspaceProvider persistence integration", () => {
     const initialProjects = [createProject("current")];
     const transitionSave = createDeferred<ReturnType<typeof savedEnvelope>>();
     const catchUpSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const createSave = createDeferred<ReturnType<typeof savedEnvelope>>();
     const rendered = renderWorkspace(initialProjects);
 
     try {
@@ -399,12 +400,17 @@ describe("WorkspaceProvider persistence integration", () => {
       await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
       persistence.session.save
         .mockImplementationOnce(() => transitionSave.promise)
-        .mockImplementationOnce(() => catchUpSave.promise);
+        .mockImplementationOnce(() => catchUpSave.promise)
+        .mockImplementationOnce(() => createSave.promise);
 
       act(() => {
         workspace?.createNewProject("New after delayed save", "volleyball");
       });
       await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+      expect(
+        (persistence.session.save.mock.calls[0]?.[0] as ScoutProject[])
+          .some((project) => project.title === "New after delayed save"),
+      ).toBe(false);
 
       await act(async () => {
         scout?.setMatchInfo((current) => ({
@@ -421,11 +427,20 @@ describe("WorkspaceProvider persistence integration", () => {
       expect(catchUpProjects.find((project) => project.id === "current")?.matchInfo.matchName)
         .toBe("Newest current match before create");
       expect(catchUpProjects.some((project) => project.title === "New after delayed save"))
-        .toBe(true);
+        .toBe(false);
       expect(workspace?.activeProjectId).toBe("current");
       expect(workspace?.projects).toHaveLength(1);
 
       catchUpSave.resolve(savedEnvelope(catchUpProjects));
+
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(3));
+      const createProjects = persistence.session.save.mock.calls[2]?.[0] as ScoutProject[];
+      expect(createProjects.some((project) => project.title === "New after delayed save"))
+        .toBe(true);
+      expect(workspace?.activeProjectId).toBe("current");
+      expect(workspace?.projects).toHaveLength(1);
+
+      createSave.resolve(savedEnvelope(createProjects));
 
       await waitFor(() => expect(workspace?.projects).toHaveLength(2));
       expect(workspace?.activeProjectId).not.toBe("current");
@@ -435,6 +450,7 @@ describe("WorkspaceProvider persistence integration", () => {
     } finally {
       transitionSave.resolve(savedEnvelope(initialProjects));
       catchUpSave.resolve(savedEnvelope(initialProjects));
+      createSave.resolve(savedEnvelope(initialProjects));
       rendered.unmount();
       snapshotTimers.restore();
     }
@@ -512,6 +528,97 @@ describe("WorkspaceProvider persistence integration", () => {
 
     releaseSave?.(savedEnvelope(initialProjects));
     await waitFor(() => expect(workspace?.activeProjectId).toBe("next"));
+    rendered.unmount();
+  });
+
+  it("rearms one owner snapshot and leaves no hidden project when create catch-up fails", async () => {
+    const snapshotTimers = interceptProjectSnapshotTimers();
+    const initialProjects = [createProject("current")];
+    const transitionSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    let durableProjects = initialProjects;
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+      persistence.session.save
+        .mockImplementationOnce((candidate: ScoutProject[]) =>
+          transitionSave.promise.then((result) => {
+            durableProjects = candidate;
+            return result;
+          }))
+        .mockRejectedValueOnce(new Error("catch-up unavailable"));
+
+      act(() => {
+        workspace?.createNewProject("Must stay absent after catch-up failure", "volleyball");
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Owner edit requiring catch-up",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+      const schedulesBeforeCatchUp = snapshotTimers.scheduledCount;
+
+      transitionSave.resolve(savedEnvelope(initialProjects));
+
+      await waitFor(() => expect(workspace?.saveStatus).toBe("failed"));
+      expect(persistence.session.save).toHaveBeenCalledTimes(2);
+      for (const [candidate] of persistence.session.save.mock.calls) {
+        expect(
+          (candidate as ScoutProject[])
+            .some((project) => project.title === "Must stay absent after catch-up failure"),
+        ).toBe(false);
+      }
+      expect(durableProjects.some(
+        (project) => project.title === "Must stay absent after catch-up failure",
+      )).toBe(false);
+      expect(workspace?.projects).toEqual(initialProjects);
+      expect(workspace?.activeProjectId).toBe("current");
+      expect(snapshotTimers.scheduledCount).toBe(schedulesBeforeCatchUp + 1);
+      expect(snapshotTimers.pendingCount).toBe(1);
+    } finally {
+      transitionSave.resolve(savedEnvelope(initialProjects));
+      rendered.unmount();
+      snapshotTimers.restore();
+    }
+  });
+
+  it("leaves the durable owner and UI unchanged when the final create save fails", async () => {
+    const initialProjects = [createProject("current")];
+    let durableProjects = initialProjects;
+    const rendered = renderWorkspace(initialProjects);
+
+    await rendered.ready();
+    await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+    persistence.session.save
+      .mockImplementationOnce(async (candidate: ScoutProject[]) => {
+        durableProjects = candidate;
+        return savedEnvelope(candidate);
+      })
+      .mockRejectedValueOnce(new Error("final create unavailable"));
+
+    act(() => {
+      workspace?.createNewProject("Rejected final create", "volleyball");
+    });
+
+    await waitFor(() => expect(workspace?.saveStatus).toBe("failed"));
+    expect(persistence.session.save).toHaveBeenCalledTimes(2);
+    expect(
+      (persistence.session.save.mock.calls[0]?.[0] as ScoutProject[])
+        .some((project) => project.title === "Rejected final create"),
+    ).toBe(false);
+    expect(
+      (persistence.session.save.mock.calls[1]?.[0] as ScoutProject[])
+        .some((project) => project.title === "Rejected final create"),
+    ).toBe(true);
+    expect(durableProjects.some((project) => project.title === "Rejected final create"))
+      .toBe(false);
+    expect(workspace?.projects).toEqual(initialProjects);
+    expect(workspace?.activeProjectId).toBe("current");
     rendered.unmount();
   });
 
@@ -795,47 +902,51 @@ describe("WorkspaceProvider persistence integration", () => {
     }
   });
 
-  it("does not commit generic mutation UI or save twice when it resolves during cleanup", async () => {
+  it("hands an edit during in-flight creation to cleanup without persisting the new project", async () => {
     const snapshotTimers = interceptProjectSnapshotTimers();
     const initialProjects = [createProject("current")];
-    const mutationSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const ownerSave = createDeferred<ReturnType<typeof savedEnvelope>>();
     const rendered = renderWorkspaceKeepingScout(initialProjects);
 
     try {
       await rendered.ready();
       await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
 
-      await act(async () => {
-        scout?.setMatchInfo((current) => ({
-          ...current,
-          matchName: "Durable before mutation cleanup",
-        }));
-      });
-      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
-      persistence.session.save.mockImplementationOnce(() => mutationSave.promise);
+      persistence.session.save.mockImplementationOnce(() => ownerSave.promise);
 
       act(() => {
         workspace?.createNewProject("Queued during cleanup", "volleyball");
       });
       await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
-      const persistedMutation = persistence.session.save.mock.calls[0]?.[0] as ScoutProject[];
-      expect(persistedMutation).toHaveLength(2);
-      expect(persistedMutation.find((project) => project.id === "current")?.matchInfo.matchName)
-        .toBe("Durable before mutation cleanup");
-      expect(persistedMutation.some((project) => project.title === "Queued during cleanup"))
-        .toBe(true);
+      const initialOwnerCandidate = persistence.session.save.mock.calls[0]?.[0] as ScoutProject[];
+      expect(initialOwnerCandidate).toHaveLength(1);
+      expect(initialOwnerCandidate.some((project) => project.title === "Queued during cleanup"))
+        .toBe(false);
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Edit handed to cleanup",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
 
       rendered.unmountWorkspace();
-      mutationSave.resolve(savedEnvelope(persistedMutation));
+      ownerSave.resolve(savedEnvelope(initialOwnerCandidate));
 
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
       await waitFor(() => expect(persistence.session.close).toHaveBeenCalledOnce());
-      expect(persistence.session.save).toHaveBeenCalledOnce();
-      expect(scout?.matchInfo.matchName).toBe("Durable before mutation cleanup");
+      const cleanupCandidate = persistence.session.save.mock.calls[1]?.[0] as ScoutProject[];
+      expect(cleanupCandidate).toHaveLength(1);
+      expect(cleanupCandidate[0]?.matchInfo.matchName).toBe("Edit handed to cleanup");
+      expect(cleanupCandidate.some((project) => project.title === "Queued during cleanup"))
+        .toBe(false);
+      expect(scout?.matchInfo.matchName).toBe("Edit handed to cleanup");
       expect(window.localStorage.getItem("active_scout_project_id"))
         .toBe(JSON.stringify("current"));
       expect(snapshotTimers.pendingCount).toBe(0);
     } finally {
-      mutationSave.resolve(savedEnvelope(initialProjects));
+      ownerSave.resolve(savedEnvelope(initialProjects));
       rendered.unmount();
       snapshotTimers.restore();
     }

@@ -496,24 +496,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     mutate: (current: ScoutProject[]) => ScoutProject[],
     options: {
       afterCommit?: (next: ScoutProject[]) => void;
-      persistLiveOwnerBeforeCommit?: boolean;
     } = {},
   ) => projectOperationQueueRef.current.enqueue(async () => {
     if (!repositoryReadyRef.current) return;
-    const transitionOwnerProjectId = options.persistLiveOwnerBeforeCommit
-      ? activeProjectIdRef.current
-      : null;
     const preparedProjects = prepareProjectsForPersistence(projectsRef.current);
-    let nextProjects = mutate(preparedProjects);
+    const nextProjects = mutate(preparedProjects);
     associateLiveSnapshotCandidate(
       nextProjects,
       liveSnapshotCandidateTokensRef.current.get(preparedProjects),
     );
-    if (transitionOwnerProjectId) {
-      nextProjects = await persistTransitionCandidate(nextProjects, transitionOwnerProjectId);
-    } else {
-      await persistProjects(nextProjects);
-    }
+    await persistProjects(nextProjects);
     explicitlyPersistedProjectsRef.current = nextProjects;
     projectsRef.current = nextProjects;
     if (!acceptingProjectOperationsRef.current) return nextProjects;
@@ -523,7 +515,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }), [
     associateLiveSnapshotCandidate,
     persistProjects,
-    persistTransitionCandidate,
     prepareProjectsForPersistence,
   ]);
 
@@ -605,12 +596,29 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       updatedAt: new Date().toISOString(),
     };
 
-    void enqueueProjectMutation(current => [...current, newProject], {
-      persistLiveOwnerBeforeCommit: true,
-      afterCommit: () => {
-        isProjectLoading.current = true;
-        loadProjectStateRef.current(newProject);
-      },
+    void projectOperationQueueRef.current.enqueue(async () => {
+      if (!repositoryReadyRef.current) return;
+      const transitionOwnerProjectId = activeProjectIdRef.current;
+      let durableOwnerProjects = projectsRef.current;
+
+      if (transitionOwnerProjectId) {
+        durableOwnerProjects = prepareProjectsForPersistence(durableOwnerProjects);
+        durableOwnerProjects = await persistTransitionCandidate(
+          durableOwnerProjects,
+          transitionOwnerProjectId,
+        );
+        if (!acceptingProjectOperationsRef.current) return durableOwnerProjects;
+      }
+
+      const nextProjects = [...durableOwnerProjects, newProject];
+      await persistProjects(nextProjects);
+      explicitlyPersistedProjectsRef.current = nextProjects;
+      projectsRef.current = nextProjects;
+      if (!acceptingProjectOperationsRef.current) return nextProjects;
+      setProjects(nextProjects);
+      isProjectLoading.current = true;
+      loadProjectStateRef.current(newProject);
+      return nextProjects;
     }).catch(error => {
       if (error instanceof ProjectRepositoryConflictError) return;
       console.error('Failed to create new project:', error);
