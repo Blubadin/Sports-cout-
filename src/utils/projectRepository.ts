@@ -143,6 +143,14 @@ const assertUniqueProjectIds = (projects: ScoutProject[]) => {
   }
 };
 
+const assertValidProjects = (projects: readonly ScoutProject[]) => {
+  projects.forEach((project, index) => {
+    if (!isScoutProject(project)) {
+      throw new Error(`Invalid project at index ${index} before persistence`);
+    }
+  });
+};
+
 export function createProjectRepository(
   adapter: StorageAdapter,
   executeExclusively: ExclusiveOperationExecutor =
@@ -211,6 +219,9 @@ export function createProjectRepository(
       projects: ScoutProject[],
       expectedRevision?: number,
     ): Promise<SavedProjectRepositoryEnvelope> {
+      assertValidProjects(projects);
+      assertUniqueProjectIds(projects);
+
       return executeExclusively(async () => {
         const stored = await adapter.getItem(PROJECTS_REPOSITORY_KEY);
         const currentRevision = getRevision(stored);
@@ -225,12 +236,7 @@ export function createProjectRepository(
           );
         }
 
-        const normalizedProjects = normalizeProjects(projects);
-        assertUniqueProjectIds(normalizedProjects);
-        const envelope = createEnvelope(
-          normalizedProjects,
-          currentRevision + 1,
-        );
+        const envelope = createEnvelope(projects, currentRevision + 1);
         await adapter.setItem(PROJECTS_REPOSITORY_KEY, envelope);
         return envelope;
       });

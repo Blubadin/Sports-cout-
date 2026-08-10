@@ -592,6 +592,58 @@ describe("projectRepository", () => {
     expect(writes).toEqual([]);
   });
 
+  it("rejects a mixed save batch when one project is invalid without replacing the prior envelope", async () => {
+    const storedProject = createMockProject({ id: "stored-project" });
+    const storedEnvelope = {
+      schemaVersion: "1.2",
+      revision: 6,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      projects: [storedProject],
+    };
+    const invalidProject = {
+      ...createMockProject({ id: "invalid-project" }),
+      title: "   ",
+    } as ScoutProject;
+    const { adapter, values, writes } = createMemoryAdapter({
+      [PROJECTS_REPOSITORY_KEY]: storedEnvelope,
+    });
+
+    await expect(
+      createProjectRepository(adapter).save([
+        createMockProject({ id: "valid-project" }),
+        invalidProject,
+      ]),
+    ).rejects.toThrow("Invalid project at index 1 before persistence");
+    expect(writes).toEqual([]);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toBe(storedEnvelope);
+    expect(
+      (values.get(PROJECTS_REPOSITORY_KEY) as { revision: number }).revision,
+    ).toBe(6);
+  });
+
+  it("rejects an all-invalid save batch with a blank project identity without replacing the prior envelope", async () => {
+    const storedProject = createMockProject({ id: "stored-project" });
+    const storedEnvelope = {
+      schemaVersion: "1.2",
+      revision: 9,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      projects: [storedProject],
+    };
+    const blankIdentityProject = createMockProject({ id: "   " });
+    const { adapter, values, writes } = createMemoryAdapter({
+      [PROJECTS_REPOSITORY_KEY]: storedEnvelope,
+    });
+
+    await expect(
+      createProjectRepository(adapter).save([blankIdentityProject]),
+    ).rejects.toThrow("Invalid project at index 0 before persistence");
+    expect(writes).toEqual([]);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toBe(storedEnvelope);
+    expect(
+      (values.get(PROJECTS_REPOSITORY_KEY) as { revision: number }).revision,
+    ).toBe(9);
+  });
+
   it("treats an envelope without a revision as revision zero", async () => {
     const existingProject = createMockProject({ id: "existing-project" });
     const nextProject = createMockProject({ id: "next-project" });
