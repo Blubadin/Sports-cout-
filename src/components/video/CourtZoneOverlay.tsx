@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import {
   calculateHomography,
@@ -42,6 +42,16 @@ export default function CourtZoneOverlay({
 }: CourtZoneOverlayProps) {
   const { sportTemplate, settings } = useScoutContext();
   const [clickPts, setClickPts] = useState<[number, number][]>([]);
+  const isThai = settings.uiLanguage === 'th';
+
+  useEffect(() => {
+    if (!isCalibrating) setClickPts([]);
+  }, [isCalibrating]);
+
+  const handleCalibrationCancel = () => {
+    setClickPts([]);
+    onCalibrationCancel();
+  };
 
   const handleSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!isCalibrating) return;
@@ -159,7 +169,12 @@ export default function CourtZoneOverlay({
                 <button onClick={() => setClickPts([])} className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-xs pointer-events-auto cursor-pointer z-50">Reset</button>
               </div>
             )}
-            <button onClick={onCalibrationCancel} className="p-1 hover:bg-gray-700 rounded ml-2 pointer-events-auto cursor-pointer z-50">
+            <button
+              type="button"
+              onClick={handleCalibrationCancel}
+              aria-label={isThai ? 'ยกเลิกการปรับเทียบสนาม' : 'Cancel calibration'}
+              className="p-1 hover:bg-gray-700 rounded ml-2 pointer-events-auto cursor-pointer z-50"
+            >
               <X size={16} />
             </button>
           </div>
@@ -213,6 +228,11 @@ export default function CourtZoneOverlay({
           ))}
         </svg>
       )}
+      <p className="absolute bottom-2 left-1/2 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded bg-black/75 px-2 py-1 text-center text-[10px] leading-tight text-amber-100 shadow-sm sm:text-xs">
+        {isThai
+          ? 'ฟีเจอร์ทดลอง: เส้นแบ่งพื้นที่เป็นเพียงค่าประมาณ'
+          : 'Experimental: projected zones are approximate'}
+      </p>
     </div>
   );
 }
