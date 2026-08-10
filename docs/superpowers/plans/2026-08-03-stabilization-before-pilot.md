@@ -750,3 +750,27 @@ Create a review package from the branch merge base through current `HEAD`, then 
 - [ ] Add RED cases for duplicate complete IDs from the legacy v1.1 store, a legacy array under the current key, and localStorage fallback input.
 - [ ] Before promoting legacy data to canonical v1.2, preserve the original recovery backup and deterministically assign fresh collision-free IDs to repeated records (first occurrence keeps its ID). Never write a v1.2 envelope with duplicates.
 - [ ] Run repository tests and lint; commit as `fix: repair duplicate ids during legacy migration`.
+
+### Task 19: Reject canonical projects with empty identity
+
+**Files:** `src/utils/projectRepository.ts`, `src/__tests__/utils/projectRepository.test.ts`
+
+- [ ] Add RED coverage for a complete v1.2 project whose ID or title is empty/whitespace alongside valid v1.1 recovery data.
+- [ ] Require trimmed non-empty ID and title in persisted project validation so invisible canonical projects cannot bypass recovery.
+- [ ] Run repository tests and lint; commit as `fix: reject empty persisted project identities`.
+
+### Task 20: Sanitize calibration payloads and render in responsive coordinates
+
+**Files:** `src/context/WorkspaceContext.tsx`, `src/components/video/CourtZoneOverlay.tsx`, relevant calibration/context tests
+
+- [ ] Add RED import/load and render cases for missing/invalid court corners; invalid calibration must be dropped and overlay must never dereference it.
+- [ ] Reuse `validateCourtCalibration` for import/load sanitization plus a defensive render gate.
+- [ ] Give the SVG a normalized/viewBox coordinate system that scales to actual overlay bounds; map clicks and projected polygons in the same space on a 16:9 container.
+- [ ] Run focused tests, lint, and relevant Playwright; commit as `fix: harden responsive court calibration`.
+
+### Task 21: Stabilize the workstation language control locator
+
+**Files:** `e2e/workstation.spec.ts`
+
+- [ ] Replace the broad `.first()` language-control locator with a visible/current-header scoped locator.
+- [ ] Run the focused test repeatedly and the full Playwright suite; commit as `test: stabilize workstation language control`.
