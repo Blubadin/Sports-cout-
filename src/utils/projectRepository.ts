@@ -61,7 +61,9 @@ const isPersistedMatchInfo = (value: unknown): boolean =>
 const isScoutProject = (value: unknown): value is ScoutProject =>
   isRecord(value) &&
   typeof value.id === "string" &&
+  value.id.trim().length > 0 &&
   typeof value.title === "string" &&
+  value.title.trim().length > 0 &&
   typeof value.sportType === "string" &&
   isPersistedMatchInfo(value.matchInfo) &&
   Array.isArray(value.teams) &&

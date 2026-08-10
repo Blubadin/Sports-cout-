@@ -188,6 +188,70 @@ describe("projectRepository", () => {
     expect(values.has(PROJECTS_BACKUP_KEY)).toBe(false);
   });
 
+  it.each([
+    ["empty ID", { id: "" }],
+    ["whitespace-only ID", { id: " \t " }],
+    ["empty title", { title: "" }],
+    ["whitespace-only title", { title: " \n " }],
+  ] as const)(
+    "recovers valid v1.1 projects when a complete v1.2 project has %s",
+    async (_identityCase, invalidIdentity) => {
+      const legacyProject = createMockProject({ id: "identity-recovery-v1-1" });
+      const legacyEnvelope = {
+        schemaVersion: "1.1",
+        revision: 4,
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        projects: [legacyProject],
+      };
+      const { adapter, values } = createMemoryAdapter({
+        [PROJECTS_REPOSITORY_KEY]: {
+          schemaVersion: "1.2",
+          revision: 9,
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          projects: [createMockProject(invalidIdentity)],
+        },
+        [PROJECTS_LEGACY_REPOSITORY_KEY]: legacyEnvelope,
+      });
+
+      const state =
+        await createProjectRepository(adapter).initializeWithRevision([]);
+
+      expect(state).toEqual({ projects: [legacyProject], revision: 4 });
+      expect(values.get(PROJECTS_BACKUP_KEY)).toEqual([legacyProject]);
+      expect(values.get(PROJECTS_REPOSITORY_KEY)).toMatchObject({
+        schemaVersion: "1.2",
+        revision: 4,
+        projects: [legacyProject],
+      });
+      expect(values.get(PROJECTS_LEGACY_REPOSITORY_KEY)).toBe(legacyEnvelope);
+    },
+  );
+
+  it("preserves surrounding whitespace in otherwise non-empty canonical identities", async () => {
+    const currentProject = createMockProject({
+      id: "  visible-id  ",
+      title: "  Visible title  ",
+    });
+    const currentEnvelope = {
+      schemaVersion: "1.2",
+      revision: 9,
+      updatedAt: "2026-08-01T00:00:00.000Z",
+      projects: [currentProject],
+    };
+    const { adapter, values, writes } = createMemoryAdapter({
+      [PROJECTS_REPOSITORY_KEY]: currentEnvelope,
+    });
+
+    const state = await createProjectRepository(adapter).initializeWithRevision(
+      [],
+    );
+
+    expect(state).toEqual({ projects: [currentProject], revision: 9 });
+    expect(state.projects[0]).toBe(currentProject);
+    expect(values.get(PROJECTS_REPOSITORY_KEY)).toBe(currentEnvelope);
+    expect(writes).toEqual([]);
+  });
+
   it("recovers valid v1.1 projects when the v1.2 envelope contains corrupt records", async () => {
     const legacyProject = createMockProject({ id: "recovered-v1-1" });
     const legacyEnvelope = {
