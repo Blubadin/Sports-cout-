@@ -790,3 +790,11 @@ Create a review package from the branch merge base through current `HEAD`, then 
 - [ ] Add RED coverage: cancel after 1–3 points, reopen, and assert no stale draft points remain.
 - [ ] Clear draft points on cancel/exit, add an accessible name to the icon-only cancel control, and render a localized experimental/approximate disclosure without claiming canonical zone accuracy.
 - [ ] Run focused tests, lint, and relevant accessibility E2E; commit as `fix: reset and label experimental calibration`.
+
+### Task 24: Isolate calibration drafts across project switches
+
+**Files:** `src/components/VideoPlayer.tsx`, focused player/overlay tests
+
+- [ ] Add RED coverage: start a partial calibration on project A, switch to B, reopen/save, and prove A's draft never reaches B.
+- [ ] On `activeProjectId` change, exit calibration and set overlay visibility from the newly active project's persisted calibration; allow the child exit lifecycle to clear draft points.
+- [ ] Run focused tests, lint, and accessibility E2E; commit as `fix: isolate calibration across projects`.
