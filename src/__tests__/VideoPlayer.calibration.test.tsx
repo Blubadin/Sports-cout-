@@ -194,6 +194,12 @@ describe('VideoPlayer court calibration controls', () => {
 
   afterEach(() => cleanup());
 
+  it('shows a persisted calibration on initial mount', () => {
+    render(<VideoPlayer />);
+
+    expect(screen.getByTestId('projected-court-layer')).toBeInTheDocument();
+  });
+
   it('reopens saved calibration accessibly and gives its click layer precedence over gestures', () => {
     render(<VideoPlayer />);
 

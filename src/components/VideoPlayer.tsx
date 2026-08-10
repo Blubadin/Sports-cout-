@@ -166,6 +166,7 @@ export default function VideoPlayer() {
     const previousProjectId = previousProjectIdRef.current;
     if (previousProjectId === undefined) {
       previousProjectIdRef.current = activeProjectId;
+      setShowCourtOverlay(Boolean(activeProject?.videoMeta?.courtCalibration));
       return;
     }
     if (previousProjectId === activeProjectId) return;
