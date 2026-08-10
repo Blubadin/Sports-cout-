@@ -387,6 +387,59 @@ describe("WorkspaceProvider persistence integration", () => {
     rendered.unmount();
   });
 
+  it("persists a newer live edit before completing a delayed new-project transition", async () => {
+    const snapshotTimers = interceptProjectSnapshotTimers();
+    const initialProjects = [createProject("current")];
+    const transitionSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const catchUpSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+      persistence.session.save
+        .mockImplementationOnce(() => transitionSave.promise)
+        .mockImplementationOnce(() => catchUpSave.promise);
+
+      act(() => {
+        workspace?.createNewProject("New after delayed save", "volleyball");
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Newest current match before create",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+
+      transitionSave.resolve(savedEnvelope(initialProjects));
+
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
+      const catchUpProjects = persistence.session.save.mock.calls[1]?.[0] as ScoutProject[];
+      expect(catchUpProjects.find((project) => project.id === "current")?.matchInfo.matchName)
+        .toBe("Newest current match before create");
+      expect(catchUpProjects.some((project) => project.title === "New after delayed save"))
+        .toBe(true);
+      expect(workspace?.activeProjectId).toBe("current");
+      expect(workspace?.projects).toHaveLength(1);
+
+      catchUpSave.resolve(savedEnvelope(catchUpProjects));
+
+      await waitFor(() => expect(workspace?.projects).toHaveLength(2));
+      expect(workspace?.activeProjectId).not.toBe("current");
+      expect(
+        workspace?.projects.find((project) => project.id === "current")?.matchInfo.matchName,
+      ).toBe("Newest current match before create");
+    } finally {
+      transitionSave.resolve(savedEnvelope(initialProjects));
+      catchUpSave.resolve(savedEnvelope(initialProjects));
+      rendered.unmount();
+      snapshotTimers.restore();
+    }
+  });
+
   it("cancels new-project creation when flushing the current project fails", async () => {
     const initialProjects = [createProject("current")];
     const rendered = renderWorkspace(initialProjects);
@@ -460,6 +513,73 @@ describe("WorkspaceProvider persistence integration", () => {
     releaseSave?.(savedEnvelope(initialProjects));
     await waitFor(() => expect(workspace?.activeProjectId).toBe("next"));
     rendered.unmount();
+  });
+
+  it("drains newer live edits before completing a delayed project switch", async () => {
+    const snapshotTimers = interceptProjectSnapshotTimers();
+    const initialProjects = [createProject("current"), createProject("next")];
+    const transitionSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const firstCatchUpSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const finalCatchUpSave = createDeferred<ReturnType<typeof savedEnvelope>>();
+    const rendered = renderWorkspace(initialProjects);
+
+    try {
+      await rendered.ready();
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("current"));
+      persistence.session.save
+        .mockImplementationOnce(() => transitionSave.promise)
+        .mockImplementationOnce(() => firstCatchUpSave.promise)
+        .mockImplementationOnce(() => finalCatchUpSave.promise);
+
+      act(() => {
+        workspace?.openProject("next");
+      });
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledOnce());
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Edit during transition save",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+
+      transitionSave.resolve(savedEnvelope(initialProjects));
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(2));
+      expect(
+        (persistence.session.save.mock.calls[1]?.[0] as ScoutProject[])
+          .find((project) => project.id === "current")?.matchInfo.matchName,
+      ).toBe("Edit during transition save");
+
+      await act(async () => {
+        scout?.setMatchInfo((current) => ({
+          ...current,
+          matchName: "Edit during catch-up save",
+        }));
+      });
+      await waitFor(() => expect(snapshotTimers.pendingCount).toBe(1));
+
+      firstCatchUpSave.resolve(savedEnvelope(initialProjects));
+      await waitFor(() => expect(persistence.session.save).toHaveBeenCalledTimes(3));
+      const finalCatchUpProjects = persistence.session.save.mock.calls[2]?.[0] as ScoutProject[];
+      expect(
+        finalCatchUpProjects.find((project) => project.id === "current")?.matchInfo.matchName,
+      ).toBe("Edit during catch-up save");
+      expect(workspace?.activeProjectId).toBe("current");
+
+      finalCatchUpSave.resolve(savedEnvelope(finalCatchUpProjects));
+
+      await waitFor(() => expect(workspace?.activeProjectId).toBe("next"));
+      expect(
+        workspace?.projects.find((project) => project.id === "current")?.matchInfo.matchName,
+      ).toBe("Edit during catch-up save");
+    } finally {
+      transitionSave.resolve(savedEnvelope(initialProjects));
+      firstCatchUpSave.resolve(savedEnvelope(initialProjects));
+      finalCatchUpSave.resolve(savedEnvelope(initialProjects));
+      rendered.unmount();
+      snapshotTimers.restore();
+    }
   });
 
   it("keeps the current project snapshot and selection when switching projects fails to persist", async () => {

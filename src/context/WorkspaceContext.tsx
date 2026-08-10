@@ -412,6 +412,62 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     projectSnapshotTimeoutRef.current = timeoutId;
   }, [clearPendingProjectSnapshot, prepareProjectsForPersistence]);
 
+  const persistTransitionCandidate = useCallback(async (
+    initialCandidate: ScoutProject[],
+    ownerProjectId: string | null,
+  ) => {
+    let candidate = initialCandidate;
+    try {
+      await persistProjects(candidate);
+
+      while (
+        ownerProjectId
+        && acceptingProjectOperationsRef.current
+        && activeProjectIdRef.current === ownerProjectId
+        && !isProjectLoading.current
+      ) {
+        const pending = pendingLiveSnapshotRef.current;
+        if (
+          !pending
+          || pending.projectId !== ownerProjectId
+          || pending.generation <= durableLiveSnapshotGenerationRef.current
+        ) {
+          break;
+        }
+
+        // Claim this generation from the debounce timer. A live edit accepted
+        // during the awaited save schedules a newer generation, which the next
+        // loop iteration will materialize before the transition can commit.
+        clearPendingProjectSnapshot();
+        candidate = associateLiveSnapshotCandidate(candidate.map(project =>
+          project.id === ownerProjectId
+            ? snapshotCurrentProjectRef.current(project)
+            : project,
+        ), pending);
+        await persistProjects(candidate);
+      }
+
+      return candidate;
+    } catch (error) {
+      const pending = pendingLiveSnapshotRef.current;
+      if (
+        acceptingProjectOperationsRef.current
+        && ownerProjectId
+        && activeProjectIdRef.current === ownerProjectId
+        && pending?.projectId === ownerProjectId
+        && pending.generation > durableLiveSnapshotGenerationRef.current
+      ) {
+        scheduleCurrentProjectSnapshot(false);
+      }
+      throw error;
+    }
+  }, [
+    associateLiveSnapshotCandidate,
+    clearPendingProjectSnapshot,
+    persistProjects,
+    scheduleCurrentProjectSnapshot,
+  ]);
+
   // Debounced project snapshot; repository persistence is handled separately above.
   useEffect(() => {
     if (isProjectLoading.current || !repositoryReady || !activeProjectId) return;
@@ -440,23 +496,36 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     mutate: (current: ScoutProject[]) => ScoutProject[],
     options: {
       afterCommit?: (next: ScoutProject[]) => void;
+      persistLiveOwnerBeforeCommit?: boolean;
     } = {},
   ) => projectOperationQueueRef.current.enqueue(async () => {
     if (!repositoryReadyRef.current) return;
+    const transitionOwnerProjectId = options.persistLiveOwnerBeforeCommit
+      ? activeProjectIdRef.current
+      : null;
     const preparedProjects = prepareProjectsForPersistence(projectsRef.current);
-    const nextProjects = mutate(preparedProjects);
+    let nextProjects = mutate(preparedProjects);
     associateLiveSnapshotCandidate(
       nextProjects,
       liveSnapshotCandidateTokensRef.current.get(preparedProjects),
     );
-    await persistProjects(nextProjects);
+    if (transitionOwnerProjectId) {
+      nextProjects = await persistTransitionCandidate(nextProjects, transitionOwnerProjectId);
+    } else {
+      await persistProjects(nextProjects);
+    }
     explicitlyPersistedProjectsRef.current = nextProjects;
     projectsRef.current = nextProjects;
     if (!acceptingProjectOperationsRef.current) return nextProjects;
     setProjects(nextProjects);
     options.afterCommit?.(nextProjects);
     return nextProjects;
-  }), [associateLiveSnapshotCandidate, persistProjects, prepareProjectsForPersistence]);
+  }), [
+    associateLiveSnapshotCandidate,
+    persistProjects,
+    persistTransitionCandidate,
+    prepareProjectsForPersistence,
+  ]);
 
   const flushPendingSaves = useCallback(async () => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
@@ -537,6 +606,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     };
 
     void enqueueProjectMutation(current => [...current, newProject], {
+      persistLiveOwnerBeforeCommit: true,
       afterCommit: () => {
         isProjectLoading.current = true;
         loadProjectStateRef.current(newProject);
@@ -552,14 +622,17 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     clearPendingProjectTimers();
     void projectOperationQueueRef.current.enqueue(async () => {
       if (!repositoryReadyRef.current) return;
+      const transitionOwnerProjectId = activeProjectIdRef.current;
       let nextProjects = projectsRef.current;
-      if (activeProjectIdRef.current) {
+      if (transitionOwnerProjectId) {
         nextProjects = prepareProjectsForPersistence(nextProjects);
         try {
-          await persistProjects(nextProjects);
+          nextProjects = await persistTransitionCandidate(
+            nextProjects,
+            transitionOwnerProjectId,
+          );
         } catch (error) {
           if (!acceptingProjectOperationsRef.current) return;
-          scheduleCurrentProjectSnapshot(false);
           if (error instanceof ProjectRepositoryConflictError) return;
           showToast(settings.uiLanguage === 'th'
             ? 'บันทึกโปรเจกต์ปัจจุบันไม่สำเร็จ จึงยังไม่สลับโปรเจกต์'
