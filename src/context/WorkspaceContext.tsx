@@ -29,6 +29,17 @@ const PROJECT_CONFLICT_MESSAGE = {
   en: 'Another tab has newer data. Back up this tab, then reload to continue.',
 } as const;
 
+function sanitizeProjectCourtCalibration<T extends { videoMeta?: ScoutProject['videoMeta'] }>(project: T): T {
+  const videoMeta = project.videoMeta;
+  if (!videoMeta || !Object.prototype.hasOwnProperty.call(videoMeta, 'courtCalibration')) {
+    return project;
+  }
+  if (validateCourtCalibration(videoMeta.courtCalibration).valid) return project;
+
+  const { courtCalibration: _invalidCalibration, ...safeVideoMeta } = videoMeta;
+  return { ...project, videoMeta: safeVideoMeta };
+}
+
 function readLegacyProjects(): ScoutProject[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -236,7 +247,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         let { projects: initializedProjects } = await session.initializeWithRevision(projectsRef.current);
         initializedProjects = initializedProjects
           .filter(project => project && project.id && project.title)
-          .map(project => ({
+          .map(project => sanitizeProjectCourtCalibration({
             ...project,
             sportType: getValidSportType(project.sportType),
             events: sanitizeEvents(project.events, getValidSportType(project.sportType)),
@@ -887,6 +898,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
     // Sanitize Event rows
     project.events = sanitizeEvents(project.events, project.sportType);
+    project = sanitizeProjectCourtCalibration(project);
 
     // Timestamp safety
     project.createdAt = typeof project.createdAt === 'string' ? project.createdAt : new Date().toISOString();

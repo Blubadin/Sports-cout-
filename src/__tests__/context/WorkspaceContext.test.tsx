@@ -299,6 +299,82 @@ describe("WorkspaceProvider persistence integration", () => {
     );
   });
 
+  it.each([
+    ["missing corners", {}],
+    ["partial corners", { tl: [0, 0], tr: [1, 0] }],
+    ["non-finite coordinates", {
+      tl: [0, 0], tr: [Number.NaN, 0], bl: [0, 1], br: [1, 1],
+    }],
+    ["out-of-range coordinates", {
+      tl: [0, 0], tr: [1.1, 0], bl: [0, 1], br: [1, 1],
+    }],
+    ["a concave perimeter", {
+      tl: [0, 0], tr: [1, 0], bl: [0, 1], br: [0.4, 0.4],
+    }],
+  ])("drops persisted court calibration with %s without dropping other video metadata", async (_case, calibration) => {
+    const storedProject = {
+      ...createProject("stored-invalid-calibration"),
+      videoMeta: {
+        sourceType: "local" as const,
+        localFileName: "match.mp4",
+        lastVideoTime: 42.5,
+        courtCalibration: calibration,
+      },
+    } as unknown as ScoutProject;
+    const rendered = renderWorkspace([storedProject]);
+
+    await rendered.ready();
+
+    expect(workspace?.projects[0]?.videoMeta).toEqual({
+      sourceType: "local",
+      localFileName: "match.mp4",
+      lastVideoTime: 42.5,
+    });
+    rendered.unmount();
+  });
+
+  it.each([
+    ["missing corners", {}],
+    ["partial corners", { tl: [0, 0], tr: [1, 0] }],
+    ["non-finite coordinates", {
+      tl: [0, 0], tr: [Number.POSITIVE_INFINITY, 0], bl: [0, 1], br: [1, 1],
+    }],
+    ["out-of-range coordinates", {
+      tl: [0, 0], tr: [1, 0], bl: [0, 1.2], br: [1, 1],
+    }],
+    ["a concave perimeter", {
+      tl: [0, 0], tr: [1, 0], bl: [0, 1], br: [0.4, 0.4],
+    }],
+  ])("drops imported court calibration with %s without dropping other video metadata", async (_case, calibration) => {
+    const rendered = renderWorkspace([createProject("current")]);
+    await rendered.ready();
+    const importedProject = {
+      ...createProject("unsafe-import-id"),
+      videoMeta: {
+        sourceType: "youtube" as const,
+        youtubeUrl: "https://www.youtube.com/watch?v=abcdefghijk",
+        youtubeVideoId: "abcdefghijk",
+        lastVideoTime: 18,
+        courtCalibration: calibration,
+      },
+    } as unknown as ScoutProject;
+
+    let imported = false;
+    await act(async () => {
+      imported = Boolean(await workspace?.importProject(importedProject));
+    });
+
+    expect(imported).toBe(true);
+    const storedImport = workspace?.projects.find(project => project.id !== "current");
+    expect(storedImport?.videoMeta).toEqual({
+      sourceType: "youtube",
+      youtubeUrl: "https://www.youtube.com/watch?v=abcdefghijk",
+      youtubeVideoId: "abcdefghijk",
+      lastVideoTime: 18,
+    });
+    rendered.unmount();
+  });
+
   it("routes flush saves through the session and exposes saving then saved status", async () => {
     const initialProjects = [createProject("current")];
     const rendered = renderWorkspace(initialProjects);
