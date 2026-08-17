@@ -22,6 +22,12 @@ describe('filtered event export', () => {
           pointX: 0.25,
           pointY: 0.75,
           courtViewMode: 'full',
+          domainPayload: {
+            type: 'volleyball',
+            startArea: { areaCode: 'LN' },
+            targetArea: { areaCode: 'RB' },
+            systemContext: 'in_system',
+          },
           foulCode: 'NET_TOUCH',
           playerNumber: '7',
           playerName: 'Mali',
@@ -34,7 +40,8 @@ describe('filtered event export', () => {
       }),
     ];
     const query: EventQuery = {
-      search: '', team: 'THA', skill: '', result: '', foul: '', area: '',
+      search: '', team: 'THA', skill: '', result: '', resultDetail: '', foul: '', area: '',
+      startArea: '', targetArea: '', systemContext: '',
       bookmark: 'all', player: '', sortBy: 'no', sortDirection: 'asc',
     };
 
@@ -48,6 +55,8 @@ describe('filtered event export', () => {
     expect(csv).toContain('true');
     expect(csv).toContain('courtSide,gridX,gridY,pointX,pointY,courtViewMode');
     expect(csv).toContain('"teamA","2","1","0.25","0.75","full"');
+    expect(csv).toContain('startAreaCode,targetAreaCode,systemContext');
+    expect(csv).toContain('"LN","RB","in_system"');
     expect(csv).toContain('"Coach said ""watch this"""');
   });
 

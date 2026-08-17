@@ -14,16 +14,17 @@ import { FEATURE_FLAGS } from './featureFlags';
 import {
   getAnalysisTabForPreset,
   getPresetForAnalysisTab,
+  isReviewTab,
   resolveWorkspaceExperience,
   type WorkbenchPresetId,
 } from './workstation/workstationModel';
 import {
   WorkstationCommandBar,
   WorkstationStatusBar,
-  WorkstationToolRail,
   WorkstationTopBar,
 } from './components/workstation/WorkstationChrome';
 import WorkstationInspector from './components/workstation/WorkstationInspector';
+import { REVIEW_DRILLDOWN_EVENT } from './utils/reviewDrilldown';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const BookmarksPanel = React.lazy(() => import('./components/BookmarksPanel'));
@@ -269,6 +270,15 @@ function AppContent() {
   };
 
   useEffect(() => {
+    const openFilteredReview = () => {
+      setSettings(current => ({ ...current, workbenchPreset: 'review' }));
+      setActiveTab('table');
+    };
+    window.addEventListener(REVIEW_DRILLDOWN_EVENT, openFilteredReview);
+    return () => window.removeEventListener(REVIEW_DRILLDOWN_EVENT, openFilteredReview);
+  }, [setSettings]);
+
+  useEffect(() => {
     document.documentElement.lang = settings.uiLanguage;
   }, [settings.uiLanguage]);
 
@@ -283,10 +293,11 @@ function AppContent() {
 
       event.preventDefault();
       setActiveTab((current) => {
-        const currentIndex = ANALYSIS_TABS.indexOf(current);
+        const availableTabs = isWorkstation ? ['table', 'bookmarks'] as AnalysisTab[] : ANALYSIS_TABS;
+        const currentIndex = availableTabs.indexOf(current);
         const direction = event.shiftKey ? -1 : 1;
-        const nextIndex = (currentIndex + direction + ANALYSIS_TABS.length) % ANALYSIS_TABS.length;
-        const nextTab = ANALYSIS_TABS[nextIndex];
+        const nextIndex = (currentIndex + direction + availableTabs.length) % availableTabs.length;
+        const nextTab = availableTabs[nextIndex];
         requestAnimationFrame(() => document.getElementById(`analysis-tab-${nextTab}`)?.focus());
         return nextTab;
       });
@@ -294,19 +305,20 @@ function AppContent() {
 
     window.addEventListener('keydown', handleTabKey);
     return () => window.removeEventListener('keydown', handleTabKey);
-  }, [activeProjectId, isSettingsOpen, isKeyboardShortcutsOpen, isMatchInfoOpen]);
+  }, [activeProjectId, isKeyboardShortcutsOpen, isMatchInfoOpen, isSettingsOpen, isWorkstation]);
 
   const handleTablistKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
 
-    const currentIndex = ANALYSIS_TABS.indexOf(activeTab);
+    const availableTabs = isWorkstation ? ['table', 'bookmarks'] as AnalysisTab[] : ANALYSIS_TABS;
+    const currentIndex = availableTabs.indexOf(activeTab);
     const nextIndex = event.key === 'Home'
       ? 0
       : event.key === 'End'
-        ? ANALYSIS_TABS.length - 1
-        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + ANALYSIS_TABS.length) % ANALYSIS_TABS.length;
-    const nextTab = ANALYSIS_TABS[nextIndex];
+        ? availableTabs.length - 1
+        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + availableTabs.length) % availableTabs.length;
+    const nextTab = availableTabs[nextIndex];
     setActiveTab(nextTab);
     requestAnimationFrame(() => document.getElementById(`analysis-tab-${nextTab}`)?.focus());
   };
@@ -335,7 +347,10 @@ function AppContent() {
             canRedo={canRedoEventAction}
             onUndo={undoEventAction}
             onRedo={redoEventAction}
-            onOpenKeyMoments={() => setActiveTab('bookmarks')}
+            onOpenKeyMoments={() => {
+              handleWorkstationPreset('review');
+              setActiveTab('bookmarks');
+            }}
             onOpenShortcuts={() => setIsKeyboardShortcutsOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
@@ -457,13 +472,6 @@ function AppContent() {
         <main className={isWorkstation
           ? 'workstation-content-grid mx-auto w-full max-w-[1920px] lg:h-[calc(100vh-124px)] lg:overflow-hidden'
           : 'mx-auto w-full max-w-[1800px] p-2 sm:p-4 lg:p-6 flex flex-col lg:flex-row gap-4 lg:gap-6 lg:h-[calc(100vh-76px)] lg:overflow-hidden'}>
-          {isWorkstation && (
-            <WorkstationToolRail
-              language={settings.uiLanguage}
-              activePreset={activePreset}
-              onPresetChange={handleWorkstationPreset}
-            />
-          )}
           {/* Main scouting workspace */}
           <div className={`flex-1 grid grid-cols-1 lg:grid-cols-12 lg:h-full lg:overflow-hidden ${isWorkstation ? 'gap-px bg-[#263642] p-px' : 'gap-4 lg:gap-6'}`}>
             
@@ -476,7 +484,33 @@ function AppContent() {
 
             {/* Top/Right Workspace: Tabs Interface */}
             <section className={`${isWorkstation ? 'lg:col-span-5 xl:col-span-4 bg-[#0c1721] p-2' : 'lg:col-span-7'} flex flex-col gap-4 lg:h-full lg:overflow-hidden`}>
-              {/* Modern tabs navigation */}
+              {isWorkstation && isReviewTab(activeTab) && (
+                <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองทบทวน' : 'Review views'} onKeyDown={handleTablistKeyDown}>
+                  <button
+                    id="analysis-tab-table"
+                    role="tab"
+                    aria-selected={activeTab === 'table'}
+                    aria-controls="analysis-panel-table"
+                    onClick={() => setActiveTab('table')}
+                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${activeTab === 'table' ? 'coach-tab-active' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                  >
+                    <Table2 size={18} />
+                    <span>{settings.uiLanguage === 'th' ? 'ตารางเหตุการณ์' : 'Events Table'}</span>
+                  </button>
+                  <button
+                    id="analysis-tab-bookmarks"
+                    role="tab"
+                    aria-selected={activeTab === 'bookmarks'}
+                    aria-controls="analysis-panel-bookmarks"
+                    onClick={() => setActiveTab('bookmarks')}
+                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${activeTab === 'bookmarks' ? 'coach-tab-active' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                  >
+                    <Star size={18} />
+                    <span>{t('keyMoments.title', settings.uiLanguage)}</span>
+                  </button>
+                </div>
+              )}
+              {!isWorkstation && (
               <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'} onKeyDown={handleTablistKeyDown}>
                 <button
                   id="analysis-tab-input"
@@ -559,6 +593,7 @@ function AppContent() {
                   <span>{settings.uiLanguage === 'th' ? 'รายงาน' : 'Report'}</span>
                 </button>
               </div>
+              )}
 
               {/* Dynamic scrollable views wrapper */}
               <div

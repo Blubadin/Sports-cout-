@@ -1,5 +1,7 @@
 import type { Action, EventRow } from '../types';
 
+export const UNGRADED_RESULT_DETAIL = '__ungraded__';
+
 export type EventSortField = 'videoTime' | 'createdAt' | 'no' | 'team' | 'skill' | 'result';
 export type SortDirection = 'asc' | 'desc';
 export type BookmarkFilter = 'all' | 'bookmarked' | 'unbookmarked';
@@ -9,8 +11,12 @@ export interface EventQuery {
   team: string;
   skill: string;
   result: string;
+  resultDetail: string;
   foul: string;
   area: string;
+  startArea: string;
+  targetArea: string;
+  systemContext: string;
   bookmark: BookmarkFilter;
   player: string;
   timeFrom?: number;
@@ -23,8 +29,12 @@ export interface EventQueryOptions {
   teams: string[];
   skills: string[];
   results: string[];
+  resultDetails: string[];
   fouls: string[];
   areas: string[];
+  startAreas: string[];
+  targetAreas: string[];
+  systemContexts: string[];
   players: string[];
 }
 
@@ -73,10 +83,14 @@ function matchesSearch(event: EventRow, search: string): boolean {
       action.teamCode,
       action.skillCode,
       action.resultCode,
+      action.resultDetailCode,
       action.foulCode,
       action.playerNumber,
       action.playerName,
       ...actionAreaValues(action),
+      action.domainPayload?.type === 'volleyball' ? action.domainPayload.startArea?.areaCode : undefined,
+      action.domainPayload?.type === 'volleyball' ? action.domainPayload.targetArea?.areaCode : undefined,
+      action.domainPayload?.type === 'volleyball' ? action.domainPayload.systemContext : undefined,
     );
   });
 
@@ -114,8 +128,22 @@ export function applyEventQuery(events: EventRow[], query: EventQuery): EventRow
     if (query.team && !actions.some(action => includesValue([action.teamCode], query.team))) return false;
     if (query.skill && !actions.some(action => includesValue([action.skillCode], query.skill))) return false;
     if (query.result && !actions.some(action => includesValue([action.resultCode], query.result))) return false;
+    if (query.resultDetail === UNGRADED_RESULT_DETAIL) {
+      if (!actions.some(action => action.skillCode && !action.resultDetailCode)) return false;
+    } else if (query.resultDetail && !actions.some(action => includesValue([action.resultDetailCode], query.resultDetail))) return false;
     if (query.foul && !actions.some(action => includesValue([action.foulCode], query.foul))) return false;
     if (query.area && !actions.some(action => includesValue(actionAreaValues(action), query.area))) return false;
+    if (query.startArea && !actions.some(action => includesValue([
+      action.domainPayload?.type === 'volleyball' ? action.domainPayload.startArea?.areaCode : undefined,
+      action.domainPayload?.type === 'volleyball' ? action.domainPayload.startArea?.outZone : undefined,
+    ], query.startArea))) return false;
+    if (query.targetArea && !actions.some(action => includesValue([
+      action.domainPayload?.type === 'volleyball' ? action.domainPayload.targetArea?.areaCode : undefined,
+      action.domainPayload?.type === 'volleyball' ? action.domainPayload.targetArea?.outZone : undefined,
+    ], query.targetArea))) return false;
+    if (query.systemContext && !actions.some(action => includesValue([
+      action.domainPayload?.type === 'volleyball' ? action.domainPayload.systemContext : undefined,
+    ], query.systemContext))) return false;
     if (query.player && !actions.some(action => normalize(actionPlayerLabel(action)).includes(normalize(query.player)))) return false;
     if (query.bookmark === 'bookmarked' && !event.isBookmarked) return false;
     if (query.bookmark === 'unbookmarked' && event.isBookmarked) return false;
@@ -145,8 +173,15 @@ export function getEventQueryOptions(events: EventRow[]): EventQueryOptions {
     teams: sortedUnique(actions.map(action => action.teamCode)),
     skills: sortedUnique(actions.map(action => action.skillCode)),
     results: sortedUnique(actions.map(action => action.resultCode)),
+    resultDetails: [
+      ...sortedUnique(actions.map(action => action.resultDetailCode)),
+      ...(actions.some(action => action.skillCode && !action.resultDetailCode) ? [UNGRADED_RESULT_DETAIL] : []),
+    ],
     fouls: sortedUnique(actions.map(action => action.foulCode)),
     areas: sortedUnique(actions.flatMap(action => [action.areaCode, action.outZone])),
+    startAreas: sortedUnique(actions.flatMap(action => action.domainPayload?.type === 'volleyball' ? [action.domainPayload.startArea?.areaCode, action.domainPayload.startArea?.outZone] : [])),
+    targetAreas: sortedUnique(actions.flatMap(action => action.domainPayload?.type === 'volleyball' ? [action.domainPayload.targetArea?.areaCode, action.domainPayload.targetArea?.outZone] : [])),
+    systemContexts: sortedUnique(actions.map(action => action.domainPayload?.type === 'volleyball' ? action.domainPayload.systemContext : undefined)),
     players: sortedUnique(actions.map(actionPlayerLabel)),
   };
 }

@@ -2,6 +2,7 @@ import React from "react";
 import { useScoutContext } from "../../context/ScoutContext";
 import { useHUDDeviceLayout } from "../../hooks/useHUDDeviceLayout";
 import ProDonutCommandWheel from "./ProDonutCommandWheel";
+import { getVolleyballGradeOptions, resolveVolleyballGrade } from "../../volleyball/volleyballSkillGrades";
 
 interface Props {
   isActive: boolean;
@@ -10,6 +11,8 @@ interface Props {
   onClick?: () => void;
   hoveredResult?: string | null;
   onHover?: (code: string | null) => void;
+  hoveredResultDetail?: string | null;
+  onHoverDetail?: (code: string | null) => void;
   pointerX?: number;
   pointerY?: number;
 }
@@ -21,6 +24,8 @@ export default function HUDResultSelector({
   onClick,
   hoveredResult,
   onHover,
+  hoveredResultDetail,
+  onHoverDetail,
   pointerX = 0,
   pointerY = 0,
 }: Props) {
@@ -51,14 +56,19 @@ export default function HUDResultSelector({
       shadow,
     };
   });
+  const resultDetails = sportTemplate.id === 'volleyball' && settings.advancedDetailMode
+    ? getVolleyballGradeOptions(currentAction.skillCode)
+    : [];
 
   const handleHoverItem = (payload: {
-    type: "skill" | "descriptor" | "result";
+    type: "skill" | "descriptor" | "result" | "resultDetail";
     code: string | null;
     groupId?: string;
   }) => {
     if (payload.type === "result" && onHover) {
       onHover(payload.code);
+    } else if (payload.type === "resultDetail" && onHoverDetail) {
+      onHoverDetail(payload.code);
     }
   };
 
@@ -93,8 +103,9 @@ export default function HUDResultSelector({
           <ProDonutCommandWheel
             menuType="result"
             results={results}
+            resultDetails={resultDetails}
             active={isActive}
-            size={280}
+            size={resultDetails.length > 0 ? 320 : 280}
             uiLanguage={settings.uiLanguage}
             pointerX={pointerX}
             pointerY={pointerY}
@@ -102,7 +113,12 @@ export default function HUDResultSelector({
             hoveredSkill={null}
             hoveredDescriptor={null}
             hoveredResult={hoveredResult || null}
+            hoveredResultDetail={hoveredResultDetail || null}
             onSelectResult={handleResultSelect}
+            onSelectResultDetail={(code) => {
+              const detail = resolveVolleyballGrade(currentAction.skillCode, code);
+              if (detail) commitResult(detail.resultCode, settings.fastMode, detail.code);
+            }}
           />
         </div>
       ) : (

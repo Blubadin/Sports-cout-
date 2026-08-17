@@ -36,6 +36,7 @@ import {
   type EventQuery,
 } from '../utils/eventQuery';
 import { createEventsCsv } from '../utils/eventExport';
+import { consumeReviewDrilldown } from '../utils/reviewDrilldown';
 
 const TABLE_PAGE_SIZE = 100;
 
@@ -44,8 +45,12 @@ const INITIAL_EVENT_QUERY: EventQuery = {
   team: '',
   skill: '',
   result: '',
+  resultDetail: '',
   foul: '',
   area: '',
+  startArea: '',
+  targetArea: '',
+  systemContext: '',
   bookmark: 'all',
   player: '',
   sortBy: 'videoTime',
@@ -274,12 +279,14 @@ function TableFilterSelect({
   value,
   options,
   allLabel,
+  specialLabel,
   onChange,
 }: {
   label: string;
   value: string;
   options: string[];
   allLabel: string;
+  specialLabel?: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -291,7 +298,7 @@ function TableFilterSelect({
         className={`h-9 min-w-0 rounded-md border bg-white px-2 text-xs normal-case text-gray-800 outline-none focus:border-sky-500 dark:bg-gray-900 dark:text-gray-100 ${value ? 'border-sky-400' : 'border-gray-300 dark:border-gray-600'}`}
       >
         <option value="">{allLabel}</option>
-        {options.map(option => <option key={option} value={option}>{option}</option>)}
+        {options.map(option => <option key={option} value={option}>{option === '__ungraded__' ? specialLabel ?? option : option}</option>)}
       </select>
     </label>
   );
@@ -358,8 +365,12 @@ export default function ScoutingTable() {
     || query.team !== ''
     || query.skill !== ''
     || query.result !== ''
+    || query.resultDetail !== ''
     || query.foul !== ''
     || query.area !== ''
+    || query.startArea !== ''
+    || query.targetArea !== ''
+    || query.systemContext !== ''
     || query.player !== ''
     || query.bookmark !== 'all'
     || query.timeFrom !== undefined
@@ -367,6 +378,11 @@ export default function ScoutingTable() {
   const invalidTimeRange = query.timeFrom !== undefined
     && query.timeTo !== undefined
     && query.timeFrom > query.timeTo;
+
+  useEffect(() => {
+    const pendingFilters = consumeReviewDrilldown();
+    if (pendingFilters) setQuery(current => ({ ...current, ...pendingFilters }));
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -542,8 +558,12 @@ export default function ScoutingTable() {
           <TableFilterSelect label={t('input.team', settings.uiLanguage)} allLabel={t('table.allTeams', settings.uiLanguage)} value={query.team} options={queryOptions.teams} onChange={team => setQuery(current => ({ ...current, team }))} />
           <TableFilterSelect label={t('input.skill', settings.uiLanguage)} allLabel={t('table.allSkills', settings.uiLanguage)} value={query.skill} options={queryOptions.skills} onChange={skill => setQuery(current => ({ ...current, skill }))} />
           <TableFilterSelect label={t('input.result', settings.uiLanguage)} allLabel={t('table.allResults', settings.uiLanguage)} value={query.result} options={queryOptions.results} onChange={result => setQuery(current => ({ ...current, result }))} />
+          <TableFilterSelect label={settings.uiLanguage === 'th' ? 'เกรดทักษะ' : 'Skill grade'} allLabel={settings.uiLanguage === 'th' ? 'ทุกเกรด' : 'All grades'} specialLabel={settings.uiLanguage === 'th' ? 'ไม่ระบุเกรด' : 'Not graded'} value={query.resultDetail} options={queryOptions.resultDetails} onChange={resultDetail => setQuery(current => ({ ...current, resultDetail }))} />
           <TableFilterSelect label={t('table.foul', settings.uiLanguage)} allLabel={t('table.allFouls', settings.uiLanguage)} value={query.foul} options={queryOptions.fouls} onChange={foul => setQuery(current => ({ ...current, foul }))} />
           <TableFilterSelect label={t('input.area', settings.uiLanguage)} allLabel={t('table.allAreas', settings.uiLanguage)} value={query.area} options={queryOptions.areas} onChange={area => setQuery(current => ({ ...current, area }))} />
+          {queryOptions.startAreas.length > 0 && <TableFilterSelect label={settings.uiLanguage === 'th' ? 'จุดเริ่ม' : 'Start area'} allLabel={settings.uiLanguage === 'th' ? 'ทุกจุดเริ่ม' : 'All starts'} value={query.startArea} options={queryOptions.startAreas} onChange={startArea => setQuery(current => ({ ...current, startArea }))} />}
+          {queryOptions.targetAreas.length > 0 && <TableFilterSelect label={settings.uiLanguage === 'th' ? 'จุดเป้าหมาย' : 'Target area'} allLabel={settings.uiLanguage === 'th' ? 'ทุกเป้าหมาย' : 'All targets'} value={query.targetArea} options={queryOptions.targetAreas} onChange={targetArea => setQuery(current => ({ ...current, targetArea }))} />}
+          {queryOptions.systemContexts.length > 0 && <TableFilterSelect label="System" allLabel={settings.uiLanguage === 'th' ? 'ทุกบริบท' : 'All contexts'} value={query.systemContext} options={queryOptions.systemContexts} onChange={systemContext => setQuery(current => ({ ...current, systemContext }))} />}
           <TableFilterSelect label={t('table.player', settings.uiLanguage)} allLabel={t('table.allPlayers', settings.uiLanguage)} value={query.player} options={queryOptions.players} onChange={player => setQuery(current => ({ ...current, player }))} />
           <label className="flex min-w-0 flex-col gap-1 text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400">
             {t('keyMoments.title', settings.uiLanguage)}

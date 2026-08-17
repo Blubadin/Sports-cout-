@@ -2,6 +2,13 @@ import type { WorkspaceExperience } from '../types';
 
 export type WorkbenchPresetId = 'scout' | 'review' | 'analysis' | 'report';
 export type WorkstationAnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks' | 'report';
+export type WorkstationReviewTab = 'table' | 'bookmarks';
+
+export const REVIEW_TABS: readonly WorkstationReviewTab[] = ['table', 'bookmarks'];
+
+export function isReviewTab(tab: WorkstationAnalysisTab): tab is WorkstationReviewTab {
+  return REVIEW_TABS.includes(tab as WorkstationReviewTab);
+}
 
 export function resolveWorkspaceExperience(_options: {
   featureEnabled: boolean;

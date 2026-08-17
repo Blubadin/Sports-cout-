@@ -3,6 +3,12 @@ import { Team, Skill, Area, ResultType, Action, EventRow, MatchInfo, AppSettings
 import { DEFAULT_TEAMS, DEFAULT_SKILLS, DEFAULT_AREAS, DEFAULT_RESULTS } from '../data';
 import { SPORT_TEMPLATES, OUT_ZONE_LABELS, DETAILED_ZONE_LABELS } from '../sports';
 import { useLocalStorage } from '../hooks/useLocalStorage';
+import {
+  captureVolleyballPathArea,
+  getVolleyballSkillCapabilities,
+  resetVolleyballActionForSkill,
+  type VolleyballPathCaptureStage,
+} from '../volleyball/volleyballActionContext';
 
 export type InputHistoryItem = 
   | { 
@@ -72,13 +78,17 @@ interface ScoutContextType {
   showToast: (msg: string) => void;
   hudLastSavedText: string | null;
   selectArea: (payload: AreaSelectionPayload) => void;
+  volleyballPathStage: VolleyballPathCaptureStage;
+  setVolleyballPathStage: (stage: VolleyballPathCaptureStage) => void;
+  skipVolleyballTarget: () => void;
+  setVolleyballSystemContext: (context?: 'in_system' | 'out_of_system') => void;
   hudLastSavedAt: number;
   updateActionField: (field: keyof Action, value: any, descriptorGroupId?: string) => void;
   updateActionPatch: (patch: Partial<Action>) => void;
   selectFoul: (foul?: import('../types').FoulOption) => void;
   clearFoul: () => void;
   commitSkillSelection: (payload: { skillCode: string; descriptorGroupId?: string; descriptorCode?: string }) => void;
-  commitResult: (resultCode: string, isFastMode?: boolean) => void;
+  commitResult: (resultCode: string, isFastMode?: boolean, resultDetailCode?: string) => void;
   canUndoEventAction: boolean;
   clearEventHistory: () => void;
   saveEventsWithHistory: (updater: React.SetStateAction<EventRow[]>) => void;
@@ -232,6 +242,12 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
   const [currentActions, setCurrentActions] = useState<Action[]>([]);
   const [currentAction, setCurrentAction] = useState<Action>({});
+  const [volleyballPathStage, setVolleyballPathStageState] = useState<VolleyballPathCaptureStage>('start');
+  const volleyballPathStageRef = useRef<VolleyballPathCaptureStage>('start');
+  const setVolleyballPathStage = useCallback((stage: VolleyballPathCaptureStage) => {
+    volleyballPathStageRef.current = stage;
+    setVolleyballPathStageState(stage);
+  }, []);
   
   const [videoSourceType, setVideoSourceType] = useState<VideoSourceType>('local');
   const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
@@ -364,7 +380,9 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   const commitSkillSelection = useCallback((payload: { skillCode: string; descriptorGroupId?: string; descriptorCode?: string }) => {
     setCurrentAction(prev => {
       const isNewSkill = prev.skillCode !== payload.skillCode;
-      const next: Action = { ...prev, skillCode: payload.skillCode };
+      const next: Action = matchInfo.sportType === 'volleyball'
+        ? resetVolleyballActionForSkill(prev, payload.skillCode)
+        : { ...prev, skillCode: payload.skillCode };
 
       if (isNewSkill) {
         next.descriptors = {};
@@ -400,7 +418,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
       return next;
     });
-  }, []);
+  }, [matchInfo.sportType]);
 
   const updateActionField = useCallback((field: keyof Action, value: any, descriptorGroupId?: string) => {
     setCurrentAction(prevAction => {
@@ -411,10 +429,12 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       const nextValue = isSame ? undefined : value;
       const previousValue = descriptorGroupId ? prevAction.descriptors?.[descriptorGroupId] : prevAction[field];
       
-      const next = { 
-        ...prevAction,
-        descriptors: prevAction.descriptors ? { ...prevAction.descriptors } : {}
-      };
+      const next = field === 'skillCode' && nextValue && matchInfo.sportType === 'volleyball'
+        ? resetVolleyballActionForSkill(prevAction, String(nextValue))
+        : {
+            ...prevAction,
+            descriptors: prevAction.descriptors ? { ...prevAction.descriptors } : {}
+          };
       
       if (descriptorGroupId) {
         if (isSame) {
@@ -440,58 +460,96 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
       return next;
     });
-  }, []);
+  }, [matchInfo.sportType]);
+
+  useEffect(() => {
+    setVolleyballPathStage('start');
+  }, [currentAction.skillCode, settings.advancedDetailMode, matchInfo.sportType, setVolleyballPathStage]);
+
+  const skipVolleyballTarget = useCallback(() => {
+    setVolleyballPathStage('complete');
+  }, [setVolleyballPathStage]);
+
+  const setVolleyballSystemContext = useCallback((context?: 'in_system' | 'out_of_system') => {
+    setCurrentAction(prev => {
+      const capabilities = getVolleyballSkillCapabilities(prev.skillCode);
+      if (matchInfo.sportType !== 'volleyball' || !capabilities?.supportsSystem) return prev;
+      const previousPayload = prev.domainPayload?.type === 'volleyball'
+        ? prev.domainPayload
+        : { type: 'volleyball' as const, rallyPhase: capabilities.phase };
+      const nextPayload = { ...previousPayload, rallyPhase: capabilities.phase };
+      if (context === undefined || previousPayload.systemContext === context) delete nextPayload.systemContext;
+      else nextPayload.systemContext = context;
+      return { ...prev, domainPayload: nextPayload };
+    });
+  }, [matchInfo.sportType]);
 
   const selectArea = useCallback((rawPayload: AreaSelectionPayload) => {
-    setCurrentAction(prevAction => {
-      // 1. Create a mutable copy of the payload to enrich it
-      const payload = { ...rawPayload };
+    // Keep normalization and the path transition outside the React state updater.
+    // React StrictMode may invoke updater functions more than once in development;
+    // advancing the path stage inside the updater could otherwise skip Target.
+    const payload = { ...rawPayload };
 
-      // 2. Auto-enrich detailed zones if the areaCode matches a DETAILED_ZONE_LABEL
-      if (payload.areaCode && DETAILED_ZONE_LABELS[payload.areaCode]) {
-        const detailed = DETAILED_ZONE_LABELS[payload.areaCode];
-        payload.gridX = payload.gridX !== undefined ? payload.gridX : detailed.gridX;
-        payload.gridY = payload.gridY !== undefined ? payload.gridY : detailed.gridY;
-        payload.areaMode = payload.areaMode || 'detailed';
-        payload.areaResolution = payload.areaResolution || 'legacy-3x3';
-        payload.areaLabel = payload.areaLabel || detailed.label;
-        payload.areaCode = detailed.baseAreaCode;
-      }
+    // 1. Auto-enrich detailed zones if the areaCode matches a DETAILED_ZONE_LABEL
+    if (payload.areaCode && DETAILED_ZONE_LABELS[payload.areaCode]) {
+      const detailed = DETAILED_ZONE_LABELS[payload.areaCode];
+      payload.gridX = payload.gridX !== undefined ? payload.gridX : detailed.gridX;
+      payload.gridY = payload.gridY !== undefined ? payload.gridY : detailed.gridY;
+      payload.areaMode = payload.areaMode || 'detailed';
+      payload.areaResolution = payload.areaResolution || 'legacy-3x3';
+      payload.areaLabel = payload.areaLabel || detailed.label;
+      payload.areaCode = detailed.baseAreaCode;
+    }
 
-      // 3. Auto-enrich out-of-bounds zones if outZone is provided or if areaCode is an out-of-bounds code
-      if (payload.outZone) {
-        payload.areaResolution = payload.areaResolution || 'out-zone';
-        payload.areaMode = payload.areaMode || 'normal';
-        payload.courtSide = payload.courtSide || 'neutral';
-        if (!payload.areaCode) {
-          payload.areaCode = 'OUT';
-        }
-        if (!payload.areaLabel && OUT_ZONE_LABELS[payload.outZone]) {
-          const isThai = settings.uiLanguage === 'th';
-          payload.areaLabel = isThai ? OUT_ZONE_LABELS[payload.outZone].thaiLabel : OUT_ZONE_LABELS[payload.outZone].label;
-        }
-      } else if (payload.areaCode && ['OUT', 'LONG_OUT', 'SIDE_OUT', 'NET_ERR'].includes(payload.areaCode)) {
-        payload.areaResolution = payload.areaResolution || 'out-zone';
-        payload.areaMode = payload.areaMode || 'normal';
-        payload.courtSide = payload.courtSide || 'neutral';
-        if (!payload.outZone) {
-          if (payload.areaCode === 'NET_ERR') payload.outZone = 'net_error';
-          else payload.outZone = 'unknown';
-        }
-      }
-
-      // 4. Default other missing properties to ensure complete payload
+    // 2. Auto-enrich out-of-bounds zones.
+    if (payload.outZone) {
+      payload.areaResolution = payload.areaResolution || 'out-zone';
       payload.areaMode = payload.areaMode || 'normal';
       payload.courtSide = payload.courtSide || 'neutral';
-      payload.areaResolution = payload.areaResolution || 'normal';
-      payload.courtViewMode = payload.courtViewMode || settings.areaCourtViewMode || 'auto';
-
-      if (payload.areaCode && !payload.areaLabel) {
-        const areaObj = areas.find(a => a.code === payload.areaCode);
+      if (!payload.areaCode) payload.areaCode = 'OUT';
+      if (!payload.areaLabel && OUT_ZONE_LABELS[payload.outZone]) {
         const isThai = settings.uiLanguage === 'th';
-        payload.areaLabel = areaObj ? (isThai ? areaObj.thaiName : areaObj.code) : payload.areaCode;
+        payload.areaLabel = isThai ? OUT_ZONE_LABELS[payload.outZone].thaiLabel : OUT_ZONE_LABELS[payload.outZone].label;
       }
+    } else if (payload.areaCode && ['OUT', 'LONG_OUT', 'SIDE_OUT', 'NET_ERR'].includes(payload.areaCode)) {
+      payload.areaResolution = payload.areaResolution || 'out-zone';
+      payload.areaMode = payload.areaMode || 'normal';
+      payload.courtSide = payload.courtSide || 'neutral';
+      if (!payload.outZone) payload.outZone = payload.areaCode === 'NET_ERR' ? 'net_error' : 'unknown';
+    }
 
+    // 3. Fill the remaining stable defaults.
+    payload.areaMode = payload.areaMode || 'normal';
+    payload.courtSide = payload.courtSide || 'neutral';
+    payload.areaResolution = payload.areaResolution || 'normal';
+    payload.courtViewMode = payload.courtViewMode || settings.areaCourtViewMode || 'auto';
+
+    if (payload.areaCode && !payload.areaLabel) {
+      const areaObj = areas.find(a => a.code === payload.areaCode);
+      const isThai = settings.uiLanguage === 'th';
+      payload.areaLabel = areaObj ? (isThai ? areaObj.thaiName : areaObj.code) : payload.areaCode;
+    }
+
+    const capabilities = getVolleyballSkillCapabilities(currentAction.skillCode);
+    const isVolleyballDetailPath = matchInfo.sportType === 'volleyball'
+      && settings.advancedDetailMode
+      && Boolean(capabilities);
+    if (isVolleyballDetailPath && volleyballPathStageRef.current !== 'complete') {
+      const stage = volleyballPathStageRef.current === 'target' ? 'target' : 'start';
+      const captured = captureVolleyballPathArea(currentAction, stage, payload);
+      setCurrentInputHistory(hist => [...hist, {
+        type: 'field',
+        category: 'domainPayload',
+        previousValue: currentAction.domainPayload,
+        value: captured.action.domainPayload,
+      }]);
+      setCurrentAction(captured.action);
+      setVolleyballPathStage(captured.nextStage);
+      return;
+    }
+    if (isVolleyballDetailPath) return;
+
+    setCurrentAction(prevAction => {
       const isSame = prevAction.areaCode === payload.areaCode && 
                      prevAction.outZone === payload.outZone && 
                      prevAction.courtSide === payload.courtSide &&
@@ -540,7 +598,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
       return next;
     });
-  }, [settings.uiLanguage, settings.areaCourtViewMode, areas]);
+  }, [settings.uiLanguage, settings.areaCourtViewMode, settings.advancedDetailMode, areas, matchInfo.sportType, currentAction, setVolleyballPathStage]);
 
   const clearCurrentEvent = useCallback(() => {
     setCurrentActions([]);
@@ -644,6 +702,13 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       details.push(playerStr);
     }
     if (action.resultDetailCode) details.push(action.resultDetailCode);
+    if (action.domainPayload?.type === 'volleyball') {
+      const start = action.domainPayload.startArea?.outZone || action.domainPayload.startArea?.areaCode || action.outZone || action.areaCode;
+      const target = action.domainPayload.targetArea?.outZone || action.domainPayload.targetArea?.areaCode;
+      if (start && target) details.push(`${start}→${target}`);
+      else if (start && action.domainPayload.startArea) details.push(`START:${start}`);
+      if (action.domainPayload.systemContext) details.push(action.domainPayload.systemContext.toUpperCase().replace('_', '-'));
+    }
     if (details.length > 0) {
       return base + ' / ' + details.join(' / ');
     }
@@ -910,8 +975,8 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     }
   }, [currentActions, currentAction, isActionComplete, settings.uiLanguage, settings.autoNextPoint, normalizeActionBeforeCommit, getCurrentTimeRef, getActionText, getThaiMeaning, getExtendedActionText, matchInfo, saveEventsWithHistory, setMatchInfo, showToast]);
 
-  const commitResult = useCallback((resultCode: string, isFastMode: boolean = false) => {
-    const nextAction = { ...currentAction, resultCode };
+  const commitResult = useCallback((resultCode: string, isFastMode: boolean = false, resultDetailCode?: string) => {
+    const nextAction = { ...currentAction, resultCode, resultDetailCode };
     const missingMessage = getMissingActionMessage(nextAction);
     
     // Auto OUT logic
@@ -1058,7 +1123,8 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       sportTemplate, changeSportType,
       currentInputHistory, setCurrentInputHistory, getMissingActionMessage,
       toastMessage, showToast,
-      hudLastSavedText, hudLastSavedAt, updateActionField, updateActionPatch, selectFoul, clearFoul, commitSkillSelection, selectArea, commitResult,
+      hudLastSavedText, hudLastSavedAt, updateActionField, updateActionPatch, selectFoul, clearFoul, commitSkillSelection, selectArea,
+      volleyballPathStage, setVolleyballPathStage, skipVolleyballTarget, setVolleyballSystemContext, commitResult,
       canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction
     }}>
       {children}

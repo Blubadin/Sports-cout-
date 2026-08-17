@@ -130,6 +130,36 @@ export function decodeAction(raw: unknown): { action: Action; status: DecodeStat
     if (['volleyball', 'football', 'badminton', 'basketball'].includes(dp.type)) {
       const payload: any = { type: dp.type };
       if (dp.type === 'volleyball') {
+        const decodeAreaPayload = (rawArea: unknown, fieldName: 'startArea' | 'targetArea') => {
+          if (rawArea === undefined) return undefined;
+          if (!rawArea || typeof rawArea !== 'object' || Array.isArray(rawArea)) {
+            status = 'repaired';
+            warnings.push(`Invalid volleyball ${fieldName} stripped`);
+            return undefined;
+          }
+
+          const source = rawArea as Record<string, unknown>;
+          const decoded: Record<string, unknown> = {};
+          const stringFields = ['areaCode', 'areaLabel', 'areaMode', 'courtSide', 'outZone', 'areaResolution', 'courtViewMode'];
+          const numberFields = ['gridX', 'gridY'];
+          stringFields.forEach(key => {
+            if (typeof source[key] === 'string') decoded[key] = source[key];
+          });
+          numberFields.forEach(key => {
+            if (typeof source[key] === 'number') decoded[key] = source[key];
+          });
+          (['pointX', 'pointY'] as const).forEach(key => {
+            if (typeof source[key] !== 'number') return;
+            const clamped = Math.max(0, Math.min(1, source[key]));
+            decoded[key] = clamped;
+            if (clamped !== source[key]) {
+              status = 'repaired';
+              warnings.push(`Clamped volleyball ${fieldName}.${key} to [0, 1]`);
+            }
+          });
+          return decoded;
+        };
+
         if (typeof dp.rotation === 'number') {
           payload.rotation = Math.max(1, Math.min(6, dp.rotation));
           if (payload.rotation !== dp.rotation) {
@@ -141,6 +171,16 @@ export function decodeAction(raw: unknown): { action: Action; status: DecodeStat
         if (typeof dp.rallyPhase === 'string') payload.rallyPhase = dp.rallyPhase;
         if (typeof dp.attackGrade === 'string') payload.attackGrade = dp.attackGrade;
         if (typeof dp.receptionGrade === 'string') payload.receptionGrade = dp.receptionGrade;
+        const startArea = decodeAreaPayload(dp.startArea, 'startArea');
+        const targetArea = decodeAreaPayload(dp.targetArea, 'targetArea');
+        if (startArea) payload.startArea = startArea;
+        if (targetArea) payload.targetArea = targetArea;
+        if (dp.systemContext === 'in_system' || dp.systemContext === 'out_of_system') {
+          payload.systemContext = dp.systemContext;
+        } else if (dp.systemContext !== undefined) {
+          status = 'repaired';
+          warnings.push('Invalid volleyball systemContext stripped');
+        }
       } else if (dp.type === 'football') {
         if (typeof dp.possessionTeam === 'string') payload.possessionTeam = dp.possessionTeam;
         if (typeof dp.phase === 'string') payload.phase = dp.phase;

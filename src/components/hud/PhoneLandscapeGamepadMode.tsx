@@ -25,6 +25,7 @@ import PhoneLandscapeTeamPicker from "./PhoneLandscapeTeamPicker";
 import PhoneLandscapeSkillStrip from "./PhoneLandscapeSkillStrip";
 import PhoneLandscapeAreaOverlay from "./PhoneLandscapeAreaOverlay";
 import PhoneLandscapeFoulStrip from "./PhoneLandscapeFoulStrip";
+import { getVolleyballGradeOptions } from "../../volleyball/volleyballSkillGrades";
 
 interface PhoneLandscapeGamepadModeProps {
   onClose: () => void;
@@ -289,6 +290,11 @@ export default function PhoneLandscapeGamepadMode({
               </button>
             );
           })}
+          {settings.advancedDetailMode && sportTemplate.id === 'volleyball' && getVolleyballGradeOptions(currentAction.skillCode).map(option => (
+            <button key={option.code} onClick={() => commitResult(option.resultCode, false, option.code)} className="min-h-[30px] w-[58px] rounded-lg border border-amber-400/40 bg-amber-950/80 px-1 text-[8px] font-black text-amber-100 active:scale-90">
+              {option.code} · {option.grade}
+            </button>
+          ))}
         </div>
       </div>
 

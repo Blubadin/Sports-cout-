@@ -89,6 +89,8 @@ export default function ScoutHUDMode({
     getMissingActionMessage,
     toggleEventBookmark,
     showToast,
+    volleyballPathStage,
+    setVolleyballPathStage,
   } = useScoutContext();
 
   const layout = useHUDDeviceLayout();
@@ -115,10 +117,12 @@ export default function ScoutHUDMode({
     hoveredDescriptor,
     hoveredArea,
     hoveredResult,
+    hoveredResultDetail,
     setHoveredSkill,
     setHoveredDescriptor,
     setHoveredArea,
     setHoveredResult,
+    setHoveredResultDetail,
     setHoveredFoul,
     hoveredTeam,
     hoveredFoul,
@@ -136,7 +140,13 @@ export default function ScoutHUDMode({
     updateActionField,
     commitSkillSelection,
     commitResult,
-    onCloseHUD: () => exitHUDModeSafely('escape_key'),
+    onCloseHUD: () => {
+      if (settings.advancedDetailMode && sportTemplate.id === 'volleyball' && volleyballPathStage === 'target') {
+        setVolleyballPathStage('complete');
+        return;
+      }
+      exitHUDModeSafely('escape_key');
+    },
     layout,
     selectArea,
     selectFoul,
@@ -623,6 +633,16 @@ export default function ScoutHUDMode({
 
       {/* Main Grid Area */}
       <div className="flex-1 w-full flex flex-col pointer-events-none px-2 sm:px-4 md:px-8 pb-4 relative overflow-hidden justify-between">
+        {settings.advancedDetailMode && sportTemplate.id === 'volleyball' && currentAction.skillCode && (
+          <div className="absolute left-3 top-3 z-[61] border border-amber-400/40 bg-slate-950/85 px-3 py-2 text-[11px] font-bold text-white shadow-lg backdrop-blur-md">
+            <span className="mr-2 text-amber-300">WHERE</span>
+            {volleyballPathStage === 'start'
+              ? 'W: Start area'
+              : volleyballPathStage === 'target'
+                ? 'W: Target area · Esc: skip'
+                : 'Path ready'}
+          </div>
+        )}
         {/* Backdrop for closing active menus by tapping outside */}
         {activeMenu !== "none" && (
           <div
@@ -816,6 +836,8 @@ export default function ScoutHUDMode({
             onClick={() => handlePointerInteraction("result")}
             hoveredResult={hoveredResult}
             onHover={setHoveredResult}
+            hoveredResultDetail={hoveredResultDetail}
+            onHoverDetail={setHoveredResultDetail}
             pointerX={pointerPosition.x}
             pointerY={pointerPosition.y}
           />

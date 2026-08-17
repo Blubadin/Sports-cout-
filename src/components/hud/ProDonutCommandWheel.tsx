@@ -1,10 +1,13 @@
 import React, { useRef, useEffect, useState } from "react";
 import { Skill, DescriptorGroup, AppSettings } from "../../types";
+import { resolveDonutSectorIndex, resolveDonutWheelBand } from "../../utils/donutWheelGeometry";
+import type { VolleyballGradeDefinition } from "../../volleyball/volleyballSkillGrades";
 
 type ProDonutCommandWheelProps = {
   menuType: "skill" | "result" | "team";
   skills?: Skill[];
   results?: Array<{ code: string; label: string; sub: string; color: string }>;
+  resultDetails?: VolleyballGradeDefinition[];
   selectedSkill?: string | null;
   descriptors?: DescriptorGroup[];
   selectedDescriptors?: Record<string, string>;
@@ -14,22 +17,25 @@ type ProDonutCommandWheelProps = {
   pointerX: number;
   pointerY: number;
   onHoverItem: (payload: {
-    type: "skill" | "descriptor" | "result";
+    type: "skill" | "descriptor" | "result" | "resultDetail";
     code: string | null;
     groupId?: string;
   }) => void;
   hoveredSkill: string | null;
   hoveredDescriptor: { groupId: string; optionCode: string } | null;
   hoveredResult: string | null;
+  hoveredResultDetail?: string | null;
   onSelectSkill?: (code: string) => void;
   onSelectDescriptor?: (groupId: string, optionCode: string) => void;
   onSelectResult?: (code: string) => void;
+  onSelectResultDetail?: (code: string) => void;
 };
 
 export default function ProDonutCommandWheel({
   menuType,
   skills = [],
   results = [],
+  resultDetails = [],
   selectedSkill,
   descriptors = [],
   selectedDescriptors = {},
@@ -42,9 +48,11 @@ export default function ProDonutCommandWheel({
   hoveredSkill,
   hoveredDescriptor,
   hoveredResult,
+  hoveredResultDetail = null,
   onSelectSkill,
   onSelectDescriptor,
   onSelectResult,
+  onSelectResultDetail,
 }: ProDonutCommandWheelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [center, setCenter] = useState({ x: 0, y: 0 });
@@ -116,6 +124,8 @@ export default function ProDonutCommandWheel({
 
   const deadZone = 45;
   const innerRadiusMax = 110;
+  const hasResultDetailRing = menuType === "result" && resultDetails.length > 0;
+  const wheelBand = resolveDonutWheelBand(distance, hasResultDetailRing || menuType === "skill");
 
   // Render variables depending on menuType
   let items: Array<{ code: string; label: string; sub?: string }> = [];
@@ -140,9 +150,12 @@ export default function ProDonutCommandWheel({
   let hoveredInnerIndex = -1;
   let currentHoveredCode: string | null = null;
 
-  if (distance >= deadZone) {
-    if (distance < innerRadiusMax || (!hoveredSkill && !selectedSkill)) {
-      hoveredInnerIndex = Math.floor(angleFromUp / sectorAngle) % totalSectors;
+  if (
+    wheelBand === "inner" ||
+    (menuType === "skill" && distance >= deadZone && !hoveredSkill && !selectedSkill)
+  ) {
+    if (distance <= innerRadiusMax || (menuType === "skill" && !hoveredSkill && !selectedSkill)) {
+      hoveredInnerIndex = resolveDonutSectorIndex(angleFromUp, totalSectors);
       if (hoveredInnerIndex >= 0 && hoveredInnerIndex < items.length) {
         currentHoveredCode = items[hoveredInnerIndex].code;
       }
@@ -173,6 +186,11 @@ export default function ProDonutCommandWheel({
       currentHoveredDescCode = activeDescriptors[hoveredDescIndex].code;
     }
   }
+
+  const hoveredResultDetailIndex = hasResultDetailRing && wheelBand === "outer"
+    ? resolveDonutSectorIndex(angleFromUp, resultDetails.length)
+    : -1;
+  const currentHoveredResultDetail = hoveredResultDetailIndex >= 0 ? resultDetails[hoveredResultDetailIndex]?.code ?? null : null;
 
   // Trigger hover updates to parent hook
   useEffect(() => {
@@ -207,6 +225,7 @@ export default function ProDonutCommandWheel({
         type: "result",
         code: currentHoveredCode,
       });
+      onHoverItem({ type: "resultDetail", code: currentHoveredResultDetail });
     }
   }, [
     active,
@@ -215,6 +234,7 @@ export default function ProDonutCommandWheel({
     currentHoveredCode,
     currentHoveredDescCode,
     activeSkillCode,
+    currentHoveredResultDetail,
   ]);
 
   // Center display content
@@ -242,6 +262,11 @@ export default function ProDonutCommandWheel({
       centerSub = s ? (uiLanguage === "th" ? s.thaiName : s.name) : "";
       centerColor = "text-sky-400";
     }
+  } else if (menuType === "result" && hoveredResultDetail) {
+    const detail = resultDetails.find(item => item.code === hoveredResultDetail);
+    centerTitle = hoveredResultDetail;
+    centerSub = detail ? (uiLanguage === "th" ? detail.thaiLabel : detail.label) : "";
+    centerColor = "text-amber-300";
   } else if (menuType === "result" && hoveredResult) {
     const res = results.find((r) => r.code === hoveredResult);
     centerTitle = hoveredResult.toUpperCase();
@@ -283,6 +308,25 @@ export default function ProDonutCommandWheel({
             strokeWidth={1.5}
             strokeDasharray="4 4"
           />
+        )}
+
+        {menuType === "result" && resultDetails.length > 0 && (
+          <g>
+            {resultDetails.map((detail, index) => {
+              const startAngle = index * (360 / resultDetails.length);
+              const endAngle = (index + 1) * (360 / resultDetails.length);
+              const midAngle = (startAngle + endAngle) / 2;
+              const labelRad = ((midAngle - 90) * Math.PI) / 180;
+              const highlighted = hoveredResultDetailIndex === index && wheelBand === "outer";
+              return (
+                <g key={detail.code} className="cursor-pointer" onClick={() => onSelectResultDetail?.(detail.code)}>
+                  <path d={getDonutPath(cx, cy, 112, 155, startAngle, endAngle)} className={`${highlighted ? "fill-amber-600/90 stroke-amber-200" : "fill-black/75 stroke-amber-500/25"} transition-all duration-150`} />
+                  <text x={cx + 133 * Math.cos(labelRad)} y={cy + 133 * Math.sin(labelRad) - 2} textAnchor="middle" className="fill-white text-xs font-black pointer-events-none">{detail.code}</text>
+                  <text x={cx + 133 * Math.cos(labelRad)} y={cy + 133 * Math.sin(labelRad) + 10} textAnchor="middle" className="fill-white/60 text-xs pointer-events-none">{detail.grade}</text>
+                </g>
+              );
+            })}
+          </g>
         )}
 
         {/* 1. RENDER MAIN INNER SECTORS */}

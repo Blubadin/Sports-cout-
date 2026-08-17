@@ -72,6 +72,44 @@ describe('eventDecoder', () => {
       expect(status).toBe('repaired');
       expect(action.domainPayload).toEqual({ type: 'volleyball', rotation: 6, server: 'teamA' });
     });
+
+    it('preserves volleyball start, target, and system context', () => {
+      const input = {
+        id: 'action-path',
+        domainPayload: {
+          type: 'volleyball',
+          rallyPhase: 'attack',
+          startArea: { areaCode: 'LN', courtSide: 'teamA', pointX: 0.25, pointY: 0.5 },
+          targetArea: { areaCode: 'RB', courtSide: 'teamB', pointX: 0.75, pointY: 0.5 },
+          systemContext: 'in_system',
+        },
+      };
+
+      const { action, status, warnings } = decodeAction(input);
+
+      expect(status).toBe('accepted');
+      expect(warnings).toEqual([]);
+      expect(action.domainPayload).toEqual(input.domainPayload);
+    });
+
+    it('repairs invalid volleyball path fields without rejecting the action', () => {
+      const { action, status, warnings } = decodeAction({
+        id: 'action-invalid-path',
+        domainPayload: {
+          type: 'volleyball',
+          startArea: 'invalid',
+          targetArea: { areaCode: 'RB', pointX: 2, pointY: -1 },
+          systemContext: 'broken',
+        },
+      });
+
+      expect(status).toBe('repaired');
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(action.domainPayload).toEqual({
+        type: 'volleyball',
+        targetArea: { areaCode: 'RB', pointX: 1, pointY: 0 },
+      });
+    });
   });
 
   describe('decodeEventRow', () => {

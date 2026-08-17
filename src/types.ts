@@ -148,6 +148,9 @@ export type VolleyballDomainPayload = {
   rallyPhase?: 'serve' | 'reception' | 'set' | 'attack' | 'block' | 'dig';
   attackGrade?: string;
   receptionGrade?: string;
+  startArea?: AreaSelectionPayload;
+  targetArea?: AreaSelectionPayload;
+  systemContext?: 'in_system' | 'out_of_system';
 };
 
 export type FootballDomainPayload = {

@@ -12,8 +12,12 @@ const emptyQuery: EventQuery = {
   team: '',
   skill: '',
   result: '',
+  resultDetail: '',
   foul: '',
   area: '',
+  startArea: '',
+  targetArea: '',
+  systemContext: '',
   bookmark: 'all',
   player: '',
   sortBy: 'videoTime',
@@ -32,6 +36,7 @@ describe('eventQuery', () => {
         teamCode: 'THA',
         skillCode: 'SV',
         resultCode: 'Yes',
+        resultDetailCode: 'ACE',
         areaCode: 'LN',
         foulCode: 'NET_TOUCH',
         playerNumber: '7',
@@ -72,6 +77,7 @@ describe('eventQuery', () => {
     [{ team: 'THA' }, ['event-a', 'event-c']],
     [{ skill: 'SPK' }, ['event-b']],
     [{ result: 'Yes' }, ['event-a']],
+    [{ resultDetail: 'ACE' }, ['event-a']],
     [{ foul: 'NET_TOUCH' }, ['event-a']],
     [{ area: 'side_right' }, ['event-b']],
     [{ bookmark: 'bookmarked' }, ['event-a']],
@@ -107,10 +113,64 @@ describe('eventQuery', () => {
       teams: ['JPN', 'THA'],
       skills: ['REC', 'SPK', 'SV'],
       results: ['Out', 'Pass', 'Yes'],
+      resultDetails: ['ACE', '__ungraded__'],
       fouls: ['NET_TOUCH'],
       areas: ['CB', 'LN', 'side_right'],
+      startAreas: [],
+      targetAreas: [],
+      systemContexts: [],
       players: ['#7 Mali', '#12 Aiko', 'Mali'],
     });
+  });
+
+  it('filters volleyball paths and derives path options', () => {
+    const detailed = createMockEvent({
+      id: 'path-event',
+      actions: [{
+        skillCode: 'SPK', areaCode: 'LN',
+        domainPayload: {
+          type: 'volleyball',
+          startArea: { areaCode: 'LN' },
+          targetArea: { areaCode: 'RB' },
+          systemContext: 'out_of_system',
+        },
+      }],
+    });
+    const other = createMockEvent({ id: 'other', actions: [{ skillCode: 'SPK', areaCode: 'CN' }] });
+
+    expect(applyEventQuery([detailed, other], {
+      ...emptyQuery,
+      startArea: 'LN', targetArea: 'RB', systemContext: 'out_of_system',
+    })).toEqual([detailed]);
+    expect(getEventQueryOptions([detailed])).toMatchObject({
+      startAreas: ['LN'], targetAreas: ['RB'], systemContexts: ['out_of_system'],
+    });
+  });
+
+  it('keeps distinct out-of-court zones in Start-to-Target filters', () => {
+    const detailedOut = createMockEvent({
+      id: 'out-path',
+      actions: [{
+        skillCode: 'SV', areaCode: 'SIDE_OUT', outZone: 'side_left_near',
+        domainPayload: {
+          type: 'volleyball',
+          startArea: { areaCode: 'SIDE_OUT', outZone: 'side_left_near' },
+          targetArea: { areaCode: 'LONG_OUT', outZone: 'back_right' },
+        },
+      }],
+    });
+    expect(applyEventQuery([detailedOut], { ...emptyQuery, startArea: 'side_left_near', targetArea: 'back_right' })).toEqual([detailedOut]);
+    expect(getEventQueryOptions([detailedOut])).toMatchObject({
+      startAreas: ['side_left_near', 'SIDE_OUT'],
+      targetAreas: ['back_right', 'LONG_OUT'],
+    });
+  });
+
+  it('filters volleyball actions without a detailed grade for data-coverage drilldown', () => {
+    expect(applyEventQuery(events, { ...emptyQuery, resultDetail: '__ungraded__' }).map(event => event.id)).toEqual([
+      'event-c',
+      'event-b',
+    ]);
   });
 
   it('offers both the area code and detailed out-zone for map filters', () => {

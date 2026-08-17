@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { EventRow, Action } from '../types';
 import { X, Plus, Trash2, Check, AlertCircle } from 'lucide-react';
+import { getVolleyballSkillCapabilities, resetVolleyballActionForSkill } from '../volleyball/volleyballActionContext';
 
 interface EditEventModalProps {
   isOpen: boolean;
@@ -145,6 +146,10 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
         }
         target.descriptors = descriptors;
       } else {
+        if (field === 'skillCode' && sportTemplate.id === 'volleyball' && value) {
+          next[index] = resetVolleyballActionForSkill(target, value);
+          return next;
+        }
         (target as Record<string, unknown>)[field] = value === '' ? undefined : value;
         
         // Reset descriptors if skill code changes
@@ -154,6 +159,33 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
         }
       }
 
+      next[index] = target;
+      return next;
+    });
+  };
+
+  const updateVolleyballDomainField = (
+    index: number,
+    field: 'startArea' | 'targetArea' | 'systemContext',
+    value: string,
+  ) => {
+    setActions(previous => {
+      const next = [...previous];
+      const target = { ...next[index] };
+      const capabilities = getVolleyballSkillCapabilities(target.skillCode);
+      const payload = target.domainPayload?.type === 'volleyball'
+        ? { ...target.domainPayload }
+        : { type: 'volleyball' as const, ...(capabilities ? { rallyPhase: capabilities.phase } : {}) };
+      if (field === 'systemContext') {
+        if (value === 'in_system' || value === 'out_of_system') payload.systemContext = value;
+        else delete payload.systemContext;
+      } else if (value) {
+        payload[field] = { areaCode: value };
+        if (field === 'startArea') target.areaCode = value;
+      } else {
+        delete payload[field];
+      }
+      target.domainPayload = payload;
       next[index] = target;
       return next;
     });
@@ -187,6 +219,9 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
   const activeSkillDescriptors = currentEditingAction?.skillCode 
     ? sportTemplate.descriptors?.[currentEditingAction.skillCode] || [] 
     : [];
+  const activeVolleyballCapabilities = sportTemplate.id === 'volleyball'
+    ? getVolleyballSkillCapabilities(currentEditingAction?.skillCode)
+    : undefined;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -488,6 +523,33 @@ export default function EditEventModal({ isOpen, onClose, event }: EditEventModa
                       </select>
                     </div>
                   </div>
+
+                  {activeVolleyballCapabilities && (
+                    <div className="grid grid-cols-1 gap-3 border-y border-gray-200 py-3 dark:border-gray-700 sm:grid-cols-3">
+                      <div>
+                        <label className="mb-1 block text-[11px] font-bold text-gray-500">{isThai ? 'จุดเริ่ม' : 'Start area'}</label>
+                        <select value={currentEditingAction.domainPayload?.type === 'volleyball' ? currentEditingAction.domainPayload.startArea?.areaCode || '' : ''} onChange={event => updateVolleyballDomainField(selectedActionIndex, 'startArea', event.target.value)} className="w-full border border-gray-200 bg-white px-2 py-1.5 text-xs dark:border-gray-700 dark:bg-gray-900">
+                          <option value="">—</option>
+                          {areas.map(area => <option key={area.code} value={area.code}>{area.code}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[11px] font-bold text-gray-500">{isThai ? 'จุดเป้าหมาย' : 'Target area'}</label>
+                        <select disabled={!activeVolleyballCapabilities.supportsTarget} value={currentEditingAction.domainPayload?.type === 'volleyball' ? currentEditingAction.domainPayload.targetArea?.areaCode || '' : ''} onChange={event => updateVolleyballDomainField(selectedActionIndex, 'targetArea', event.target.value)} className="w-full border border-gray-200 bg-white px-2 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700 dark:bg-gray-900">
+                          <option value="">—</option>
+                          {areas.map(area => <option key={area.code} value={area.code}>{area.code}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[11px] font-bold text-gray-500">System</label>
+                        <select disabled={!activeVolleyballCapabilities.supportsSystem} value={currentEditingAction.domainPayload?.type === 'volleyball' ? currentEditingAction.domainPayload.systemContext || '' : ''} onChange={event => updateVolleyballDomainField(selectedActionIndex, 'systemContext', event.target.value)} className="w-full border border-gray-200 bg-white px-2 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700 dark:bg-gray-900">
+                          <option value="">—</option>
+                          <option value="in_system">In-System</option>
+                          <option value="out_of_system">Out-of-System</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Descriptors */}
                   {activeSkillDescriptors.length > 0 && (

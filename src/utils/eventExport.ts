@@ -12,6 +12,7 @@ const CSV_HEADERS = [
   'Note', 'Created At', 'foulCode', 'foulRole', 'foulSeverity', 'foulLabel',
   'areaCode', 'areaLabel', 'outZone', 'areaMode', 'areaResolution',
   'courtSide', 'gridX', 'gridY', 'pointX', 'pointY', 'courtViewMode',
+  'startAreaCode', 'targetAreaCode', 'systemContext',
 ];
 
 const joinActionValues = (event: EventRow, getter: (action: EventRow['actions'][number]) => unknown): string =>
@@ -68,6 +69,9 @@ export function createEventsCsv(events: EventRow[], uiLanguage: 'th' | 'en' = 'e
       joinActionValues(event, action => action.pointX),
       joinActionValues(event, action => action.pointY),
       joinActionValues(event, action => action.courtViewMode),
+      joinActionValues(event, action => action.domainPayload?.type === 'volleyball' ? action.domainPayload.startArea?.areaCode : undefined),
+      joinActionValues(event, action => action.domainPayload?.type === 'volleyball' ? action.domainPayload.targetArea?.areaCode : undefined),
+      joinActionValues(event, action => action.domainPayload?.type === 'volleyball' ? action.domainPayload.systemContext : undefined),
     ];
   });
 

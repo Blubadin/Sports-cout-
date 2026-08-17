@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useRef } from 'react';
 import { useScoutContext } from '../context/ScoutContext';
-import { classNames } from '../utils';
-import { Undo2, Save, Plus, Trash2, Settings2, ChevronDown, ChevronUp } from 'lucide-react';
+import { classNames, formatPreciseTime } from '../utils';
+import { Undo2, Save, Plus, Trash2, Settings2, ChevronDown, ChevronUp, ArrowRight, RotateCcw } from 'lucide-react';
 import { t } from '../i18n';
 
 import CourtAreaSelector from './CourtAreaSelector';
@@ -13,6 +13,8 @@ import {
   resolveKeyboardCoachCommand,
   type CoachCommand,
 } from '../utils/coachCommands';
+import { getVolleyballGradeOptions } from '../volleyball/volleyballSkillGrades';
+import { getVolleyballSkillCapabilities } from '../volleyball/volleyballActionContext';
 
 const sports = [
   { id: 'volleyball', name: 'Volleyball', thaiName: 'วอลเลย์บอล' },
@@ -28,7 +30,8 @@ export default function InputPanel() {
     currentActions, events,
     addAction, saveEvent, undoLastAction, clearCurrentEvent,
     settings, setSettings, isActionComplete, resetCurrentAction, getThaiMeaning, getExtendedActionText, sportTemplate, changeSportType,
-    getMissingActionMessage, currentInputHistory, setCurrentInputHistory, showToast, updateActionField, commitResult, selectArea, selectFoul, clearFoul, redoEventAction
+    getMissingActionMessage, currentInputHistory, setCurrentInputHistory, showToast, updateActionField, commitResult, selectArea, selectFoul, clearFoul, redoEventAction,
+    matchInfo, videoTime, volleyballPathStage, setVolleyballPathStage, skipVolleyballTarget, setVolleyballSystemContext
   } = useScoutContext();
 
   const executeCoachCommand = useCallback((command: CoachCommand) => {
@@ -239,6 +242,11 @@ export default function InputPanel() {
 
   // Descriptors logic
   const currentSkillGroups = currentAction.skillCode && sportTemplate.descriptors ? (sportTemplate.descriptors[currentAction.skillCode] || sportTemplate.descriptors["ALL"] || []) : [];
+  const volleyballCapabilities = sportTemplate.id === 'volleyball'
+    ? getVolleyballSkillCapabilities(currentAction.skillCode)
+    : undefined;
+  const showVolleyballPath = settings.advancedDetailMode && Boolean(volleyballCapabilities);
+  const volleyballPayload = currentAction.domainPayload?.type === 'volleyball' ? currentAction.domainPayload : undefined;
   
   return (
     <>
@@ -390,7 +398,7 @@ export default function InputPanel() {
           {sportTemplate.teamsEnabled && (
             <section className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
               <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex justify-between items-center">
-                <span>1. {t('input.team', settings.uiLanguage)}</span>
+                <span>1. WHO · {t('input.team', settings.uiLanguage)}</span>
                 {sportTemplate.playersEnabled && (
                   <span className="text-xs bg-gray-100 dark:bg-gray-900/50 text-gray-500 px-2 py-0.5 rounded-lg font-bold">
                     {settings.uiLanguage === 'th' ? 'ตัวเลือก: ผู้เล่น' : 'Optional: Player'}
@@ -442,7 +450,7 @@ export default function InputPanel() {
           <section className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 select-none">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                2. {t('input.skill', settings.uiLanguage)}
+                2. WHAT · {t('input.skill', settings.uiLanguage)}
               </h3>
               <button 
                 onClick={() => {
@@ -528,15 +536,89 @@ export default function InputPanel() {
           {/* AREA */}
           <section className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 select-none relative">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-              3. {t('input.area', settings.uiLanguage)}
+              3. WHERE · {t('input.area', settings.uiLanguage)}
             </h3>
+            {showVolleyballPath && (
+              <div className="mb-3 border-y border-gray-200 py-2 dark:border-gray-700">
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVolleyballPathStage('start')}
+                    className={classNames(
+                      'min-h-11 border px-3 text-left transition-colors',
+                      volleyballPathStage === 'start'
+                        ? 'border-sky-500 bg-sky-50 text-sky-800 dark:bg-sky-950/30 dark:text-sky-200'
+                        : 'border-gray-200 bg-white text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300',
+                    )}
+                  >
+                    <span className="block text-[10px] font-black uppercase tracking-wider">1 · {settings.uiLanguage === 'th' ? 'จุดเริ่ม' : 'Start'}</span>
+                    <strong className="block truncate text-sm">{volleyballPayload?.startArea?.outZone || volleyballPayload?.startArea?.areaCode || currentAction.outZone || currentAction.areaCode || '—'}</strong>
+                  </button>
+                  <ArrowRight size={18} className="text-gray-400" aria-hidden="true" />
+                  <button
+                    type="button"
+                    disabled={!volleyballCapabilities?.supportsTarget}
+                    onClick={() => setVolleyballPathStage('target')}
+                    className={classNames(
+                      'min-h-11 border px-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+                      volleyballPathStage === 'target'
+                        ? 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200'
+                        : 'border-gray-200 bg-white text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300',
+                    )}
+                  >
+                    <span className="block text-[10px] font-black uppercase tracking-wider">2 · {settings.uiLanguage === 'th' ? 'จุดเป้าหมาย' : 'Target'}</span>
+                    <strong className="block truncate text-sm">{volleyballCapabilities?.supportsTarget ? (volleyballPayload?.targetArea?.outZone || volleyballPayload?.targetArea?.areaCode || '—') : 'N/A'}</strong>
+                  </button>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-gray-500 dark:text-gray-400" role="status">
+                    {volleyballPathStage === 'start'
+                      ? (settings.uiLanguage === 'th' ? 'เลือกจุดเริ่มบนสนาม' : 'Select the start area on court')
+                      : volleyballPathStage === 'target'
+                        ? (settings.uiLanguage === 'th' ? 'เลือกจุดเป้าหมาย หรือข้าม' : 'Select the target area or skip')
+                        : (settings.uiLanguage === 'th' ? 'เส้นทางพร้อมแล้ว' : 'Path ready')}
+                  </span>
+                  <div className="flex gap-2">
+                    {volleyballPathStage === 'target' && (
+                      <button type="button" onClick={skipVolleyballTarget} className="border border-gray-300 px-2 py-1 font-bold text-gray-600 hover:border-amber-400 dark:border-gray-600 dark:text-gray-300">
+                        {settings.uiLanguage === 'th' ? 'ข้ามเป้าหมาย' : 'Skip target'}
+                      </button>
+                    )}
+                    {volleyballPathStage === 'complete' && (
+                      <button type="button" onClick={() => setVolleyballPathStage('start')} className="inline-flex items-center gap-1 border border-gray-300 px-2 py-1 font-bold text-gray-600 hover:border-sky-400 dark:border-gray-600 dark:text-gray-300">
+                        <RotateCcw size={12} /> {settings.uiLanguage === 'th' ? 'เลือกใหม่' : 'Restart'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {volleyballCapabilities?.supportsSystem && (
+                  <div className="mt-2 grid grid-cols-2 gap-2 border-t border-gray-200 pt-2 dark:border-gray-700">
+                    {(['in_system', 'out_of_system'] as const).map(context => (
+                      <button
+                        key={context}
+                        type="button"
+                        onClick={() => setVolleyballSystemContext(context)}
+                        className={classNames(
+                          'min-h-9 border px-2 text-xs font-bold transition-colors',
+                          volleyballPayload?.systemContext === context
+                            ? 'border-violet-500 bg-violet-600 text-white'
+                            : 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300',
+                        )}
+                      >
+                        {context === 'in_system' ? 'In-System' : 'Out-of-System'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <CourtAreaSelector />
           </section>
 
           {/* RESULT */}
           <section className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 select-none relative">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-              4. {t('input.result', settings.uiLanguage)}
+              4. HOW · {t('input.result', settings.uiLanguage)}
             </h3>
             <div className="grid grid-cols-3 gap-2.5">
               {results.map((r, i) => {
@@ -578,12 +660,48 @@ export default function InputPanel() {
                 );
               })}
             </div>
+            {settings.advancedDetailMode && sportTemplate.id === 'volleyball' && (
+              <div className="mt-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+                {currentAction.skillCode ? (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {getVolleyballGradeOptions(currentAction.skillCode).map(option => (
+                      <button
+                        key={option.code}
+                        type="button"
+                        onClick={() => commitResult(option.resultCode, false, option.code)}
+                        className={classNames(
+                          'rounded-lg border px-2 py-2 text-xs font-bold transition-colors',
+                          currentAction.resultDetailCode === option.code
+                            ? 'border-sky-500 bg-sky-600 text-white'
+                            : 'border-gray-200 bg-gray-50 text-gray-700 hover:border-sky-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200',
+                        )}
+                      >
+                        <span className="block text-sm">{option.code}</span>
+                        <span className="block opacity-75">{settings.uiLanguage === 'th' ? option.thaiLabel : option.label} · {option.grade}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-center text-xs font-semibold text-amber-600 dark:text-amber-400">{settings.uiLanguage === 'th' ? 'เลือกทักษะก่อนเลือกเกรดละเอียด' : 'Select a skill before choosing a detailed grade'}</p>
+                )}
+              </div>
+            )}
+          </section>
+          <section className="border-y border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/50">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-xs font-black uppercase tracking-wider text-gray-500">5. WHEN · {settings.uiLanguage === 'th' ? 'บริบทอัตโนมัติ' : 'Automatic context'}</h3>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-gray-600 dark:text-gray-300">
+                <span>{settings.uiLanguage === 'th' ? 'เซต' : 'Set'} {matchInfo.setOrGame || '—'}</span>
+                <span>{settings.uiLanguage === 'th' ? 'แต้ม' : 'Point'} {matchInfo.currentPoint}</span>
+                <code className="font-mono text-sky-700 dark:text-sky-300">{formatPreciseTime(videoTime)}</code>
+              </div>
+            </div>
           </section>
           {/* FOUL */}
           {sportTemplate.fouls && sportTemplate.fouls.length > 0 && (
             <section className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-amber-200 dark:border-amber-900/30 select-none relative mt-3">
               <h3 className="text-xs font-bold text-amber-600 dark:text-amber-500 uppercase tracking-wider mb-2 flex items-center justify-between">
-                <span>5. {settings.uiLanguage === 'th' ? 'ฟาวล์ / ผิดกติกา' : 'Foul / Violation'} (Optional)</span>
+                <span>6. {settings.uiLanguage === 'th' ? 'ฟาวล์ / ผิดกติกา' : 'Foul / Violation'} (Optional)</span>
                 {currentAction.foulCode && (
                   <button 
                     onClick={() => {

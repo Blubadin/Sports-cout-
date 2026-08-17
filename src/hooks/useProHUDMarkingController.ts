@@ -10,6 +10,7 @@ import {
   resolveKeyboardCoachCommand,
   type CoachCommand,
 } from "../utils/coachCommands";
+import { resolveVolleyballGrade } from "../volleyball/volleyballSkillGrades";
 
 export type MarkingMenuType = "none" | "team" | "skill" | "area" | "result" | "foul";
 
@@ -28,7 +29,7 @@ interface UseProHUDMarkingControllerProps {
   selectedSkill: string | null;
   updateActionField: (field: string, value: any, extraId?: any) => void;
   commitSkillSelection: (payload: { skillCode: string; descriptorGroupId?: string; descriptorCode?: string }) => void;
-  commitResult: (resultCode: string, fastMode?: boolean) => void;
+  commitResult: (resultCode: string, fastMode?: boolean, resultDetailCode?: string) => void;
   onCloseHUD: () => void;
   layout: any;
   selectArea?: (payload: AreaSelectionPayload) => void;
@@ -70,6 +71,8 @@ export function useProHUDMarkingController({
 
   const [hoveredResult, setHoveredResultState] = useState<string | null>(null);
   const hoveredResultRef = useRef<string | null>(null);
+  const [hoveredResultDetail, setHoveredResultDetailState] = useState<string | null>(null);
+  const hoveredResultDetailRef = useRef<string | null>(null);
 
   const [hoveredTeam, setHoveredTeamState] = useState<string | null>(null);
   const hoveredTeamRef = useRef<string | null>(null);
@@ -111,6 +114,10 @@ export function useProHUDMarkingController({
     setHoveredResultState(val);
     hoveredResultRef.current = val;
   }, []);
+  const setHoveredResultDetail = useCallback((val: string | null) => {
+    setHoveredResultDetailState(val);
+    hoveredResultDetailRef.current = val;
+  }, []);
 
   const setHoveredTeam = useCallback((val: string | null) => {
     setHoveredTeamState(val);
@@ -134,6 +141,7 @@ export function useProHUDMarkingController({
     setHoveredDescriptor(null);
     setHoveredArea(null);
     setHoveredResult(null);
+    setHoveredResultDetail(null);
     setHoveredTeam(null);
     setHoveredFoul(null);
   }, [
@@ -141,6 +149,7 @@ export function useProHUDMarkingController({
     setHoveredDescriptor,
     setHoveredArea,
     setHoveredResult,
+    setHoveredResultDetail,
     setHoveredTeam,
     setHoveredFoul,
   ]);
@@ -352,8 +361,12 @@ export function useProHUDMarkingController({
           }
         }
       } else if (menu === "result") {
+        const hDetail = hoveredResultDetailRef.current;
         const hResult = hoveredResultRef.current;
-        if (hResult) {
+        const detail = resolveVolleyballGrade(selectedSkill ?? undefined, hDetail ?? undefined);
+        if (detail) {
+          commitResult(detail.resultCode, settings.fastMode, detail.code);
+        } else if (hResult) {
           commitResult(hResult, settings.fastMode);
         }
       } else if (menu === "team") {
@@ -375,6 +388,7 @@ export function useProHUDMarkingController({
       selectArea,
       selectFoul,
       sportTemplate?.fouls,
+      selectedSkill,
     ],
   );
 
@@ -499,12 +513,14 @@ export function useProHUDMarkingController({
     hoveredDescriptor,
     hoveredArea,
     hoveredResult,
+    hoveredResultDetail,
     hoveredTeam,
     hoveredFoul,
     setHoveredSkill,
     setHoveredDescriptor,
     setHoveredArea,
     setHoveredResult,
+    setHoveredResultDetail,
     setHoveredTeam,
     setHoveredFoul,
     previewSkill,

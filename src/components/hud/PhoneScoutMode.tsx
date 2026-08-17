@@ -26,6 +26,7 @@ import PhoneTeamSheet from "./PhoneTeamSheet";
 import PhoneFoulSheet from "./PhoneFoulSheet";
 import PhoneVideoControls from "./PhoneVideoControls";
 import PhoneLandscapeGamepadMode from "./PhoneLandscapeGamepadMode";
+import { getVolleyballGradeOptions } from "../../volleyball/volleyballSkillGrades";
 
 interface PhoneScoutModeProps {
   onClose: () => void;
@@ -206,6 +207,11 @@ export default function PhoneScoutMode({
             </button>
           );
         })}
+        {settings.advancedDetailMode && sportTemplate.id === 'volleyball' && getVolleyballGradeOptions(currentAction.skillCode).map(option => (
+          <button key={option.code} onClick={() => commitResult(option.resultCode, false, option.code)} className="min-h-8 w-14 rounded-lg border border-amber-400/40 bg-amber-950/80 px-1 text-[9px] font-black text-amber-100 active:scale-95">
+            {option.code} · {option.grade}
+          </button>
+        ))}
       </div>
 
       {/* --- BOTTOM SECTION --- */}

@@ -145,32 +145,6 @@ export function WorkstationCommandBar({
   );
 }
 
-interface WorkstationToolRailProps {
-  language: Language;
-  activePreset: WorkbenchPresetId;
-  onPresetChange: (preset: WorkbenchPresetId) => void;
-}
-
-export function WorkstationToolRail({ language, activePreset, onPresetChange }: WorkstationToolRailProps) {
-  return (
-    <aside className="workstation-toolrail" aria-label={language === 'th' ? 'เครื่องมือหลัก' : 'Primary tools'}>
-      {PRESETS.map(({ id, icon: Icon, label }) => (
-        <button
-          key={id}
-          type="button"
-          className={activePreset === id ? 'is-active' : ''}
-          onClick={() => onPresetChange(id)}
-          aria-label={label[language]}
-          title={label[language]}
-        >
-          <Icon size={19} />
-          <span>{label[language]}</span>
-        </button>
-      ))}
-    </aside>
-  );
-}
-
 interface WorkstationStatusBarProps {
   language: Language;
   projectTitle: string;
