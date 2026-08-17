@@ -43,7 +43,10 @@ const PRO_AREA_OUT_ZONE_LAYOUTS: Record<SportType, ProAreaOutZoneLayout> = {
       item('volleyball', 'side-right-far', 'side_right_far', { shortLabel: { th: 'ขวาไกล', en: 'R Far' } }),
       item('volleyball', 'side-right-near', 'side_right_near', { shortLabel: { th: 'ขวาใกล้', en: 'R Near' } }),
     ],
-    bottom: [item('volleyball', 'own-back-out', 'own_back_out')],
+    bottom: [
+      item('volleyball', 'back-left', 'back_left'),
+      item('volleyball', 'back-right', 'back_right'),
+    ],
   },
   football: {
     sportType: 'football',

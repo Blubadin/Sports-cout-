@@ -20,7 +20,7 @@ describe('Pro HUD area layout', () => {
   );
 
   it.each([
-    ['volleyball', ['opp_back_left', 'opp_back_right', 'side_left_far', 'side_left_near', 'side_right_far', 'side_right_near', 'own_back_out']],
+    ['volleyball', ['opp_back_left', 'opp_back_right', 'side_left_far', 'side_left_near', 'side_right_far', 'side_right_near', 'back_left', 'back_right']],
     ['football', ['corner_left', 'opp_endline', 'corner_right', 'left_touchline_att', 'left_touchline_mid', 'left_touchline_def', 'right_touchline_att', 'right_touchline_mid', 'right_touchline_def', 'own_endline', 'goal_kick', 'own_endline']],
     ['badminton', ['opp_back_out', 'side_left_far', 'side_left_near', 'side_right_far', 'side_right_near', 'back_left', 'back_right']],
     ['basketball', ['baseline_left', 'baseline_right', 'left_sideline', 'right_sideline', 'endline']],
@@ -30,6 +30,12 @@ describe('Pro HUD area layout', () => {
 
     expect(items.map(item => item.outZone)).toEqual(expectedZones);
     expect(items.every(item => item.id.startsWith(`${sportType}:`))).toBe(true);
+  });
+
+  it('splits the volleyball near baseline into left and right out zones', () => {
+    const layout = getProAreaOutZoneLayout('volleyball');
+
+    expect(layout.bottom.map(item => item.outZone)).toEqual(['back_left', 'back_right']);
   });
 
   it('uses globally unique UI ids across all sport layouts', () => {
