@@ -77,7 +77,6 @@ export default function InputPanel() {
     } else {
       updateActionField(category as keyof Action, value);
     }
-    (document.activeElement as HTMLElement)?.blur?.();
   }, [executeCoachCommand, teams, updateActionField]);
 
   const handleSelectArea = useCallback((code: string, courtSide?: 'teamA' | 'teamB' | 'neutral') => {
@@ -90,7 +89,6 @@ export default function InputPanel() {
 
   const handleDescriptorSelect = useCallback((groupId: string, value: string) => {
     updateActionField('descriptors', value, groupId);
-    (document.activeElement as HTMLElement)?.blur?.();
   }, [updateActionField]);
 
   const handleSelectTeam = useCallback((val: string) => handleSelect('teamCode', val), [handleSelect]);
@@ -106,9 +104,6 @@ export default function InputPanel() {
     onSelectDescriptor: handleDescriptorSelect,
   });
 
-
-
-  // Keyboard Shortcuts (Only reliable for top items, for full sport support, clicking is safer)
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.defaultPrevented || e.repeat) return;
     const activeEl = document.activeElement;
@@ -151,7 +146,6 @@ export default function InputPanel() {
       else if (currentAction.teamCode === teams[1]?.code) inferredSide = 'teamB';
       handleSelectArea(foundArea.code, inferredSide);
     } else {
-      // Fallback to array order for sports that don't have shortcutKey yet
       const areaKeys = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'];
       const aIndex = areaKeys.indexOf(key);
       if (aIndex !== -1 && areas[aIndex] && !areas[aIndex].shortcutKey) {
@@ -166,7 +160,7 @@ export default function InputPanel() {
     if (key === 'x') handleResultSelect('Out');
     if (key === 'c') handleResultSelect('Pass');
 
-  }, [skills, areas, currentAction, executeCoachCommand, handleSelect, handleSelectArea, handleResultSelect, isScreenMarkingActive]);
+  }, [skills, areas, currentAction, executeCoachCommand, handleSelect, handleSelectArea, handleResultSelect, isScreenMarkingActive, teams]);
 
   const handleKeyDownRef = useRef(handleKeyDown);
   useEffect(() => {

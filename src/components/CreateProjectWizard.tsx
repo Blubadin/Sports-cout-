@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   X, Trophy, Flag, User, Layout, Settings2, Video, Languages, 
-  Palette, Laptop, Info, ChevronRight, HelpCircle
+  Palette, Laptop, Info, CheckCircle2, ShieldCheck, Sparkles, AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useScoutContext } from '../context/ScoutContext';
@@ -30,32 +30,28 @@ const SPORT_OPTIONS: Option[] = [
   { value: 'basketball', label: 'Basketball (บาสเกตบอล 3x3)' }
 ];
 
-type WizardTab = 'general' | 'court' | 'teams' | 'workspace';
-
 export default function CreateProjectWizard({ isOpen, onClose, onCreate }: CreateProjectWizardProps) {
   const { settings } = useScoutContext();
   const isThai = settings.uiLanguage === 'th';
 
-  const [activeTab, setActiveTab] = useState<WizardTab>('general');
-
-  // General tab states
+  // Section 1: General & Match
   const [projectTitle, setProjectTitle] = useState('');
   const [sportType, setSportType] = useState<SportType>('volleyball');
   const [matchName, setMatchName] = useState('');
   const [scouterName, setScouterName] = useState('');
 
-  // Court & Format tab states
+  // Section 2: Teams
+  const [team1, setTeam1] = useState<Team>({ id: 't1', code: 'THA', name: 'Thailand', thaiName: 'ไทย', teamType: 'country', icon: '🇹🇭' });
+  const [team2, setTeam2] = useState<Team>({ id: 't2', code: 'JPN', name: 'Japan', thaiName: 'ญี่ปุ่น', teamType: 'country', icon: '🇯🇵' });
+
+  // Section 3: Court & Format
   const [courtConfig, setCourtConfig] = useState('standard');
   const [gameFormat, setGameFormat] = useState('standard');
   const [areaPrecision, setAreaPrecision] = useState<'normal' | 'detailed' | 'point'>('normal');
   const [courtViewMode, setCourtViewMode] = useState<'auto' | 'full' | 'half'>('auto');
   const [outOfBounds, setOutOfBounds] = useState<'on' | 'off'>('off');
 
-  // Teams tab states
-  const [team1, setTeam1] = useState<Team>({ id: 't1', code: 'T1', name: 'Team 1', thaiName: '', teamType: 'country', icon: '' });
-  const [team2, setTeam2] = useState<Team>({ id: 't2', code: 'T2', name: 'Team 2', thaiName: '', teamType: 'country', icon: '' });
-
-  // Workspace tab states
+  // Section 4: Video & Workspace
   const [videoSource, setVideoSource] = useState<'youtube' | 'local' | 'none'>('none');
   const [youtubeUrlInput, setYoutubeUrlInput] = useState('');
   const [localFileTitle, setLocalFileTitle] = useState('');
@@ -65,7 +61,7 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
   const courtOptions = React.useMemo(() => {
     switch (sportType) {
       case 'volleyball': return [
-        { value: 'standard', label: isThai ? 'มาตรฐาน 3x3 (9 โซน)' : 'Standard 3x3 (9 Zones)' }, 
+        { value: 'standard', label: isThai ? 'มาตรฐาน 3x3 (9 โซน FIVB)' : 'Standard 3x3 (9 Zones FIVB)' }, 
         { value: 'basic', label: isThai ? 'พื้นฐาน 2x2 (4 โซน)' : 'Basic 2x2 (4 Zones)' }
       ];
       case 'football': return [
@@ -87,8 +83,8 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
   const formatOptions = React.useMemo(() => {
     switch (sportType) {
       case 'volleyball': return [
-        { value: 'standard', label: isThai ? '3 ใน 5 เซ็ต' : 'Best of 5 Sets' }, 
-        { value: 'short', label: isThai ? '2 ใน 3 เซ็ต' : 'Best of 3 Sets' }
+        { value: 'standard', label: isThai ? '3 ใน 5 เซ็ต (Best of 5)' : 'Best of 5 Sets' }, 
+        { value: 'short', label: isThai ? '2 ใน 3 เซ็ต (Best of 3)' : 'Best of 3 Sets' }
       ];
       case 'football': return [
         { value: 'standard', label: isThai ? '2 ครึ่ง (45 นาที)' : '2 Halves (45 mins)' }, 
@@ -128,11 +124,22 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
     else setTeam2(newTeam);
   };
 
+  const handleClubChange = (isTeam1: boolean, field: string, val: string) => {
+    const current = isTeam1 ? team1 : team2;
+    const updated = {
+      ...current,
+      [field]: field === 'code' ? val.toUpperCase() : val,
+      teamType: 'club' as const,
+      icon: ''
+    };
+    if (isTeam1) setTeam1(updated);
+    else setTeam2(updated);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalTitle = projectTitle.trim() || `New Match ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const finalTitle = projectTitle.trim() || `${team1.code || 'T1'} vs ${team2.code || 'T2'} (${new Date().toLocaleDateString()})`;
     
-    // Construct settings snapshot
     const settingsSnapshot: Partial<AppSettings> = {
       areaPrecisionMode: areaPrecision,
       areaCourtViewMode: courtViewMode,
@@ -145,7 +152,6 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
       darkMode: selectedTheme === 'dark' || selectedTheme === 'monochrome'
     };
 
-    // Construct videoMeta
     let videoMeta: any = {
       sourceType: videoSource,
       youtubeUrl: videoSource === 'youtube' ? youtubeUrlInput : '',
@@ -160,7 +166,6 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
       }
     }
 
-    // Trigger Creation
     onCreate(
       finalTitle, 
       sportType, 
@@ -175,52 +180,38 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
       settingsSnapshot,
       videoMeta
     );
-    
-    // Reset states
-    setProjectTitle('');
-    setMatchName('');
-    setScouterName('');
-    setCourtConfig('standard');
-    setGameFormat('standard');
-    setAreaPrecision('normal');
-    setCourtViewMode('auto');
-    setOutOfBounds('off');
-    setVideoSource('none');
-    setYoutubeUrlInput('');
-    setLocalFileTitle('');
-    setActiveTab('general');
   };
 
   return createPortal(
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/70 backdrop-blur-md"
+            className="absolute inset-0 bg-black/75 backdrop-blur-md"
           />
           <motion.div
             initial={{ scale: 0.96, opacity: 0, y: 10 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.96, opacity: 0, y: 10 }}
             transition={{ type: "spring", duration: 0.3, bounce: 0.05 }}
-            className="relative bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-4xl border border-gray-150 dark:border-gray-700 overflow-hidden z-10 flex flex-col h-[85vh] max-h-[700px]"
+            className="relative bg-white dark:bg-gray-850 rounded-3xl shadow-2xl w-full max-w-5xl border border-gray-200 dark:border-gray-700 overflow-hidden z-10 flex flex-col h-[90vh] max-h-[850px]"
           >
-            {/* Header (Adobe Styled) */}
-            <div className="flex justify-between items-center px-6 py-4.5 border-b border-gray-100 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/40 shrink-0">
+            {/* Top Modal Header */}
+            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 dark:border-gray-700/80 bg-gray-50/80 dark:bg-gray-900/60 shrink-0">
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 bg-sky-500 text-white rounded-xl flex items-center justify-center shadow-lg shadow-sky-500/10">
-                  <Trophy size={20} className="animate-pulse" />
+                <div className="w-10 h-10 bg-sky-500 text-white rounded-xl flex items-center justify-center shadow-lg shadow-sky-500/20">
+                  <Trophy size={20} />
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-gray-900 dark:text-gray-50 tracking-tight">
-                    {isThai ? 'ตัวช่วยสร้างโครงการบันทึกสถิติ' : 'New Scout Project Wizard'}
+                    {isThai ? 'สร้างโครงการบันทึกสถิติใหม่ (Single-Page Form)' : 'Create New Scout Project'}
                   </h2>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">
-                    {isThai ? 'ออกแบบและปรับแต่งสภาพแวดล้อมเพื่อประสิทธิภาพสูงสุด' : 'Design and calibrate your workflow with Adobe-like precision'}
+                    {isThai ? 'กรอกข้อมูลและตรวจสอบความถูกต้องก่อนเริ่มแมตช์ได้ในหน้าเดียว' : 'Configure match details, teams, court format and video in one unified form'}
                   </p>
                 </div>
               </div>
@@ -232,534 +223,414 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
               </button>
             </div>
 
-            {/* Content Container (Split Sidebar Layout) */}
-            <div className="flex-1 flex overflow-hidden">
-              {/* Left Sidebar Navigation */}
-              <div className="w-[220px] bg-gray-50 dark:bg-gray-900/60 border-r border-gray-100 dark:border-gray-700/50 p-4 flex flex-col gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('general')}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-xs font-bold transition-all ${
-                    activeTab === 'general'
-                      ? 'bg-sky-600 text-white shadow-md shadow-sky-500/10'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  <Trophy size={16} />
-                  <span>{isThai ? 'ข้อมูลพื้นฐาน' : 'Basic Info'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('court')}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-xs font-bold transition-all ${
-                    activeTab === 'court'
-                      ? 'bg-sky-600 text-white shadow-md shadow-sky-500/10'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  <Layout size={16} />
-                  <span>{isThai ? 'สนามและกติกา' : 'Court & Rules'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('teams')}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-xs font-bold transition-all ${
-                    activeTab === 'teams'
-                      ? 'bg-sky-600 text-white shadow-md shadow-sky-500/10'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  <Flag size={16} />
-                  <span>{isThai ? 'ข้อมูลทีมเหย้า/เยือน' : 'Teams Setup'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('workspace')}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-xs font-bold transition-all ${
-                    activeTab === 'workspace'
-                      ? 'bg-sky-600 text-white shadow-md shadow-sky-500/10'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  <Laptop size={16} />
-                  <span>{isThai ? 'แผงควบคุมและธีม' : 'Scout & Aesthetics'}</span>
-                </button>
-
-                <div className="mt-auto p-3 bg-sky-50/50 dark:bg-sky-950/10 border border-sky-100/50 dark:border-sky-900/30 rounded-2xl">
-                  <div className="flex gap-1.5 text-[10px] font-bold text-sky-700 dark:text-sky-300">
-                    <Info size={12} className="shrink-0 mt-0.5" />
-                    <span>{isThai ? 'เคล็ดลับ' : 'Tip'}</span>
+            {/* 2-Column Split Body */}
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
+              
+              {/* Left Column: 4 Form Sections (Scrollable) */}
+              <div className="lg:col-span-7 overflow-y-auto p-5 sm:p-6 space-y-6 border-b lg:border-b-0 lg:border-r border-gray-150 dark:border-gray-700/80 bg-white dark:bg-gray-900 custom-scrollbar">
+                
+                {/* SECTION 1: MATCH & BASIC INFO */}
+                <section className="bg-gray-50/60 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded-2xl p-4.5 space-y-3.5">
+                  <div className="flex items-center gap-2 text-sky-600 dark:text-sky-400">
+                    <Trophy size={16} />
+                    <h3 className="text-xs font-black uppercase tracking-wider">
+                      {isThai ? '1. ข้อมูลแมตช์และโครงการ' : '1. Match & Project Info'}
+                    </h3>
                   </div>
-                  <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-normal mt-1">
-                    {isThai ? 'การล้างเบราว์เซอร์อาจทำให้ประวัติสูญหาย แนะนำให้ส่งออกไฟล์เก็บไว้ด้วย' : 'Clearing browser cache can lose project histories. Export backups regularly!'}
-                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase mb-1">
+                        {isThai ? 'ชื่อโครงการ (Project Title)' : 'Project Title'}
+                      </label>
+                      <input
+                        type="text"
+                        value={projectTitle}
+                        onChange={e => setProjectTitle(e.target.value)}
+                        placeholder={isThai ? 'เช่น ชิงแชมป์สโมสรเอเชีย 2026' : 'e.g. Asia Club Championship 2026'}
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-sky-500 outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase mb-1">
+                        {isThai ? 'ประเภทกีฬา (Sport)' : 'Sport Type'}
+                      </label>
+                      <CustomSelect
+                        value={sportType}
+                        options={SPORT_OPTIONS}
+                        onChange={v => setSportType(v as SportType)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase mb-1">
+                        {isThai ? 'ชื่อการแข่งขัน (Match Label)' : 'Match / Tournament'}
+                      </label>
+                      <input
+                        type="text"
+                        value={matchName}
+                        onChange={e => setMatchName(e.target.value)}
+                        placeholder={isThai ? 'เช่น รอบชิงชนะเลิศ (Final)' : 'e.g. Grand Finals'}
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-sky-500 outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase mb-1">
+                        {isThai ? 'ผู้บันทึกสถิติ (Scouter Name)' : 'Scouter Name'}
+                      </label>
+                      <input
+                        type="text"
+                        value={scouterName}
+                        onChange={e => setScouterName(e.target.value)}
+                        placeholder={isThai ? 'ชื่อผู้บันทึก' : 'Analyst name'}
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-sky-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                {/* SECTION 2: TEAMS */}
+                <section className="bg-gray-50/60 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded-2xl p-4.5 space-y-3.5">
+                  <div className="flex items-center gap-2 text-sky-600 dark:text-sky-400">
+                    <Flag size={16} />
+                    <h3 className="text-xs font-black uppercase tracking-wider">
+                      {isThai ? '2. ทีมคู่แข่งขัน (Teams Setup)' : '2. Teams Setup'}
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Team 1 */}
+                    <div className="p-3 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-sky-600 dark:text-sky-400 uppercase">Team A (ทีม 1)</span>
+                        <div className="flex bg-gray-100 dark:bg-gray-800 p-0.5 rounded-lg text-[9px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setTeam1(prev => ({ ...prev, teamType: 'country' }))}
+                            className={`px-2 py-0.5 rounded ${team1.teamType === 'country' ? 'bg-sky-600 text-white' : 'text-gray-500'}`}
+                          >
+                            {isThai ? 'ประเทศ' : 'Country'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTeam1(prev => ({ ...prev, teamType: 'club', icon: '' }))}
+                            className={`px-2 py-0.5 rounded ${team1.teamType === 'club' ? 'bg-sky-600 text-white' : 'text-gray-500'}`}
+                          >
+                            {isThai ? 'สโมสร' : 'Club'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {team1.teamType === 'country' ? (
+                        <CustomSelect
+                          value={team1.code}
+                          options={countryOptions}
+                          onChange={v => handleCountryChange(true, v)}
+                        />
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2">
+                          <input
+                            type="text"
+                            placeholder="Code"
+                            value={team1.code}
+                            maxLength={4}
+                            onChange={e => handleClubChange(true, 'code', e.target.value)}
+                            className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs text-center font-bold"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Club Name"
+                            value={team1.name}
+                            onChange={e => handleClubChange(true, 'name', e.target.value)}
+                            className="col-span-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Team 2 */}
+                    <div className="p-3 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase">Team B (ทีม 2)</span>
+                        <div className="flex bg-gray-100 dark:bg-gray-800 p-0.5 rounded-lg text-[9px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setTeam2(prev => ({ ...prev, teamType: 'country' }))}
+                            className={`px-2 py-0.5 rounded ${team2.teamType === 'country' ? 'bg-amber-600 text-white' : 'text-gray-500'}`}
+                          >
+                            {isThai ? 'ประเทศ' : 'Country'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTeam2(prev => ({ ...prev, teamType: 'club', icon: '' }))}
+                            className={`px-2 py-0.5 rounded ${team2.teamType === 'club' ? 'bg-amber-600 text-white' : 'text-gray-500'}`}
+                          >
+                            {isThai ? 'สโมสร' : 'Club'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {team2.teamType === 'country' ? (
+                        <CustomSelect
+                          value={team2.code}
+                          options={countryOptions}
+                          onChange={v => handleCountryChange(false, v)}
+                        />
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2">
+                          <input
+                            type="text"
+                            placeholder="Code"
+                            value={team2.code}
+                            maxLength={4}
+                            onChange={e => handleClubChange(false, 'code', e.target.value)}
+                            className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs text-center font-bold"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Club Name"
+                            value={team2.name}
+                            onChange={e => handleClubChange(false, 'name', e.target.value)}
+                            className="col-span-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1.5 text-xs"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                {/* SECTION 3: COURT & FORMAT */}
+                <section className="bg-gray-50/60 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded-2xl p-4.5 space-y-3.5">
+                  <div className="flex items-center gap-2 text-sky-600 dark:text-sky-400">
+                    <Layout size={16} />
+                    <h3 className="text-xs font-black uppercase tracking-wider">
+                      {isThai ? '3. สนามและรูปแบบการบันทึก' : '3. Court & Recording Format'}
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase mb-1">
+                        {isThai ? 'โครงสร้างสนาม (Court Grid)' : 'Court Grid'}
+                      </label>
+                      <CustomSelect
+                        value={courtConfig}
+                        options={courtOptions}
+                        onChange={setCourtConfig}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase mb-1">
+                        {isThai ? 'รูปแบบเกม (Match Format)' : 'Match Format'}
+                      </label>
+                      <CustomSelect
+                        value={gameFormat}
+                        options={formatOptions}
+                        onChange={setGameFormat}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase mb-1">
+                        {isThai ? 'ความละเอียดพิกัด (Area Precision)' : 'Area Precision'}
+                      </label>
+                      <div className="grid grid-cols-3 gap-1.5 bg-white dark:bg-gray-900 p-1 rounded-xl border border-gray-200 dark:border-gray-700">
+                        {(['normal', 'detailed', 'point'] as const).map(p => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setAreaPrecision(p)}
+                            className={`py-1 px-1 rounded-lg text-[10px] font-bold transition-all ${
+                              areaPrecision === p
+                                ? 'bg-sky-600 text-white shadow-sm'
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                            }`}
+                          >
+                            {p === 'normal' && (isThai ? 'มาตรฐาน' : 'Normal')}
+                            {p === 'detailed' && (isThai ? 'ละเอียด' : 'Detailed')}
+                            {p === 'point' && (isThai ? 'จุดพิกัด' : 'Point')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase mb-1">
+                        {isThai ? 'โซนนอกสนาม (Out of Bounds)' : 'Out of Bounds Zone'}
+                      </label>
+                      <div className="grid grid-cols-2 gap-1.5 bg-white dark:bg-gray-900 p-1 rounded-xl border border-gray-200 dark:border-gray-700">
+                        <button
+                          type="button"
+                          onClick={() => setOutOfBounds('off')}
+                          className={`py-1 px-1 rounded-lg text-[10px] font-bold transition-all ${
+                            outOfBounds === 'off' ? 'bg-sky-600 text-white shadow-sm' : 'text-gray-500'
+                          }`}
+                        >
+                          {isThai ? 'ปิด (มาตรฐาน)' : 'Off (Standard)'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setOutOfBounds('on')}
+                          className={`py-1 px-1 rounded-lg text-[10px] font-bold transition-all ${
+                            outOfBounds === 'on' ? 'bg-sky-600 text-white shadow-sm' : 'text-gray-500'
+                          }`}
+                        >
+                          {isThai ? 'เปิดใช้งาน' : 'Enabled'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* SECTION 4: VIDEO & WORKSPACE */}
+                <section className="bg-gray-50/60 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded-2xl p-4.5 space-y-3.5">
+                  <div className="flex items-center gap-2 text-sky-600 dark:text-sky-400">
+                    <Video size={16} />
+                    <h3 className="text-xs font-black uppercase tracking-wider">
+                      {isThai ? '4. แหล่งวิดีโอและภาษา' : '4. Video Source & Theme'}
+                    </h3>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-3 gap-2 bg-white dark:bg-gray-900 p-1 rounded-xl border border-gray-200 dark:border-gray-700">
+                      <button
+                        type="button"
+                        onClick={() => setVideoSource('youtube')}
+                        className={`py-1.5 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
+                          videoSource === 'youtube' ? 'bg-rose-600 text-white shadow-sm' : 'text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        <Video size={13} />
+                        YouTube
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVideoSource('local')}
+                        className={`py-1.5 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
+                          videoSource === 'local' ? 'bg-sky-600 text-white shadow-sm' : 'text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        <Laptop size={13} />
+                        Local File
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVideoSource('none')}
+                        className={`py-1.5 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
+                          videoSource === 'none' ? 'bg-gray-700 text-white shadow-sm' : 'text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        {isThai ? 'บันทึกสด (Live)' : 'Live / None'}
+                      </button>
+                    </div>
+
+                    {videoSource === 'youtube' && (
+                      <input
+                        type="text"
+                        value={youtubeUrlInput}
+                        onChange={e => setYoutubeUrlInput(e.target.value)}
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-rose-500 outline-none"
+                      />
+                    )}
+
+                    {videoSource === 'local' && (
+                      <input
+                        type="text"
+                        value={localFileTitle}
+                        onChange={e => setLocalFileTitle(e.target.value)}
+                        placeholder="match_recording_2026.mp4"
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2 text-xs text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-sky-500 outline-none"
+                      />
+                    )}
+                  </div>
+                </section>
+              </div>
+
+              {/* Right Column: Live Summary & Review Card (Sticky/Auto) */}
+              <div className="lg:col-span-5 bg-gray-50/90 dark:bg-gray-950/80 p-5 sm:p-6 flex flex-col justify-between overflow-y-auto">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-gray-800 dark:text-gray-200">
+                    <Sparkles size={16} className="text-amber-500" />
+                    <h3 className="text-xs font-black uppercase tracking-wider">
+                      {isThai ? 'สรุปข้อมูลก่อนบันทึก (Live Review)' : 'Summary & Live Preview'}
+                    </h3>
+                  </div>
+
+                  {/* Visual Match Header Card */}
+                  <div className="bg-gradient-to-br from-sky-600 to-indigo-700 text-white rounded-2xl p-4 shadow-lg space-y-3">
+                    <div className="text-[10px] font-bold tracking-widest uppercase opacity-80">
+                      {sportType.toUpperCase()} MATCH
+                    </div>
+                    <div className="text-sm font-black truncate">
+                      {projectTitle.trim() || `${team1.code || 'T1'} vs ${team2.code || 'T2'}`}
+                    </div>
+
+                    {/* Team Faceoff */}
+                    <div className="flex items-center justify-between bg-white/10 backdrop-blur-md rounded-xl p-3">
+                      <div className="text-center flex-1">
+                        <div className="text-2xl mb-1">{team1.icon || '🏐'}</div>
+                        <div className="text-xs font-extrabold">{team1.code || 'Team A'}</div>
+                        <div className="text-[10px] opacity-80 truncate max-w-[100px] mx-auto">{team1.thaiName || team1.name}</div>
+                      </div>
+                      <div className="px-2 text-xs font-black opacity-60">VS</div>
+                      <div className="text-center flex-1">
+                        <div className="text-2xl mb-1">{team2.icon || '🏐'}</div>
+                        <div className="text-xs font-extrabold">{team2.code || 'Team B'}</div>
+                        <div className="text-[10px] opacity-80 truncate max-w-[100px] mx-auto">{team2.thaiName || team2.name}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Key Configurations Table */}
+                  <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-4 space-y-2.5 text-xs">
+                    <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-800">
+                      <span className="text-gray-500 dark:text-gray-400">{isThai ? 'การแข่งขัน' : 'Match Name'}</span>
+                      <span className="font-bold text-gray-800 dark:text-gray-200">{matchName || '-'}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-800">
+                      <span className="text-gray-500 dark:text-gray-400">{isThai ? 'ผู้บันทึก' : 'Scouter'}</span>
+                      <span className="font-bold text-gray-800 dark:text-gray-200">{scouterName || '-'}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-800">
+                      <span className="text-gray-500 dark:text-gray-400">{isThai ? 'โครงสร้างสนาม' : 'Court Config'}</span>
+                      <span className="font-bold text-sky-600 dark:text-sky-400">{courtConfig}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-gray-800">
+                      <span className="text-gray-500 dark:text-gray-400">{isThai ? 'รูปแบบเกม' : 'Game Format'}</span>
+                      <span className="font-bold text-gray-800 dark:text-gray-200">{gameFormat}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1">
+                      <span className="text-gray-500 dark:text-gray-400">{isThai ? 'แหล่งวิดีโอ' : 'Video Source'}</span>
+                      <span className="font-bold text-gray-800 dark:text-gray-200 uppercase">{videoSource}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              {/* Right Settings Form Area */}
-              <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-white dark:bg-gray-800">
-                <AnimatePresence mode="wait">
-                  {activeTab === 'general' && (
-                    <motion.div
-                      key="general"
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -10 }}
-                      transition={{ duration: 0.15 }}
-                      className="space-y-6"
-                    >
-                      <div>
-                        <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-gray-700 pb-2 mb-4">
-                          {isThai ? 'ระบุรายละเอียดโครงการ' : 'Identify Project Details'}
-                        </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'ชื่อโครงการ (Project Name)' : 'Project Name'}
-                            </label>
-                            <input
-                              type="text"
-                              value={projectTitle}
-                              onChange={e => setProjectTitle(e.target.value)}
-                              placeholder={isThai ? 'เช่น รอบชิง VNL 2024' : 'e.g., VNL 2024 Final'}
-                              className="w-full bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-xs focus:ring-2 focus:ring-sky-500 outline-none font-bold text-gray-800 dark:text-gray-200"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'ประเภทกีฬา (Sport Battery)' : 'Sport Battery'}
-                            </label>
-                            <CustomSelect
-                              value={sportType}
-                              onChange={(val) => { setSportType(val as SportType); setCourtConfig('standard'); setGameFormat('standard'); }}
-                              options={SPORT_OPTIONS}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-2">
-                        <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-gray-700 pb-2 mb-4">
-                          {isThai ? 'ข้อมูลเสริมแมตช์การแข่งขัน' : 'Supplementary Match Information'}
-                        </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'ชื่อทัวร์นาเมนต์ (Match / Tournament)' : 'Tournament / Match Name'}
-                            </label>
-                            <input
-                              type="text"
-                              value={matchName}
-                              onChange={e => setMatchName(e.target.value)}
-                              placeholder={isThai ? 'ระบุชื่อรายการ (เลือกได้)' : 'Tournament name (Optional)'}
-                              className="w-full bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2.5 text-xs focus:ring-2 focus:ring-sky-500 outline-none text-gray-800 dark:text-gray-200"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'ผู้จดบันทึกสถิติ (Scouter Name)' : 'Scouter Name'}
-                            </label>
-                            <div className="relative">
-                              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"><User size={14} /></span>
-                              <input
-                                type="text"
-                                value={scouterName}
-                                onChange={e => setScouterName(e.target.value)}
-                                placeholder={isThai ? 'เช่น โค้ชต้นสิงห์ปักษ์ใต้' : 'e.g., Coach Ton'}
-                                className="w-full bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-xl pl-10 pr-4 py-2.5 text-xs focus:ring-2 focus:ring-sky-500 outline-none text-gray-800 dark:text-gray-200"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {activeTab === 'court' && (
-                    <motion.div
-                      key="court"
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -10 }}
-                      transition={{ duration: 0.15 }}
-                      className="space-y-6"
-                    >
-                      <div>
-                        <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-gray-700 pb-2 mb-4">
-                          {isThai ? 'รูปแบบสนามและโครงสร้างกติกา' : 'Court Grid & Tournament Rule Settings'}
-                        </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'การตั้งค่าสนาม (Court/Field Layout)' : 'Court/Field Layout'}
-                            </label>
-                            <CustomSelect
-                              value={courtConfig}
-                              onChange={(val) => setCourtConfig(val)}
-                              options={courtOptions}
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'รูปแบบการแข่งขัน (Game Format)' : 'Game Format'}
-                            </label>
-                            <CustomSelect
-                              value={gameFormat}
-                              onChange={(val) => setGameFormat(val)}
-                              options={formatOptions}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-2">
-                        <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-gray-700 pb-2 mb-4">
-                          {isThai ? 'ความแม่นยำพิกัดและการระบุพื้นที่' : 'Area Precision & Field Geometry'}
-                        </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'ความละเอียดจุดพิกัด (Area Precision)' : 'Area Precision'}
-                            </label>
-                            <div className="grid grid-cols-3 gap-2 bg-gray-50 dark:bg-gray-900/40 p-1.5 rounded-2xl border border-gray-150 dark:border-gray-700">
-                              {(['normal', 'detailed', 'point'] as const).map(p => (
-                                <button
-                                  key={p}
-                                  type="button"
-                                  onClick={() => setAreaPrecision(p)}
-                                  className={`py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
-                                    areaPrecision === p
-                                      ? 'bg-sky-600 text-white shadow-sm'
-                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-150 dark:hover:bg-gray-800'
-                                  }`}
-                                >
-                                  {p === 'normal' && (isThai ? 'ทั่วไป' : 'Normal')}
-                                  {p === 'detailed' && (isThai ? 'ละเอียด' : 'Detailed')}
-                                  {p === 'point' && (isThai ? 'พิกัดจุด' : 'Point')}
-                                </button>
-                              ))}
-                            </div>
-                            <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-normal mt-1.5">
-                              {areaPrecision === 'normal' && (isThai ? 'เก็บบันทึกโซนมาตรฐาน (เช่น 1-9 ในวอลเลย์บอล)' : 'Logs standard grid cells as defined by sport')}
-                              {areaPrecision === 'detailed' && (isThai ? 'เก็บบันทึกตารางแบ่งโซนย่อยอย่างละเอียด' : 'Logs sub-divided coordinates for heatmaps')}
-                              {areaPrecision === 'point' && (isThai ? 'เก็บบันทึกพิกัด X, Y จากการแตะจอโดยตรง' : 'Captures exact pixel tapped coordinates on court')}
-                            </p>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'วิเคราะห์โซนออกนอกสนาม (Out-of-Bounds Zones)' : 'Out-of-Bounds'}
-                            </label>
-                            <div className="grid grid-cols-2 gap-2 bg-gray-50 dark:bg-gray-900/40 p-1.5 rounded-2xl border border-gray-150 dark:border-gray-700">
-                              {(['off', 'on'] as const).map(o => (
-                                <button
-                                  key={o}
-                                  type="button"
-                                  onClick={() => setOutOfBounds(o)}
-                                  className={`py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
-                                    outOfBounds === o
-                                      ? 'bg-sky-600 text-white shadow-sm'
-                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-150 dark:hover:bg-gray-800'
-                                  }`}
-                                >
-                                  {o === 'on' ? (isThai ? 'เปิดใช้งาน' : 'On') : (isThai ? 'ปิด' : 'Off')}
-                                </button>
-                              ))}
-                            </div>
-                            <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-normal mt-1.5">
-                              {outOfBounds === 'on' 
-                                ? (isThai ? 'แยกแยะโซนเสียแต้มว่าลูกออกซ้าย/ขวา/หลัง คอร์ทฝั่งไหน' : 'Splits out-of-bounds error zones into precise directions')
-                                : (isThai ? 'รวบพิกัดออกข้างเป็นโซน Out แบบทั่วไป' : 'Rolls all out-of-bounds events into generic "Out" area')}
-                            </p>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'มุมมองสนามเริ่มต้น' : 'Default Court View'}
-                            </label>
-                            <div className="grid grid-cols-3 gap-2 bg-gray-50 dark:bg-gray-900/40 p-1.5 rounded-2xl border border-gray-150 dark:border-gray-700">
-                              {(['auto', 'full', 'half'] as const).map(view => (
-                                <button
-                                  key={view}
-                                  type="button"
-                                  onClick={() => setCourtViewMode(view)}
-                                  className={`coach-control-target px-1 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                                    courtViewMode === view
-                                      ? 'bg-sky-600 text-white shadow-sm'
-                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-150 dark:hover:bg-gray-800'
-                                  }`}
-                                >
-                                  {view === 'auto' && (isThai ? 'อัตโนมัติ' : 'Auto')}
-                                  {view === 'full' && (isThai ? 'เต็มสนาม' : 'Full')}
-                                  {view === 'half' && (isThai ? 'ครึ่งสนาม' : 'Half')}
-                                </button>
-                              ))}
-                            </div>
-                            <p className="coach-helper-text text-gray-400 dark:text-gray-500 mt-1.5">
-                              {isThai
-                                ? 'เลือกค่าเริ่มต้นของโปรเจกต์ และเปลี่ยนชั่วคราวได้เหนือแผนผังสนามระหว่างบันทึก'
-                                : 'Sets the project default. You can temporarily switch it above the court while tagging.'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {activeTab === 'teams' && (
-                    <motion.div
-                      key="teams"
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -10 }}
-                      transition={{ duration: 0.15 }}
-                      className="space-y-6"
-                    >
-                      <div>
-                        <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-gray-700 pb-2 mb-4 flex justify-between items-center">
-                          <span>{isThai ? 'ตั้งค่าระบุคู่ทีมแข่งขัน' : 'Match Competitors Setup'}</span>
-                          <span className="text-[10px] font-extrabold text-sky-600 dark:text-sky-400 uppercase tracking-wider bg-sky-50 dark:bg-sky-950/20 px-2 py-0.5 rounded-lg">Home vs Away</span>
-                        </h3>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 relative">
-                          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full flex items-center justify-center text-[10px] font-black text-gray-400 z-10 hidden sm:flex shadow-sm">
-                            VS
-                          </div>
-                          
-                          <div className="bg-gray-50/50 dark:bg-gray-900/30 border border-gray-150 dark:border-gray-700 p-5 rounded-2xl shadow-sm space-y-4">
-                            <label className="block text-[10px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-wider">
-                              {isThai ? 'ทีมเหย้า / ฝั่งซ้าย (Team 1)' : 'Home / Left (Team 1)'}
-                            </label>
-                            <CustomSelect
-                              label=""
-                              value={team1.code}
-                              onChange={(val) => handleCountryChange(true, val)}
-                              options={countryOptions}
-                            />
-                            <div className="grid grid-cols-2 gap-3 pt-2">
-                              <div>
-                                <label className="text-[9px] text-gray-400 font-bold block mb-1 uppercase">{isThai ? 'ชื่อย่อทีม (Code)' : 'Team Code'}</label>
-                                <input
-                                  type="text"
-                                  value={team1.code}
-                                  onChange={e => setTeam1(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                                  className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 text-xs outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[9px] text-gray-400 font-bold block mb-1 uppercase">{isThai ? 'ชื่อไทย (Thai Name)' : 'Thai Name'}</label>
-                                <input
-                                  type="text"
-                                  value={team1.thaiName}
-                                  onChange={e => setTeam1(prev => ({ ...prev, thaiName: e.target.value }))}
-                                  className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 text-xs outline-none"
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="bg-gray-50/50 dark:bg-gray-900/30 border border-gray-150 dark:border-gray-700 p-5 rounded-2xl shadow-sm space-y-4">
-                            <label className="block text-[10px] font-black text-sky-600 dark:text-sky-400 uppercase tracking-wider">
-                              {isThai ? 'ทีมเยือน / ฝั่งขวา (Team 2)' : 'Away / Right (Team 2)'}
-                            </label>
-                            <CustomSelect
-                              label=""
-                              value={team2.code}
-                              onChange={(val) => handleCountryChange(false, val)}
-                              options={countryOptions}
-                            />
-                            <div className="grid grid-cols-2 gap-3 pt-2">
-                              <div>
-                                <label className="text-[9px] text-gray-400 font-bold block mb-1 uppercase">{isThai ? 'ชื่อย่อทีม (Code)' : 'Team Code'}</label>
-                                <input
-                                  type="text"
-                                  value={team2.code}
-                                  onChange={e => setTeam2(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                                  className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 text-xs outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[9px] text-gray-400 font-bold block mb-1 uppercase">{isThai ? 'ชื่อไทย (Thai Name)' : 'Thai Name'}</label>
-                                <input
-                                  type="text"
-                                  value={team2.thaiName}
-                                  onChange={e => setTeam2(prev => ({ ...prev, thaiName: e.target.value }))}
-                                  className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-1.5 text-xs outline-none"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {activeTab === 'workspace' && (
-                    <motion.div
-                      key="workspace"
-                      initial={{ opacity: 0, x: 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -10 }}
-                      transition={{ duration: 0.15 }}
-                      className="space-y-6"
-                    >
-                      <div>
-                        <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-gray-700 pb-2 mb-4">
-                          {isThai ? 'โหมดนำเข้าและวิเคราะห์วิดีโอ' : 'Video Integration & Interactive Controls'}
-                        </h3>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'แหล่งที่มาวิดีโอ (Video Source)' : 'Video Source'}
-                            </label>
-                            <div className="grid grid-cols-3 gap-2 bg-gray-50 dark:bg-gray-900/40 p-1.5 rounded-2xl border border-gray-150 dark:border-gray-700">
-                              {(['none', 'youtube', 'local'] as const).map(v => (
-                                <button
-                                  key={v}
-                                  type="button"
-                                  onClick={() => setVideoSource(v)}
-                                  className={`py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
-                                    videoSource === v
-                                      ? 'bg-sky-600 text-white shadow-sm'
-                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-150 dark:hover:bg-gray-800'
-                                  }`}
-                                >
-                                  {v === 'none' && (isThai ? 'ไม่มีวิดีโอ' : 'None')}
-                                  {v === 'youtube' && 'YouTube'}
-                                  {v === 'local' && (isThai ? 'ในเครื่อง' : 'Local File')}
-                                </button>
-                              ))}
-                            </div>
-                            
-                            {videoSource === 'youtube' && (
-                              <div className="mt-3.5 space-y-1.5">
-                                <label className="text-[10px] text-gray-400 font-bold block uppercase">{isThai ? 'ลิงก์ YouTube URL' : 'YouTube URL'}</label>
-                                <input
-                                  type="text"
-                                  value={youtubeUrlInput}
-                                  onChange={e => setYoutubeUrlInput(e.target.value)}
-                                  placeholder="https://www.youtube.com/watch?v=..."
-                                  className="w-full bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2 text-xs focus:ring-2 focus:ring-sky-500 outline-none"
-                                />
-                              </div>
-                            )}
-
-                            {videoSource === 'local' && (
-                              <div className="mt-3.5 space-y-1.5">
-                                <label className="text-[10px] text-gray-400 font-bold block uppercase">{isThai ? 'ชื่ออ้างอิงไฟล์วิดีโอในเครื่อง' : 'Local File Descriptor'}</label>
-                                <input
-                                  type="text"
-                                  value={localFileTitle}
-                                  onChange={e => setLocalFileTitle(e.target.value)}
-                                  placeholder="e.g. match-video.mp4"
-                                  className="w-full bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2 text-xs focus:ring-2 focus:ring-sky-500 outline-none"
-                                />
-                              </div>
-                            )}
-                          </div>
-
-                        </div>
-                      </div>
-
-                      <div className="pt-2">
-                        <h3 className="text-sm font-black text-gray-900 dark:text-gray-100 border-b border-gray-100 dark:border-gray-700 pb-2 mb-4">
-                          {isThai ? 'ภาษาและธีมหน้าต่างการทำความเข้าใจ' : 'Aesthetics, Palette & Locale'}
-                        </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'ธีมภาพสีหลัก (Visual Theme Palette)' : 'Visual Theme Palette'}
-                            </label>
-                            <div className="grid grid-cols-3 gap-2 bg-gray-50 dark:bg-gray-900/40 p-1.5 rounded-2xl border border-gray-150 dark:border-gray-700">
-                              {(['light', 'dark', 'monochrome'] as const).map(t => (
-                                <button
-                                  key={t}
-                                  type="button"
-                                  onClick={() => setSelectedTheme(t)}
-                                  className={`py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
-                                    selectedTheme === t
-                                      ? 'bg-sky-600 text-white shadow-sm'
-                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-150 dark:hover:bg-gray-800'
-                                  }`}
-                                >
-                                  {t === 'light' && (isThai ? 'สว่าง' : 'Light')}
-                                  {t === 'dark' && (isThai ? 'มืด' : 'Dark')}
-                                  {t === 'monochrome' && (isThai ? 'ขาวดำ' : 'Mono')}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-                              {isThai ? 'ภาษาอินเตอร์เฟส (UI Language)' : 'UI Language Preference'}
-                            </label>
-                            <div className="grid grid-cols-2 gap-2 bg-gray-50 dark:bg-gray-900/40 p-1.5 rounded-2xl border border-gray-150 dark:border-gray-700">
-                              {(['th', 'en'] as const).map(l => (
-                                <button
-                                  key={l}
-                                  type="button"
-                                  onClick={() => setSelectedLanguage(l)}
-                                  className={`py-2 px-1 rounded-xl text-[10px] font-extrabold transition-all cursor-pointer ${
-                                    selectedLanguage === l
-                                      ? 'bg-sky-600 text-white shadow-sm'
-                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-150 dark:hover:bg-gray-800'
-                                  }`}
-                                >
-                                  {l === 'th' ? 'ภาษาไทย' : 'English (US)'}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-between items-center px-6 py-4.5 border-t border-gray-100 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/40 shrink-0">
-              <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
-                {activeTab === 'general' && (isThai ? 'ขั้นตอน 1 จาก 4: ตั้งค่าพื้นฐาน' : 'Step 1 of 4: Setup identity')}
-                {activeTab === 'court' && (isThai ? 'ขั้นตอน 2 จาก 4: ตั้งค่าพิกัดสนาม' : 'Step 2 of 4: Calibrate court layouts')}
-                {activeTab === 'teams' && (isThai ? 'ขั้นตอน 3 จาก 4: จับคู่ระบุคู่แข่งขัน' : 'Step 3 of 4: Select competitors')}
-                {activeTab === 'workspace' && (isThai ? 'ขั้นตอน 4 จาก 4: ปรับแต่งหน้าจอด่วน' : 'Step 4 of 4: Establish environment')}
-              </div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-5 py-2.5 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-150 dark:hover:bg-gray-700 rounded-xl transition-all"
-                >
-                  {isThai ? 'ยกเลิก' : 'Cancel'}
-                </button>
-                {activeTab !== 'workspace' ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (activeTab === 'general') setActiveTab('court');
-                      else if (activeTab === 'court') setActiveTab('teams');
-                      else if (activeTab === 'teams') setActiveTab('workspace');
-                    }}
-                    className="px-5 py-2.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 rounded-xl transition-all shadow-md shadow-sky-500/10 flex items-center gap-1 cursor-pointer"
-                  >
-                    <span>{isThai ? 'ถัดไป' : 'Next'}</span>
-                    <ChevronRight size={14} />
-                  </button>
-                ) : (
+                {/* Bottom Action CTA */}
+                <div className="pt-5 space-y-2">
                   <button
                     type="button"
                     onClick={handleSubmit}
-                    className="px-6 py-2.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 rounded-xl transition-all shadow-md shadow-sky-500/10 active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                    className="w-full py-3.5 px-4 bg-sky-600 hover:bg-sky-500 active:scale-[0.98] text-white font-black text-sm rounded-2xl shadow-xl shadow-sky-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
                   >
-                    <Trophy size={14} />
-                    <span>{isThai ? 'สร้างโครงการ (Create)' : 'Create Project'}</span>
+                    <CheckCircle2 size={18} />
+                    <span>{isThai ? 'ยืนยันและสร้างโปรเจกต์ (Create)' : 'Confirm & Create Project'}</span>
                   </button>
-                )}
+
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="w-full py-2.5 px-4 bg-transparent hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                  >
+                    {isThai ? 'ยกเลิก' : 'Cancel'}
+                  </button>
+                </div>
               </div>
+
             </div>
           </motion.div>
         </div>

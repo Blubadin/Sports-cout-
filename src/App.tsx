@@ -22,9 +22,14 @@ import {
   WorkstationCommandBar,
   WorkstationStatusBar,
   WorkstationTopBar,
+  WorkstationLeftRail,
+  type WorkstationLeftTool,
 } from './components/workstation/WorkstationChrome';
 import WorkstationInspector from './components/workstation/WorkstationInspector';
 import { REVIEW_DRILLDOWN_EVENT } from './utils/reviewDrilldown';
+import { SPORT_TEMPLATES } from './sports';
+import type { SportType } from './types';
+import CustomSelect from './components/ui/CustomSelect';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const BookmarksPanel = React.lazy(() => import('./components/BookmarksPanel'));
@@ -76,13 +81,9 @@ function PwaIndicator() {
   );
 }
 
-import { SPORT_TEMPLATES } from './sports';
-import type { SportType } from './types';
-import CustomSelect from './components/ui/CustomSelect';
-
 function RepositoryLoadingState({ language }: { language: 'th' | 'en' | undefined }) {
   const message = language === 'th'
-    ? '\u0e01\u0e33\u0e25\u0e31\u0e07\u0e40\u0e15\u0e23\u0e35\u0e22\u0e21\u0e1e\u0e37\u0e49\u0e19\u0e17\u0e35\u0e48\u0e17\u0e33\u0e07\u0e32\u0e19'
+    ? 'กำลังเตรียมพื้นที่ทำงาน'
     : 'Preparing workspace';
 
   return (
@@ -248,6 +249,7 @@ function AppContent() {
   const [isMatchInfoOpen, setIsMatchInfoOpen] = useState(false);
   const { isInstallable, promptInstall } = usePWAInstall();
   const [activeTab, setActiveTab] = useState<AnalysisTab>('input');
+  const [activeLeftTool, setActiveLeftTool] = useState<WorkstationLeftTool>('scout');
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const workspaceExperience = resolveWorkspaceExperience({
     featureEnabled: FEATURE_FLAGS.workstation,
@@ -255,7 +257,7 @@ function AppContent() {
     viewportWidth,
   });
   const isWorkstation = workspaceExperience === 'workstation';
-  const activeProject = projects.find(project => project.id === activeProjectId);
+  const activeProject = projects.find((project) => project.id === activeProjectId);
   const activePreset = getPresetForAnalysisTab(activeTab);
 
   useEffect(() => {
@@ -343,16 +345,36 @@ function AppContent() {
           />
           <WorkstationCommandBar
             language={settings.uiLanguage}
+            theme={settings.theme || (settings.darkMode ? 'dark' : 'light')}
             canUndo={canUndoEventAction}
             canRedo={canRedoEventAction}
             onUndo={undoEventAction}
             onRedo={redoEventAction}
+            onNewEvent={() => {
+              handleWorkstationPreset('scout');
+              setActiveTab('input');
+            }}
+            onDeleteEvent={() => {
+              showToast(settings.uiLanguage === 'th' ? 'เลือกเหตุการณ์บนตารางเพื่อลบ' : 'Select event to delete');
+            }}
+            onJumpToTime={() => {
+              showToast(settings.uiLanguage === 'th' ? 'คลิกบนแถบเวลาเพื่อกระโดดไปยังจังหวะนั้น' : 'Click on timeline to seek');
+            }}
             onOpenKeyMoments={() => {
               handleWorkstationPreset('review');
               setActiveTab('bookmarks');
             }}
             onOpenShortcuts={() => setIsKeyboardShortcutsOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onToggleTheme={() => setSettings(prev => {
+              const currentTheme = prev.theme || (prev.darkMode ? 'dark' : 'light');
+              const nextTheme = currentTheme === 'light' ? 'dark' : currentTheme === 'dark' ? 'monochrome' : 'light';
+              return { ...prev, theme: nextTheme, darkMode: nextTheme === 'dark' || nextTheme === 'monochrome' };
+            })}
+            onToggleLanguage={() => setSettings(prev => ({
+              ...prev,
+              uiLanguage: prev.uiLanguage === 'en' ? 'th' : 'en'
+            }))}
           />
         </>
       )}
@@ -409,32 +431,20 @@ function AppContent() {
                   uiLanguage: prev.uiLanguage === 'en' ? 'th' : 'en'
                 }));
               }}
-              className="px-2 py-1.5 sm:py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors font-bold text-xs"
-              title="Toggle Language"
+              className="px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 font-bold"
             >
-              {settings.uiLanguage === 'en' ? 'EN' : 'TH'}
+              {settings.uiLanguage === 'th' ? 'EN' : 'TH'}
             </button>
             <button
-              onClick={() => setSettings(prev => {
-                const currentTheme = prev.theme || (prev.darkMode ? 'dark' : 'light');
+              onClick={() => {
+                const currentTheme = settings.theme || (settings.darkMode ? 'dark' : 'light');
                 const nextTheme = currentTheme === 'light' ? 'dark' : currentTheme === 'dark' ? 'monochrome' : 'light';
-                return { ...prev, theme: nextTheme, darkMode: nextTheme === 'dark' || nextTheme === 'monochrome' };
-              })}
-              className="p-1.5 sm:p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors relative overflow-hidden flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10"
-              title="Toggle Theme"
+                setSettings(prev => ({ ...prev, theme: nextTheme, darkMode: nextTheme === 'dark' || nextTheme === 'monochrome' }));
+              }}
+              className="p-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+              title={settings.uiLanguage === 'th' ? 'เปลี่ยนธีม' : 'Toggle theme'}
             >
-              <motion.div
-                key={settings.theme || (settings.darkMode ? 'dark' : 'light')}
-                initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
-                animate={{ rotate: 0, opacity: 1, scale: 1 }}
-                exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
-                transition={{ duration: 0.3, type: 'spring', stiffness: 200, damping: 15 }}
-                className="absolute"
-              >
-                {(settings.theme || (settings.darkMode ? 'dark' : 'light')) === 'light' && <Sun size={16} className="sm:w-[18px] sm:h-[18px]" />}
-                {(settings.theme || (settings.darkMode ? 'dark' : 'light')) === 'dark' && <Moon size={16} className="sm:w-[18px] sm:h-[18px]" />}
-                {settings.theme === 'monochrome' && <Contrast size={16} className="sm:w-[18px] sm:h-[18px]" />}
-              </motion.div>
+              {settings.theme === 'monochrome' ? <Contrast size={16} /> : settings.darkMode ? <Moon size={16} /> : <Sun size={16} />}
             </button>
             {isInstallable && (
               <button
@@ -449,14 +459,14 @@ function AppContent() {
             <WorkspaceMenu />
             <button 
               onClick={() => setIsKeyboardShortcutsOpen(true)}
-              className="hidden sm:flex p-1.5 sm:p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors"
+              className="p-1.5 sm:p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
               title="Keyboard Shortcuts"
             >
               <Keyboard size={16} className="sm:w-[20px] sm:h-[20px]" />
             </button>
             <button 
               onClick={() => setIsSettingsOpen(true)}
-              className="p-1.5 sm:p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300 transition-colors"
+              className="p-1.5 sm:p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
               title="Settings"
             >
               <Settings size={16} className="sm:w-[20px] sm:h-[20px]" />
@@ -465,34 +475,135 @@ function AppContent() {
         </div>
       </header>
 
-      {/* Main Content */}
-      {!activeProjectId ? (
+      {/* Main Content with Left Rail */}
+      {!repositoryReady ? (
+        <RepositoryLoadingState language={settings.uiLanguage} />
+      ) : !activeProjectId ? (
         <EmptyProjectState />
       ) : (
-        <main className={isWorkstation
-          ? 'workstation-content-grid mx-auto w-full max-w-[1920px] lg:h-[calc(100vh-124px)] lg:overflow-hidden'
-          : 'mx-auto w-full max-w-[1800px] p-2 sm:p-4 lg:p-6 flex flex-col lg:flex-row gap-4 lg:gap-6 lg:h-[calc(100vh-76px)] lg:overflow-hidden'}>
-          {/* Main scouting workspace */}
-          <div className={`flex-1 grid grid-cols-1 lg:grid-cols-12 lg:h-full lg:overflow-hidden ${isWorkstation ? 'gap-px bg-[#263642] p-px' : 'gap-4 lg:gap-6'}`}>
-            
-            {/* Top/Left Workspace: Video Player */}
-            <section className={`coach-panel ${isWorkstation ? 'lg:col-span-7 xl:col-span-6' : 'lg:col-span-5'} flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar`}>
-              <React.Suspense fallback={<div className="w-full aspect-video bg-gray-800 animate-pulse rounded-lg flex items-center justify-center text-gray-400">Loading Player...</div>}>
-                <VideoPlayer />
-              </React.Suspense>
-            </section>
+        <div className="flex w-full flex-1 overflow-hidden">
+          {isWorkstation && (
+            <WorkstationLeftRail
+              activeTool={activeLeftTool}
+              onSelectTool={(tool) => {
+                setActiveLeftTool(tool);
+                if (tool === 'scout' || tool === 'select') {
+                  handleWorkstationPreset('scout');
+                  setActiveTab('input');
+                } else if (tool === 'reports') {
+                  handleWorkstationPreset('report');
+                  setActiveTab('report');
+                } else if (tool === 'playlist') {
+                  handleWorkstationPreset('review');
+                  setActiveTab('bookmarks');
+                } else if (tool === 'track' || tool === 'zone' || tool === 'measure') {
+                  handleWorkstationPreset('analysis');
+                  setActiveTab('dashboard');
+                } else if (tool === 'draw') {
+                  showToast(settings.uiLanguage === 'th' ? 'โหมดวาด Telestration เปิดใช้งาน' : 'Telestration mode active');
+                } else if (tool === 'camera') {
+                  showToast(settings.uiLanguage === 'th' ? 'สลับมุมกล้องหลัก' : 'Primary Camera Active');
+                } else if (tool === 'text') {
+                  showToast(settings.uiLanguage === 'th' ? 'ใส่บันทึกแท็กติก' : 'Add Tactical Note');
+                }
+              }}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenHelp={() => setIsKeyboardShortcutsOpen(true)}
+              language={settings.uiLanguage}
+            />
+          )}
 
-            {/* Top/Right Workspace: Tabs Interface */}
-            <section className={`${isWorkstation ? 'lg:col-span-5 xl:col-span-4 bg-[#0c1721] p-2' : 'lg:col-span-7'} flex flex-col gap-4 lg:h-full lg:overflow-hidden`}>
-              {isWorkstation && isReviewTab(activeTab) && (
-                <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองทบทวน' : 'Review views'} onKeyDown={handleTablistKeyDown}>
+          <main className={isWorkstation
+            ? 'workstation-content-grid flex-1 mx-auto w-full max-w-[1920px] lg:h-[calc(100vh-124px)] lg:overflow-hidden'
+            : 'mx-auto w-full max-w-[1800px] p-2 sm:p-4 lg:p-6 flex flex-col lg:flex-row gap-4 lg:gap-6 lg:h-[calc(100vh-76px)] lg:overflow-hidden'}>
+            {/* Main scouting workspace */}
+            <div className={`flex-1 grid grid-cols-1 lg:grid-cols-12 lg:h-full lg:overflow-hidden ${
+              isWorkstation 
+                ? (activeTab === 'report' ? 'p-2 sm:p-4 bg-[#09141d]' : 'gap-px bg-[#263642] p-px') 
+                : 'gap-4 lg:gap-6'
+            }`}>
+              
+              {/* Top/Left Workspace: Video Player */}
+              <section className={`coach-panel ${activeTab === 'report' ? 'hidden' : isWorkstation ? 'lg:col-span-7 xl:col-span-6' : 'lg:col-span-5'} flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar`}>
+                <React.Suspense fallback={<div className="w-full aspect-video bg-gray-800 animate-pulse rounded-lg flex items-center justify-center text-gray-400">Loading Player...</div>}>
+                  <VideoPlayer />
+                </React.Suspense>
+              </section>
+
+              {/* Top/Right Workspace: Tabs Interface */}
+              <section className={`${activeTab === 'report' ? 'lg:col-span-12 w-full p-0 bg-transparent' : isWorkstation ? 'lg:col-span-5 xl:col-span-4 bg-[#0c1721] p-2' : 'lg:col-span-7'} flex flex-col gap-4 lg:h-full lg:overflow-hidden`}>
+                {isWorkstation && isReviewTab(activeTab) && (
+                  <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองทบทวน' : 'Review views'} onKeyDown={handleTablistKeyDown}>
+                    <button
+                      id="analysis-tab-table"
+                      role="tab"
+                      aria-selected={activeTab === 'table'}
+                      aria-controls="analysis-panel-table"
+                      onClick={() => setActiveTab('table')}
+                      className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${activeTab === 'table' ? 'coach-tab-active' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    >
+                      <Table2 size={18} />
+                      <span>{settings.uiLanguage === 'th' ? 'ตารางเหตุการณ์' : 'Events Table'}</span>
+                    </button>
+                    <button
+                      id="analysis-tab-bookmarks"
+                      role="tab"
+                      aria-selected={activeTab === 'bookmarks'}
+                      aria-controls="analysis-panel-bookmarks"
+                      onClick={() => setActiveTab('bookmarks')}
+                      className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${activeTab === 'bookmarks' ? 'coach-tab-active' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    >
+                      <Star size={18} />
+                      <span>{t('keyMoments.title', settings.uiLanguage)}</span>
+                    </button>
+                  </div>
+                )}
+                {!isWorkstation && (
+                <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'} onKeyDown={handleTablistKeyDown}>
+                  <button
+                    id="analysis-tab-input"
+                    role="tab"
+                    aria-selected={activeTab === 'input'}
+                    aria-controls="analysis-panel-input"
+                    onClick={() => setActiveTab('input')}
+                    onPointerDown={() => setActiveTab('input')}
+                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
+                      activeTab === 'input'
+                        ? 'coach-tab-active'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <Gamepad2 size={18} />
+                    <span>{settings.uiLanguage === 'th' ? 'แผงบันทึก (Scout)' : 'Scout Input'}</span>
+                  </button>
+                  <button
+                    id="analysis-tab-dashboard"
+                    role="tab"
+                    aria-selected={activeTab === 'dashboard'}
+                    aria-controls="analysis-panel-dashboard"
+                    onClick={() => setActiveTab('dashboard')}
+                    onPointerDown={() => setActiveTab('dashboard')}
+                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
+                      activeTab === 'dashboard'
+                        ? 'coach-tab-active'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <BarChart3 size={18} />
+                    <span>{settings.uiLanguage === 'th' ? 'สถิติ / ชาร์ต' : 'Dashboard'}</span>
+                  </button>
                   <button
                     id="analysis-tab-table"
                     role="tab"
                     aria-selected={activeTab === 'table'}
                     aria-controls="analysis-panel-table"
                     onClick={() => setActiveTab('table')}
-                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${activeTab === 'table' ? 'coach-tab-active' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    onPointerDown={() => setActiveTab('table')}
+                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
+                      activeTab === 'table'
+                        ? 'coach-tab-active'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
                   >
                     <Table2 size={18} />
                     <span>{settings.uiLanguage === 'th' ? 'ตารางเหตุการณ์' : 'Events Table'}</span>
@@ -503,120 +614,18 @@ function AppContent() {
                     aria-selected={activeTab === 'bookmarks'}
                     aria-controls="analysis-panel-bookmarks"
                     onClick={() => setActiveTab('bookmarks')}
-                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${activeTab === 'bookmarks' ? 'coach-tab-active' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                    onPointerDown={() => setActiveTab('bookmarks')}
+                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
+                      activeTab === 'bookmarks'
+                        ? 'coach-tab-active'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
                   >
                     <Star size={18} />
                     <span>{t('keyMoments.title', settings.uiLanguage)}</span>
                   </button>
                 </div>
               )}
-              {!isWorkstation && (
-              <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'} onKeyDown={handleTablistKeyDown}>
-                <button
-                  id="analysis-tab-input"
-                  role="tab"
-                  aria-selected={activeTab === 'input'}
-                  aria-controls="analysis-panel-input"
-                  onClick={() => setActiveTab('input')}
-                  onPointerDown={() => setActiveTab('input')}
-                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
-                    activeTab === 'input'
-                      ? 'coach-tab-active'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <Gamepad2 size={18} />
-                  <span>{settings.uiLanguage === 'th' ? 'แผงบันทึก (Scout)' : 'Scout Input'}</span>
-                </button>
-                <button
-                  id="analysis-tab-dashboard"
-                  role="tab"
-                  aria-selected={activeTab === 'dashboard'}
-                  aria-controls="analysis-panel-dashboard"
-                  onClick={() => setActiveTab('dashboard')}
-                  onPointerDown={() => setActiveTab('dashboard')}
-                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
-                    activeTab === 'dashboard'
-                      ? 'coach-tab-active'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <BarChart3 size={18} />
-                  <span>{settings.uiLanguage === 'th' ? 'สถิติ / ชาร์ต' : 'Dashboard'}</span>
-                </button>
-                <button
-                  id="analysis-tab-table"
-                  role="tab"
-                  aria-selected={activeTab === 'table'}
-                  aria-controls="analysis-panel-table"
-                  onClick={() => setActiveTab('table')}
-                  onPointerDown={() => setActiveTab('table')}
-                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
-                    activeTab === 'table'
-                      ? 'coach-tab-active'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <Table2 size={18} />
-                  <span>{settings.uiLanguage === 'th' ? 'ตารางเหตุการณ์' : 'Events Table'}</span>
-                </button>
-                <button
-                  id="analysis-tab-bookmarks"
-                  role="tab"
-                  aria-selected={activeTab === 'bookmarks'}
-                  aria-controls="analysis-panel-bookmarks"
-                  onClick={() => setActiveTab('bookmarks')}
-                  onPointerDown={() => setActiveTab('bookmarks')}
-                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
-                    activeTab === 'bookmarks'
-                      ? 'coach-tab-active'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <Star size={18} />
-                  <span>{t('keyMoments.title', settings.uiLanguage)}</span>
-                </button>
-                <button
-                  id="analysis-tab-report"
-                  role="tab"
-                  aria-selected={activeTab === 'report'}
-                  aria-controls="analysis-panel-report"
-                  onClick={() => setActiveTab('report')}
-                  onPointerDown={() => setActiveTab('report')}
-                  className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
-                    activeTab === 'report'
-                      ? 'coach-tab-active'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <FileText size={18} />
-                  <span>{settings.uiLanguage === 'th' ? 'รายงาน' : 'Report'}</span>
-                </button>
-              </div>
-              )}
-
-              {/* Dynamic scrollable views wrapper */}
-              <div
-                id={`analysis-panel-${activeTab}`}
-                role="tabpanel"
-                aria-labelledby={`analysis-tab-${activeTab}`}
-                className="flex-1 overflow-y-auto pr-1 pb-4 custom-scrollbar"
-              >
-                {activeTab === 'input' && (
-                  <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800" />}>
-                    <InputPanel />
-                  </React.Suspense>
-                )}
-                {activeTab === 'dashboard' && (
-                  <React.Suspense fallback={<div className="p-4 sm:p-6 text-center text-gray-500">Loading dashboard...</div>}>
-                    <Dashboard variant={isWorkstation ? 'workstation' : 'classic'} />
-                  </React.Suspense>
-                )}
-                {activeTab === 'report' && (
-                  <React.Suspense fallback={<div className="p-4 sm:p-6 text-center text-gray-500">Loading report...</div>}>
-                    <Dashboard variant="report" />
-                  </React.Suspense>
-                )}
                 {activeTab === 'table' && (
                   <section className="coach-panel p-4">
                     <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800" />}>
@@ -629,17 +638,17 @@ function AppContent() {
                     <BookmarksPanel />
                   </section>
                 )}
-              </div>
-            </section>
+              </section>
 
-            {isWorkstation && (
-              <div className="hidden min-w-0 xl:col-span-2 xl:block">
-                <WorkstationInspector />
-              </div>
-            )}
+              {isWorkstation && activeTab !== 'report' && (
+                <div className="hidden min-w-0 xl:col-span-2 xl:block">
+                  <WorkstationInspector />
+                </div>
+              )}
 
-          </div>
-        </main>
+            </div>
+          </main>
+        </div>
       )}
 
       {isWorkstation && activeProjectId && (

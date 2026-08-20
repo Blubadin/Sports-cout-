@@ -34,6 +34,7 @@ import { resolveLocalVideoState, type LocalVideoState } from "../utils/videoStat
 import { getLocalizedVideoError } from "../utils/videoError";
 import { t } from "../i18n";
 import CourtZoneOverlay from "./video/CourtZoneOverlay";
+import TimelinePanel from "./video/TimelinePanel";
 
 export default function VideoPlayer() {
   const playerRef = useRef<any>(null);
@@ -1153,6 +1154,26 @@ export default function VideoPlayer() {
               </div>
             )}
           </div>
+
+          {/* Pro Multi-Lane Interactive Timeline Panel */}
+          <TimelinePanel
+            currentTime={visibleTime}
+            duration={safeDuration}
+            onSeek={(t) => {
+              seekToSafe(t);
+              setCurrentTimeDisplay(t);
+              setVideoTime(t);
+            }}
+            videoSrc={videoSrc}
+            videoSourceType={videoSourceType}
+            youtubeVideoId={youtubeVideoId}
+            isPlaying={isPlaying}
+            onTogglePlay={togglePlay}
+            onStepFrame={(forward) => seekBySafe(forward ? 0.04 : -0.04)}
+            onSkipSeconds={(seconds) => seekBySafe(seconds)}
+            playbackRate={playbackRate}
+            onSetPlaybackRate={setSpeedSafe}
+          />
         </div>
       )}
     </div>

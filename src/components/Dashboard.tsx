@@ -20,6 +20,7 @@ import ResultDistributionChart from './charts/ResultDistributionChart';
 import SportSpecificKPIs from './charts/SportSpecificKPIs';
 import { buildVolleyballPyramidSummary } from '../volleyball/volleyballPyramid';
 import VolleyballPyramidPanel from './VolleyballPyramidPanel';
+import FullCoachReport from './report/FullCoachReport';
 
 interface DashboardProps {
   variant?: 'classic' | 'workstation' | 'report';
@@ -649,29 +650,7 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
   );
 
   if (variant === 'report') {
-    const topSkills = Object.entries(analyticsSummary.skillCounts).sort((left, right) => right[1] - left[1]).slice(0, 5) as Array<[string, number]>;
-    const topAreas = Object.entries(analyticsSummary.areaCounts).sort((left, right) => right[1] - left[1]).slice(0, 5) as Array<[string, number]>;
-    const reportKpis = [
-      ['Events', stats.total], ['Success', stats.yes], ['Errors', stats.out], ['Success rate', `${successRate}%`],
-    ] as Array<[string, string | number]>;
-    return (
-      <div className="coach-report-content bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
-        <header className="print:hidden flex items-center justify-between gap-4 border-b border-gray-100 pb-4 dark:border-gray-700">
-          <div><h2 className="text-base font-black">{settings.uiLanguage === 'th' ? 'รายงานสรุปสำหรับโค้ช' : 'Coach summary report'}</h2><p className="mt-1 text-xs text-gray-500">{matchInfo.sportType ? SPORT_TEMPLATES[matchInfo.sportType].name : 'All sports'}</p></div>
-          <button type="button" onClick={() => window.print()} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"><Printer size={14} /> {t('dashboard.printCoachSummary', settings.uiLanguage)}</button>
-        </header>
-        {teams.length >= 2 && <div className="my-5 flex items-center justify-center gap-4 rounded-xl bg-sky-50 p-4 dark:bg-sky-950/30"><strong>{teams[0]?.code}</strong><strong className="text-3xl text-sky-700 dark:text-sky-300">{stats.teamAScore} - {stats.teamBScore}</strong><strong>{teams[1]?.code}</strong></div>}
-        <section className="my-5 grid grid-cols-2 gap-3 sm:grid-cols-4">{reportKpis.map(([label, value]) => <StatCard key={label} title={label} value={value} color="bg-gray-50 text-gray-700 dark:bg-gray-900/50 dark:text-gray-200" />)}</section>
-        {matchInfo.sportType === 'volleyball' ? (
-          <VolleyballPyramidPanel summary={volleyballPyramidSummary} language={settings.uiLanguage} interactive={false} />
-        ) : (
-          <>
-            <section className="my-5 grid gap-4 md:grid-cols-2"><ReportRanking title={settings.uiLanguage === 'th' ? 'ทักษะเด่น' : 'Top skills'} entries={topSkills} emptyLabel={settings.uiLanguage === 'th' ? 'ยังไม่มีข้อมูลทักษะ' : 'No skill data yet'} /><ReportRanking title={settings.uiLanguage === 'th' ? 'พื้นที่เด่น' : 'Top areas'} entries={topAreas} emptyLabel={settings.uiLanguage === 'th' ? 'ยังไม่มีข้อมูลพื้นที่' : 'No area data yet'} /></section>
-            <section><h3 className="mb-2 text-sm font-black">{settings.uiLanguage === 'th' ? 'คุณภาพข้อมูล' : 'Data quality'}</h3>{renderDataQuality()}</section>
-          </>
-        )}
-      </div>
-    );
+    return <FullCoachReport onGoToVideoTime={setSeekRequest} />;
   }
 
   return (
