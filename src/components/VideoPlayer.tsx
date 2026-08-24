@@ -35,8 +35,15 @@ import { getLocalizedVideoError } from "../utils/videoError";
 import { t } from "../i18n";
 import CourtZoneOverlay from "./video/CourtZoneOverlay";
 import TimelinePanel from "./video/TimelinePanel";
+import TelestrationCanvas from "./video/TelestrationCanvas";
+import type { WorkstationLeftTool } from "./workstation/WorkstationChrome";
 
-export default function VideoPlayer() {
+export interface VideoPlayerProps {
+  activeTool?: WorkstationLeftTool;
+  onSelectTool?: (tool: WorkstationLeftTool) => void;
+}
+
+export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerProps = {}) {
   const playerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousProjectIdRef = useRef<string | null | undefined>(undefined);
@@ -47,6 +54,15 @@ export default function VideoPlayer() {
   const [localVideoState, setLocalVideoState] = useState<LocalVideoState>('idle');
   const [showCourtOverlay, setShowCourtOverlay] = useState(false);
   const [isCalibratingCourt, setIsCalibratingCourt] = useState(false);
+  const [digitalZoom, setDigitalZoom] = useState<number>(1);
+  const [cameraAngle, setCameraAngle] = useState<number>(1);
+
+  // When Zone tool is activated from left rail, open court overlay
+  useEffect(() => {
+    if (activeTool === 'zone') {
+      setShowCourtOverlay(true);
+    }
+  }, [activeTool]);
 
   const {
     isHUDMode,
@@ -63,7 +79,6 @@ export default function VideoPlayer() {
   const {
     setVideoTime,
     videoSourceType,
-    setVideoSourceType,
     youtubeUrl,
     setYoutubeUrl,
     youtubeVideoId,
@@ -77,7 +92,7 @@ export default function VideoPlayer() {
     getCurrentTimeRef,
   } = useScoutContext();
 
-  const { activeProjectId, projects, updateProjectLastVideoTime, updateProjectVideoCalibration } = useWorkspace();
+  const { activeProjectId, projects, updateProjectLastVideoTime, updateProjectVideoCalibration, updateProjectAnnotations } = useWorkspace();
   const activeProject = projects.find(project => project.id === activeProjectId);
 
   const {
@@ -620,6 +635,74 @@ export default function VideoPlayer() {
                 }}
               />
 
+              {/* Camera Angle & Digital Zoom Toolbar */}
+              {activeTool === 'camera' && (
+                <div className="absolute top-2 right-2 z-40 bg-[#09141d]/90 backdrop-blur-md border border-[#263642] shadow-xl rounded-xl p-2.5 flex flex-col gap-2 text-xs">
+                  <div className="flex items-center justify-between gap-3 text-gray-300 font-bold text-[11px]">
+                    <span>{settings.uiLanguage === 'th' ? 'มุมกล้อง' : 'Camera Angle'}</span>
+                    <div className="flex gap-1">
+                      {[1, 2, 3].map((angle) => (
+                        <button
+                          key={angle}
+                          type="button"
+                          onClick={() => setCameraAngle(angle)}
+                          className={`px-2 py-0.5 rounded font-mono text-[10px] cursor-pointer ${
+                            cameraAngle === angle
+                              ? 'bg-sky-500 text-white font-bold'
+                              : 'bg-gray-800 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          CAM {angle}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 text-gray-300 font-bold text-[11px]">
+                    <span>{settings.uiLanguage === 'th' ? 'ขยายภาพ (Zoom)' : 'Digital Zoom'}</span>
+                    <div className="flex gap-1">
+                      {[1, 1.25, 1.5, 2].map((zoom) => (
+                        <button
+                          key={zoom}
+                          type="button"
+                          onClick={() => setDigitalZoom(zoom)}
+                          className={`px-2 py-0.5 rounded font-mono text-[10px] cursor-pointer ${
+                            digitalZoom === zoom
+                              ? 'bg-sky-500 text-white font-bold'
+                              : 'bg-gray-800 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          {zoom}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Telestration Canvas (Interactive in Edit Mode, Passive during Playback) */}
+              {(activeTool === 'draw' || activeTool === 'measure' || activeTool === 'text' || activeTool === 'track') ? (
+                <TelestrationCanvas
+                  activeTool={activeTool}
+                  currentTime={visibleTime}
+                  persistedShapes={activeProject?.videoMeta?.annotations || []}
+                  onSaveAnnotations={(nextShapes) => {
+                    updateProjectAnnotations(nextShapes);
+                  }}
+                  onClose={() => onSelectTool?.('scout')}
+                  language={settings.uiLanguage}
+                  isCalibrated={Boolean(activeProject?.videoMeta?.courtCalibration)}
+                />
+              ) : (
+                (activeProject?.videoMeta?.annotations && activeProject.videoMeta.annotations.length > 0) && (
+                  <TelestrationCanvas
+                    isReadOnly={true}
+                    currentTime={visibleTime}
+                    persistedShapes={activeProject.videoMeta.annotations}
+                    language={settings.uiLanguage}
+                  />
+                )
+              )}
+
               {isLoadingVideo && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10 pointer-events-none">
                   <p className="text-white">
@@ -635,7 +718,7 @@ export default function VideoPlayer() {
                       setIsAutoplayBlocked(false);
                       playSafe();
                     }}
-                    className="bg-sky-600 hover:bg-sky-500 text-white rounded-full px-6 py-3 font-bold flex items-center gap-2 shadow-lg"
+                    className="bg-sky-600 hover:bg-sky-500 text-white rounded-full px-6 py-3 font-bold flex items-center gap-2 shadow-lg cursor-pointer"
                   >
                     <Play size={24} />
                     {t("video.tapToStart", settings.uiLanguage)}
@@ -672,7 +755,7 @@ export default function VideoPlayer() {
                               const externalWindow = window.open(embedUrl, "_blank", "noopener,noreferrer");
                               if (externalWindow) externalWindow.opener = null;
                             }}
-                            className="px-2 py-0.5 bg-white/10 hover:bg-white/20 text-white rounded text-[9px] transition-colors"
+                            className="px-2 py-0.5 bg-white/10 hover:bg-white/20 text-white rounded text-[9px] transition-colors cursor-pointer"
                           >
                             Test YouTube Embed
                           </button>
@@ -753,7 +836,7 @@ export default function VideoPlayer() {
                         <>
                           <button
                             onClick={() => handleYoutubeLoad()}
-                            className="px-3.5 py-2.5 bg-sky-600 text-white rounded-xl hover:bg-sky-500 font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5"
+                            className="px-3.5 py-2.5 bg-sky-600 text-white rounded-xl hover:bg-sky-500 font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
                           >
                             {t("video.tryReload", settings.uiLanguage)}
                           </button>
@@ -761,7 +844,7 @@ export default function VideoPlayer() {
                             href={youtubeUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="px-3.5 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-500 font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5"
+                            className="px-3.5 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-500 font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
                           >
                             {t("video.openYoutube", settings.uiLanguage)}
                           </a>
@@ -787,7 +870,7 @@ export default function VideoPlayer() {
                               }
                               showToast(t("video.urlCopied", settings.uiLanguage));
                             }}
-                            className="px-3.5 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-bold text-xs transition-all active:scale-95 border border-white/10 flex items-center justify-center gap-1.5"
+                            className="px-3.5 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-bold text-xs transition-all active:scale-95 border border-white/10 flex items-center justify-center gap-1.5 cursor-pointer"
                           >
                             {t("video.copyUrl", settings.uiLanguage)}
                           </button>
@@ -803,7 +886,7 @@ export default function VideoPlayer() {
                             fileInputRef.current?.click();
                           }, 100);
                         }}
-                        className="px-3.5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-bold text-xs transition-all active:scale-95 shadow-sm flex items-center justify-center gap-1.5"
+                        className="px-3.5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-bold text-xs transition-all active:scale-95 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         Local Video
                       </button>
@@ -815,7 +898,7 @@ export default function VideoPlayer() {
                           setPlayerErrorType(null);
                           setPlayerErrorCode(null);
                         }}
-                        className="px-3.5 py-2.5 bg-gray-600 hover:bg-gray-500 text-white rounded-xl font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5 col-span-2 mt-1"
+                        className="px-3.5 py-2.5 bg-gray-600 hover:bg-gray-500 text-white rounded-xl font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5 col-span-2 mt-1 cursor-pointer"
                       >
                         {t("video.continueWithoutVideo", settings.uiLanguage)}
                       </button>
@@ -838,67 +921,75 @@ export default function VideoPlayer() {
                       : youtubeUrl || undefined;
                   const Player = ReactPlayer as React.ElementType;
                   return (
-                    <Player
-                      key={`${videoSourceType}-${currentVideoSrc}`}
-                      ref={playerRef}
-                      src={currentVideoSrc}
-                      playing={isPlaying}
-                      playbackRate={playbackRate}
-                      volume={volume}
-                      controls={false}
-                      width="100%"
-                      height="100%"
-                      playsInline
-                      progressInterval={100}
-                      onProgress={({ playedSeconds }) => {
-                        if (isScrubbing) return;
-                        if (!Number.isFinite(playedSeconds) || playedSeconds < 0) return;
-                        setCurrentTimeDisplay(playedSeconds);
-                        setVideoTime(playedSeconds);
+                    <div
+                      className="w-full h-full transition-transform duration-200"
+                      style={{
+                        transform: digitalZoom > 1 ? `scale(${digitalZoom})` : undefined,
+                        transformOrigin: 'center center',
+                      }}
+                    >
+                      <Player
+                        key={`${videoSourceType}-${currentVideoSrc}`}
+                        ref={playerRef}
+                        src={currentVideoSrc}
+                        playing={isPlaying}
+                        playbackRate={playbackRate}
+                        volume={volume}
+                        controls={false}
+                        width="100%"
+                        height="100%"
+                        playsInline
+                        progressInterval={100}
+                        onProgress={({ playedSeconds }) => {
+                          if (isScrubbing) return;
+                          if (!Number.isFinite(playedSeconds) || playedSeconds < 0) return;
+                          setCurrentTimeDisplay(playedSeconds);
+                          setVideoTime(playedSeconds);
 
-                        // Auto-save time periodically
-                        if (Math.floor(playedSeconds) % 15 === 0) {
-                           updateProjectLastVideoTime(playedSeconds);
-                        }
-                      }}
-                      onDuration={(d: number) => {
-                        if (Number.isFinite(d) && d > 0) setDuration(d);
-                      }}
-                      onTimeUpdate={handleTimeUpdate}
-                      onDurationChange={(event: any) => {
-                        const d =
-                          event?.currentTarget?.duration ?? getDurationSafe();
-                        if (Number.isFinite(d) && d > 0) setDuration(d);
-                      }}
-                      onReady={handlePlayerReadyWithoutCaptions}
-                      onPlaying={() => {
-                        setIsLoadingVideo(false);
-                        setPlayerReady(true);
-                        setPlayerError(null);
-                        setActualPlaying(true);
-                        setIsAutoplayBlocked(false);
-                      }}
-                      onWaiting={() => {
-                        // optional buffering state
-                      }}
-                      onError={handlePlayerError}
-                      config={
-                        {
-                          youtube: {
-                            playerVars: {
-                              rel: 0,
-                              playsinline: 1,
-                              modestbranding: 1,
-                              enablejsapi: 1,
-                              cc_load_policy: 0,
-                              iv_load_policy: 3,
-                              fs: 1,
-                              origin: window.location.origin,
+                          // Auto-save time periodically
+                          if (Math.floor(playedSeconds) % 15 === 0) {
+                            updateProjectLastVideoTime(playedSeconds);
+                          }
+                        }}
+                        onDuration={(d: number) => {
+                          if (Number.isFinite(d) && d > 0) setDuration(d);
+                        }}
+                        onTimeUpdate={handleTimeUpdate}
+                        onDurationChange={(event: any) => {
+                          const d =
+                            event?.currentTarget?.duration ?? getDurationSafe();
+                          if (Number.isFinite(d) && d > 0) setDuration(d);
+                        }}
+                        onReady={handlePlayerReadyWithoutCaptions}
+                        onPlaying={() => {
+                          setIsLoadingVideo(false);
+                          setPlayerReady(true);
+                          setPlayerError(null);
+                          setActualPlaying(true);
+                          setIsAutoplayBlocked(false);
+                        }}
+                        onWaiting={() => {
+                          // optional buffering state
+                        }}
+                        onError={handlePlayerError}
+                        config={
+                          {
+                            youtube: {
+                              playerVars: {
+                                rel: 0,
+                                playsinline: 1,
+                                modestbranding: 1,
+                                enablejsapi: 1,
+                                cc_load_policy: 0,
+                                iv_load_policy: 3,
+                                fs: 1,
+                                origin: window.location.origin,
+                              },
                             },
-                          },
-                        } as Record<string, unknown>
-                      }
-                    />
+                          } as Record<string, unknown>
+                        }
+                      />
+                    </div>
                   );
                 })()}
               </Suspense>
@@ -962,6 +1053,18 @@ export default function VideoPlayer() {
                           }}
                         />
                       </div>
+                      {/* Annotation Pips */}
+                      {safeDuration > 0 && activeProject?.videoMeta?.annotations?.map((ann) => (
+                        <div
+                          key={ann.id}
+                          title={ann.label || `Telestration @ ${formatPreciseTime(ann.timestamp)}`}
+                          className="absolute h-2.5 w-1 rounded-sm pointer-events-none z-10 transform -translate-x-1/2 shadow"
+                          style={{
+                            left: `${(ann.timestamp / safeDuration) * 100}%`,
+                            backgroundColor: ann.color || '#00f0ff',
+                          }}
+                        />
+                      ))}
                       {/* Custom Thumb */}
                       <div
                         className="absolute h-2 w-2 bg-white rounded-full pointer-events-none shadow-sm -ml-1 transition-transform group-hover:scale-125"

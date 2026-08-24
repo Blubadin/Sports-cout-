@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useCallback } from 'react';
-import { ScoutProject, MatchInfo, Team, AppSettings, SportType, EventRow } from '../types';
+import { ScoutProject, MatchInfo, Team, AppSettings, SportType, EventRow, TelestrationShape } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useScoutContext } from './ScoutContext';
 import { DEFAULT_TEAMS } from '../data';
@@ -73,6 +73,7 @@ interface WorkspaceContextType {
   importProject: (project: any) => Promise<boolean>;
   updateProjectLastVideoTime: (time: number) => void;
   updateProjectVideoCalibration: (calibration: CourtCalibration) => void;
+  updateProjectAnnotations: (annotations: TelestrationShape[]) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -793,6 +794,21 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const updateProjectAnnotations = (annotations: TelestrationShape[]) => {
+    if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) return;
+    const projectId = activeProjectIdRef.current;
+    if (!projectId) return;
+    clearPendingProjectTimers();
+    void enqueueProjectMutation(current => current.map(project =>
+      project.id === projectId
+        ? { ...project, videoMeta: { ...(project.videoMeta || { sourceType: videoSourceType }), annotations }, updatedAt: new Date().toISOString() }
+        : project,
+    )).catch(error => {
+      if (error instanceof ProjectRepositoryConflictError) return;
+      console.error('Failed to update project annotations:', error);
+    });
+  };
+
   const importProject = async (project: any): Promise<boolean> => {
     const reportImportFailure = () => {
       showToast(settings.uiLanguage === 'th'
@@ -949,7 +965,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       renameProject,
       importProject,
       updateProjectLastVideoTime,
-      updateProjectVideoCalibration
+      updateProjectVideoCalibration,
+      updateProjectAnnotations
     }}>
       {children}
     </WorkspaceContext.Provider>

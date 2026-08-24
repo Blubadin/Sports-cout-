@@ -37,6 +37,7 @@ const SettingsModal = React.lazy(() => import('./components/SettingsModal'));
 const VideoPlayer = React.lazy(() => import('./components/VideoPlayer'));
 const InputPanel = React.lazy(() => import('./components/InputPanel'));
 const ScoutingTable = React.lazy(() => import('./components/ScoutingTable'));
+const FullCoachReport = React.lazy(() => import('./components/report/FullCoachReport'));
 const KeyboardShortcutsModal = React.lazy(() => import('./components/KeyboardShortcutsModal'));
 const MatchInfoModal = React.lazy(() => import('./components/MatchInfoModal'));
 
@@ -238,6 +239,8 @@ function AppContent() {
     teams,
     events,
     videoTime,
+    setSeekRequest,
+    showToast,
     canUndoEventAction,
     canRedoEventAction,
     undoEventAction,
@@ -502,9 +505,21 @@ function AppContent() {
                 } else if (tool === 'draw') {
                   showToast(settings.uiLanguage === 'th' ? 'โหมดวาด Telestration เปิดใช้งาน' : 'Telestration mode active');
                 } else if (tool === 'camera') {
-                  showToast(settings.uiLanguage === 'th' ? 'สลับมุมกล้องหลัก' : 'Primary Camera Active');
+                  showToast(settings.uiLanguage === 'th' ? 'มุมกล้อง & ดิจิทัลซูม' : 'Camera Angle & Digital Zoom Active');
                 } else if (tool === 'text') {
                   showToast(settings.uiLanguage === 'th' ? 'ใส่บันทึกแท็กติก' : 'Add Tactical Note');
+                }
+              }}
+              onToggleHUD={() => {
+                const hudBtn = document.querySelector('[data-hud-toggle]') as HTMLButtonElement | null;
+                if (hudBtn) hudBtn.click();
+                else showToast(settings.uiLanguage === 'th' ? 'โหมด HUD แดชบอร์ด' : 'HUD mode activated');
+              }}
+              onToggleFullscreen={() => {
+                if (!document.fullscreenElement) {
+                  document.documentElement.requestFullscreen().catch(() => {});
+                } else {
+                  document.exitFullscreen().catch(() => {});
                 }
               }}
               onOpenSettings={() => setIsSettingsOpen(true)}
@@ -526,7 +541,7 @@ function AppContent() {
               {/* Top/Left Workspace: Video Player */}
               <section className={`coach-panel ${activeTab === 'report' ? 'hidden' : isWorkstation ? 'lg:col-span-7 xl:col-span-6' : 'lg:col-span-5'} flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar`}>
                 <React.Suspense fallback={<div className="w-full aspect-video bg-gray-800 animate-pulse rounded-lg flex items-center justify-center text-gray-400">Loading Player...</div>}>
-                  <VideoPlayer />
+                  <VideoPlayer activeTool={activeLeftTool} onSelectTool={setActiveLeftTool} />
                 </React.Suspense>
               </section>
 
@@ -626,17 +641,40 @@ function AppContent() {
                   </button>
                 </div>
               )}
+                {activeTab === 'input' && (
+                  <div className="flex flex-col gap-4 lg:h-full lg:overflow-y-auto custom-scrollbar p-1">
+                    <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl" />}>
+                      <InputPanel />
+                    </React.Suspense>
+                  </div>
+                )}
+                {activeTab === 'dashboard' && (
+                  <div className="flex flex-col gap-4 lg:h-full lg:overflow-y-auto custom-scrollbar p-1">
+                    <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl" />}>
+                      <Dashboard />
+                    </React.Suspense>
+                  </div>
+                )}
                 {activeTab === 'table' && (
-                  <section className="coach-panel p-4">
-                    <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800" />}>
+                  <section className="coach-panel p-4 lg:h-full lg:overflow-y-auto custom-scrollbar">
+                    <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl" />}>
                       <ScoutingTable />
                     </React.Suspense>
                   </section>
                 )}
                 {activeTab === 'bookmarks' && (
-                  <section className="coach-panel p-4">
-                    <BookmarksPanel />
+                  <section className="coach-panel p-4 lg:h-full lg:overflow-y-auto custom-scrollbar">
+                    <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl" />}>
+                      <BookmarksPanel />
+                    </React.Suspense>
                   </section>
+                )}
+                {activeTab === 'report' && (
+                  <div className="w-full flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                    <React.Suspense fallback={<div className="h-96 animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl" />}>
+                      <FullCoachReport onGoToVideoTime={setSeekRequest} />
+                    </React.Suspense>
+                  </div>
                 )}
               </section>
 

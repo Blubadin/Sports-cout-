@@ -11,6 +11,7 @@ import {
   type PersistentVideoFileHandle,
 } from "../utils/videoFileStore";
 import { t } from "../i18n";
+import TelestrationCanvas from "./video/TelestrationCanvas";
 
 function getPreviewRange(event: EventRow) {
   const start = event.previewStartTime ?? event.clipStartTime ?? event.videoTime ?? 0;
@@ -37,7 +38,8 @@ type BookmarkClipModalProps = {
 
 export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalProps) {
   const { settings, localFileName, showToast } = useScoutContext();
-  const { activeProjectId } = useWorkspace();
+  const { activeProjectId, projects } = useWorkspace();
+  const activeProject = projects.find((p) => p.id === activeProjectId);
   const isThai = settings.uiLanguage === "th";
   const videoRef = useRef<HTMLVideoElement>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -46,6 +48,7 @@ export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalP
   const [isPlaying, setIsPlaying] = useState(false);
   const [loop, setLoop] = useState(true);
   const { start, end } = getPreviewRange(event);
+  const [clipCurrentTime, setClipCurrentTime] = useState(start);
   const sourceFileName = event.localFileName || localFileName;
   const isLocalSource = event.videoSourceType === "local" || (
     !event.videoSourceType && Boolean(sourceFileName)
@@ -233,31 +236,42 @@ export default function BookmarkClipModal({ event, onClose }: BookmarkClipModalP
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-auto bg-black">
+        <div className="min-h-0 flex-1 overflow-auto bg-black flex items-center justify-center">
           {status === "ready" && videoSrc ? (
-            <video
-              ref={videoRef}
-              src={videoSrc}
-              className="mx-auto max-h-[65dvh] w-full bg-black object-contain"
-              controls
-              playsInline
-              onLoadedMetadata={() => void playFromStart()}
-              onPlay={() => setIsPlaying(true)}
-              onPause={() => setIsPlaying(false)}
-              onTimeUpdate={(changeEvent) => {
-                const video = changeEvent.currentTarget;
-                if (video.currentTime < start) video.currentTime = start;
-                if (video.currentTime >= end) {
-                  if (loop) {
-                    video.currentTime = start;
-                    void video.play();
-                  } else {
-                    video.pause();
-                    video.currentTime = end;
+            <div className="relative mx-auto max-h-[65dvh] w-full flex items-center justify-center">
+              <video
+                ref={videoRef}
+                src={videoSrc}
+                className="max-h-[65dvh] w-full bg-black object-contain"
+                controls
+                playsInline
+                onLoadedMetadata={() => void playFromStart()}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onTimeUpdate={(changeEvent) => {
+                  const video = changeEvent.currentTarget;
+                  setClipCurrentTime(video.currentTime);
+                  if (video.currentTime < start) video.currentTime = start;
+                  if (video.currentTime >= end) {
+                    if (loop) {
+                      video.currentTime = start;
+                      void video.play();
+                    } else {
+                      video.pause();
+                      video.currentTime = end;
+                    }
                   }
-                }
-              }}
-            />
+                }}
+              />
+              {activeProject?.videoMeta?.annotations && activeProject.videoMeta.annotations.length > 0 && (
+                <TelestrationCanvas
+                  isReadOnly={true}
+                  currentTime={clipCurrentTime}
+                  persistedShapes={activeProject.videoMeta.annotations}
+                  language={settings.uiLanguage}
+                />
+              )}
+            </div>
           ) : (
             <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 px-5 py-8 text-center">
               <Clapperboard size={36} className="text-sky-300/70" />

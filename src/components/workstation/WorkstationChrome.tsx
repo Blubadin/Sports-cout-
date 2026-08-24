@@ -32,6 +32,7 @@ import {
   Cloud,
   HardDrive,
   SlidersHorizontal,
+  Maximize2,
 } from 'lucide-react';
 import type { MatchInfo, Team } from '../../types';
 import type { ProjectSaveStatus } from '../../context/WorkspaceContext';
@@ -74,14 +75,14 @@ export interface ToolItem {
 export const WORKSTATION_LEFT_TOOLS: ToolItem[] = [
   { id: 'select', icon: MousePointer2, labelTh: 'เลือก / พอยน์เตอร์', labelEn: 'Select', shortcut: 'V' },
   { id: 'scout', icon: Crosshair, labelTh: 'บันทึกสถิติสด', labelEn: 'Scout', shortcut: 'S' },
-  { id: 'draw', icon: Pencil, labelTh: 'วาดแผนภาพ', labelEn: 'Draw', shortcut: 'D' },
-  { id: 'zone', icon: Grid, labelTh: 'พิกัดโซนสนาม', labelEn: 'Zone', shortcut: 'Z' },
+  { id: 'draw', icon: Pencil, labelTh: 'วาดแผนภาพ Telestration', labelEn: 'Draw', shortcut: 'D' },
+  { id: 'zone', icon: Grid, labelTh: 'พิกัดโซนสนาม / Calibrate', labelEn: 'Zone', shortcut: 'Z' },
   { id: 'track', icon: Activity, labelTh: 'ติดตามการเคลื่อนที่', labelEn: 'Track', shortcut: 'M' },
   { id: 'measure', icon: Ruler, labelTh: 'วัดระยะทาง / มุม', labelEn: 'Measure', shortcut: 'R' },
-  { id: 'text', icon: Type, labelTh: 'บันทึกข้อความ', labelEn: 'Text', shortcut: 'T' },
+  { id: 'text', icon: Type, labelTh: 'บันทึกข้อความแท็กติก', labelEn: 'Text', shortcut: 'T' },
   { id: 'playlist', icon: ListVideo, labelTh: 'ชุดคลิปสำคัญ', labelEn: 'Playlist', shortcut: 'P' },
-  { id: 'camera', icon: Video, labelTh: 'สลับมุมกล้อง', labelEn: 'Camera', shortcut: 'C' },
-  { id: 'reports', icon: FileText, labelTh: 'รายงาน 5Ws', labelEn: 'Reports', shortcut: 'F' },
+  { id: 'camera', icon: Video, labelTh: 'สลับมุมกล้อง / ซูม', labelEn: 'Camera', shortcut: 'C' },
+  { id: 'reports', icon: FileText, labelTh: 'รายงาน 5Ws เต็มจอ', labelEn: 'Reports', shortcut: 'F' },
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -90,14 +91,18 @@ export const WORKSTATION_LEFT_TOOLS: ToolItem[] = [
 export interface WorkstationLeftRailProps {
   activeTool: WorkstationLeftTool;
   onSelectTool: (tool: WorkstationLeftTool) => void;
-  onOpenSettings: () => void;
-  onOpenHelp: () => void;
+  onToggleHUD?: () => void;
+  onToggleFullscreen?: () => void;
+  onOpenSettings?: () => void;
+  onOpenHelp?: () => void;
   language?: Language;
 }
 
 export function WorkstationLeftRail({
   activeTool,
   onSelectTool,
+  onToggleHUD,
+  onToggleFullscreen,
   onOpenSettings,
   onOpenHelp,
   language = 'th',
@@ -141,29 +146,29 @@ export function WorkstationLeftRail({
         })}
       </div>
 
-      {/* Bottom Actions: Settings & Help */}
+      {/* Bottom Actions: HUD Mode & Fullscreen */}
       <div className="flex flex-col items-center gap-1.5 w-full px-1.5 pt-2 border-t border-[#263642]/60">
         <button
           type="button"
-          onClick={onOpenSettings}
-          title={isThai ? 'การตั้งค่าระบบ' : 'Settings'}
-          className="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-gray-200 hover:bg-[#132332] border border-transparent transition-all cursor-pointer"
+          onClick={onToggleHUD}
+          title={isThai ? 'เปิดโหมด HUD สเกาต์' : 'Toggle Scout HUD Mode'}
+          className="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-sky-400 hover:bg-[#132332] border border-transparent transition-all cursor-pointer"
         >
-          <Settings size={17} />
+          <Gamepad2 size={17} />
           <span className="text-[8.5px] font-black uppercase tracking-tighter leading-none scale-90">
-            {isThai ? 'ตั้งค่า' : 'Setup'}
+            HUD
           </span>
         </button>
 
         <button
           type="button"
-          onClick={onOpenHelp}
-          title={isThai ? 'คู่มือและคีย์ลัด' : 'Help & Shortcuts'}
-          className="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-gray-200 hover:bg-[#132332] border border-transparent transition-all cursor-pointer"
+          onClick={onToggleFullscreen}
+          title={isThai ? 'เต็มจอ (Fullscreen)' : 'Toggle Fullscreen'}
+          className="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-sky-400 hover:bg-[#132332] border border-transparent transition-all cursor-pointer"
         >
-          <HelpCircle size={17} />
+          <Maximize2 size={16} />
           <span className="text-[8.5px] font-black uppercase tracking-tighter leading-none scale-90">
-            {isThai ? 'ช่วยเหลือ' : 'Help'}
+            FS
           </span>
         </button>
       </div>

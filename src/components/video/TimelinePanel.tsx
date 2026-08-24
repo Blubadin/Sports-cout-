@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { EventRow } from '../../types';
 import { formatPreciseTime } from '../../utils';
 import {
@@ -67,6 +68,10 @@ export default function TimelinePanel({
   onSetPlaybackRate,
 }: TimelinePanelProps) {
   const scoutCtx = (useScoutContext() || {}) as any;
+  const { activeProjectId, projects } = useWorkspace();
+  const activeProject = projects.find(project => project.id === activeProjectId);
+  const projectAnnotations = activeProject?.videoMeta?.annotations || [];
+
   const events: EventRow[] = scoutCtx.events || [];
   const teams = scoutCtx.teams || [];
   const updateEventRow = scoutCtx.updateEventRow || (() => {});
@@ -84,6 +89,7 @@ export default function TimelinePanel({
     teamA: true,
     teamB: true,
     keyMoments: true,
+    annotations: true,
   });
 
   // Custom Color Overrides by eventId
@@ -486,7 +492,7 @@ export default function TimelinePanel({
 
           {/* Track 3 Tree Node (Key Moments) */}
           <div
-            className="h-10 px-2.5 flex items-center justify-between hover:bg-[#132332] transition-colors cursor-pointer"
+            className="h-10 px-2.5 flex items-center justify-between border-b border-[#263642]/60 hover:bg-[#132332] transition-colors cursor-pointer"
             onClick={() => toggleTrack('keyMoments')}
           >
             <div className="flex items-center gap-1.5 truncate">
@@ -495,6 +501,19 @@ export default function TimelinePanel({
               <span className="font-bold text-[11px] text-purple-300 truncate">Key Moments & PTS</span>
             </div>
             <span className="text-[10px] font-mono font-bold text-gray-400">{keyMomentEvents.length}</span>
+          </div>
+
+          {/* Track 4 Tree Node (Telestration & Tactical Annotations) */}
+          <div
+            className="h-10 px-2.5 flex items-center justify-between hover:bg-[#132332] transition-colors cursor-pointer"
+            onClick={() => toggleTrack('annotations')}
+          >
+            <div className="flex items-center gap-1.5 truncate">
+              {expandedTracks.annotations ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
+              <span className="font-bold text-[11px] text-emerald-300 truncate">🎨 Telestration & Notes</span>
+            </div>
+            <span className="text-[10px] font-mono font-bold text-gray-400">{projectAnnotations.length}</span>
           </div>
         </div>
 
@@ -620,7 +639,7 @@ export default function TimelinePanel({
           </div>
 
           {/* Track 3 Lane (Key Moments & Points) */}
-          <div className="relative h-10 flex items-center z-20 px-1">
+          <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1">
             {keyMomentEvents.map((ev) => {
               const isDraggingThis = draggedEvent?.id === ev.id;
               const evTime = isDraggingThis ? draggedEvent.draftTime : ev.videoTime || 0;
@@ -651,6 +670,35 @@ export default function TimelinePanel({
                 >
                   <Bookmark size={10} className="fill-white" />
                   <span>Pt #{ev.point}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Track 4 Lane (Telestration & Tactical Annotations) */}
+          <div className="relative h-10 flex items-center z-20 px-1">
+            {projectAnnotations.map((shape) => {
+              const shapeTime = shape.timestamp || 0;
+              const leftPct = (shapeTime / safeDuration) * 100;
+
+              return (
+                <div
+                  key={shape.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSeek(shapeTime);
+                    showToast(isThai ? `กระโดดไปที่วาดแท็กติก (${formatPreciseTime(shapeTime)})` : `Jumped to tactical note (${formatPreciseTime(shapeTime)})`);
+                  }}
+                  title={`${shape.label || shape.type} @ ${formatPreciseTime(shapeTime)}${shape.duration ? ` (${shape.duration}s)` : ''}`}
+                  className="absolute h-6 px-2 rounded-md border shadow-md cursor-pointer transform -translate-x-1/2 transition-all hover:scale-110 hover:z-30 flex items-center gap-1 text-[9px] font-black text-white"
+                  style={{
+                    left: `${leftPct}%`,
+                    backgroundColor: `${shape.color}cc`,
+                    borderColor: shape.color,
+                    maxWidth: '130px',
+                  }}
+                >
+                  <span className="truncate">{shape.text ? `📝 ${shape.text}` : `🎨 ${shape.type.toUpperCase()}`}</span>
                 </div>
               );
             })}

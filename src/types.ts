@@ -251,6 +251,7 @@ export type EventRow = {
   outcomeStatus?: 'success' | 'error' | 'neutral' | 'continued';
   rallyId?: string;
   phaseType?: string;
+  annotations?: TelestrationShape[];
 };
 
 export type MatchInfo = {
@@ -318,6 +319,27 @@ export type AppSettings = {
   controllerV1Enabled?: boolean;
 };
 
+export type TelestrationTool = 'pen' | 'arrow' | 'circle' | 'box' | 'spotlight' | 'text' | 'measure';
+
+export interface TelestrationPoint {
+  x: number;
+  y: number;
+}
+
+export interface TelestrationShape {
+  id: string;
+  type: TelestrationTool;
+  color: string;
+  lineWidth: number;
+  points: TelestrationPoint[];
+  text?: string;
+  timestamp: number;
+  duration: number;
+  endTime?: number;
+  eventId?: string;
+  label?: string;
+}
+
 export type ScoutProject = {
   id: string;
   title: string;
@@ -334,6 +356,7 @@ export type ScoutProject = {
     localFileName?: string;
     lastVideoTime?: number;
     duration?: number;
+    annotations?: TelestrationShape[];
     courtCalibration?: {
       tl: [number, number]; // Top-left [x,y] 0-1
       tr: [number, number]; // Top-right [x,y] 0-1
