@@ -1,9 +1,12 @@
-import React from "react";
+import React, { useState } from "react";
 import { Action, Area, SportType, Team, AreaSelectionPayload } from "../../types";
 import { useHUDDeviceLayout } from "../../hooks/useHUDDeviceLayout";
 import { SPORT_TEMPLATES, OUT_ZONE_LABELS, DETAILED_ZONE_LABELS } from "../../sports";
 import { useScoutContext } from "../../context/ScoutContext";
 import { getAreaDisplay } from "../../utils/areaHelper";
+import BadmintonTouchCourt from "../badminton/BadmintonTouchCourt";
+import BadmintonTouchPadModal from "../badminton/BadmintonTouchPadModal";
+import { useAITracking } from "../../hooks/useAITracking";
 
 type HUDMiniCourtSelectorProps = {
   sportType: SportType;
@@ -38,10 +41,12 @@ export default function HUDMiniCourtSelector({
   isProPad = false,
 }: HUDMiniCourtSelectorProps) {
   const { settings } = useScoutContext();
+  const { players: aiPlayers, isConnected: isAIConnected, gameType } = useAITracking();
   const selectedAreaCode = currentAction.areaCode;
   const layout = useHUDDeviceLayout();
   const isMobile = layout.device === "phone";
   const touchTarget = layout.touchTarget;
+  const [isBadmintonModalOpen, setIsBadmintonModalOpen] = useState(false);
 
   const AreaBtn = ({
     code,
@@ -385,189 +390,58 @@ export default function HUDMiniCourtSelector({
     );
   }
 
-  // Badminton
+  // Badminton Interactive Touch Court in HUD
   if (sportType === "badminton") {
-    const filteredErrorAreas = errorAreas.filter(
-      (a) => !(enableOutOfBoundsZones && a.code === "OUT"),
-    );
-
-    const oppCourtSide = flipCourtSide ? "teamA" : "teamB";
-    const ourCourtSide = flipCourtSide ? "teamB" : "teamA";
+    const team1 = teams?.[0]?.name || teams?.[0]?.code || "Team A";
+    const team2 = teams?.[1]?.name || teams?.[1]?.code || "Team B";
 
     return (
-      <div
-        className={`flex flex-col gap-2 ${compact ? "w-[120px]" : (isProPad ? "w-[360px] sm:w-[440px]" : "w-[240px] max-w-full")} transition-all items-center`}
-      >
-        <div className={`flex flex-col items-center w-full gap-0.5 ${compact ? "h-[160px]" : (isProPad ? "h-[380px] sm:h-[460px]" : "h-[340px]")}`}>
-          <div className="flex flex-row items-stretch w-full gap-0.5 min-h-0 flex-1">
-            <div
-              className={`relative flex-1 flex flex-col bg-sky-950/40 rounded-xl border border-white/20 overflow-hidden p-1 gap-0.5 ${flipCourtSide ? "rotate-180" : ""}`}
-            >
-          {/* Opponent Side */}
-          <div className="relative z-10 grid grid-cols-3 gap-0.5 opacity-80 mb-0.5">
-            <AreaBtn
-              code="BR"
-              courtSide={oppCourtSide}
-              className="aspect-square"
-              label={compact ? "BR" : "Opp BR"}
-              flipContent
-            />
-            <AreaBtn
-              code="BC"
-              courtSide={oppCourtSide}
-              className="aspect-square"
-              label={compact ? "BC" : "Opp BC"}
-              flipContent
-            />
-            <AreaBtn
-              code="BL"
-              courtSide={oppCourtSide}
-              className="aspect-square"
-              label={compact ? "BL" : "Opp BL"}
-              flipContent
-            />
-            
-            <AreaBtn
-              code="MR"
-              courtSide={oppCourtSide}
-              className="aspect-square"
-              label={compact ? "MR" : "Opp MR"}
-              flipContent
-            />
-            <AreaBtn
-              code="MC"
-              courtSide={oppCourtSide}
-              className="aspect-square"
-              label={compact ? "MC" : "Opp MC"}
-              flipContent
-            />
-            <AreaBtn
-              code="ML"
-              courtSide={oppCourtSide}
-              className="aspect-square"
-              label={compact ? "ML" : "Opp ML"}
-              flipContent
-            />
+      <div className={`flex flex-col items-center justify-center ${compact ? "w-[170px]" : "w-[260px] max-w-full"}`}>
+        <BadmintonTouchCourt
+          pointX={currentAction.pointX}
+          pointY={currentAction.pointY}
+          areaCode={currentAction.areaCode}
+          courtSide={currentAction.courtSide}
+          outZone={currentAction.outZone}
+          onSelectArea={onSelectArea}
+          isDoubles={gameType !== "singles"}
+          compact={compact}
+          flipCourtSide={flipCourtSide}
+          uiLanguage={settings.uiLanguage}
+          showControls={!compact}
+          onExpand={() => setIsBadmintonModalOpen(true)}
+          teamAName={team1}
+          teamBName={team2}
+          aiPlayers={isAIConnected ? aiPlayers : undefined}
+        />
 
-            <AreaBtn
-              code="FR"
-              courtSide={oppCourtSide}
-              className="aspect-square"
-              label={compact ? "FR" : "Opp FR"}
-              flipContent
-            />
-            <AreaBtn
-              code="FC"
-              courtSide={oppCourtSide}
-              className="aspect-square"
-              label={compact ? "FC" : "Opp FC"}
-              flipContent
-            />
-            <AreaBtn
-              code="FL"
-              courtSide={oppCourtSide}
-              className="aspect-square"
-              label={compact ? "FL" : "Opp FL"}
-              flipContent
-            />
-          </div>
-
-          {/* NET */}
-          <div className="w-full h-3 mb-0.5 rounded-sm flex items-center justify-center font-bold text-[8px] bg-sky-800/60 text-sky-200 border-b border-white/10 z-10">
-            <div className={`${flipCourtSide ? "rotate-180" : ""}`}>NET</div>
-          </div>
-
-          {/* Our Side */}
-          <div className="relative z-10 grid grid-cols-3 gap-0.5 mt-0.5">
-            <AreaBtn
-              code="FL"
-              courtSide={ourCourtSide}
-              className="aspect-square"
-              label={compact ? "FL" : "Our FL"}
-              flipContent
-            />
-            <AreaBtn
-              code="FC"
-              courtSide={ourCourtSide}
-              className="aspect-square"
-              label={compact ? "FC" : "Our FC"}
-              flipContent
-            />
-            <AreaBtn
-              code="FR"
-              courtSide={ourCourtSide}
-              className="aspect-square"
-              label={compact ? "FR" : "Our FR"}
-              flipContent
-            />
-            
-            <AreaBtn
-              code="ML"
-              courtSide={ourCourtSide}
-              className="aspect-square"
-              label={compact ? "ML" : "Our ML"}
-              flipContent
-            />
-            <AreaBtn
-              code="MC"
-              courtSide={ourCourtSide}
-              className="aspect-square"
-              label={compact ? "MC" : "Our MC"}
-              flipContent
-            />
-            <AreaBtn
-              code="MR"
-              courtSide={ourCourtSide}
-              className="aspect-square"
-              label={compact ? "MR" : "Our MR"}
-              flipContent
-            />
-
-            <AreaBtn
-              code="BL"
-              courtSide={ourCourtSide}
-              className="aspect-square"
-              label={compact ? "BL" : "Our BL"}
-              flipContent
-            />
-            <AreaBtn
-              code="BC"
-              courtSide={ourCourtSide}
-              className="aspect-square"
-              label={compact ? "BC" : "Our BC"}
-              flipContent
-            />
-            <AreaBtn
-              code="BR"
-              courtSide={ourCourtSide}
-              className="aspect-square"
-              label={compact ? "BR" : "Our BR"}
-              flipContent
-            />
-          </div>
-        </div>
-
-          </div>
-          {renderOutZones()}
-        </div>
-
-        {!compact && filteredErrorAreas.length > 0 && (
-          <div className="flex flex-wrap justify-center gap-1">
-            {filteredErrorAreas.map((area) => (
-              <button
-                key={area.code}
-                onClick={() => onSelectArea({ areaCode: area.code, areaMode: 'normal' })}
-                className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${
-                  selectedAreaCode === area.code
-                    ? "bg-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.8)] scale-105"
-                    : "bg-white/10 text-white/60 hover:bg-white/20"
-                }`}
-              >
-                {area.code}
-              </button>
-            ))}
-          </div>
+        {compact && (
+          <button
+            type="button"
+            onClick={() => setIsBadmintonModalOpen(true)}
+            className="mt-1 px-2 py-0.5 rounded bg-sky-600/30 hover:bg-sky-600/50 border border-sky-500/40 text-sky-200 text-[9px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+          >
+            <span>{settings.uiLanguage === 'th' ? 'ขยายสนามสัมผัส' : 'Expand Touch Pad'}</span>
+          </button>
         )}
+
+        {/* Modal for enlarged high-precision touch */}
+        <BadmintonTouchPadModal
+          isOpen={isBadmintonModalOpen}
+          onClose={() => setIsBadmintonModalOpen(false)}
+          onClear={() => onSelectArea({ areaCode: undefined, pointX: undefined, pointY: undefined, outZone: undefined })}
+          pointX={currentAction.pointX}
+          pointY={currentAction.pointY}
+          areaCode={currentAction.areaCode}
+          courtSide={currentAction.courtSide}
+          outZone={currentAction.outZone}
+          onSelectArea={onSelectArea}
+          isDoubles={gameType !== "singles"}
+          flipCourtSide={flipCourtSide}
+          uiLanguage={settings.uiLanguage}
+          teamAName={team1}
+          teamBName={team2}
+        />
       </div>
     );
   }

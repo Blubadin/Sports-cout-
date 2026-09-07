@@ -12,6 +12,8 @@ import {
   getProAreaOutZoneLayout,
   type ProAreaOutZoneItem,
 } from "../../utils/proAreaLayout";
+import BadmintonTouchCourt, { resolveBadmintonPointSelection } from "../badminton/BadmintonTouchCourt";
+import { useAITracking } from "../../hooks/useAITracking";
 
 type ProAreaCommandPadProps = {
   sportType: SportType;
@@ -43,7 +45,9 @@ export default function ProAreaCommandPad({
   hoveredArea,
 }: ProAreaCommandPadProps) {
   const { settings } = useScoutContext();
+  const { players: aiPlayers, isConnected: isAIConnected } = useAITracking();
   const containerRef = useRef<HTMLDivElement>(null);
+  const badmintonCourtRef = useRef<HTMLDivElement>(null);
   const [containerRect, setContainerRect] = useState<DOMRect | null>(null);
 
   // Keep measuring container size when active to be completely accurate
@@ -84,6 +88,36 @@ export default function ProAreaCommandPad({
     const dy = pointerY - centerY;
     const distance = Math.sqrt(dx * dx + dy * dy);
     const deadZone = Math.max(28, Math.min(activeRect.width, activeRect.height) * 0.07);
+
+    // High precision badminton direct aim mapping (from mouse drag or joystick stick)
+    if (sportType === "badminton") {
+      const courtRect = badmintonCourtRef.current?.getBoundingClientRect() ?? activeRect;
+      const courtCenterX = courtRect.left + courtRect.width / 2;
+      const courtCenterY = courtRect.top + courtRect.height / 2;
+      const distFromCenter = Math.sqrt((pointerX - courtCenterX) ** 2 + (pointerY - courtCenterY) ** 2);
+      const badmintonDeadZone = Math.max(12, Math.min(courtRect.width, courtRect.height) * 0.035);
+
+      if (!pointerX || !pointerY || distFromCenter < badmintonDeadZone) {
+        return;
+      }
+
+      const rx = Math.max(0, Math.min(1, (pointerX - courtRect.left) / courtRect.width));
+      const ry = Math.max(0, Math.min(1, (pointerY - courtRect.top) / courtRect.height));
+
+      const payload = resolveBadmintonPointSelection({
+        normX: rx,
+        normY: ry,
+        flipCourtSide,
+        isDoubles: true,
+        uiLanguage: settings?.uiLanguage,
+      });
+
+      setLocalRx(rx);
+      setLocalRy(ry);
+      setHoveredPayload(payload);
+      onHoverArea(payload);
+      return;
+    }
 
     if (!pointerX || !pointerY || distance < deadZone) {
       setLocalRx(0.5);
@@ -133,6 +167,53 @@ export default function ProAreaCommandPad({
   }, [active]);
 
   if (!active) return null;
+
+  if (sportType === "badminton") {
+    const team1 = teams?.[0]?.name || teams?.[0]?.code || "Team A";
+    const team2 = teams?.[1]?.name || teams?.[1]?.code || "Team B";
+    const activePayload = hoveredArea !== undefined ? hoveredArea : hoveredPayload;
+    const activePointX = activePayload?.pointX ?? currentAction.pointX;
+    const activePointY = activePayload?.pointY ?? currentAction.pointY;
+
+    return (
+      <div
+        ref={containerRef}
+        data-controller-wheel="area"
+        className="relative w-full max-w-lg aspect-square sm:aspect-[4/3] flex flex-col items-center justify-center p-2 rounded-2xl bg-slate-900/60 border border-white/10 select-none overflow-hidden"
+      >
+        <div ref={badmintonCourtRef} className="w-full flex justify-center items-center">
+          <BadmintonTouchCourt
+            pointX={activePointX}
+            pointY={activePointY}
+            hoverPoint={
+              activePayload?.pointX !== undefined && activePayload?.pointY !== undefined
+                ? { x: activePayload.pointX, y: activePayload.pointY }
+                : null
+            }
+            areaCode={activePayload?.areaCode ?? currentAction.areaCode}
+            courtSide={activePayload?.courtSide ?? currentAction.courtSide}
+            outZone={activePayload?.outZone ?? currentAction.outZone}
+            onSelectArea={(payload) => {
+              onSelectArea(payload);
+            }}
+            onHoverPoint={(payload) => {
+              if (payload) {
+                setHoveredPayload(payload);
+                onHoverArea(payload);
+              }
+            }}
+            isDoubles={true}
+            flipCourtSide={flipCourtSide}
+            uiLanguage={settings?.uiLanguage}
+            showControls={true}
+            teamAName={team1}
+            teamBName={team2}
+            aiPlayers={isAIConnected ? aiPlayers : undefined}
+          />
+        </div>
+      </div>
+    );
+  }
 
   // Visual Helper: Get standard label for out zone
   const getOutZoneLabel = (zone: OutZoneType) => {

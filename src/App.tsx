@@ -4,7 +4,7 @@ import { ScoutProvider, useScoutContext } from './context/ScoutContext';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { t } from './i18n';
 import WorkspaceMenu from './components/WorkspaceMenu';
-import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star, FileText } from 'lucide-react';
+import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star, FileText, MonitorPlay } from 'lucide-react';
 import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { MAX_IMPORT_FILE_BYTES, validateImportFileSize } from './utils/importSafety';
@@ -363,6 +363,7 @@ function AppContent() {
             onJumpToTime={() => {
               showToast(settings.uiLanguage === 'th' ? 'คลิกบนแถบเวลาเพื่อกระโดดไปยังจังหวะนั้น' : 'Click on timeline to seek');
             }}
+            onToggleHUD={() => window.dispatchEvent(new CustomEvent('toggle-hud-mode'))}
             onOpenKeyMoments={() => {
               handleWorkstationPreset('review');
               setActiveTab('bookmarks');
@@ -427,6 +428,16 @@ function AppContent() {
 
         <div className="text-xs font-mono text-gray-400 flex items-center gap-1.5 sm:gap-2 shrink-0 justify-end ml-auto">
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {settings.enableScoutHUDMode !== false && (
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('toggle-hud-mode'))}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 border border-sky-500/30 font-bold text-xs transition-all active:scale-95 cursor-pointer shadow-sm"
+                title={settings.uiLanguage === 'th' ? 'เปิดโหมด HUD สเกาต์เต็มจอ' : 'Toggle Scout HUD Mode'}
+              >
+                <MonitorPlay size={15} />
+                <span className="hidden sm:inline">HUD</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 setSettings(prev => ({
@@ -511,9 +522,7 @@ function AppContent() {
                 }
               }}
               onToggleHUD={() => {
-                const hudBtn = document.querySelector('[data-hud-toggle]') as HTMLButtonElement | null;
-                if (hudBtn) hudBtn.click();
-                else showToast(settings.uiLanguage === 'th' ? 'โหมด HUD แดชบอร์ด' : 'HUD mode activated');
+                window.dispatchEvent(new CustomEvent('toggle-hud-mode'));
               }}
               onToggleFullscreen={() => {
                 if (!document.fullscreenElement) {

@@ -150,6 +150,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     hudDefaultMode: 'classic',
     hudOverlayOpacity: 0.85,
     hudShowTopStats: true,
+    hudShowVideoTime: true,
     hudShowActionStatus: true,
     hudShowVideoControls: true,
     hudAutoHideControls: false,
@@ -160,7 +161,10 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     hudInteractionStyle: 'click',
     hudExperienceMode: 'auto',
     phoneScoutDensity: 'comfortable',
-    controllerV1Enabled: false
+    controllerV1Enabled: false,
+    aiTrackingEnabled: false,
+    aiTrackingMode: 'browser',
+    aiTrackingServerUrl: 'ws://localhost:8000/ws/telemetry'
   });
 
   const [events, setEvents] = useLocalStorage<EventRow[]>('scout_events', []);

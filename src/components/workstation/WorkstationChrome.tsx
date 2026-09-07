@@ -264,6 +264,7 @@ interface WorkstationCommandBarProps {
   onNewEvent?: () => void;
   onDeleteEvent?: () => void;
   onJumpToTime?: () => void;
+  onToggleHUD?: () => void;
   onOpenKeyMoments: () => void;
   onOpenShortcuts: () => void;
   onOpenSettings: () => void;
@@ -281,6 +282,7 @@ export function WorkstationCommandBar({
   onNewEvent,
   onDeleteEvent,
   onJumpToTime,
+  onToggleHUD,
   onOpenKeyMoments,
   onOpenShortcuts,
   onOpenSettings,
@@ -321,6 +323,17 @@ export function WorkstationCommandBar({
       {onJumpToTime && (
         <button type="button" onClick={onJumpToTime} title="Jump to Time (J)">
           <FastForward size={14} /> {isThai ? 'กระโดด' : 'Jump'} <span className="opacity-50 text-[10px]">J</span>
+        </button>
+      )}
+
+      {onToggleHUD && (
+        <button
+          type="button"
+          onClick={onToggleHUD}
+          title={isThai ? 'เปิดโหมด HUD สเกาต์' : 'Toggle Scout HUD Mode'}
+          className="text-sky-400 hover:text-sky-300 font-bold flex items-center gap-1 cursor-pointer"
+        >
+          <Gamepad2 size={14} /> {isThai ? 'โหมด HUD' : 'HUD Mode'}
         </button>
       )}
 

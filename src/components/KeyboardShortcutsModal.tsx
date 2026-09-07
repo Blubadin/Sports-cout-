@@ -82,6 +82,14 @@ export default function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShor
                   <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เลือกทีม 1 หรือ 2 (Team 1/2)' : 'Select Team 1/2'}</span>
                   <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded text-xs font-mono text-gray-800 dark:text-gray-200 font-bold">1 / 2</kbd>
                 </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{isThai ? 'เปิด/ปิด โหมด HUD เต็มจอ' : 'Toggle Fullscreen HUD Mode'}</span>
+                  <div className="flex gap-1 items-center">
+                    <kbd className="px-2 py-1 bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800 rounded text-xs font-mono text-sky-700 dark:text-sky-300 font-bold">Ctrl</kbd>
+                    <span className="text-gray-400">+</span>
+                    <kbd className="px-2 py-1 bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800 rounded text-xs font-mono text-sky-700 dark:text-sky-300 font-bold">H</kbd>
+                  </div>
+                </div>
               </div>
             </div>
 

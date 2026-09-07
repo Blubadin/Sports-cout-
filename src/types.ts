@@ -308,6 +308,7 @@ export type AppSettings = {
   hudShowTopStats?: boolean;
   hudShowActionStatus?: boolean;
   hudShowVideoControls?: boolean;
+  hudShowVideoTime?: boolean;
   hudAutoHideControls?: boolean;
   hudMobileLargeButtons?: boolean;
   hudEnableGameFeedback?: boolean;
@@ -317,6 +318,12 @@ export type AppSettings = {
   hudExperienceMode?: 'auto' | 'pro' | 'phone';
   phoneScoutDensity?: 'compact' | 'comfortable';
   controllerV1Enabled?: boolean;
+  aiTrackingEnabled?: boolean;
+  aiTrackingMode?: 'browser' | 'server';
+  aiTrackingServerUrl?: string;
+  aiShowSkeleton?: boolean;
+  badmintonGameType?: 'singles' | 'doubles';
+  aiShowVideoOverlay?: boolean;
 };
 
 export type TelestrationTool = 'pen' | 'arrow' | 'circle' | 'box' | 'spotlight' | 'text' | 'measure';
@@ -367,3 +374,38 @@ export type ScoutProject = {
   createdAt: string;
   updatedAt: string;
 };
+
+export interface AIPoseKeypoint {
+  x: number; // 0..100 or pixel
+  y: number;
+  score?: number;
+  name?: string;
+}
+
+export interface AITrackingPlayer {
+  id: number;
+  team: 1 | 2;
+  name: string;
+  court_pos_pct: { x: number; y: number };
+  court_pos_m?: { x: number; y: number };
+  zone: string;
+  speed_ms: number;
+  total_dist_m: number;
+  is_active?: boolean;
+  bbox?: [number, number, number, number] | null;
+  // AlphaPose Body & Action Tracking additions
+  pose_action?: 'READY' | 'SMASH' | 'CLEAR' | 'DROP' | 'DRIVE' | 'NET_SHOT' | 'LIFT';
+  pose_confidence?: number;
+  keypoints?: AIPoseKeypoint[]; // 17 AlphaPose / COCO Keypoints
+  // Video Frame Overlay Coords (Percentages 0..100% on Video Screen)
+  video_bbox_pct?: { x: number; y: number; width: number; height: number };
+  video_keypoints_pct?: { x: number; y: number }[];
+}
+
+export interface AITelemetryFrame {
+  timestamp: number;
+  frame_idx: number;
+  game_type?: 'singles' | 'doubles';
+  players: AITrackingPlayer[];
+  source?: string;
+}

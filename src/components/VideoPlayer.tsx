@@ -79,6 +79,7 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
   const {
     setVideoTime,
     videoSourceType,
+    setVideoSourceType,
     youtubeUrl,
     setYoutubeUrl,
     youtubeVideoId,
@@ -163,6 +164,28 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
     updateProjectLastVideoTime,
   });
 
+  useEffect(() => {
+    const handleToggleHud = () => {
+      if (isHUDMode) {
+        closeHUDMode();
+      } else {
+        enterHUDMode();
+      }
+    };
+    const handleEnterHud = () => enterHUDMode();
+    const handleExitHud = () => closeHUDMode();
+
+    window.addEventListener('toggle-hud-mode', handleToggleHud);
+    window.addEventListener('enter-hud-mode', handleEnterHud);
+    window.addEventListener('exit-hud-mode', handleExitHud);
+
+    return () => {
+      window.removeEventListener('toggle-hud-mode', handleToggleHud);
+      window.removeEventListener('enter-hud-mode', handleEnterHud);
+      window.removeEventListener('exit-hud-mode', handleExitHud);
+    };
+  }, [isHUDMode, closeHUDMode, enterHUDMode]);
+
   const localizedPlayerError = playerError
     ? getLocalizedVideoError(
         playerErrorType,
@@ -198,6 +221,8 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
     setCurrentTimeDisplay(0);
     restoredPlaybackKeyRef.current = null;
   }, [activeProject?.videoMeta?.courtCalibration, activeProjectId, videoSrc]);
+
+
 
   useEffect(() => {
     const resumeTime = activeProject?.videoMeta?.lastVideoTime;
@@ -242,9 +267,20 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
 
   const extractYouTubeId = (input: string): string | null => {
     const value = input.trim();
+    if (!value) return null;
     if (/^[a-zA-Z0-9_-]{11}$/.test(value)) return value;
+
+    // Direct regex pattern for YouTube URLs
+    const match = value.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|shorts\/|live\/|watch\?v=|watch\?.+&v=))([\w-]{11})/i);
+    if (match && match[1] && /^[a-zA-Z0-9_-]{11}$/.test(match[1])) {
+      return match[1];
+    }
+
     try {
-      const url = new URL(value);
+      const urlStr = value.startsWith("http://") || value.startsWith("https://")
+        ? value
+        : `https://${value}`;
+      const url = new URL(urlStr);
       if (url.hostname.includes("youtu.be")) {
         const id = url.pathname.split("/").filter(Boolean)[0];
         return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
@@ -256,15 +292,12 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
         const embedIndex = parts.indexOf("embed");
         const shortsIndex = parts.indexOf("shorts");
         const liveIndex = parts.indexOf("live");
-        const id =
-          embedIndex !== -1
-            ? parts[embedIndex + 1]
-            : shortsIndex !== -1
-              ? parts[shortsIndex + 1]
-              : liveIndex !== -1
-                ? parts[liveIndex + 1]
-                : null;
-        return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+        const vIndex = parts.indexOf("v");
+        const idx = embedIndex !== -1 ? embedIndex : shortsIndex !== -1 ? shortsIndex : liveIndex !== -1 ? liveIndex : vIndex;
+        if (idx !== -1 && parts[idx + 1]) {
+          const id = parts[idx + 1];
+          return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
+        }
       }
     } catch {
       return null;
@@ -304,19 +337,19 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
     try {
       const handle = await loadProjectVideoFileHandle(activeProjectId, localFileName);
       if (handle) {
-         const currentPermission = handle.queryPermission
-           ? await handle.queryPermission({ mode: 'read' })
-           : 'granted';
-         const perm = currentPermission === 'granted' || !handle.requestPermission
-           ? currentPermission
-           : await handle.requestPermission({ mode: 'read' });
-          if (perm === 'granted') {
-            const file = await handle.getFile();
-            if (videoSrc && videoSourceType === "local") URL.revokeObjectURL(videoSrc);
-             const url = URL.createObjectURL(file);
-             setVideoSrc(url);
-             setLocalVideoState('ready');
-          }
+        const currentPermission = handle.queryPermission
+          ? await handle.queryPermission({ mode: 'read' })
+          : 'granted';
+        const perm = currentPermission === 'granted' || !handle.requestPermission
+          ? currentPermission
+          : await handle.requestPermission({ mode: 'read' });
+        if (perm === 'granted') {
+          const file = await handle.getFile();
+          if (videoSrc && videoSourceType === "local") URL.revokeObjectURL(videoSrc);
+          const url = URL.createObjectURL(file);
+          setVideoSrc(url);
+          setLocalVideoState('ready');
+        }
       }
     } catch (e) {
       console.error(e);
@@ -327,7 +360,12 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
     if ('showOpenFilePicker' in window) {
       try {
         const [fileHandle] = await (window as unknown as { showOpenFilePicker: (opts: unknown) => Promise<PersistentVideoFileHandle[]> }).showOpenFilePicker({
-          types: [{ description: 'Video Files', accept: { 'video/*': [] } }]
+          types: [{
+            description: 'Video Files',
+            accept: {
+              'video/*': ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v', '.MP4', '.MOV']
+            }
+          }]
         });
         const file = await fileHandle.getFile();
         
@@ -335,15 +373,18 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
           URL.revokeObjectURL(videoSrc);
         }
         const url = URL.createObjectURL(file);
-         setVideoSrc(url);
-         setLocalFileName(file.name);
-         setVideoSourceType("local");
-         setLocalVideoState('ready');
-         setIsPlaying(false);
+        setVideoSrc(url);
+        setLocalFileName(file.name);
+        setVideoSourceType("local");
+        setLocalVideoState('ready');
+        setIsPlaying(false);
         
         await saveProjectVideoFileHandle(activeProjectId, file.name, fileHandle);
-      } catch (err) {
-        console.log("User cancelled or file access failed");
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.warn("showOpenFilePicker error, falling back to input click:", err);
+          fileInputRef.current?.click();
+        }
       }
     } else {
       fileInputRef.current?.click();
@@ -353,7 +394,8 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.startsWith('video/')) {
+      const isVideoFile = file.type.startsWith('video/') || /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(file.name);
+      if (!isVideoFile) {
         setLocalVideoState('unsupported');
         showToast(settings.uiLanguage === 'th' ? 'ไฟล์นี้ไม่ใช่วิดีโอที่รองรับ' : 'This file is not a supported video.');
         e.target.value = '';
@@ -455,41 +497,38 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
         <div className="flex gap-2">
           <button
             onClick={() => setVideoSourceType("local")}
-            className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${videoSourceType === "local" ? "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/40 dark:border-sky-700/50 dark:text-sky-300" : "bg-gray-50 border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400"}`}
+            className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${videoSourceType === "local" || videoSourceType === "none" ? "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/40 dark:border-sky-700/50 dark:text-sky-300 font-semibold" : "bg-gray-50 border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400"}`}
           >
             Local Video
           </button>
           <button
             onClick={() => setVideoSourceType("youtube")}
-            className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${videoSourceType === "youtube" ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-900/40 dark:border-red-700/50 dark:text-red-300" : "bg-gray-50 border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400"}`}
+            className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${videoSourceType === "youtube" ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-900/40 dark:border-red-700/50 dark:text-red-300 font-semibold" : "bg-gray-50 border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400"}`}
           >
             YouTube
           </button>
         </div>
 
-        {videoSourceType === "local" && (
+        {(videoSourceType === "local" || videoSourceType === "none") && (
           <div className="flex flex-col gap-1">
             <button 
               onClick={handlePickLocalVideo}
-              className="cursor-pointer flex items-center justify-center gap-1 text-xs bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 px-3 py-2 rounded-lg hover:bg-sky-100 transition-colors border border-sky-100 dark:border-sky-800/50"
+              className="cursor-pointer flex items-center justify-center gap-1.5 text-xs font-semibold bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 px-3 py-2.5 rounded-lg hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors border border-sky-200 dark:border-sky-800/60"
             >
-              <Upload size={14} />
+              <Upload size={15} />
               <span>{settings.uiLanguage === 'th' ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select Local Video'}</span>
             </button>
             <input
               ref={fileInputRef}
               type="file"
-              accept="video/*"
+              accept="video/*,.mp4,.webm,.ogg,.mov,.avi,.mkv,.m4v,.MP4,.MOV"
               className="hidden"
               onChange={handleFileChange}
             />
-            {localFileName && !videoSrc && localVideoState !== 'idle' && (
+            {localFileName && !videoSrc && (
               <div className="text-xs text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800 p-3 rounded-lg text-center flex flex-col gap-2">
                 <div>
                   {settings.uiLanguage === 'th' ? 'Project นี้มีการบันทึกไฟล์' : 'Project recorded video file'} <b>{localFileName}</b>
-                </div>
-                <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">
-                  {localVideoState === 'loading' ? 'Checking file access' : localVideoState === 'permission-required' ? 'Permission required' : localVideoState === 'missing' ? 'File not found' : localVideoState === 'unsupported' ? 'Unsupported file' : localVideoState === 'denied' ? 'Access denied' : 'Unable to open'}
                 </div>
                 {canRestoreAccess ? (
                    <button 
@@ -562,18 +601,20 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
         )}
       </div>
 
-      {hasVideo ? (
+      {hasVideo || isHUDMode ? (
         <div
           id="main-video-player"
           className={`flex flex-col relative rounded-lg overflow-hidden bg-black ${isHUDMode ? "fixed inset-0 w-[100vw] h-[100vh] z-[9999] rounded-none" : ""}`}
           ref={containerRef}
         >
-          <SegmentPreviewPanel 
-            isPlaying={isPlaying} 
-            setIsPlaying={setIsPlaying} 
-            seekTo={seekToSafe} 
-            currentTime={currentTimeDisplay} 
-          />
+          {hasVideo && (
+            <SegmentPreviewPanel 
+              isPlaying={isPlaying} 
+              setIsPlaying={setIsPlaying} 
+              seekTo={seekToSafe} 
+              currentTime={currentTimeDisplay} 
+            />
+          )}
           <div className="flex flex-col relative w-full h-full">
             <div
               className="relative w-full flex items-center justify-center transition-all overflow-hidden"
@@ -593,6 +634,19 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
                 flex: isHUDMode ? 1 : undefined,
               }}
             >
+              {!hasVideo && isHUDMode && (
+                <div className="absolute inset-0 bg-[#09141d] flex flex-col items-center justify-center text-center p-6 select-none pointer-events-none z-10">
+                  <div className="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 mb-3 shadow-lg">
+                    <MonitorPlay size={32} />
+                  </div>
+                  <h3 className="text-white font-black text-lg tracking-wide uppercase">
+                    {settings.uiLanguage === 'th' ? 'โหมดสเกาต์สด HUD (Live Scout Mode)' : 'Live Scout HUD Mode'}
+                  </h3>
+                  <p className="text-gray-400 text-xs mt-1 max-w-sm">
+                    {settings.uiLanguage === 'th' ? 'กำลังบันทึกสถิติแบบเรียลไทม์โดยไม่ใช้วิดีโอ แตะปุ่มบนจอหรือเชื่อมต่อคอนโทรลเลอร์เพื่อบันทึก' : 'Live scouting without video playback. Tap controls or use gamepad to log events.'}
+                  </p>
+                </div>
+              )}
               {/* Gesture Overlay */}
               {settings.enableVideoGestures !== false ? (
                 <div
@@ -931,6 +985,7 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
                       <Player
                         key={`${videoSourceType}-${currentVideoSrc}`}
                         ref={playerRef}
+                        url={currentVideoSrc}
                         src={currentVideoSrc}
                         playing={isPlaying}
                         playbackRate={playbackRate}
@@ -1112,7 +1167,7 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
           </div>
         </div>
       ) : (
-        <div className="bg-gray-100 dark:bg-gray-900 aspect-video rounded-lg flex items-center justify-center border border-dashed border-gray-300 dark:border-gray-700">
+        <div className="bg-gray-100 dark:bg-gray-900 aspect-video rounded-lg flex flex-col items-center justify-center border border-dashed border-gray-300 dark:border-gray-700 p-6 gap-3">
           <p className="text-gray-400 dark:text-gray-500 text-sm text-center px-4">
             {videoSourceType === "local"
               ? t('video.noLocalSelected', settings.uiLanguage)
@@ -1120,6 +1175,18 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
             <br />
             ({t('video.scoutWithoutVideo', settings.uiLanguage)})
           </p>
+          {settings.enableScoutHUDMode !== false && (
+            <button
+              data-hud-toggle
+              id="hud-mode-button"
+              onClick={enterHUDMode}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+              title={settings.uiLanguage === 'th' ? 'เปิดโหมด HUD สเกาต์เต็มจอ' : 'Open Scout HUD Mode'}
+            >
+              <MonitorPlay size={16} />
+              <span>{settings.uiLanguage === 'th' ? 'เปิดโหมด HUD (Scout Without Video)' : 'Open HUD Mode (No Video)'}</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1208,8 +1275,10 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
               <div className="absolute right-0 flex items-center gap-1">
                 {settings.enableScoutHUDMode !== false && (
                   <button
+                    data-hud-toggle
+                    id="hud-mode-button"
                     onClick={enterHUDMode}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-100 text-sky-600 dark:bg-sky-900/50 dark:text-sky-400 hover:bg-sky-200 dark:hover:bg-sky-800"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-100 text-sky-600 dark:bg-sky-900/50 dark:text-sky-400 hover:bg-sky-200 dark:hover:bg-sky-800 font-bold text-xs cursor-pointer shadow-sm"
                     title="เปิดโหมด HUD เต็มจอสำหรับ Scouting"
                   >
                     <MonitorPlay size={16} />

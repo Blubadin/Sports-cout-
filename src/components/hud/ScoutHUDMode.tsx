@@ -31,6 +31,7 @@ import HUDSequenceHistoryDrawer from "./HUDSequenceHistoryDrawer";
 import HUDMiniCourtSelector from "./HUDMiniCourtSelector";
 import ProAreaCommandPad from "./ProAreaCommandPad";
 import HUDControllerPrompts from "./HUDControllerPrompts";
+import AIVideoTrackingOverlay from "./AIVideoTrackingOverlay";
 import { getAreaDisplay } from "../../utils/areaHelper";
 import {
   dispatchCoachCommand,
@@ -607,6 +608,9 @@ export default function ScoutHUDMode({
       id="scout-hud-container"
       className={`absolute inset-0 z-50 transition-opacity duration-300 pointer-events-none flex flex-col ${showUI ? "opacity-100" : "opacity-0"} pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]`}
     >
+      {/* AI Video Tracking Overlay (Athletes bounding boxes & AlphaPose skeletons directly over video) */}
+      <AIVideoTrackingOverlay videoControls={videoControls} />
+
       {/* Top Warning for Portrait screen layout */}
       {isPortrait && layoutMode === "auto" && (
         <div className="absolute top-[60px] left-1/2 -translate-x-1/2 bg-amber-500/90 text-white font-bold text-[9px] md:text-xs px-3 py-1 rounded-full pointer-events-none z-50 shadow-md backdrop-blur-sm flex items-center gap-1.5 animate-pulse">
@@ -695,21 +699,27 @@ export default function ScoutHUDMode({
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
                   <span className="text-white font-extrabold text-sm sm:text-base uppercase tracking-wider">
-                    {settings.uiLanguage === 'th' ? 'พื้นที่สนาม (AREA WHEEL)' : 'AREA WHEEL'}
+                    {matchInfo.sportType === 'badminton'
+                      ? (settings.uiLanguage === 'th' ? 'สนามแบดมินตัน (BADMINTON TOUCH COURT)' : 'BADMINTON TOUCH COURT')
+                      : (settings.uiLanguage === 'th' ? 'พื้นที่สนาม (AREA WHEEL)' : 'AREA WHEEL')}
                   </span>
                 </div>
                 <div className="text-[10px] sm:text-xs text-white/50 font-medium">
-                  {settings.uiLanguage === 'th' ? 'กด W ค้าง เล็งจากจุดกลาง แล้วปล่อยเพื่อเลือก - Esc เพื่อยกเลิก' : 'Hold W, aim from center, release to select - Esc to cancel'}
+                  {matchInfo.sportType === 'badminton'
+                    ? (settings.uiLanguage === 'th' ? 'กด W ค้าง เล็งเมาส์/จอย แล้วปล่อยเพื่อเลือกจุด หรือแตะบนสนาม - Esc เพื่อยกเลิก' : 'Hold W, aim with mouse/joy and release to select, or tap court - Esc to cancel')
+                    : (settings.uiLanguage === 'th' ? 'กด W ค้าง เล็งจากจุดกลาง แล้วปล่อยเพื่อเลือก - Esc เพื่อยกเลิก' : 'Hold W, aim from center, release to select - Esc to cancel')}
                 </div>
               </div>
 
-              {/* Central Help indicator representing the "dead zone" start point */}
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30 flex flex-col items-center justify-center">
-                <div className="w-12 h-12 rounded-full bg-amber-500/10 border-2 border-amber-500/40 flex items-center justify-center backdrop-blur-sm animate-ping duration-[3s]"></div>
-                <div className="absolute w-8 h-8 rounded-full bg-black/60 border border-white/20 flex items-center justify-center text-white/40 text-[9px] font-bold">
-                  AIM
+              {/* Central Help indicator representing the "dead zone" start point (hidden for badminton) */}
+              {matchInfo.sportType !== 'badminton' && (
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-30 flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 rounded-full bg-amber-500/10 border-2 border-amber-500/40 flex items-center justify-center backdrop-blur-sm animate-ping duration-[3s]"></div>
+                  <div className="absolute w-8 h-8 rounded-full bg-black/60 border border-white/20 flex items-center justify-center text-white/40 text-[9px] font-bold">
+                    AIM
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Interactive Mini Court Layout scaled-up for Pro Pad */}
               <div className="relative w-full flex justify-center items-center py-2">
@@ -751,9 +761,18 @@ export default function ScoutHUDMode({
                         const displayInfo = getAreaDisplay(code, isThai, foundArea?.thaiName || '');
                         label = displayInfo.sub ? `${displayInfo.main} (${displayInfo.sub})` : displayInfo.main;
                     }
-                    return `${code} / ${label}`;
+                    let res = `${code} / ${label}`;
+                    if (typeof payload.pointX === 'number' && typeof payload.pointY === 'number') {
+                      res += ` • (${(payload.pointX * 100).toFixed(0)}%, ${(payload.pointY * 100).toFixed(0)}%)`;
+                    }
+                    return res;
                   })()}
                 </span>
+                {(hoveredArea as any)?.isIn !== undefined && (
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${(hoveredArea as any).isIn ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'}`}>
+                    {(hoveredArea as any).isIn ? (settings?.uiLanguage === 'th' ? 'ลูกลง (IN)' : 'IN') : (settings?.uiLanguage === 'th' ? 'ลูกออก (OUT)' : 'OUT')}
+                  </span>
+                )}
                 {hoveredArea?.courtSide && hoveredArea.courtSide !== 'neutral' && (
                   <span className="text-white/60 text-[10px] uppercase font-bold">
                     ({hoveredArea.courtSide === 'teamA' ? teams[0]?.code : teams[1]?.code})

@@ -5,6 +5,7 @@ import { ArrowLeftRight, ArrowUpDown } from 'lucide-react';
 import { SPORT_TEMPLATES, OUT_ZONE_LABELS, DETAILED_ZONE_LABELS, OUT_ZONE_VISUALS_BY_SPORT } from '../sports';
 import AreaBoundaryFrame from './area/AreaBoundaryFrame';
 import CourtLayoutShell from './area/CourtLayoutShell';
+import BadmintonTouchCourt from './badminton/BadmintonTouchCourt';
 import { getAreaDisplay } from '../utils/areaHelper';
 import { buildAreaPreviewGrid, mapAreaViewPointToFullCourt, mapFullCourtPointToAreaView, resolveAreaSelectionFromPoint, resolveVisibleCourtSide } from '../utils/areaGeometry';
 
@@ -359,26 +360,33 @@ export default function CourtAreaSelector() {
         flipIcon="ArrowUpDown"
         maxWidthClass="max-w-xl"
       >
-        <GeometrySelectionGrid sport="football" />
+          <GeometrySelectionGrid sport="football" />
       </CourtLayoutShell>
     );
   }
 
-  // Badminton Court
+  // Badminton Court (Touch-first Interactive Point Selection)
   if (matchInfo.sportType === 'badminton') {
-    const isHalfCourt = settings.areaCourtViewMode === 'half';
+    const team1 = teams?.[0]?.name || teams?.[0]?.code || 'Team A';
+    const team2 = teams?.[1]?.name || teams?.[1]?.code || 'Team B';
     return (
-      <CourtLayoutShell
-        sport="badminton"
-        titleEn={isHalfCourt ? 'Focused Half Court' : 'Court Area'}
-        titleTh={isHalfCourt ? 'ครึ่งสนามที่กำลังวิเคราะห์' : 'พื้นที่สนามแบดมินตัน'}
-        flipLabelEn="Swap Sides"
-        flipLabelTh="สลับฝั่ง"
-        flipIcon="ArrowUpDown"
-        maxWidthClass="max-w-xl"
-      >
-        <GeometrySelectionGrid sport="badminton" />
-      </CourtLayoutShell>
+      <div className="w-full flex flex-col items-center justify-center py-1">
+        <BadmintonTouchCourt
+          pointX={currentAction.pointX}
+          pointY={currentAction.pointY}
+          areaCode={currentAction.areaCode}
+          courtSide={currentAction.courtSide}
+          outZone={currentAction.outZone}
+          onSelectArea={(payload) => selectArea(payload)}
+          isDoubles={matchInfo.matchType === 'doubles'}
+          flipCourtSide={settings.flipCourtSide}
+          onToggleFlip={() => setSettings(s => ({ ...s, flipCourtSide: !s.flipCourtSide }))}
+          uiLanguage={settings.uiLanguage}
+          teamAName={team1}
+          teamBName={team2}
+          showControls={true}
+        />
+      </div>
     );
   }
 

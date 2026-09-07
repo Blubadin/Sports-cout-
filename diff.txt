@@ -1,0 +1,194 @@
+diff --git a/src/components/VideoPlayer.tsx b/src/components/VideoPlayer.tsx
+index 58652c4..fe52112 100644
+--- a/src/components/VideoPlayer.tsx
++++ b/src/components/VideoPlayer.tsx
+@@ -240,6 +240,56 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
+     }
+   }, [getInternalPlayer, handlePlayerReady, videoSourceType]);
+ 
++  const extractYouTubeId = (input: string): string | null => {
++    const value = input.trim();
++    if (/^[a-zA-Z0-9_-]{11}$/.test(value)) return value;
++    try {
++      const url = new URL(value);
++      if (url.hostname.includes("youtu.be")) {
++        const id = url.pathname.split("/").filter(Boolean)[0];
++        return id && /^[a-zA-Z0-9_-]{11}$/.test(id) ? id : null;
++
++  useEffect(() => {
++    const resumeTime = activeProject?.videoMeta?.lastVideoTime;
++    if (!playerReady || !activeProjectId || !resumeTime || resumeTime <= 0) return;
++
++    const sourceIdentity = videoSourceType === "youtube" ? youtubeUrl : localFileName;
++    const playbackKey = `${activeProjectId}:${videoSourceType}:${sourceIdentity || "none"}`;
++    if (restoredPlaybackKeyRef.current === playbackKey) return;
++
++    setIsPlaying(false);
++    seekToSafe(resumeTime);
++    setCurrentTimeDisplay(resumeTime);
++    setVideoTime(resumeTime);
++    restoredPlaybackKeyRef.current = playbackKey;
++  }, [
++    activeProject?.videoMeta?.lastVideoTime,
++    activeProjectId,
++    localFileName,
++    playerReady,
++    seekToSafe,
++    setCurrentTimeDisplay,
++    setIsPlaying,
++    setVideoTime,
++    videoSourceType,
++    youtubeUrl,
++  ]);
++
++  const handlePlayerReadyWithoutCaptions = useCallback(() => {
++    handlePlayerReady();
++
++    if (videoSourceType !== "youtube") return;
++
++    try {
++      const internalPlayer = getInternalPlayer?.();
++      // Best effort only: YouTube may still restore captions from user/browser preferences.
++      internalPlayer?.unloadModule?.("captions");
++      internalPlayer?.unloadModule?.("cc");
++    } catch {
++      // Caption modules are not available in every YouTube iframe environment.
++    }
++  }, [getInternalPlayer, handlePlayerReady, videoSourceType]);
++
+   const extractYouTubeId = (input: string): string | null => {
+     const value = input.trim();
+     if (/^[a-zA-Z0-9_-]{11}$/.test(value)) return value;
+@@ -304,19 +354,19 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
+     try {
+       const handle = await loadProjectVideoFileHandle(activeProjectId, localFileName);
+       if (handle) {
+-         const currentPermission = handle.queryPermission
+-           ? await handle.queryPermission({ mode: 'read' })
+-           : 'granted';
+-         const perm = currentPermission === 'granted' || !handle.requestPermission
+-           ? currentPermission
+-           : await handle.requestPermission({ mode: 'read' });
+-          if (perm === 'granted') {
+-            const file = await handle.getFile();
+-            if (videoSrc && videoSourceType === "local") URL.revokeObjectURL(videoSrc);
+-             const url = URL.createObjectURL(file);
+-             setVideoSrc(url);
+-             setLocalVideoState('ready');
+-          }
++        const currentPermission = handle.queryPermission
++          ? await handle.queryPermission({ mode: 'read' })
++          : 'granted';
++        const perm = currentPermission === 'granted' || !handle.requestPermission
++          ? currentPermission
++          : await handle.requestPermission({ mode: 'read' });
++        if (perm === 'granted') {
++          const file = await handle.getFile();
++          if (videoSrc && videoSourceType === "local") URL.revokeObjectURL(videoSrc);
++          const url = URL.createObjectURL(file);
++          setVideoSrc(url);
++          setLocalVideoState('ready');
++        }
+       }
+     } catch (e) {
+       console.error(e);
+@@ -327,7 +377,12 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
+     if ('showOpenFilePicker' in window) {
+       try {
+         const [fileHandle] = await (window as unknown as { showOpenFilePicker: (opts: unknown) => Promise<PersistentVideoFileHandle[]> }).showOpenFilePicker({
+-          types: [{ description: 'Video Files', accept: { 'video/*': [] } }]
++          types: [{
++            description: 'Video Files',
++            accept: {
++              'video/*': ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v', '.MP4', '.MOV']
++            }
++          }]
+         });
+         const file = await fileHandle.getFile();
+         
+@@ -335,15 +390,18 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
+           URL.revokeObjectURL(videoSrc);
+         }
+         const url = URL.createObjectURL(file);
+-         setVideoSrc(url);
+-         setLocalFileName(file.name);
+-         setVideoSourceType("local");
+-         setLocalVideoState('ready');
+-         setIsPlaying(false);
++        setVideoSrc(url);
++        setLocalFileName(file.name);
++        setVideoSourceType("local");
++        setLocalVideoState('ready');
++        setIsPlaying(false);
+         
+         await saveProjectVideoFileHandle(activeProjectId, file.name, fileHandle);
+-      } catch (err) {
+-        console.log("User cancelled or file access failed");
++      } catch (err: any) {
++        if (err?.name !== 'AbortError') {
++          console.warn("showOpenFilePicker error, falling back to input click:", err);
++          fileInputRef.current?.click();
++        }
+       }
+     } else {
+       fileInputRef.current?.click();
+@@ -353,7 +411,8 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
+   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+     const file = e.target.files?.[0];
+     if (file) {
+-      if (!file.type.startsWith('video/')) {
++      const isVideoFile = file.type.startsWith('video/') || /\.(mp4|webm|ogg|mov|avi|mkv|m4v)$/i.test(file.name);
++      if (!isVideoFile) {
+         setLocalVideoState('unsupported');
+         showToast(settings.uiLanguage === 'th' ? 'ไฟล์นี้ไม่ใช่วิดีโอที่รองรับ' : 'This file is not a supported video.');
+         e.target.value = '';
+@@ -455,42 +514,39 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
+         <div className="flex gap-2">
+           <button
+             onClick={() => setVideoSourceType("local")}
+-            className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${videoSourceType === "local" ? "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/40 dark:border-sky-700/50 dark:text-sky-300" : "bg-gray-50 border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400"}`}
++            className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${videoSourceType === "local" || videoSourceType === "none" ? "bg-sky-50 border-sky-200 text-sky-700 dark:bg-sky-900/40 dark:border-sky-700/50 dark:text-sky-300 font-semibold" : "bg-gray-50 border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400"}`}
+           >
+             Local Video
+           </button>
+           <button
+             onClick={() => setVideoSourceType("youtube")}
+-            className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${videoSourceType === "youtube" ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-900/40 dark:border-red-700/50 dark:text-red-300" : "bg-gray-50 border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400"}`}
++            className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${videoSourceType === "youtube" ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-900/40 dark:border-red-700/50 dark:text-red-300 font-semibold" : "bg-gray-50 border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400"}`}
+           >
+             YouTube
+           </button>
+         </div>
+ 
+-        {videoSourceType === "local" && (
++        {(videoSourceType === "local" || videoSourceType === "none") && (
+           <div className="flex flex-col gap-1">
+             <button 
+               onClick={handlePickLocalVideo}
+-              className="cursor-pointer flex items-center justify-center gap-1 text-xs bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 px-3 py-2 rounded-lg hover:bg-sky-100 transition-colors border border-sky-100 dark:border-sky-800/50"
++              className="cursor-pointer flex items-center justify-center gap-1.5 text-xs font-semibold bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 px-3 py-2.5 rounded-lg hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors border border-sky-200 dark:border-sky-800/60"
+             >
+-              <Upload size={14} />
++              <Upload size={15} />
+               <span>{settings.uiLanguage === 'th' ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select Local Video'}</span>
+             </button>
+             <input
+               ref={fileInputRef}
+               type="file"
+-              accept="video/*"
++              accept="video/*,.mp4,.webm,.ogg,.mov,.avi,.mkv,.m4v,.MP4,.MOV"
+               className="hidden"
+               onChange={handleFileChange}
+             />
+-            {localFileName && !videoSrc && localVideoState !== 'idle' && (
++            {localFileName && !videoSrc && (
+               <div className="text-xs text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800 p-3 rounded-lg text-center flex flex-col gap-2">
+                 <div>
+                   {settings.uiLanguage === 'th' ? 'Project นี้มีการบันทึกไฟล์' : 'Project recorded video file'} <b>{localFileName}</b>
+                 </div>
+-                <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">
+-                  {localVideoState === 'loading' ? 'Checking file access' : localVideoState === 'permission-required' ? 'Permission required' : localVideoState === 'missing' ? 'File not found' : localVideoState === 'unsupported' ? 'Unsupported file' : localVideoState === 'denied' ? 'Access denied' : 'Unable to open'}
+-                </div>
+                 {canRestoreAccess ? (
+                    <button 
+                      onClick={handleRestoreAccess}

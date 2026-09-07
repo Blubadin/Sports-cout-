@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useRef } from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { classNames, formatPreciseTime } from '../utils';
-import { Undo2, Save, Plus, Trash2, Settings2, ChevronDown, ChevronUp, ArrowRight, RotateCcw } from 'lucide-react';
+import { Undo2, Save, Plus, Trash2, Settings2, ChevronDown, ChevronUp, ArrowRight, RotateCcw, MonitorPlay } from 'lucide-react';
 import { t } from '../i18n';
 
 import CourtAreaSelector from './CourtAreaSelector';
@@ -264,11 +264,24 @@ export default function InputPanel() {
                 </span>
               )}
             </div>
-            <span className="text-xs text-gray-400 font-bold hidden sm:inline">
-              {settings.uiLanguage === 'th' 
-                ? '(Enter=บันทึก, Esc=ล้าง, Bksp=ย้อนกลับ)' 
-                : '(Enter=Save, Esc=Clear, Bksp=Undo)'}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 font-bold hidden md:inline">
+                {settings.uiLanguage === 'th' 
+                  ? '(Enter=บันทึก, Esc=ล้าง, Bksp=ย้อนกลับ)' 
+                  : '(Enter=Save, Esc=Clear, Bksp=Undo)'}
+              </span>
+              {settings.enableScoutHUDMode !== false && (
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent('toggle-hud-mode'))}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 text-xs font-bold transition-all active:scale-95 cursor-pointer"
+                  title={settings.uiLanguage === 'th' ? 'เปิดโหมด HUD สเกาต์เต็มจอ' : 'Open Scout HUD Mode'}
+                >
+                  <MonitorPlay size={14} />
+                  <span>HUD</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Segmented Controls for Logging Mode */}
@@ -312,32 +325,32 @@ export default function InputPanel() {
               </div>
             </div>
           </div>
-          
+
           {renderRallyChain()}
 
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-2.5 bg-gray-850 rounded-lg border border-gray-800">
-            <div className="flex items-center gap-2 flex-wrap min-h-[28px]">
-              <span className="text-xs font-black text-gray-400">
-                {settings.uiLanguage === 'th' ? 'ป้อน:' : 'Input:'}
-              </span>
-              <div className="font-mono text-sm font-black text-white flex gap-1 items-center flex-wrap">
-                {renderCurrentAction()}
-              </div>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-2.5 bg-gray-850 rounded-lg border border-gray-800">
+          <div className="flex items-center gap-2 flex-wrap min-h-[28px]">
+            <span className="text-xs font-black text-gray-400">
+              {settings.uiLanguage === 'th' ? 'ป้อน:' : 'Input:'}
+            </span>
+            <div className="font-mono text-sm font-black text-white flex gap-1 items-center flex-wrap">
+              {renderCurrentAction()}
             </div>
-            
-            <div className="shrink-0">
-              {Object.keys(currentAction).length > 0 && !isCurrentComplete && (
-                <span className="text-xs text-amber-500 font-black px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                  {settings.uiLanguage === 'th' ? 'ยังขาดข้อมูล' : 'Incomplete'}
-                </span>
-              )}
-              {isCurrentComplete && (
-                <span className="text-xs text-green-500 font-black px-2 py-0.5 rounded-lg bg-green-500/10 border border-green-500/20 animate-pulse">
-                  {settings.uiLanguage === 'th' ? '✓ พร้อมเพิ่ม' : '✓ Ready'}
-                </span>
-              )}
-              {Object.keys(currentAction).length === 0 && (
-                <span className="text-xs text-gray-500 font-bold">
+          </div>
+          
+          <div className="shrink-0">
+            {Object.keys(currentAction).length > 0 && !isCurrentComplete && (
+              <span className="text-xs text-amber-500 font-black px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                {settings.uiLanguage === 'th' ? 'ยังขาดข้อมูล' : 'Incomplete'}
+              </span>
+            )}
+            {isCurrentComplete && (
+              <span className="text-xs text-green-500 font-black px-2 py-0.5 rounded-lg bg-green-500/10 border border-green-500/20 animate-pulse">
+                {settings.uiLanguage === 'th' ? '✓ พร้อมเพิ่ม' : '✓ Ready'}
+              </span>
+            )}
+            {Object.keys(currentAction).length === 0 && (
+<span className="text-xs text-gray-500 font-bold">
                   {settings.uiLanguage === 'th' ? 'รอป้อน...' : 'Waiting...'}
                 </span>
               )}
