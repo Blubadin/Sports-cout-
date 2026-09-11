@@ -8,15 +8,18 @@ import numpy as np
 import cv2
 
 COURT_LENGTH_M = 13.40
-COURT_WIDTH_SINGLES_M = 6.10
-COURT_WIDTH_DOUBLES_M = 6.71
+COURT_WIDTH_DOUBLES_M = 6.10
+COURT_WIDTH_SINGLES_M = 5.18
+SINGLES_SIDE_ALLEY_M = (COURT_WIDTH_DOUBLES_M - COURT_WIDTH_SINGLES_M) / 2.0  # 0.46m
 
 # BWF Standard Dimensions (Meters)
 NET_Y_M = COURT_LENGTH_M / 2.0  # 6.70m
 SHORT_SERVICE_DIST_FROM_NET_M = 1.98
 FRONT_BOUNDARY_TOP_M = NET_Y_M - SHORT_SERVICE_DIST_FROM_NET_M  # 4.72m
 FRONT_BOUNDARY_BOT_M = NET_Y_M + SHORT_SERVICE_DIST_FROM_NET_M  # 8.68m
-DOUBLES_LONG_SERVICE_OFFSET_M = 0.76
+DOUBLES_LONG_SERVICE_OFFSET_M = 0.76  # 0.76m from back line
+MID_BOUNDARY_TOP_M = 2.36  # Halfway between back line (0.0) and front service line (4.72m)
+MID_BOUNDARY_BOT_M = 11.04  # 8.68m + 2.36m
 
 
 class CourtMapper:
@@ -68,7 +71,7 @@ class CourtMapper:
         y_pct = np.clip((point_m[1] / self.court_l) * 100.0, 0.0, 100.0)
         return float(x_pct), float(y_pct)
 
-    def get_zone_2d(self, point_m: tuple[float, float]) -> str:
+    def get_zone_2d(self, point_m: tuple[float, float], is_shuttle: bool = False) -> str:
         """
         Map real court meters (x_m, y_m) to SportsScout 6 badminton zones:
         FL (Front-Left), FR (Front-Right),
@@ -77,30 +80,39 @@ class CourtMapper:
         Also detects out of bounds (SIDE_OUT, LONG_OUT, NET_ERR).
         """
         x, y = point_m
-        
-        # Out of bounds check with 0.15m margin
-        if x < -0.15 or x > self.court_w + 0.15:
+        margin = 0.15
+
+        # Determine effective side boundaries for singles vs doubles
+        if self.game_type == "singles" and abs(self.court_w - COURT_WIDTH_DOUBLES_M) < 1e-3:
+            # Calibrated on outer doubles lines, but playing singles
+            min_x = SINGLES_SIDE_ALLEY_M
+            max_x = COURT_WIDTH_DOUBLES_M - SINGLES_SIDE_ALLEY_M
+        else:
+            min_x = 0.0
+            max_x = self.court_w
+
+        if x < min_x - margin or x > max_x + margin:
             return "SIDE_OUT"
-        if y < -0.15 or y > self.court_l + 0.15:
+        if y < -margin or y > self.court_l + margin:
             return "LONG_OUT"
-        if abs(y - NET_Y_M) < 0.20:
+        if is_shuttle and abs(y - NET_Y_M) < 0.20:
             return "NET_ERR"
 
-        mid_x = self.court_w / 2.0
+        mid_x = (min_x + max_x) / 2.0
         is_left = x < mid_x
 
         # Top Court (y < 6.70m) vs Bottom Court (y >= 6.70m)
         if y < NET_Y_M:
             if y >= FRONT_BOUNDARY_TOP_M:
                 return "FL" if is_left else "FR"
-            elif y >= 2.36:
+            elif y >= MID_BOUNDARY_TOP_M:
                 return "ML" if is_left else "MR"
             else:
                 return "BL" if is_left else "BR"
         else:
             if y <= FRONT_BOUNDARY_BOT_M:
                 return "FL" if is_left else "FR"
-            elif y <= 11.04:
+            elif y <= MID_BOUNDARY_BOT_M:
                 return "ML" if is_left else "MR"
             else:
                 return "BL" if is_left else "BR"

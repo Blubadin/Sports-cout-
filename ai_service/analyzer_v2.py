@@ -92,7 +92,7 @@ class BadmintonAnalyzerV2:
                 from ultralytics import YOLO
                 self._detector = YOLO(self.model_path)
             except ImportError:
-                print("⚠️ Warning: ultralytics is not installed. AI inference will be simulated.")
+                print("[BadmintonAnalyzerV2] Warning: ultralytics is not installed. AI inference will be simulated.")
                 self._detector = "dummy"
 
     def set_court_corners(self, corners: list[list[float]] | np.ndarray):
@@ -118,7 +118,7 @@ class BadmintonAnalyzerV2:
                 bbox = a["bbox"]
                 p.update_appearance(frame, bbox)
                 cx = (bbox[0] + bbox[2]) / 2.0
-                cy = (bbox[1] + bbox[3]) / 2.0
+                cy = float(bbox[3])  # Feet level on ground plane
                 real = self.mapper.pixel_to_real((cx, cy))
                 p.last_real_pos = real
                 p.last_bbox = bbox
@@ -159,13 +159,14 @@ class BadmintonAnalyzerV2:
 
         raw_detections = self.detect_and_track(frame)
 
-        # Filter detections inside court polygon
+        # Filter detections inside court polygon (allow margin of -30px for feet slightly out of line)
         valid_detections = []
         for d in raw_detections:
             cx, cy = d["center"]
             if self.court_corners_px is not None:
-                inside = cv2.pointPolygonTest(self.court_corners_px.astype(np.int32), (int(cx), int(cy)), False)
-                if inside < -20.0:  # Allow slight margin outside lines
+                # measureDist=True returns signed distance: >0 inside, 0 on edge, <0 outside
+                dist_px = cv2.pointPolygonTest(self.court_corners_px.astype(np.float32), (float(cx), float(cy)), True)
+                if dist_px < -30.0:  # Reject detections outside margin
                     continue
             d["real_pos"] = self.mapper.pixel_to_real((cx, cy))
             valid_detections.append(d)
@@ -283,4 +284,4 @@ class BadmintonAnalyzerV2:
             pa.color_hist, pb.color_hist = pb.color_hist, pa.color_hist
             pa.last_real_pos, pb.last_real_pos = pb.last_real_pos, pa.last_real_pos
             pa.last_bbox, pb.last_bbox = pb.last_bbox, pa.last_bbox
-            print(f"🔄 Swapped player identities {pid_a} <-> {pid_b}")
+            print(f"[BadmintonAnalyzerV2] Swapped player identities {pid_a} <-> {pid_b}")
