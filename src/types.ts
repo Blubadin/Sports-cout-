@@ -370,10 +370,20 @@ export type ScoutProject = {
       bl: [number, number]; // Bottom-left [x,y] 0-1
       br: [number, number]; // Bottom-right [x,y] 0-1
     };
+    aiSuggestions?: AISuggestion[];
   };
   createdAt: string;
   updatedAt: string;
 };
+
+export interface AISuggestion {
+  id: string;
+  time: number;
+  duration?: number;
+  label: string;
+  confidence?: number;
+  type?: 'rally' | 'skill' | 'touch';
+}
 
 export interface AIPoseKeypoint {
   x: number; // 0..100 or pixel
