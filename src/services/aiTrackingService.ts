@@ -7,7 +7,12 @@
  * 4. Generates both real-court coordinates and video-screen bounding boxes (video_bbox_pct) & AlphaPose skeleton!
  */
 
-import { AITelemetryFrame, AITrackingPlayer } from "../types";
+import {
+  AITelemetryFrame,
+  AITrackingPlayer,
+  TrackingTelemetryV1,
+  TrackingPlayerV1,
+} from "../types";
 
 export type AIConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 export type AIEngineMode = "browser" | "server";
@@ -22,6 +27,7 @@ export interface MarkingState {
 }
 
 type TelemetryListener = (frame: AITelemetryFrame) => void;
+type TelemetryV1Listener = (telemetry: TrackingTelemetryV1) => void;
 type StatusListener = (status: AIConnectionStatus) => void;
 type MarkingListener = (state: MarkingState) => void;
 
@@ -32,10 +38,11 @@ class AITrackingService {
   private serverUrl: string = "ws://localhost:8000/ws/telemetry";
   private status: AIConnectionStatus = "disconnected";
   private telemetryListeners: Set<TelemetryListener> = new Set();
+  private telemetryV1Listeners: Set<TelemetryV1Listener> = new Set();
   private statusListeners: Set<StatusListener> = new Set();
   private markingListeners: Set<MarkingListener> = new Set();
   private shouldReconnect: boolean = false;
-  private reconnectTimer: any = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private latestFrame: AITelemetryFrame | null = null;
 
   // Click-to-Mark Player State
@@ -43,7 +50,7 @@ class AITrackingService {
   private markingStep: number = 0;
 
   // In-Browser Engine State
-  private browserTimer: any = null;
+  private browserTimer: ReturnType<typeof setInterval> | null = null;
   private simTime: number = 0;
   private videoSynced: boolean = false;
   private isVideoPlaying: boolean = true;
@@ -171,8 +178,7 @@ class AITrackingService {
     this.simTime = currentTime;
     if (!isPlaying) {
       const frame = this.computeTelemetryForTime(currentTime);
-      this.latestFrame = frame;
-      this.telemetryListeners.forEach((listener) => listener(frame));
+      this.emitTelemetry(frame);
     }
   }
 
@@ -186,8 +192,7 @@ class AITrackingService {
       y: Math.max(-50, Math.min(50, cur.y + delta.y)),
     };
     const frame = this.computeTelemetryForTime(this.simTime);
-    this.latestFrame = frame;
-    this.telemetryListeners.forEach((listener) => listener(frame));
+    this.emitTelemetry(frame);
   }
 
   public getPlayerAnchorOffset(id: number): { x: number; y: number } {
@@ -230,8 +235,7 @@ class AITrackingService {
     }
 
     const frame = this.computeTelemetryForTime(this.simTime);
-    this.latestFrame = frame;
-    this.telemetryListeners.forEach((listener) => listener(frame));
+    this.emitTelemetry(frame);
   }
 
   public getPlayerCustomPosition(id: number) {
@@ -242,8 +246,7 @@ class AITrackingService {
     this.playerOffsets = {};
     this.playerCustomPositions = {};
     const frame = this.computeTelemetryForTime(this.simTime);
-    this.latestFrame = frame;
-    this.telemetryListeners.forEach((listener) => listener(frame));
+    this.emitTelemetry(frame);
   }
 
   /**
@@ -587,13 +590,33 @@ class AITrackingService {
         y: Math.round((videoBbox.y + ((k.y - (c.y - 3.5)) / 3.8) * videoBbox.height) * 10) / 10,
       }));
 
+      const posPct = { x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 };
+      const posM = {
+        x: Math.round((c.x / 100) * (isSingles ? 5.18 : 6.10) * 100) / 100,
+        y: Math.round((c.y / 100) * 13.40 * 100) / 100,
+      };
+
       return {
         ...p,
-        court_pos_pct: { x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 },
-        court_pos_m: {
-          x: Math.round((c.x / 100) * (isSingles ? 5.18 : 6.71) * 100) / 100,
-          y: Math.round((c.y / 100) * 13.4 * 100) / 100,
+        playerId: `P${p.id}`,
+        trackId: p.id,
+        teamCode: `team${p.team}`,
+        bboxPct: videoBbox,
+        groundPointPct: posPct,
+        courtPosition: {
+          xM: posM.x,
+          yM: posM.y,
+          xPct: posPct.x,
+          yPct: posPct.y,
         },
+        absoluteZone: currentZone,
+        playerRelativeZone: currentZone,
+        speedMps: Math.round(Math.min(9.5, speed) * 10) / 10,
+        totalDistanceM: Math.round((p.total_dist_m + distM) * 10) / 10,
+        detectionConfidence: 0.95,
+        state: "observed" as const,
+        court_pos_pct: posPct,
+        court_pos_m: posM,
         zone: currentZone,
         speed_ms: Math.round(Math.min(9.5, speed) * 10) / 10,
         total_dist_m: Math.round((p.total_dist_m + distM) * 10) / 10,
@@ -607,6 +630,13 @@ class AITrackingService {
     });
 
     return {
+      schemaVersion: 1,
+      analysisId: "in_browser_sim",
+      timestampSec: Math.round(t * 100) / 100,
+      frameIndex: Math.floor(t * 30),
+      engineVersion: "1.0.0",
+      modelVersion: "browser-sim-v1",
+      isSynthetic: true,
       timestamp: Math.round(t * 100) / 100,
       frame_idx: Math.floor(t * 30),
       game_type: this.gameType,
@@ -636,8 +666,7 @@ class AITrackingService {
       }
 
       const frame = this.computeTelemetryForTime(this.simTime);
-      this.latestFrame = frame;
-      this.telemetryListeners.forEach((listener) => listener(frame));
+      this.emitTelemetry(frame);
     }, intervalMs);
   }
 
@@ -664,8 +693,7 @@ class AITrackingService {
         try {
           const payload = JSON.parse(event.data);
           if (payload.type === "telemetry" && payload.data) {
-            this.latestFrame = payload.data;
-            this.telemetryListeners.forEach((listener) => listener(payload.data));
+            this.emitTelemetry(payload.data);
           }
         } catch (e) {
           console.warn("[AITrackingService] Failed to parse message:", e);
@@ -690,6 +718,15 @@ class AITrackingService {
       };
     } catch (e) {
       this.setStatus("error");
+    }
+  }
+
+  private emitTelemetry(frame: AITelemetryFrame) {
+    this.latestFrame = frame;
+    this.telemetryListeners.forEach((listener) => listener(frame));
+    if (this.telemetryV1Listeners.size > 0) {
+      const v1 = toTrackingTelemetryV1(frame);
+      this.telemetryV1Listeners.forEach((listener) => listener(v1));
     }
   }
 
@@ -723,6 +760,20 @@ class AITrackingService {
     };
   }
 
+  public onTelemetryV1(listener: TelemetryV1Listener): () => void {
+    this.telemetryV1Listeners.add(listener);
+    if (this.latestFrame) {
+      listener(toTrackingTelemetryV1(this.latestFrame));
+    }
+    return () => {
+      this.telemetryV1Listeners.delete(listener);
+    };
+  }
+
+  public getLatestTelemetryV1(): TrackingTelemetryV1 | null {
+    return this.latestFrame ? toTrackingTelemetryV1(this.latestFrame) : null;
+  }
+
   public onStatus(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
     listener(this.status);
@@ -735,6 +786,57 @@ class AITrackingService {
     this.status = newStatus;
     this.statusListeners.forEach((listener) => listener(newStatus));
   }
+}
+
+/**
+ * Converts any AITelemetryFrame into canonical TrackingTelemetryV1 (PDF §45).
+ */
+export function toTrackingTelemetryV1(frame: AITelemetryFrame): TrackingTelemetryV1 {
+  const isSynthetic =
+    frame.isSynthetic ??
+    (frame.source
+      ? frame.source.includes("synthetic") ||
+        frame.source.includes("simulated") ||
+        frame.source.includes("browser")
+      : false);
+
+  return {
+    schemaVersion: 1,
+    analysisId: frame.analysisId || "tracking_session",
+    timestampSec: frame.timestampSec ?? frame.timestamp,
+    frameIndex: frame.frameIndex ?? frame.frame_idx,
+    engineVersion: frame.engineVersion || "1.0.0",
+    modelVersion: frame.modelVersion || "badminton-tracking-v1",
+    isSynthetic,
+    source: frame.source || (isSynthetic ? "synthetic_demo" : "real_tracking"),
+    players: (frame.players || []).map((p) => {
+      const posPct = p.court_pos_pct || { x: 50, y: 50 };
+      const posM = p.court_pos_m || {
+        x: Math.round((posPct.x / 100) * 6.10 * 100) / 100,
+        y: Math.round((posPct.y / 100) * 13.40 * 100) / 100,
+      };
+      return {
+        playerId: p.playerId || `P${p.id}`,
+        trackId: p.trackId ?? p.id,
+        teamCode: p.teamCode || `team${p.team}`,
+        bboxPct: p.bboxPct || p.video_bbox_pct,
+        groundPointPct: p.groundPointPct || { x: posPct.x, y: posPct.y },
+        courtPosition: p.courtPosition || {
+          xM: posM.x,
+          yM: posM.y,
+          xPct: posPct.x,
+          yPct: posPct.y,
+        },
+        absoluteZone: p.absoluteZone || p.zone,
+        playerRelativeZone: p.playerRelativeZone || p.zone,
+        speedMps: p.speedMps ?? p.speed_ms,
+        totalDistanceM: p.totalDistanceM ?? p.total_dist_m,
+        detectionConfidence: p.detectionConfidence ?? 0.9,
+        state: p.state || (p.is_active ? "observed" : "lost"),
+        pose: p.pose,
+      };
+    }),
+  };
 }
 
 export const aiTrackingService = new AITrackingService();

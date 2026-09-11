@@ -174,27 +174,86 @@ class BadmintonAnalyzerV2:
         # Match detections to the 4 player profiles using Hungarian Algorithm
         matched_players = self._match_tracks_to_profiles(frame, valid_detections)
 
-        # Build telemetry frame
+        # Build telemetry frame (TrackingTelemetryV1 compliant, PDF §45-47)
+        h, w = frame.shape[:2] if frame is not None else (720, 1280)
         player_telemetry = []
         for pid, p in self.profiles.items():
             stats = self.dist_tracker.get_stats(pid)
+            bbox = p.last_bbox if p.missed_frames < 30 else None
+            pos_m = stats.get("court_pos_m", {"x": 3.05, "y": 6.70})
+            pos_pct = stats.get("court_pos_pct", {"x": 50.0, "y": 50.0})
+            abs_zone = stats.get("current_zone", "ML")
+            rel_zone = self.mapper.get_relative_zone_2d((pos_m["x"], pos_m["y"]), p.team)
+
+            # State: observed | predicted | lost (PDF §45)
+            if p.missed_frames == 0:
+                tracking_state = "observed"
+            elif p.missed_frames < 15:
+                tracking_state = "predicted"
+            else:
+                tracking_state = "lost"
+
+            bbox_pct = None
+            ground_pt_pct = None
+            if bbox is not None:
+                bx = round((bbox[0] / w) * 100.0, 2)
+                by = round((bbox[1] / h) * 100.0, 2)
+                bw = round(((bbox[2] - bbox[0]) / w) * 100.0, 2)
+                bh = round(((bbox[3] - bbox[1]) / h) * 100.0, 2)
+                bbox_pct = {"x": bx, "y": by, "width": bw, "height": bh}
+                cx_pct = round(((bbox[0] + bbox[2]) / (2.0 * w)) * 100.0, 2)
+                cy_pct = round((bbox[3] / h) * 100.0, 2)
+                ground_pt_pct = {"x": cx_pct, "y": cy_pct}
+
             player_telemetry.append({
+                # Canonical V1 Tracking Protocol (PDF §45)
+                "playerId": f"P{pid}",
+                "trackId": pid,
+                "teamCode": f"team{p.team}",
+                "bboxPct": bbox_pct,
+                "groundPointPct": ground_pt_pct,
+                "courtPosition": {
+                    "xM": pos_m["x"],
+                    "yM": pos_m["y"],
+                    "xPct": pos_pct["x"],
+                    "yPct": pos_pct["y"],
+                },
+                "absoluteZone": abs_zone,
+                "playerRelativeZone": rel_zone,
+                "speedMps": stats.get("current_speed_ms", 0.0),
+                "totalDistanceM": stats.get("total_dist_m", 0.0),
+                "detectionConfidence": 0.90 if p.missed_frames == 0 else max(0.1, round(0.90 - p.missed_frames * 0.05, 2)),
+                "state": tracking_state,
+
+                # Backward compatibility aliases
                 "id": pid,
                 "team": p.team,
                 "name": p.name,
-                "bbox": p.last_bbox if p.missed_frames < 30 else None,
-                "court_pos_pct": stats.get("court_pos_pct", {"x": 50.0, "y": 50.0}),
-                "court_pos_m": stats.get("court_pos_m", {"x": 3.35, "y": 6.70}),
-                "zone": stats.get("current_zone", "ML"),
+                "bbox": bbox,
+                "court_pos_pct": pos_pct,
+                "court_pos_m": pos_m,
+                "zone": abs_zone,
                 "speed_ms": stats.get("current_speed_ms", 0.0),
                 "total_dist_m": stats.get("total_dist_m", 0.0),
                 "is_active": p.missed_frames < 10,
+                "video_bbox_pct": bbox_pct,
             })
 
         return {
+            # Canonical V1 Protocol (PDF §45 & §47)
+            "schemaVersion": 1,
+            "analysisId": getattr(self, "analysis_id", "live_session"),
+            "timestampSec": round(t_sec, 3),
+            "frameIndex": self.frame_count,
+            "engineVersion": "1.0.0",
+            "modelVersion": getattr(self, "model_path", "yolov8n.pt"),
+            "isSynthetic": False,
+            "source": "real_tracking",
+            "players": player_telemetry,
+
+            # Backward compatibility aliases
             "timestamp": round(t_sec, 3),
             "frame_idx": self.frame_count,
-            "players": player_telemetry,
         }
 
     def _match_tracks_to_profiles(self, frame: np.ndarray, detections: list[dict]) -> dict:

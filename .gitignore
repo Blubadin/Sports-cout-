@@ -12,3 +12,5 @@ coverage/
 __pycache__/
 *.py[cod]
 *$py.class
+*.pt
+*.onnx

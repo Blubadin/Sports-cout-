@@ -117,6 +117,25 @@ class CourtMapper:
             else:
                 return "BL" if is_left else "BR"
 
+    def get_relative_zone_2d(self, point_m: tuple[float, float], team: int) -> str:
+        """
+        Player-relative zone normalized so player always faces the net (PDF §65).
+        Returns FL, FR, ML, MR, RL, RR.
+        team 1 = Top court (y < 6.70m, faces +y towards net)
+        team 2 = Bottom court (y >= 6.70m, faces -y towards net)
+        """
+        abs_zone = self.get_zone_2d(point_m)
+        if abs_zone in ("SIDE_OUT", "LONG_OUT", "NET_ERR"):
+            return abs_zone
+
+        depth = "F" if "F" in abs_zone else ("M" if "M" in abs_zone else "R")
+        is_screen_left = "L" in abs_zone
+        if team == 1:
+            side = "R" if is_screen_left else "L"
+        else:
+            side = "L" if is_screen_left else "R"
+        return f"{depth}{side}"
+
     @staticmethod
     def euclidean_distance(p1: tuple[float, float], p2: tuple[float, float]) -> float:
         return float(np.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2))
