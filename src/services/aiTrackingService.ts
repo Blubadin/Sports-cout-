@@ -774,6 +774,77 @@ class AITrackingService {
     return this.latestFrame ? toTrackingTelemetryV1(this.latestFrame) : null;
   }
 
+  public async createSession(
+    gameType: BadmintonGameType,
+    videoSource: string = "demo"
+  ): Promise<{ sessionId: string; status: string }> {
+    const res = await fetch("http://localhost:8000/api/tracking/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_source: videoSource, game_type: gameType }),
+    });
+    if (!res.ok) throw new Error(`Failed to create tracking session: ${res.statusText}`);
+    return res.json();
+  }
+
+  public async calibrateSession(sessionId: string, corners: number[][], gameType: BadmintonGameType): Promise<void> {
+    const res = await fetch(`http://localhost:8000/api/tracking/sessions/${sessionId}/calibration`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ corners, game_type: gameType }),
+    });
+    if (!res.ok) throw new Error(`Failed to calibrate session: ${res.statusText}`);
+  }
+
+  public async assignSessionPlayers(
+    sessionId: string,
+    players: { player_id: number; bbox: number[]; name?: string }[]
+  ): Promise<void> {
+    const res = await fetch(`http://localhost:8000/api/tracking/sessions/${sessionId}/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ players }),
+    });
+    if (!res.ok) throw new Error(`Failed to assign players: ${res.statusText}`);
+  }
+
+  public async startSessionAnalysis(sessionId: string): Promise<void> {
+    const res = await fetch(`http://localhost:8000/api/tracking/sessions/${sessionId}/start`, {
+      method: "POST",
+    });
+    if (!res.ok) throw new Error(`Failed to start analysis: ${res.statusText}`);
+  }
+
+  public async getSessionStatus(sessionId: string): Promise<{
+    sessionId: string;
+    status: string;
+    progressPct: number;
+    currentFrame: number;
+    totalFrames: number;
+    elapsedSec: number;
+    durationSec: number;
+    error: string | null;
+  }> {
+    const res = await fetch(`http://localhost:8000/api/tracking/sessions/${sessionId}/status`);
+    if (!res.ok) throw new Error(`Failed to get session status: ${res.statusText}`);
+    return res.json();
+  }
+
+  public async getSessionResults(sessionId: string): Promise<{
+    sessionId: string;
+    status: string;
+    sampleCount: number;
+    telemetry: TrackingTelemetryV1[];
+  }> {
+    const res = await fetch(`http://localhost:8000/api/tracking/sessions/${sessionId}/results`);
+    if (!res.ok) throw new Error(`Failed to get session results: ${res.statusText}`);
+    return res.json();
+  }
+
+  public async deleteSession(sessionId: string): Promise<void> {
+    await fetch(`http://localhost:8000/api/tracking/sessions/${sessionId}`, { method: "DELETE" });
+  }
+
   public onStatus(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
     listener(this.status);

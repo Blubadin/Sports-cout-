@@ -398,6 +398,212 @@ async def websocket_telemetry(websocket: WebSocket):
         print("[AI Service] Client disconnected from AI Telemetry WebSocket")
 
 
+# ==========================================
+# Tracking Session API (PDF §53-55)
+# ==========================================
+import uuid
+import numpy as np
+
+class CreateSessionRequest(BaseModel):
+    video_source: str = "demo"
+    game_type: str = "doubles"
+
+class SessionCalibrationRequest(BaseModel):
+    corners: list[list[float]]
+    game_type: str = "doubles"
+
+class SessionPlayerRequest(BaseModel):
+    players: list[dict]
+
+class TrackingSession:
+    def __init__(self, session_id: str, video_source: str = "demo", game_type: str = "doubles"):
+        self.session_id = session_id
+        self.video_source = video_source
+        self.game_type = game_type
+        self.analyzer = BadmintonAnalyzerV2(game_type=game_type)
+        self.analyzer.analysis_id = session_id
+        self.status = "READY"  # READY | CALIBRATING | ASSIGNING_PLAYERS | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
+        self.progress_pct = 0.0
+        self.current_frame = 0
+        self.total_frames = 0
+        self.elapsed_sec = 0.0
+        self.duration_sec = 0.0
+        self.results: list[dict] = []
+        self.error_message: str | None = None
+        self._cancel = False
+        self._thread: threading.Thread | None = None
+
+tracking_sessions: dict[str, TrackingSession] = {}
+
+
+def _run_session_analysis(session: TrackingSession):
+    session.status = "PROCESSING"
+    session.progress_pct = 0.0
+    session.results = []
+    start_time = time.time()
+
+    if session.video_source == "demo":
+        # Synthetic demo generator (60 frames ~ 2s clip)
+        total_frames = 60
+        session.total_frames = total_frames
+        session.duration_sec = 2.0
+        for i in range(total_frames):
+            if session._cancel:
+                break
+            t = round(i * 0.033, 2)
+            frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+            telemetry = session.analyzer.process_frame(frame, timestamp_sec=t)
+            telemetry["source"] = "synthetic_demo"
+            telemetry["isSynthetic"] = True
+            session.results.append(telemetry)
+            session.current_frame = i + 1
+            session.progress_pct = round(((i + 1) / total_frames) * 100.0, 1)
+            session.elapsed_sec = round(time.time() - start_time, 1)
+            time.sleep(0.01)
+
+        if not session._cancel:
+            session.status = "COMPLETED"
+            session.progress_pct = 100.0
+        else:
+            session.status = "READY"
+        return
+
+    # Real video file
+    video_path = Path(session.video_source)
+    if not video_path.exists():
+        session.status = "ERROR"
+        session.error_message = f"Video file not found: {session.video_source}"
+        return
+
+    cap = cv2.VideoCapture(session.video_source)
+    if not cap.isOpened():
+        session.status = "ERROR"
+        session.error_message = f"Failed to open video file: {session.video_source}"
+        return
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 300
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    session.total_frames = total_frames
+    session.duration_sec = round(total_frames / fps, 2)
+
+    frame_idx = 0
+    try:
+        while not session._cancel:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame_idx += 1
+            pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
+            timestamp_sec = (pos_msec / 1000.0) if pos_msec > 0 else (frame_idx / fps)
+            telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+            telemetry["source"] = "real_tracking"
+            telemetry["isSynthetic"] = False
+            session.results.append(telemetry)
+            session.current_frame = frame_idx
+            session.progress_pct = round((frame_idx / total_frames) * 100.0, 1)
+            session.elapsed_sec = round(time.time() - start_time, 1)
+        
+        if not session._cancel:
+            session.status = "COMPLETED"
+            session.progress_pct = 100.0
+        else:
+            session.status = "READY"
+    except Exception as e:
+        session.status = "ERROR"
+        session.error_message = str(e)
+    finally:
+        cap.release()
+
+
+@app.post("/api/tracking/sessions")
+def create_tracking_session(req: CreateSessionRequest):
+    session_id = f"session_{uuid.uuid4().hex[:8]}"
+    session = TrackingSession(session_id, video_source=req.video_source, game_type=req.game_type)
+    tracking_sessions[session_id] = session
+    return {
+        "sessionId": session_id,
+        "status": session.status,
+        "gameType": session.game_type,
+        "videoSource": session.video_source,
+    }
+
+
+@app.post("/api/tracking/sessions/{session_id}/calibration")
+def calibrate_session(session_id: str, req: SessionCalibrationRequest):
+    if session_id not in tracking_sessions:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    session = tracking_sessions[session_id]
+    session.game_type = req.game_type
+    session.analyzer.game_type = req.game_type
+    session.analyzer.set_court_corners(req.corners)
+    session.status = "ASSIGNING_PLAYERS"
+    return {"status": "success", "sessionStatus": session.status}
+
+
+@app.post("/api/tracking/sessions/{session_id}/players")
+def assign_session_players(session_id: str, req: SessionPlayerRequest):
+    if session_id not in tracking_sessions:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    session = tracking_sessions[session_id]
+    dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    session.analyzer.assign_initial_players(dummy_frame, req.players)
+    session.status = "READY_TO_ANALYZE"
+    return {"status": "success", "sessionStatus": session.status, "assignedCount": len(req.players)}
+
+
+@app.post("/api/tracking/sessions/{session_id}/start")
+def start_session_analysis(session_id: str):
+    if session_id not in tracking_sessions:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    session = tracking_sessions[session_id]
+    if session.status == "PROCESSING":
+        return {"status": "already_processing", "sessionId": session_id}
+    
+    session._cancel = False
+    session._thread = threading.Thread(target=_run_session_analysis, args=(session,), daemon=True)
+    session._thread.start()
+    return {"status": "started", "sessionId": session_id}
+
+
+@app.get("/api/tracking/sessions/{session_id}/status")
+def get_session_status(session_id: str):
+    if session_id not in tracking_sessions:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    session = tracking_sessions[session_id]
+    return {
+        "sessionId": session_id,
+        "status": session.status,
+        "progressPct": session.progress_pct,
+        "currentFrame": session.current_frame,
+        "totalFrames": session.total_frames,
+        "elapsedSec": session.elapsed_sec,
+        "durationSec": session.duration_sec,
+        "error": session.error_message,
+    }
+
+
+@app.get("/api/tracking/sessions/{session_id}/results")
+def get_session_results(session_id: str):
+    if session_id not in tracking_sessions:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    session = tracking_sessions[session_id]
+    return {
+        "sessionId": session_id,
+        "status": session.status,
+        "sampleCount": len(session.results),
+        "telemetry": session.results,
+    }
+
+
+@app.delete("/api/tracking/sessions/{session_id}")
+def delete_tracking_session(session_id: str):
+    if session_id not in tracking_sessions:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    session = tracking_sessions.pop(session_id)
+    session._cancel = True
+    return {"status": "deleted", "sessionId": session_id}
+
+
 if __name__ == "__main__":
     import uvicorn
     print("[AI Service] Starting SportsScout Badminton AI Service on http://localhost:8000 ...")
