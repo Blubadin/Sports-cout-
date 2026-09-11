@@ -378,7 +378,7 @@ export default function CourtAreaSelector() {
           courtSide={currentAction.courtSide}
           outZone={currentAction.outZone}
           onSelectArea={(payload) => selectArea(payload)}
-          isDoubles={matchInfo.matchType === 'doubles'}
+          isDoubles={matchInfo.matchType === 'Team' || matchInfo.gameFormat === 'doubles'}
           flipCourtSide={settings.flipCourtSide}
           onToggleFlip={() => setSettings(s => ({ ...s, flipCourtSide: !s.flipCourtSide }))}
           uiLanguage={settings.uiLanguage}

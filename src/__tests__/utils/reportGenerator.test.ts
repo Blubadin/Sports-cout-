@@ -43,6 +43,8 @@ describe('Coach Reports Generator (Checkpoint 15)', () => {
     expect(reportData.sportType).toBe('volleyball');
     expect(reportData.totalEvents).toBe(1);
     expect(reportData.teamAName).toBe('Thailand');
+    expect(reportData.teamAScore).toBe(1);
+    expect(reportData.teamBScore).toBe(0);
     expect(reportData.earnedPointsTeamA).toBe(1);
     expect(reportData.keyMomentsCount).toBe(1);
   });

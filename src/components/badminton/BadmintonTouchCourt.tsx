@@ -10,7 +10,7 @@ import {
   Target,
   Sparkles,
 } from 'lucide-react';
-import type { AreaSelectionPayload, SportType } from '../../types';
+import type { AreaSelectionPayload, OutZoneType, SportType } from '../../types';
 
 export interface BadmintonTouchCourtProps {
   pointX?: number;
@@ -111,7 +111,7 @@ export function resolveBadmintonPointSelection({
   }
 
   if (isOutsideLength || isOutsideWidth) {
-    let outZone = 'side_left_near';
+    let outZone: OutZoneType = 'side_left_near';
     let label = isThai ? 'ออก (Out)' : 'Out';
 
     if (normY < courtTop) {

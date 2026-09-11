@@ -1,5 +1,3 @@
-@import "@fontsource-variable/noto-sans/index.css";
-@import "@fontsource-variable/noto-sans-thai/index.css";
 @import "tailwindcss";
 
 @variant dark (&:where(.dark, .dark *));

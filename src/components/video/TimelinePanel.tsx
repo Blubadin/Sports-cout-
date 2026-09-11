@@ -193,7 +193,7 @@ export default function TimelinePanel({
     return events.filter((ev) => {
       if (typeof ev.videoTime !== 'number' || ev.videoTime < 0) return false;
 
-      const teamId = ev.actions?.[0]?.teamId || (ev.point % 2 === 1 ? 't1' : 't2');
+      const teamId = ev.actions?.[0]?.teamCode || (ev.point % 2 === 1 ? 't1' : 't2');
       if (teamFilter !== 'all' && teamId !== teamFilter) return false;
       if (resultFilter !== 'all' && ev.resultText !== resultFilter) return false;
 
@@ -204,20 +204,20 @@ export default function TimelinePanel({
   // Split into Team A, Team B, and Key Moments
   const teamAEvents = useMemo(() => {
     return filteredEvents.filter((ev) => {
-      const tid = ev.actions?.[0]?.teamId;
-      return tid === 't1' || tid === team1.id || (!tid && ev.resultText === '+1');
+      const tid = ev.actions?.[0]?.teamCode;
+      return tid === 't1' || tid === team1.id || tid === team1.code || (!tid && ev.resultText === '+1');
     });
-  }, [filteredEvents, team1.id]);
+  }, [filteredEvents, team1.id, team1.code]);
 
   const teamBEvents = useMemo(() => {
     return filteredEvents.filter((ev) => {
-      const tid = ev.actions?.[0]?.teamId;
-      return tid === 't2' || tid === team2.id || (!tid && ev.resultText === '-1');
+      const tid = ev.actions?.[0]?.teamCode;
+      return tid === 't2' || tid === team2.id || tid === team2.code || (!tid && ev.resultText === '-1');
     });
-  }, [filteredEvents, team2.id]);
+  }, [filteredEvents, team2.id, team2.code]);
 
   const keyMomentEvents = useMemo(() => {
-    return filteredEvents.filter((ev) => ev.isStarred || ev.resultText === '+1' || ev.resultText === '-1');
+    return filteredEvents.filter((ev) => ev.isBookmarked || ev.resultText === '+1' || ev.resultText === '-1');
   }, [filteredEvents]);
 
   // Drag handlers for Marker / Clip
@@ -589,7 +589,7 @@ export default function TimelinePanel({
                     e.stopPropagation();
                     setEditingModalEvent(ev);
                   }}
-                  title={`Pt #${ev.point}: ${ev.actions?.[0]?.skill || 'Action'} (${formatPreciseTime(evTime)})`}
+                  title={`Pt #${ev.point}: ${ev.actions?.[0]?.skillCode || 'Action'} (${formatPreciseTime(evTime)})`}
                   className={`absolute h-6 px-2 rounded-md border shadow-md cursor-grab active:cursor-grabbing transform -translate-x-1/2 transition-all hover:scale-105 hover:z-30 flex items-center gap-1 text-[9px] font-black ${colorClass}`}
                   style={{ left: `${leftPct}%` }}
                 >
@@ -627,7 +627,7 @@ export default function TimelinePanel({
                     e.stopPropagation();
                     setEditingModalEvent(ev);
                   }}
-                  title={`Pt #${ev.point}: ${ev.actions?.[0]?.skill || 'Action'} (${formatPreciseTime(evTime)})`}
+                  title={`Pt #${ev.point}: ${ev.actions?.[0]?.skillCode || 'Action'} (${formatPreciseTime(evTime)})`}
                   className={`absolute h-6 px-2 rounded-md border shadow-md cursor-grab active:cursor-grabbing transform -translate-x-1/2 transition-all hover:scale-105 hover:z-30 flex items-center gap-1 text-[9px] font-black ${colorClass}`}
                   style={{ left: `${leftPct}%` }}
                 >

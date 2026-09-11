@@ -1,5 +1,6 @@
 import type { EventRow, ScoutProject } from '../types';
 import { buildAnalyticsSummary } from './analyticsEngine';
+import { getSportRuleEngine } from '../sports/rules/registry';
 
 export type ReportConfig = {
   title: string;
@@ -27,17 +28,42 @@ export function generateMatchReportData(project: ScoutProject): MatchReportData 
   const summary = buildAnalyticsSummary(project.events || []);
   const teamA = project.teams[0];
   const teamB = project.teams[1];
+  const teamACode = teamA?.code || 'A';
+  const teamBCode = teamB?.code || 'B';
 
   const teamAEarned = summary.derivedOutcomePoints.earnedByTeam[teamA?.code || ''] || 0;
   const teamBEarned = summary.derivedOutcomePoints.earnedByTeam[teamB?.code || ''] || 0;
   const keyMoments = (project.events || []).filter(e => e.isBookmarked);
 
+  // Derive scores from events via SportRuleEngine
+  const ruleEngine = getSportRuleEngine(project.sportType);
+  const teamScores: Record<string, number> = { [teamACode]: 0, [teamBCode]: 0 };
+
+  for (const event of project.events || []) {
+    const res = ruleEngine.resolveEvent(
+      event.actions || [],
+      {
+        sportType: project.sportType,
+        teamCodes: [teamACode, teamBCode],
+        activeTeamCode: event.actions?.[0]?.teamCode,
+      },
+      event
+    );
+    if (res.teamScoreDeltas) {
+      for (const [code, delta] of Object.entries(res.teamScoreDeltas)) {
+        teamScores[code] = (teamScores[code] || 0) + delta;
+      }
+    } else if (res.scoringTeamCode && res.scoreDelta > 0) {
+      teamScores[res.scoringTeamCode] = (teamScores[res.scoringTeamCode] || 0) + res.scoreDelta;
+    }
+  }
+
   return {
     projectTitle: project.title,
     sportType: project.sportType,
     totalEvents: project.events?.length || 0,
-    teamAScore: project.matchInfo.currentPoint || 0,
-    teamBScore: 0,
+    teamAScore: teamScores[teamACode] ?? 0,
+    teamBScore: teamScores[teamBCode] ?? 0,
     teamAName: teamA?.name || teamA?.code || 'Team A',
     teamBName: teamB?.name || teamB?.code || 'Team B',
     earnedPointsTeamA: teamAEarned,

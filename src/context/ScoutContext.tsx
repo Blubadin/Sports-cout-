@@ -9,6 +9,7 @@ import {
   resetVolleyballActionForSkill,
   type VolleyballPathCaptureStage,
 } from '../volleyball/volleyballActionContext';
+import { resolveSportEvent } from '../sports/rules/registry';
 
 export type InputHistoryItem = 
   | { 
@@ -926,15 +927,37 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     const clipStartTime = previewStartTime;
     const clipEndTime = previewEndTime;
 
+    // Resolve sport-specific scoring and semantics
+    const eventResolution = resolveSportEvent(
+      finalActions,
+      {
+        sportType: matchInfo.sportType,
+        teamCodes: [teams[0]?.code || 'A', teams[1]?.code || 'B'],
+        activeTeamCode: finalActions[0]?.teamCode,
+      }
+    );
+
+    const populatedActions = finalActions.map((action, idx) => {
+      const actRes = eventResolution.actionResolutions[idx];
+      return {
+        ...action,
+        outcomeStatus: actRes?.outcomeStatus ?? action.outcomeStatus,
+        scoreDelta: actRes?.scoreDelta ?? action.scoreDelta,
+      };
+    });
+
     const newRow: EventRow = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       no: events.length + 1,
       point: matchInfo.currentPoint,
-      actions: finalActions,
+      actions: populatedActions,
       eventText,
       thaiMeaningText,
       extendedEventText,
       resultText,
+      scoreDelta: eventResolution.scoreDelta,
+      outcomeStatus: eventResolution.outcomeStatus,
+      rallyId: `rally-${matchInfo.currentPoint}`,
       videoTime: sequenceStartTime,
       sequenceStartTime,
       sequenceEndTime,

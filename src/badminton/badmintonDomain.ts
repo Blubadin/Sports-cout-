@@ -38,7 +38,7 @@ export function calculateBadmintonMetrics(rallies: BadmintonRally[], playerId: s
       }
     }
 
-    const hasSmash = rally.strokeSequence.includes('smash');
+    const hasSmash = rally.strokeSequence.some(s => s === 'SMH' || s.toLowerCase() === 'smash');
     if (hasSmash) {
       smashes++;
       if ((rally.winningPlayer === playerId || rally.winningTeam === playerId) && rally.errorType === 'winner') {

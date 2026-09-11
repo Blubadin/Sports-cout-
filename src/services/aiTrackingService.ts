@@ -356,6 +356,14 @@ class AITrackingService {
     }
   }
 
+  public startStreaming(source?: string) {
+    this.connect();
+  }
+
+  public stopStreaming() {
+    this.disconnect();
+  }
+
   public disconnect() {
     this.shouldReconnect = false;
     clearTimeout(this.reconnectTimer);
