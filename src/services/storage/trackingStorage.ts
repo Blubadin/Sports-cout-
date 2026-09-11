@@ -274,6 +274,12 @@ export function getTrackingStorageDriver(): TrackingStorageDriver {
   return activeDriver;
 }
 
+export async function loadBadmintonTrackingAnalysis(projectId: string): Promise<TrackingAnalysis | null> {
+  const driver = getTrackingStorageDriver();
+  const list = await driver.listAnalyses(projectId);
+  return list[0] ?? null;
+}
+
 // -------------------------------------------------------------
 // Movement & Quality Metrics Calculation
 // -------------------------------------------------------------
