@@ -24,6 +24,15 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import type { BadmintonGameType } from '../../services/aiTrackingService';
 import { aiTrackingService } from '../../services/aiTrackingService';
 import type { TrackingTelemetryV1 } from '../../types';
+import {
+  downsampleAndChunkTrackingSamples,
+  saveTrackingAnalysis,
+  listTrackingAnalyses,
+  getTrackingSampleChunks,
+  type TrackingAnalysis,
+  type TrackingSampleChunk,
+} from '../../services/storage/trackingStorage';
+import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 
 export type TrackingLabStatus =
   | 'NOT_ELIGIBLE'
@@ -74,9 +83,24 @@ export default function BadmintonTrackingLab() {
   const [calibrationCorners, setCalibrationCorners] = useState<number[][]>([]);
   const [calibratingStep, setCalibratingStep] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [persistedAnalysis, setPersistedAnalysis] = useState<TrackingAnalysis | null>(null);
+  const [persistedChunks, setPersistedChunks] = useState<TrackingSampleChunk[]>([]);
 
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Load existing tracking analysis if present for active project
+  useEffect(() => {
+    if (!activeProjectId) return;
+    listTrackingAnalyses(activeProjectId).then(async (analyses) => {
+      if (analyses.length > 0) {
+        const latest = analyses[analyses.length - 1];
+        setPersistedAnalysis(latest);
+        const chunks = await getTrackingSampleChunks(latest.id);
+        setPersistedChunks(chunks);
+      }
+    });
+  }, [activeProjectId]);
 
   // Check backend health
   const checkBackend = useCallback(async () => {
@@ -277,68 +301,104 @@ export default function BadmintonTrackingLab() {
     }
   }, [trackingEligible, backendOnline, gameType, localFileName, calibrationCorners, isThai, showToast]);
 
-  const computeSummaryMetrics = (telemetry: TrackingTelemetryV1[], isSynthetic: boolean) => {
-    if (telemetry.length === 0) {
-      setSummaryMetrics({
-        totalDistanceM: 1420.0,
-        p95SpeedMps: 4.8,
-        detectionCoveragePct: 96.2,
-        sampleCount: 150,
-        isSynthetic: true,
-        playerMetrics: [
-          { playerId: 'P1', distanceM: 780.0, maxSpeedMps: 5.6, p95SpeedMps: 4.9, state: 'observed' },
-          { playerId: 'P2', distanceM: 640.0, maxSpeedMps: 5.1, p95SpeedMps: 4.6, state: 'observed' },
-        ],
+  const computeSummaryMetrics = async (telemetry: TrackingTelemetryV1[], isSynthetic: boolean) => {
+    let sourceTelemetry = telemetry;
+    if (sourceTelemetry.length === 0 && isSynthetic) {
+      const sessionId = currentSessionId || `session_${Date.now()}`;
+      sourceTelemetry = Array.from({ length: 60 }, (_, i) => {
+        const t = Number((i * 0.033).toFixed(3));
+        const nearX = 3.05 + Math.sin(i * 0.2) * 1.5;
+        const nearY = 3.0 + Math.cos(i * 0.2) * 1.5;
+        const farX = 3.05 - Math.sin(i * 0.2) * 1.5;
+        const farY = 10.5 - Math.cos(i * 0.2) * 1.5;
+        return {
+          schemaVersion: 1,
+          analysisId: sessionId,
+          timestampSec: t,
+          frameIndex: i,
+          source: 'synthetic_demo',
+          isSynthetic: true,
+          players: [
+            {
+              playerId: 'P1',
+              trackId: 1,
+              teamCode: 'team1',
+              courtPosition: {
+                xM: Number(nearX.toFixed(2)),
+                yM: Number(nearY.toFixed(2)),
+                xPct: Number(((nearX / 6.10) * 100).toFixed(1)),
+                yPct: Number(((nearY / 13.40) * 100).toFixed(1)),
+              },
+              playerRelativeZone: 'mid',
+              speedMps: Number((1.5 + Math.abs(Math.sin(i * 0.3) * 2.0)).toFixed(2)),
+              detectionConfidence: 0.92,
+              state: 'observed' as const,
+            },
+            {
+              playerId: 'P2',
+              trackId: 2,
+              teamCode: 'team2',
+              courtPosition: {
+                xM: Number(farX.toFixed(2)),
+                yM: Number(farY.toFixed(2)),
+                xPct: Number(((farX / 6.10) * 100).toFixed(1)),
+                yPct: Number(((farY / 13.40) * 100).toFixed(1)),
+              },
+              playerRelativeZone: 'mid',
+              speedMps: Number((1.8 + Math.abs(Math.cos(i * 0.3) * 2.2)).toFixed(2)),
+              detectionConfidence: 0.9,
+              state: 'observed' as const,
+            },
+          ],
+        };
       });
-      return;
     }
 
-    // Calculate real stats from V1 telemetry
-    const allSpeeds: number[] = [];
-    let totalDist = 0;
-    const playerMap: { [pid: string]: { dist: number; speeds: number[]; state: string } } = {};
+    const sessionId = currentSessionId || `session_${Date.now()}`;
+    const { chunks, summary, quality } = downsampleAndChunkTrackingSamples(sessionId, sourceTelemetry, 10, 15);
 
-    telemetry.forEach((t) => {
-      t.players.forEach((p) => {
-        if (!playerMap[p.playerId]) {
-          playerMap[p.playerId] = { dist: 0, speeds: [], state: p.state };
-        }
-        playerMap[p.playerId].state = p.state;
-        if (p.speedMps !== undefined && p.speedMps > 0) {
-          allSpeeds.push(p.speedMps);
-          playerMap[p.playerId].speeds.push(p.speedMps);
-        }
-        if (p.totalDistanceM !== undefined && p.totalDistanceM > playerMap[p.playerId].dist) {
-          playerMap[p.playerId].dist = p.totalDistanceM;
-        }
-      });
-    });
+    const analysisRecord: TrackingAnalysis = {
+      id: sessionId,
+      projectId: activeProjectId || 'current_project',
+      sportType: 'badminton',
+      gameType,
+      status: 'completed',
+      engineVersion: 'tracking-v1',
+      detectorModel: 'yolov8n-badminton',
+      trackerModel: 'bytetrack',
+      sampleRateHz: 10,
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      players: [
+        { playerId: 'P1', name: 'Player 1', side: 'near' },
+        { playerId: 'P2', name: 'Player 2', side: 'far' },
+      ],
+      quality,
+      summary,
+    };
 
-    Object.values(playerMap).forEach((pm) => {
-      totalDist += pm.dist;
-    });
+    await saveTrackingAnalysis(analysisRecord, chunks);
+    setPersistedAnalysis(analysisRecord);
+    setPersistedChunks(chunks);
 
-    allSpeeds.sort((a, b) => a - b);
-    const p95Idx = Math.floor(allSpeeds.length * 0.95);
-    const p95 = allSpeeds[p95Idx] || 0.0;
+    const p1Summary = summary.players['P1'];
+    const p2Summary = summary.players['P2'];
+    const totalDist = (p1Summary?.totalDistanceMeters || 0) + (p2Summary?.totalDistanceMeters || 0);
+    const p95 = Math.max(p1Summary?.p95SpeedMps || 0, p2Summary?.p95SpeedMps || 0);
 
     setSummaryMetrics({
       totalDistanceM: Math.round(totalDist * 10) / 10,
       p95SpeedMps: Math.round(p95 * 10) / 10,
-      detectionCoveragePct: Math.round((telemetry.length / (telemetry.length || 1)) * 96.0 * 10) / 10,
-      sampleCount: telemetry.length,
+      detectionCoveragePct: Math.round(quality.detectionCoverage * 1000) / 10,
+      sampleCount: summary.sampleCount,
       isSynthetic,
-      playerMetrics: Object.entries(playerMap).map(([pid, val]) => {
-        val.speeds.sort((a, b) => a - b);
-        const pIdx = Math.floor(val.speeds.length * 0.95);
-        return {
-          playerId: pid,
-          distanceM: Math.round(val.dist * 10) / 10,
-          maxSpeedMps: val.speeds.length ? Math.round(val.speeds[val.speeds.length - 1] * 10) / 10 : 0,
-          p95SpeedMps: val.speeds.length ? Math.round(val.speeds[pIdx] * 10) / 10 : 0,
-          state: val.state,
-        };
-      }),
+      playerMetrics: Object.entries(summary.players).map(([pid, val]) => ({
+        playerId: pid,
+        distanceM: val.totalDistanceMeters,
+        maxSpeedMps: val.maxSpeedMps,
+        p95SpeedMps: val.p95SpeedMps,
+        state: 'observed',
+      })),
     });
   };
 
@@ -670,84 +730,32 @@ export default function BadmintonTrackingLab() {
         </div>
       )}
 
-      {/* Results Subtab (PDF §67-70) */}
+      {/* Results Subtab (PDF §67-70, §75-79) */}
       {activeSubTab === 'results' && (
-        <div className="p-4 rounded-xl bg-[#132332] border border-[#263642] flex flex-col gap-4 text-xs">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-white">
-                {isThai ? 'สถิติการเคลื่อนที่ (Movement Metrics)' : 'Player Movement Telemetry'}
-              </h3>
-              <p className="text-gray-400">
-                {isThai
-                  ? 'ข้อมูลระยะทาง ความเร็วสูงสุด (P95) และสถานะการตรวจจับ'
-                  : 'Calculated distance, 95th-percentile speed, and tracking states.'}
-              </p>
-            </div>
-            {summaryMetrics?.isSynthetic && (
-              <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-mono font-bold">
-                Demo / Synthetic
-              </span>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono">
-            <div className="p-3 bg-[#1a2d3f] rounded-lg border border-[#263642]">
-              <span className="text-gray-400 text-[10px] block">Total Distance</span>
-              <span className="text-lg font-bold text-sky-400">
-                {summaryMetrics ? `${summaryMetrics.totalDistanceM} m` : '--'}
-              </span>
-            </div>
-            <div className="p-3 bg-[#1a2d3f] rounded-lg border border-[#263642]">
-              <span className="text-gray-400 text-[10px] block">Top Speed (P95)</span>
-              <span className="text-lg font-bold text-emerald-400">
-                {summaryMetrics ? `${summaryMetrics.p95SpeedMps} m/s` : '--'}
-              </span>
-            </div>
-            <div className="p-3 bg-[#1a2d3f] rounded-lg border border-[#263642]">
-              <span className="text-gray-400 text-[10px] block">Detection Coverage</span>
-              <span className="text-lg font-bold text-purple-400">
-                {summaryMetrics ? `${summaryMetrics.detectionCoveragePct}%` : '--'}
-              </span>
-            </div>
-          </div>
-
-          {/* Breakdown per player */}
-          {summaryMetrics && summaryMetrics.playerMetrics.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">
-                {isThai ? 'สถิติรายบุคคล (Player Breakdown)' : 'Player Breakdown'}
-              </span>
-              <div className="border border-[#263642] rounded-lg overflow-hidden font-mono text-[11px]">
-                <div className="grid grid-cols-5 p-2 bg-[#162330] text-gray-400 font-bold text-[10px]">
-                  <span>Player</span>
-                  <span>Distance</span>
-                  <span>P95 Speed</span>
-                  <span>Max Speed</span>
-                  <span>State</span>
+        <div className="flex flex-col gap-4">
+          {persistedAnalysis ? (
+            <BadmintonMovementDashboard
+              analysis={persistedAnalysis}
+              chunks={persistedChunks}
+              title={
+                isThai
+                  ? 'แดชบอร์ดการเคลื่อนที่ของผู้เล่น (Badminton Movement Dashboard)'
+                  : 'Badminton Player Movement Dashboard'
+              }
+            />
+          ) : (
+            <div className="p-4 rounded-xl bg-[#132332] border border-[#263642] flex flex-col gap-4 text-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    {isThai ? 'สถิติการเคลื่อนที่ (Movement Metrics)' : 'Player Movement Telemetry'}
+                  </h3>
+                  <p className="text-gray-400">
+                    {isThai
+                      ? 'ยังไม่มีข้อมูลการติดตามที่บันทึก กรุณากด เริ่มวิเคราะห์ เพื่อสร้างข้อมูล'
+                      : 'No saved tracking data yet. Run analysis above to generate player telemetry.'}
+                  </p>
                 </div>
-                {summaryMetrics.playerMetrics.map((pm) => (
-                  <div
-                    key={pm.playerId}
-                    className="grid grid-cols-5 p-2 border-t border-[#263642] bg-[#1a2d3f]/60 items-center text-gray-200"
-                  >
-                    <span className="font-bold text-sky-300">{pm.playerId}</span>
-                    <span>{pm.distanceM} m</span>
-                    <span>{pm.p95SpeedMps} m/s</span>
-                    <span>{pm.maxSpeedMps} m/s</span>
-                    <span
-                      className={`text-[10px] font-bold uppercase ${
-                        pm.state === 'observed'
-                          ? 'text-green-400'
-                          : pm.state === 'predicted'
-                          ? 'text-amber-400'
-                          : 'text-red-400'
-                      }`}
-                    >
-                      {pm.state}
-                    </span>
-                  </div>
-                ))}
               </div>
             </div>
           )}
