@@ -25,7 +25,9 @@ export type CoachCommand =
   | { type: 'cancelContext' }
   | { type: 'toggleHistory' }
   | { type: 'togglePlayback' }
-  | { type: 'seekBy'; seconds: number };
+  | { type: 'seekBy'; seconds: number }
+  | { type: 'quickBookmark' }
+  | { type: 'editLastEvent' };
 
 export type CoachCommandHandlers = {
   selectTeam?: (teamIndex: 0 | 1) => void;
@@ -42,6 +44,8 @@ export type CoachCommandHandlers = {
   toggleHistory?: () => void;
   togglePlayback?: () => void;
   seekBy?: (seconds: number) => void;
+  quickBookmark?: () => void;
+  editLastEvent?: () => void;
 };
 
 export type CoachKeyboardInput = {
@@ -97,6 +101,12 @@ export function resolveKeyboardCoachCommand(
   }
   if (input.code === 'KeyZ' && (input.ctrlKey || input.metaKey)) {
     return input.shiftKey ? { type: 'redoAction' } : { type: 'undoAction' };
+  }
+  if ((input.code === 'KeyB' || input.code === 'KeyK') && !input.ctrlKey && !input.metaKey) {
+    return { type: 'quickBookmark' };
+  }
+  if (input.code === 'KeyE' && (input.ctrlKey || input.metaKey)) {
+    return { type: 'editLastEvent' };
   }
 
   if (context === 'active-wheel' || context === 'hud-base') {
@@ -158,6 +168,12 @@ export function dispatchCoachCommand(
     case 'seekBy':
       handlers.seekBy?.(command.seconds);
       return Boolean(handlers.seekBy);
+    case 'quickBookmark':
+      handlers.quickBookmark?.();
+      return Boolean(handlers.quickBookmark);
+    case 'editLastEvent':
+      handlers.editLastEvent?.();
+      return Boolean(handlers.editLastEvent);
   }
 }
 

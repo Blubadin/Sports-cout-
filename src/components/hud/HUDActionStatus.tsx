@@ -1,17 +1,22 @@
 import React from "react";
 import { useScoutContext } from "../../context/ScoutContext";
-import { Undo2 } from "lucide-react";
+import { Undo2, Edit3, Bookmark } from "lucide-react";
 import { getAreaDisplay } from "../../utils/areaHelper";
 
 export default function HUDActionStatus() {
   const {
     currentAction,
     currentActions,
+    events,
     sportTemplate,
     getThaiMeaning,
     hudLastSavedText,
     undoLastAction,
     settings,
+    editLastEvent,
+    undoLastSavedEvent,
+    quickBookmarkCurrentMoment,
+    videoTime,
   } = useScoutContext();
 
   const isThai = settings?.uiLanguage === "th";
@@ -117,7 +122,7 @@ export default function HUDActionStatus() {
         
         {currentAction.foulCode && renderChip(getFoulLabel(), true, "foul")}
 
-        {canUndo && (
+        {canUndo ? (
           <button
             onClick={undoLastAction}
             className="ml-1 p-1.5 md:p-2 bg-red-500/20 hover:bg-red-500/40 active:scale-95 active:bg-red-500/50 text-red-300 rounded-lg border border-red-500/30 backdrop-blur-sm transition-colors flex items-center justify-center shadow-lg"
@@ -125,7 +130,37 @@ export default function HUDActionStatus() {
           >
             <Undo2 size={16} />
           </button>
-        )}
+        ) : events.length > 0 ? (
+          <div className="flex items-center gap-1 ml-1 shrink-0">
+            <button
+              onClick={undoLastSavedEvent}
+              className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/35 active:scale-95 text-amber-300 rounded-lg border border-amber-500/30 backdrop-blur-sm text-[10px] md:text-xs font-bold flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+              title="Undo Last Saved Event (Ctrl+Z)"
+            >
+              <Undo2 size={13} />
+              <span className="hidden sm:inline">#{events[events.length - 1].no}</span>
+            </button>
+            <button
+              onClick={editLastEvent}
+              className="px-2 py-1 bg-sky-500/20 hover:bg-sky-500/35 active:scale-95 text-sky-300 rounded-lg border border-sky-500/30 backdrop-blur-sm text-[10px] md:text-xs font-bold flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+              title="Edit Last Event (Ctrl+E)"
+            >
+              <Edit3 size={13} />
+              <span className="hidden sm:inline">Edit</span>
+            </button>
+            <button
+              onClick={() => quickBookmarkCurrentMoment(videoTime)}
+              className={`p-1.5 rounded-lg border text-[10px] md:text-xs font-bold flex items-center gap-1 shadow-sm transition-colors cursor-pointer active:scale-95 ${
+                events[events.length - 1]?.isBookmarked
+                  ? "bg-amber-500/30 text-amber-300 border-amber-400"
+                  : "bg-white/10 hover:bg-white/20 text-white/80 border-white/20"
+              }`}
+              title="Quick Bookmark Key Moment (B / K)"
+            >
+              <Bookmark size={13} className={events[events.length - 1]?.isBookmarked ? "fill-amber-400 text-amber-400" : ""} />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* Descriptor / Translation text */}

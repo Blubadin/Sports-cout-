@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useRef } from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { classNames, formatPreciseTime } from '../utils';
-import { Undo2, Save, Plus, Trash2, Settings2, ChevronDown, ChevronUp, ArrowRight, RotateCcw, MonitorPlay } from 'lucide-react';
+import { Undo2, Save, Plus, Trash2, Settings2, ChevronDown, ChevronUp, ArrowRight, RotateCcw, MonitorPlay, Edit3, Bookmark } from 'lucide-react';
 import { t } from '../i18n';
 
 import CourtAreaSelector from './CourtAreaSelector';
@@ -31,7 +31,8 @@ export default function InputPanel() {
     addAction, saveEvent, undoLastAction, clearCurrentEvent,
     settings, setSettings, isActionComplete, resetCurrentAction, getThaiMeaning, getExtendedActionText, sportTemplate, changeSportType,
     getMissingActionMessage, currentInputHistory, setCurrentInputHistory, showToast, updateActionField, commitResult, selectArea, selectFoul, clearFoul, redoEventAction,
-    matchInfo, videoTime, volleyballPathStage, setVolleyballPathStage, skipVolleyballTarget, setVolleyballSystemContext
+    matchInfo, videoTime, volleyballPathStage, setVolleyballPathStage, skipVolleyballTarget, setVolleyballSystemContext,
+    editLastEvent, undoLastSavedEvent, quickBookmarkCurrentMoment
   } = useScoutContext();
 
   const executeCoachCommand = useCallback((command: CoachCommand) => {
@@ -48,14 +49,26 @@ export default function InputPanel() {
         if (foul) selectFoul(foul);
       },
       saveEvent,
-      undoAction: undoLastAction,
+      undoAction: () => {
+        if (currentActions.length > 0 || Object.keys(currentAction).length > 0) {
+          undoLastAction();
+        } else {
+          undoLastSavedEvent();
+        }
+      },
       redoAction: redoEventAction,
       clearCurrent: clearCurrentEvent,
       cancelContext: resetCurrentAction,
+      quickBookmark: () => quickBookmarkCurrentMoment(videoTime),
+      editLastEvent,
     });
   }, [
     clearCurrentEvent,
     commitResult,
+    currentAction,
+    currentActions.length,
+    editLastEvent,
+    quickBookmarkCurrentMoment,
     redoEventAction,
     resetCurrentAction,
     saveEvent,
@@ -65,7 +78,9 @@ export default function InputPanel() {
     sportTemplate.fouls,
     teams,
     undoLastAction,
+    undoLastSavedEvent,
     updateActionField,
+    videoTime,
   ]);
 
   const handleSelect = useCallback((category: keyof typeof currentAction, value: string) => {
@@ -386,7 +401,7 @@ export default function InputPanel() {
             <button 
               onClick={undoLastAction}
               className="px-3 flex items-center justify-center bg-gray-800 hover:bg-gray-700 text-white rounded-lg border border-gray-750 transition-all cursor-pointer active:scale-95"
-              title="Undo Last"
+              title="Undo Last Action"
             >
               <Undo2 size={14} />
             </button>
@@ -398,6 +413,49 @@ export default function InputPanel() {
               <Trash2 size={14} />
             </button>
           </div>
+
+          {/* Quick Correction & Bookmark Bar (PDF §96, §97) */}
+          {events.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between pt-2 border-t border-white/10 gap-2 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-gray-400">
+                  {settings.uiLanguage === 'th' ? `เหตุการณ์ล่าสุด #${events[events.length - 1].no}:` : `Last #${events[events.length - 1].no}:`}
+                </span>
+                <button
+                  type="button"
+                  onClick={undoLastSavedEvent}
+                  className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-amber-300 rounded border border-amber-500/30 text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                  title="Undo Last Event (Ctrl+Z)"
+                >
+                  <Undo2 size={12} />
+                  <span>{settings.uiLanguage === 'th' ? 'ยกเลิกแต้มนี้' : 'Undo Event'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={editLastEvent}
+                  className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-sky-300 rounded border border-sky-500/30 text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                  title="Edit Last Event (Ctrl+E)"
+                >
+                  <Edit3 size={12} />
+                  <span>{settings.uiLanguage === 'th' ? 'แก้ไขแต้มนี้' : 'Edit Event'}</span>
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => quickBookmarkCurrentMoment(videoTime)}
+                className={classNames(
+                  "px-2 py-1 rounded border text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all cursor-pointer",
+                  events[events.length - 1]?.isBookmarked
+                    ? "bg-amber-500/20 text-amber-300 border-amber-500/50"
+                    : "bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700"
+                )}
+                title="Quick Bookmark Key Moment (B / K)"
+              >
+                <Bookmark size={12} className={events[events.length - 1]?.isBookmarked ? "fill-amber-400 text-amber-400" : ""} />
+                <span>{settings.uiLanguage === 'th' ? 'Key Moment (B)' : 'Bookmark (B)'}</span>
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 space-y-4 pb-4">

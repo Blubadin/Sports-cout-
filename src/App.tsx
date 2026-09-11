@@ -41,6 +41,7 @@ const FullCoachReport = React.lazy(() => import('./components/report/FullCoachRe
 const BadmintonTrackingLab = React.lazy(() => import('./components/labs/BadmintonTrackingLab'));
 const KeyboardShortcutsModal = React.lazy(() => import('./components/KeyboardShortcutsModal'));
 const MatchInfoModal = React.lazy(() => import('./components/MatchInfoModal'));
+const EditEventModal = React.lazy(() => import('./components/EditEventModal'));
 
 type AnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks' | 'report' | 'labs';
 const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks', 'report', 'labs'];
@@ -246,6 +247,10 @@ function AppContent() {
     canRedoEventAction,
     undoEventAction,
     redoEventAction,
+    editingEvent,
+    setEditingEvent,
+    editLastEvent,
+    quickBookmarkCurrentMoment,
   } = useScoutContext();
   const { activeProjectId, projects, repositoryReady, saveStatus } = useWorkspace();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -312,6 +317,36 @@ function AppContent() {
     window.addEventListener('keydown', handleTabKey);
     return () => window.removeEventListener('keydown', handleTabKey);
   }, [activeProjectId, isKeyboardShortcutsOpen, isMatchInfoOpen, isSettingsOpen, isWorkstation]);
+
+  useEffect(() => {
+    const handleGlobalShortcuts = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) {
+        return;
+      }
+      if (isSettingsOpen || isKeyboardShortcutsOpen || isMatchInfoOpen || editingEvent) {
+        return;
+      }
+
+      // Quick Bookmark: KeyB or KeyK
+      if ((event.code === 'KeyB' || event.code === 'KeyK') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        quickBookmarkCurrentMoment(videoTime);
+        return;
+      }
+
+      // Edit Last Event: Ctrl+E / Meta+E
+      if (event.code === 'KeyE' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        editLastEvent();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalShortcuts);
+    return () => window.removeEventListener('keydown', handleGlobalShortcuts);
+  }, [editLastEvent, editingEvent, isKeyboardShortcutsOpen, isMatchInfoOpen, isSettingsOpen, quickBookmarkCurrentMoment, videoTime]);
 
   const handleTablistKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -736,6 +771,15 @@ function AppContent() {
       {isMatchInfoOpen && (
         <React.Suspense fallback={null}>
           <MatchInfoModal isOpen={isMatchInfoOpen} onClose={() => setIsMatchInfoOpen(false)} />
+        </React.Suspense>
+      )}
+      {editingEvent && (
+        <React.Suspense fallback={null}>
+          <EditEventModal
+            isOpen={Boolean(editingEvent)}
+            onClose={() => setEditingEvent(null)}
+            event={editingEvent}
+          />
         </React.Suspense>
       )}
       <Toast />
