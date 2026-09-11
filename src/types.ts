@@ -268,7 +268,7 @@ export type MatchInfo = {
 
 export type AppSettings = {
   workspaceExperience?: WorkspaceExperience;
-  workbenchPreset?: 'scout' | 'review' | 'analysis' | 'report';
+  workbenchPreset?: 'scout' | 'review' | 'analysis' | 'report' | 'lab';
   autoNextPoint: boolean;
   theme?: 'light' | 'dark' | 'monochrome';
   darkMode: boolean; // keep for backwards compatibility

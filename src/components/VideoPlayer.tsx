@@ -57,9 +57,9 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
   const [digitalZoom, setDigitalZoom] = useState<number>(1);
   const [cameraAngle, setCameraAngle] = useState<number>(1);
 
-  // When Zone tool is activated from left rail, open court overlay
+  // When Court or Zone tool is activated from left rail, open court overlay
   useEffect(() => {
-    if (activeTool === 'zone') {
+    if (activeTool === 'court' || activeTool === 'zone') {
       setShowCourtOverlay(true);
     }
   }, [activeTool]);
@@ -734,7 +734,7 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
               )}
 
               {/* Telestration Canvas (Interactive in Edit Mode, Passive during Playback) */}
-              {(activeTool === 'draw' || activeTool === 'measure' || activeTool === 'text' || activeTool === 'track') ? (
+              {(activeTool === 'annotate' || activeTool === 'draw' || activeTool === 'measure' || activeTool === 'text' || activeTool === 'track') ? (
                 <TelestrationCanvas
                   activeTool={activeTool}
                   currentTime={visibleTime}

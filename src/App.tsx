@@ -38,11 +38,12 @@ const VideoPlayer = React.lazy(() => import('./components/VideoPlayer'));
 const InputPanel = React.lazy(() => import('./components/InputPanel'));
 const ScoutingTable = React.lazy(() => import('./components/ScoutingTable'));
 const FullCoachReport = React.lazy(() => import('./components/report/FullCoachReport'));
+const BadmintonTrackingLab = React.lazy(() => import('./components/labs/BadmintonTrackingLab'));
 const KeyboardShortcutsModal = React.lazy(() => import('./components/KeyboardShortcutsModal'));
 const MatchInfoModal = React.lazy(() => import('./components/MatchInfoModal'));
 
-type AnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks' | 'report';
-const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks', 'report'];
+type AnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks' | 'report' | 'labs';
+const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks', 'report', 'labs'];
 
 function Toast() {
   const { toastMessage } = useScoutContext();
@@ -504,6 +505,13 @@ function AppContent() {
                 if (tool === 'scout' || tool === 'select') {
                   handleWorkstationPreset('scout');
                   setActiveTab('input');
+                } else if (tool === 'annotate') {
+                  showToast(settings.uiLanguage === 'th' ? 'โหมดวาด Telestration เปิดใช้งาน' : 'Telestration mode active');
+                } else if (tool === 'court') {
+                  showToast(settings.uiLanguage === 'th' ? 'เปิดโซนสนามและ Calibrate' : 'Court overlay & calibration');
+                } else if (tool === 'clips') {
+                  handleWorkstationPreset('review');
+                  setActiveTab('bookmarks');
                 } else if (tool === 'reports') {
                   handleWorkstationPreset('report');
                   setActiveTab('report');
@@ -543,19 +551,19 @@ function AppContent() {
             {/* Main scouting workspace */}
             <div className={`flex-1 grid grid-cols-1 lg:grid-cols-12 lg:h-full lg:overflow-hidden ${
               isWorkstation 
-                ? (activeTab === 'report' ? 'p-2 sm:p-4 bg-[#09141d]' : 'gap-px bg-[#263642] p-px') 
+                ? (activeTab === 'report' || activeTab === 'labs' ? 'p-2 sm:p-4 bg-[#09141d]' : 'gap-px bg-[#263642] p-px') 
                 : 'gap-4 lg:gap-6'
             }`}>
               
               {/* Top/Left Workspace: Video Player */}
-              <section className={`coach-panel ${activeTab === 'report' ? 'hidden' : isWorkstation ? 'lg:col-span-7 xl:col-span-6' : 'lg:col-span-5'} flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar`}>
+              <section className={`coach-panel ${activeTab === 'report' || activeTab === 'labs' ? 'hidden' : isWorkstation ? 'lg:col-span-7 xl:col-span-6' : 'lg:col-span-5'} flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar`}>
                 <React.Suspense fallback={<div className="w-full aspect-video bg-gray-800 animate-pulse rounded-lg flex items-center justify-center text-gray-400">Loading Player...</div>}>
                   <VideoPlayer activeTool={activeLeftTool} onSelectTool={setActiveLeftTool} />
                 </React.Suspense>
               </section>
 
               {/* Top/Right Workspace: Tabs Interface */}
-              <section className={`${activeTab === 'report' ? 'lg:col-span-12 w-full p-0 bg-transparent' : isWorkstation ? 'lg:col-span-5 xl:col-span-4 bg-[#0c1721] p-2' : 'lg:col-span-7'} flex flex-col gap-4 lg:h-full lg:overflow-hidden`}>
+              <section className={`${activeTab === 'report' || activeTab === 'labs' ? 'lg:col-span-12 w-full p-0 bg-transparent' : isWorkstation ? 'lg:col-span-5 xl:col-span-4 bg-[#0c1721] p-2' : 'lg:col-span-7'} flex flex-col gap-4 lg:h-full lg:overflow-hidden`}>
                 {isWorkstation && isReviewTab(activeTab) && (
                   <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองทบทวน' : 'Review views'} onKeyDown={handleTablistKeyDown}>
                     <button
@@ -685,9 +693,16 @@ function AppContent() {
                     </React.Suspense>
                   </div>
                 )}
+                {activeTab === 'labs' && (
+                  <div className="w-full flex-1 min-h-0 h-full overflow-hidden">
+                    <React.Suspense fallback={<div className="h-96 animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl" />}>
+                      <BadmintonTrackingLab />
+                    </React.Suspense>
+                  </div>
+                )}
               </section>
 
-              {isWorkstation && activeTab !== 'report' && (
+              {isWorkstation && activeTab !== 'report' && activeTab !== 'labs' && (
                 <div className="hidden min-w-0 xl:col-span-2 xl:block">
                   <WorkstationInspector />
                 </div>

@@ -21,7 +21,7 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
-type SettingsCategory = 'workflow' | 'teams_projects' | 'court_recording' | 'video_timeline' | 'hud_controller' | 'data_backup';
+type SettingsCategory = 'general' | 'scouting' | 'video' | 'data' | 'advanced';
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { projects, activeProjectId, saveStatus } = useWorkspace();
@@ -35,7 +35,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const isThai = settings.uiLanguage === 'th';
   const [confirmConfig, setConfirmConfig] = React.useState<{ message: string, onConfirm: () => void } | null>(null);
-  const [activeTab, setActiveTab] = React.useState<SettingsCategory>('workflow');
+  const [activeTab, setActiveTab] = React.useState<SettingsCategory>('general');
 
   const handleSaveTeamAsDefault = () => {
     localStorage.setItem('sportscout_default_teams', JSON.stringify(teams));
@@ -85,12 +85,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }));
 
   const tabs: { id: SettingsCategory; labelTh: string; labelEn: string; icon: any }[] = [
-    { id: 'workflow', labelTh: 'การทำงาน & ธีม', labelEn: 'Workflow & Theme', icon: Sliders },
-    { id: 'teams_projects', labelTh: 'ทีม & กีฬา', labelEn: 'Teams & Sport', icon: Users },
-    { id: 'court_recording', labelTh: 'สนาม & การบันทึก', labelEn: 'Court & Recording', icon: Layout },
-    { id: 'video_timeline', labelTh: 'วิดีโอ & Timeline', labelEn: 'Video & Timeline', icon: Video },
-    { id: 'hud_controller', labelTh: 'HUD & จอยสติ๊ก', labelEn: 'HUD & Controller', icon: Gamepad2 },
-    { id: 'data_backup', labelTh: 'ข้อมูล & สำรอง', labelEn: 'Data & Backup', icon: Database },
+    { id: 'general', labelTh: 'ทั่วไป & ธีม', labelEn: 'General', icon: Sliders },
+    { id: 'scouting', labelTh: 'การสเกาต์ & สนาม', labelEn: 'Scouting', icon: Users },
+    { id: 'video', labelTh: 'วิดีโอ & ไทม์ไลน์', labelEn: 'Video', icon: Video },
+    { id: 'data', labelTh: 'ข้อมูล & สำรอง', labelEn: 'Data', icon: Database },
+    { id: 'advanced', labelTh: 'ขั้นสูง & คอนโทรลเลอร์', labelEn: 'Advanced', icon: Gamepad2 },
   ];
 
   return (
@@ -125,8 +124,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               </button>
             </div>
 
-            {/* 6 Category Tabs Header */}
-            <div className="grid grid-cols-3 sm:grid-cols-6 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 p-1.5 gap-1 shrink-0">
+            {/* 5 Category Tabs Header */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 p-1.5 gap-1 shrink-0">
               {tabs.map(tab => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -150,8 +149,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {/* Tab Body Contents */}
             <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-gray-50/50 dark:bg-gray-950 custom-scrollbar">
               
-              {/* TAB 1: WORKFLOW & THEME */}
-              {activeTab === 'workflow' && (
+              {/* TAB 1: GENERAL & THEME */}
+              {activeTab === 'general' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-6">
                     {/* Theme & Language */}
@@ -272,9 +271,93 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </section>
                     )}
                   </div>
+                </div>
+              )}
 
-                  {/* Workflow Automations */}
+              {/* TAB 2: SCOUTING & SPORT */}
+              {activeTab === 'scouting' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-6">
+                    {/* Sport selection */}
+                    <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-3">
+                      <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">
+                        {isThai ? 'ตั้งค่าชนิดกีฬา' : 'Sport Configuration'}
+                      </h3>
+                      <CustomSelect
+                        label={isThai ? 'ชนิดกีฬาหลัก' : 'Active Sport Type'}
+                        value={matchInfo.sportType || 'volleyball'}
+                        onChange={(val) => changeSportType(val as SportType)}
+                        options={sportOptions}
+                        disabled={events.length > 0}
+                        title={events.length > 0 ? (isThai ? `ล็อกกีฬาไว้แล้วเพราะมีข้อมูลบันทึกอยู่ ${events.length} รายการ` : `Sport locked: ${events.length} events recorded.`) : undefined}
+                      />
+                      <p className="text-xs text-gray-500">
+                        {isThai ? 'หมายเหตุ: การเปลี่ยนชนิดกีฬาจะอัปเดตทักษะและพื้นที่ตามชนิดกีฬานั้นๆ' : 'Note: Changing sport updates court zones and skill sets.'}
+                      </p>
+                    </section>
+
+                    {/* Teams Configuration */}
+                    <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">
+                          {isThai ? 'ทีมในการแข่งขันปัจจุบัน' : 'Current Project Teams'}
+                        </h3>
+                        <button
+                          onClick={() => setSettings(p => ({ ...p, flipCourtSide: !p.flipCourtSide }))}
+                          className="text-xs px-2.5 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 flex items-center gap-1 cursor-pointer"
+                        >
+                          <RefreshCw size={11} className={settings.flipCourtSide ? "text-sky-500" : ""} />
+                          {t('settings.flipCourt', settings.uiLanguage)}
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        {teams.map((t, idx) => (
+                          <div key={`${t.id || t.code}-${idx}`} className="p-3 bg-gray-50 dark:bg-gray-950 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col gap-2">
+                            <div className="font-bold text-xs text-gray-700 dark:text-gray-300">
+                              {isThai ? `ทีมที่ ${idx + 1} (${idx === 0 ? 'Team A' : 'Team B'})` : `Team ${idx + 1}`}
+                            </div>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                placeholder="Code"
+                                value={t.code}
+                                onChange={(e) => {
+                                  const newTeams = [...teams];
+                                  newTeams[idx] = { ...newTeams[idx], code: e.target.value.toUpperCase() };
+                                  setTeams(newTeams);
+                                }}
+                                className="w-24 px-3 py-1.5 text-xs font-bold bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg uppercase"
+                              />
+                              <input
+                                type="text"
+                                placeholder="Team Name"
+                                value={t.thaiName || t.name}
+                                onChange={(e) => {
+                                  const newTeams = [...teams];
+                                  newTeams[idx] = { ...newTeams[idx], thaiName: e.target.value, name: e.target.value };
+                                  setTeams(newTeams);
+                                }}
+                                className="flex-1 px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleSaveTeamAsDefault}
+                        className="w-full mt-2 py-2.5 px-3 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Save size={14} />
+                        {isThai ? 'บันทึกคู่นี้เป็นค่าเริ่มต้นของระบบ (Save as Default)' : 'Save as System Default Teams'}
+                      </button>
+                    </section>
+                  </div>
+
+                  <div className="space-y-6">
+                    {/* Workflow Automations */}
                     <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-3">
                       <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">
                         {t('settings.workflow', settings.uiLanguage)}
@@ -303,155 +386,63 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         <input type="checkbox" checked={settings.autoNextPoint} onChange={e => setSettings(p => ({...p, autoNextPoint: e.target.checked}))} className="rounded text-sky-600 w-5 h-5 cursor-pointer" />
                       </label>
                     </section>
+
+                    {/* Court Spatial Mapping & Marking */}
+                    <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-3">
+                      <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">
+                        {isThai ? 'ความละเอียดและการนำทางพิกัดสนาม' : 'Court Spatial Mapping'}
+                      </h3>
+                      <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
+                        <div>
+                          <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{isThai ? 'ระดับความละเอียดของพื้นที่ (Area Precision)' : 'Area Precision'}</div>
+                          <div className="text-xs text-gray-500">{isThai ? 'เลือกโหมดปกติ โหมดตารางละเอียด หรือเลือกจิ้มพิกเซลเป้าหมาย' : 'Select normal zones, detailed grids, or point mode.'}</div>
+                        </div>
+                        <select 
+                          value={settings.areaPrecisionMode || 'normal'} 
+                          onChange={e => setSettings(p => ({...p, areaPrecisionMode: e.target.value as any}))}
+                          className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1 text-xs font-bold text-gray-800 dark:text-gray-200 cursor-pointer"
+                        >
+                          <option value="normal">{isThai ? 'ปกติ (Normal Zone)' : 'Normal Zone'}</option>
+                          <option value="detailed">{isThai ? 'ละเอียด (Detailed Grid)' : 'Detailed Grid'}</option>
+                          <option value="point">{isThai ? 'จุดพิกัด (Point Mode)' : 'Point Mode'}</option>
+                        </select>
+                      </label>
+
+                      <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
+                        <div>
+                          <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{isThai ? 'พื้นที่นอกสนาม (Out-of-bounds)' : 'Show Out-of-bounds'}</div>
+                          <div className="text-xs text-gray-500">{isThai ? 'เปิด/ปิด บันทึกจุดเสียตำแหน่งนอกขอบสนาม' : 'Toggle logging out-of-bounds zones.'}</div>
+                        </div>
+                        <input type="checkbox" checked={settings.enableOutOfBoundsZones ?? true} onChange={e => setSettings(p => ({...p, enableOutOfBoundsZones: e.target.checked}))} className="rounded text-sky-600 w-5 h-5 cursor-pointer" />
+                      </label>
+
+                      <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
+                        <div>
+                          <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{isThai ? 'เลื่อนพื้นที่ด้วยลูกศร (Arrow Keys)' : 'Arrow Key Navigation'}</div>
+                          <div className="text-xs text-gray-500">{isThai ? 'เลือกพื้นที่สนามด้วยปุ่มลูกศรบนคีย์บอร์ด' : 'Navigate court zones using arrow keys.'}</div>
+                        </div>
+                        <input type="checkbox" checked={settings.enableArrowAreaNavigation ?? true} onChange={e => setSettings(p => ({...p, enableArrowAreaNavigation: e.target.checked}))} className="rounded text-sky-600 w-5 h-5 cursor-pointer" />
+                      </label>
+
+                      <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
+                        <div>
+                          <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{t('settings.screenMarking', settings.uiLanguage)}</div>
+                          <div className="text-xs text-gray-500">{isThai ? 'กดคีย์บอร์ดทางลัดค้างไว้ เลื่อนชี้ปุ่มที่ต้องการ แล้วปล่อยปุ่ม' : 'Hold key, hover button, release to select.'}</div>
+                        </div>
+                        <input 
+                          type="checkbox" 
+                          checked={settings.enableScreenMarkingMode ?? true} 
+                          onChange={e => setSettings(p => ({...p, enableScreenMarkingMode: e.target.checked}))} 
+                          className="rounded text-sky-600 w-5 h-5 cursor-pointer" 
+                        />
+                      </label>
+                    </section>
                   </div>
                 </div>
               )}
 
-              {/* TAB 2: TEAMS & SPORT */}
-              {activeTab === 'teams_projects' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Sport selection */}
-                  <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-3">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">
-                      {isThai ? 'ตั้งค่าชนิดกีฬา' : 'Sport Configuration'}
-                    </h3>
-                    <CustomSelect
-                      label={isThai ? 'ชนิดกีฬาหลัก' : 'Active Sport Type'}
-                      value={matchInfo.sportType || 'volleyball'}
-                      onChange={(val) => changeSportType(val as SportType)}
-                      options={sportOptions}
-                      disabled={events.length > 0}
-                      title={events.length > 0 ? (isThai ? `ล็อกกีฬาไว้แล้วเพราะมีข้อมูลบันทึกอยู่ ${events.length} รายการ` : `Sport locked: ${events.length} events recorded.`) : undefined}
-                    />
-                    <p className="text-xs text-gray-500">
-                      {isThai ? 'หมายเหตุ: การเปลี่ยนชนิดกีฬาจะอัปเดตทักษะและพื้นที่ตามชนิดกีฬานั้นๆ' : 'Note: Changing sport updates court zones and skill sets.'}
-                    </p>
-                  </section>
-
-                  {/* Teams Configuration */}
-                  <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-3">
-                    <div className="flex justify-between items-center">
-                      <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">
-                        {isThai ? 'ทีมในการแข่งขันปัจจุบัน' : 'Current Project Teams'}
-                      </h3>
-                      <button
-                        onClick={() => setSettings(p => ({ ...p, flipCourtSide: !p.flipCourtSide }))}
-                        className="text-xs px-2.5 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-lg text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-700 flex items-center gap-1 cursor-pointer"
-                      >
-                        <RefreshCw size={11} className={settings.flipCourtSide ? "text-sky-500" : ""} />
-                        {t('settings.flipCourt', settings.uiLanguage)}
-                      </button>
-                    </div>
-
-                    <div className="space-y-3">
-                      {teams.map((t, idx) => (
-                        <div key={`${t.id || t.code}-${idx}`} className="p-3 bg-gray-50 dark:bg-gray-950 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col gap-2">
-                          <div className="font-bold text-xs text-gray-700 dark:text-gray-300">
-                            {isThai ? `ทีมที่ ${idx + 1} (${idx === 0 ? 'Team A' : 'Team B'})` : `Team ${idx + 1}`}
-                          </div>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              placeholder="Code"
-                              value={t.code}
-                              onChange={(e) => {
-                                const newTeams = [...teams];
-                                newTeams[idx] = { ...newTeams[idx], code: e.target.value.toUpperCase() };
-                                setTeams(newTeams);
-                              }}
-                              className="w-24 px-3 py-1.5 text-xs font-bold bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg uppercase"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Team Name"
-                              value={t.thaiName || t.name}
-                              onChange={(e) => {
-                                const newTeams = [...teams];
-                                newTeams[idx] = { ...newTeams[idx], thaiName: e.target.value, name: e.target.value };
-                                setTeams(newTeams);
-                              }}
-                              className="flex-1 px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg"
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleSaveTeamAsDefault}
-                      className="w-full mt-2 py-2.5 px-3 bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 hover:bg-sky-100 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <Save size={14} />
-                      {isThai ? 'บันทึกคู่นี้เป็นค่าเริ่มต้นของระบบ (Save as Default)' : 'Save as System Default Teams'}
-                    </button>
-                  </section>
-                </div>
-              )}
-
-              {/* TAB 3: COURT & RECORDING */}
-              {activeTab === 'court_recording' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-3">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">
-                      {isThai ? 'ความละเอียดและการนำทางพิกัดสนาม' : 'Court Spatial Mapping'}
-                    </h3>
-                    <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
-                      <div>
-                        <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{isThai ? 'ระดับความละเอียดของพื้นที่ (Area Precision)' : 'Area Precision'}</div>
-                        <div className="text-xs text-gray-500">{isThai ? 'เลือกโหมดปกติ โหมดตารางละเอียด หรือเลือกจิ้มพิกเซลเป้าหมาย' : 'Select normal zones, detailed grids, or point mode.'}</div>
-                      </div>
-                      <select 
-                        value={settings.areaPrecisionMode || 'normal'} 
-                        onChange={e => setSettings(p => ({...p, areaPrecisionMode: e.target.value as any}))}
-                        className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1 text-xs font-bold text-gray-800 dark:text-gray-200 cursor-pointer"
-                      >
-                        <option value="normal">{isThai ? 'ปกติ (Normal Zone)' : 'Normal Zone'}</option>
-                        <option value="detailed">{isThai ? 'ละเอียด (Detailed Grid)' : 'Detailed Grid'}</option>
-                        <option value="point">{isThai ? 'จุดพิกัด (Point Mode)' : 'Point Mode'}</option>
-                      </select>
-                    </label>
-
-                    <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
-                      <div>
-                        <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{isThai ? 'พื้นที่นอกสนาม (Out-of-bounds)' : 'Show Out-of-bounds'}</div>
-                        <div className="text-xs text-gray-500">{isThai ? 'เปิด/ปิด บันทึกจุดเสียตำแหน่งนอกขอบสนาม' : 'Toggle logging out-of-bounds zones.'}</div>
-                      </div>
-                      <input type="checkbox" checked={settings.enableOutOfBoundsZones ?? true} onChange={e => setSettings(p => ({...p, enableOutOfBoundsZones: e.target.checked}))} className="rounded text-sky-600 w-5 h-5 cursor-pointer" />
-                    </label>
-
-                    <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
-                      <div>
-                        <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{isThai ? 'เลื่อนพื้นที่ด้วยลูกศร (Arrow Keys)' : 'Arrow Key Navigation'}</div>
-                        <div className="text-xs text-gray-500">{isThai ? 'เลือกพื้นที่สนามด้วยปุ่มลูกศรบนคีย์บอร์ด' : 'Navigate court zones using arrow keys.'}</div>
-                      </div>
-                      <input type="checkbox" checked={settings.enableArrowAreaNavigation ?? true} onChange={e => setSettings(p => ({...p, enableArrowAreaNavigation: e.target.checked}))} className="rounded text-sky-600 w-5 h-5 cursor-pointer" />
-                    </label>
-                  </section>
-
-                  {/* Screen Marking / Gesture Select */}
-                  <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-3">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">
-                      {isThai ? 'การลากบันทึกบนหน้าจอ (Screen Marking)' : 'Screen Marking / Gestures'}
-                    </h3>
-                    <label className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 cursor-pointer">
-                      <div>
-                        <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">{t('settings.screenMarking', settings.uiLanguage)}</div>
-                        <div className="text-xs text-gray-500">{isThai ? 'กดคีย์บอร์ดทางลัดค้างไว้ เลื่อนชี้ปุ่มที่ต้องการ แล้วปล่อยปุ่ม' : 'Hold key, hover button, release to select.'}</div>
-                      </div>
-                      <input 
-                        type="checkbox" 
-                        checked={settings.enableScreenMarkingMode ?? true} 
-                        onChange={e => setSettings(p => ({...p, enableScreenMarkingMode: e.target.checked}))} 
-                        className="rounded text-sky-600 w-5 h-5 cursor-pointer" 
-                      />
-                    </label>
-                  </section>
-                </div>
-              )}
-
-              {/* TAB 4: VIDEO & TIMELINE */}
-              {activeTab === 'video_timeline' && (
+              {/* TAB 3: VIDEO & TIMELINE */}
+              {activeTab === 'video' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <section className="bg-white dark:bg-gray-900 p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-3">
                     <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">{t('settings.video', settings.uiLanguage)}</h3>
@@ -493,8 +484,33 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
               )}
 
-              {/* TAB 5: HUD & CONTROLLER */}
-              {activeTab === 'hud_controller' && (
+              {/* TAB 4: DATA & BACKUP */}
+              {activeTab === 'data' && (
+                <div className="max-w-xl mx-auto py-4 space-y-6">
+                  <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-4">
+                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider text-center">
+                      {t('settings.dataManagement', settings.uiLanguage)}
+                    </h3>
+                    <div className="flex flex-col gap-3">
+                      <button onClick={handleExportDiagnostics} className="flex items-center justify-center gap-2 p-3 bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 rounded-xl font-bold hover:bg-sky-100 transition-colors cursor-pointer border border-sky-200 dark:border-sky-900/50">
+                        <ShieldCheck size={18} /> {isThai ? 'ส่งออกข้อมูลวินิจฉัยเพื่อการสนับสนุน (Diagnostic Export)' : 'Export Diagnostic Report'}
+                      </button>
+                      <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                        {isThai
+                          ? 'รายงานนี้มีเฉพาะเวอร์ชัน จำนวนโปรเจกต์/เหตุการณ์ สถานะบันทึก และพื้นที่จัดเก็บ โดยไม่รวมข้อมูลส่วนตัว'
+                          : 'Contains only system metadata, project counts, and storage diagnostic metrics.'}
+                      </p>
+                      <button onClick={handleClearData} className="flex items-center justify-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl font-bold hover:bg-red-100 transition-colors cursor-pointer border border-red-200 dark:border-red-900/50">
+                        <Trash2 size={18} /> {t('settings.clearData', settings.uiLanguage)}
+                      </button>
+                      <div className="pt-2 text-center text-[11px] font-mono text-gray-400">SPORTSCOUT {SPORTSCOUT_APP_VERSION}</div>
+                    </div>
+                  </section>
+                </div>
+              )}
+
+              {/* TAB 5: ADVANCED & CONTROLLER */}
+              {activeTab === 'advanced' && (
                 <div className="space-y-4">
                   {/* Scout HUD Settings */}
                   <section className="bg-white dark:bg-gray-900 p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-2.5">
@@ -583,31 +599,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       }))}
                     />
                   </div>
-                </div>
-              )}
-
-              {/* TAB 6: DATA & BACKUP */}
-              {activeTab === 'data_backup' && (
-                <div className="max-w-xl mx-auto py-4 space-y-6">
-                  <section className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-4">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider text-center">
-                      {t('settings.dataManagement', settings.uiLanguage)}
-                    </h3>
-                    <div className="flex flex-col gap-3">
-                      <button onClick={handleExportDiagnostics} className="flex items-center justify-center gap-2 p-3 bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 rounded-xl font-bold hover:bg-sky-100 transition-colors cursor-pointer border border-sky-200 dark:border-sky-900/50">
-                        <ShieldCheck size={18} /> {isThai ? 'ส่งออกข้อมูลวินิจฉัยเพื่อการสนับสนุน (Diagnostic Export)' : 'Export Diagnostic Report'}
-                      </button>
-                      <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-                        {isThai
-                          ? 'รายงานนี้มีเฉพาะเวอร์ชัน จำนวนโปรเจกต์/เหตุการณ์ สถานะบันทึก และพื้นที่จัดเก็บ โดยไม่รวมข้อมูลส่วนตัว'
-                          : 'Contains only system metadata, project counts, and storage diagnostic metrics.'}
-                      </p>
-                      <button onClick={handleClearData} className="flex items-center justify-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl font-bold hover:bg-red-100 transition-colors cursor-pointer border border-red-200 dark:border-red-900/50">
-                        <Trash2 size={18} /> {t('settings.clearData', settings.uiLanguage)}
-                      </button>
-                      <div className="pt-2 text-center text-[11px] font-mono text-gray-400">SPORTSCOUT {SPORTSCOUT_APP_VERSION}</div>
-                    </div>
-                  </section>
                 </div>
               )}
 

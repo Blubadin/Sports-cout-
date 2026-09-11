@@ -67,7 +67,7 @@ export default function TelestrationCanvas({
     switch (tool) {
       case 'measure': return 'measure';
       case 'text': return 'text';
-      case 'track': return 'arrow';
+      case 'annotate':
       case 'draw':
       default: return 'arrow';
     }
