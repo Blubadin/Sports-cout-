@@ -383,6 +383,11 @@ export interface AISuggestion {
   label: string;
   confidence?: number;
   type?: 'rally' | 'skill' | 'touch';
+  skillCode?: string;
+  playerId?: string;
+  teamCode?: string;
+  courtLocation?: { x: number; y: number };
+  status?: 'pending' | 'accepted' | 'rejected';
 }
 
 export interface AIPoseKeypoint {

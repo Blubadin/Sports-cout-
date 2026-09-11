@@ -26,6 +26,7 @@ import {
   Video,
   X,
   Compass,
+  Check,
 } from 'lucide-react';
 import EditEventModal from '../EditEventModal';
 
@@ -118,6 +119,50 @@ export default function TimelinePanel({
   } | null>(null);
   const [hoveredEvent, setHoveredEvent] = useState<EventRow | null>(null);
   const [editingModalEvent, setEditingModalEvent] = useState<EventRow | null>(null);
+
+  // AI Suggestion Lane Human-in-the-Loop review (PDF §92-94)
+  const [selectedAISuggestion, setSelectedAISuggestion] = useState<AISuggestion | null>(null);
+  const [suggestionSkillCode, setSuggestionSkillCode] = useState<string>('SMH');
+
+  const handleAcceptAISuggestion = (sug: AISuggestion, overrideSkill?: string) => {
+    const skill = overrideSkill || suggestionSkillCode || sug.skillCode || 'SMH';
+    const newEvent: EventRow = {
+      id: `ai_event_${Date.now()}`,
+      no: events.length > 0 ? Math.max(...events.map((e) => e.no)) + 1 : 1,
+      point: events.length > 0 ? Math.max(...events.map((e) => e.point)) + 1 : 1,
+      videoTime: sug.time,
+      sportType: 'badminton',
+      eventText: `${skill} (AI Suggestion)`,
+      actions: [
+        {
+          id: `act_${Date.now()}`,
+          teamCode: sug.teamCode || team1.code || 'teamA',
+          skillCode: skill,
+          resultCode: 'Yes',
+          playerName: sug.playerId || 'P1',
+          videoTime: sug.time,
+        },
+      ],
+      resultText: '+1',
+      createdAt: new Date().toISOString(),
+    };
+
+    if (scoutCtx.addEvent) {
+      scoutCtx.addEvent(newEvent);
+    } else if (updateEventRow) {
+      updateEventRow(newEvent);
+    }
+
+    showToast(isThai ? `ยอมรับข้อเสนอ AI: ${skill}` : `Accepted AI Suggestion: ${skill}`);
+    setSelectedAISuggestion(null);
+  };
+
+  const handleRejectAISuggestion = (sug: AISuggestion) => {
+    // Record feedback for future model evaluation (PDF §93)
+    console.log('[AI Feedback] Rejected suggestion:', sug);
+    showToast(isThai ? 'ปฏิเสธข้อเสนอ AI' : 'Rejected AI Suggestion');
+    setSelectedAISuggestion(null);
+  };
 
   // Local video thumbnail cache
   const [thumbnails, setThumbnails] = useState<{ time: number; dataUrl: string }[]>([]);
@@ -924,9 +969,10 @@ export default function TimelinePanel({
                       onClick={(e) => {
                         e.stopPropagation();
                         onSeek(sugTime);
-                        showToast(isThai ? `AI Suggestion: ${sug.label}` : `AI Suggestion: ${sug.label}`);
+                        setSelectedAISuggestion(sug);
+                        setSuggestionSkillCode(sug.skillCode || 'SMH');
                       }}
-                      title={`AI: ${sug.label} (${(sug.confidence ? (sug.confidence * 100).toFixed(0) : '90')}% conf)`}
+                      title={`AI: ${sug.label} (${(sug.confidence ? (sug.confidence * 100).toFixed(0) : '90')}% conf) - Click to review`}
                       className="absolute h-6 px-2 rounded-md border bg-violet-700/80 border-violet-400 text-violet-100 shadow-md cursor-pointer transform -translate-x-1/2 transition-all hover:scale-105 hover:z-30 flex items-center gap-1 text-[9px] font-black"
                       style={{
                         left: `${leftPct}%`,
@@ -1056,6 +1102,92 @@ export default function TimelinePanel({
           onClose={() => setEditingModalEvent(null)}
           event={editingModalEvent}
         />
+      )}
+
+      {/* 6. AI SUGGESTION CARD (PDF §92-94: Human-in-the-loop: Accept | Edit | Reject) */}
+      {selectedAISuggestion && (
+        <div
+          className="fixed z-50 bottom-24 left-1/2 transform -translate-x-1/2 bg-[#0c1721] border border-violet-500/80 rounded-xl shadow-2xl p-4 w-96 text-white animate-in fade-in zoom-in-95"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between pb-2 border-b border-[#263642]">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-violet-400" />
+              <span className="text-xs font-bold text-violet-200">
+                {isThai ? 'ตรวจสอบข้อเสนอ AI (Human-in-the-loop)' : 'AI Suggestion Review'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedAISuggestion(null)}
+              className="text-gray-400 hover:text-white"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between my-3 text-xs">
+            <div>
+              <div className="text-sm font-black text-white">{selectedAISuggestion.label}</div>
+              <div className="text-[11px] text-gray-400">
+                Time: <span className="font-mono text-sky-400">{formatPreciseTime(selectedAISuggestion.time)}</span> | Player:{' '}
+                <span className="text-purple-300 font-bold">{selectedAISuggestion.playerId || 'P1'}</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs font-mono font-bold text-emerald-400">
+                {((selectedAISuggestion.confidence || 0.85) * 100).toFixed(0)}%
+              </div>
+              <div className="text-[9px] text-gray-500 uppercase">Confidence</div>
+            </div>
+          </div>
+
+          {/* Quick Skill Selector (PDF §91, §93) */}
+          <div className="mb-3">
+            <span className="text-[10px] text-gray-400 font-bold uppercase block mb-1">
+              {isThai ? 'เปลี่ยนทักษะ (Change Skill):' : 'Change Skill:'}
+            </span>
+            <div className="flex flex-wrap gap-1 font-mono">
+              {['SMH', 'CLR', 'DRP', 'DRV', 'NET', 'LFT', 'SER'].map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => setSuggestionSkillCode(code)}
+                  className={`px-2 py-0.5 text-[11px] font-bold rounded transition-colors ${
+                    suggestionSkillCode === code
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-[#152433] text-gray-300 hover:bg-[#1f354a]'
+                  }`}
+                >
+                  {code}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-[#263642]">
+            <button
+              type="button"
+              onClick={() => handleAcceptAISuggestion(selectedAISuggestion)}
+              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow"
+            >
+              <Check size={14} /> {isThai ? 'ยอมรับ (Accept)' : 'Accept'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRejectAISuggestion(selectedAISuggestion)}
+              className="py-2 px-3 bg-rose-900/60 hover:bg-rose-800 text-rose-200 border border-rose-600/50 text-xs font-bold rounded-lg transition-colors"
+            >
+              {isThai ? 'ปฏิเสธ (Reject)' : 'Reject'}
+            </button>
+          </div>
+
+          <div className="text-[9px] text-gray-400 mt-2 text-center">
+            {isThai
+              ? 'ระบบ AI ไม่แก้ไขคะแนนบนสกอร์บอร์ดโดยอัตโนมัติ (PDF §94)'
+              : 'Notice: AI suggestions never alter scoreboard directly (PDF §94)'}
+          </div>
+        </div>
       )}
     </div>
   );
