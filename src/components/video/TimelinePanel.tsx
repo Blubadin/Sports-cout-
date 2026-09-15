@@ -29,6 +29,11 @@ import {
   Check,
 } from 'lucide-react';
 import EditEventModal from '../EditEventModal';
+import {
+  calculateVisibleTimeRange,
+  filterItemsInVisibleTimeRange,
+  type ViewportTimeRange,
+} from '../../utils/timelineOptimization';
 
 interface TimelinePanelProps {
   currentTime: number;
@@ -285,6 +290,102 @@ export default function TimelinePanel({
   const keyMomentEvents = useMemo(() => {
     return filteredEvents.filter((ev) => ev.isBookmarked || ev.resultText === '+1' || ev.resultText === '-1');
   }, [filteredEvents]);
+
+  // Viewport visible time range (Phase 14: Visible Viewport Range Windowing)
+  const [viewportRange, setViewportRange] = useState<ViewportTimeRange | null>(null);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || zoomLevel <= 1) {
+      setViewportRange(null);
+      return;
+    }
+
+    const updateRange = () => {
+      if (!container) return;
+      const range = calculateVisibleTimeRange(
+        container.scrollLeft,
+        container.clientWidth,
+        container.scrollWidth,
+        safeDuration,
+        0.25,
+      );
+      setViewportRange(range);
+    };
+
+    updateRange();
+    container.addEventListener('scroll', updateRange, { passive: true });
+    window.addEventListener('resize', updateRange, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', updateRange);
+      window.removeEventListener('resize', updateRange);
+    };
+  }, [zoomLevel, safeDuration]);
+
+  // Visible events for rendering performance (Phase 14)
+  const eventsInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      filteredEvents,
+      (ev) => {
+        const start = ev.sequenceStartTime ?? ev.videoTime ?? 0;
+        const end = ev.sequenceEndTime && ev.sequenceEndTime > start
+          ? ev.sequenceEndTime
+          : ev.duration && ev.duration > 0
+          ? start + ev.duration
+          : start + 3;
+        return { start, end };
+      },
+      viewportRange,
+      (ev) => draggedEvent?.id === ev.id,
+    );
+  }, [filteredEvents, viewportRange, draggedEvent]);
+
+  const markersInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      filteredEvents,
+      (ev) => {
+        const t = ev.videoTime || 0;
+        return { start: t, end: t };
+      },
+      viewportRange,
+      (ev) => draggedEvent?.id === ev.id,
+    );
+  }, [filteredEvents, viewportRange, draggedEvent]);
+
+  const keyMomentsInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      keyMomentEvents,
+      (ev) => {
+        const t = ev.videoTime || 0;
+        return { start: t, end: t };
+      },
+      viewportRange,
+      (ev) => draggedEvent?.id === ev.id,
+    );
+  }, [keyMomentEvents, viewportRange, draggedEvent]);
+
+  const annotationsInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      projectAnnotations,
+      (shape) => {
+        const t = shape.timestamp || 0;
+        return { start: t, end: t };
+      },
+      viewportRange,
+    );
+  }, [projectAnnotations, viewportRange]);
+
+  const aiSuggestionsInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      aiSuggestions,
+      (sug) => {
+        const t = sug.time || 0;
+        const d = sug.duration || 0;
+        return { start: t, end: t + d };
+      },
+      viewportRange,
+    );
+  }, [aiSuggestions, viewportRange]);
 
   // Drag handlers for Marker / Clip
   const handleMarkerMouseDown = (e: React.MouseEvent, ev: EventRow) => {
@@ -804,7 +905,7 @@ export default function TimelinePanel({
 
             {/* LANE 2: RALLY / SEQUENCE (Range blocks based on sequenceStartTime / sequenceEndTime) */}
             <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1 bg-[#071018]">
-              {filteredEvents.map((ev) => {
+              {eventsInVisibleRange.map((ev) => {
                 const isDraggingThis = draggedEvent?.id === ev.id;
                 const seqStart = isDraggingThis ? draggedEvent.draftTime : ev.sequenceStartTime ?? ev.videoTime ?? 0;
                 const seqEnd =
@@ -860,7 +961,7 @@ export default function TimelinePanel({
 
             {/* LANE 3: EVENTS (Individual scout markers & touches, colored by team/result) */}
             <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1">
-              {filteredEvents.map((ev) => {
+              {markersInVisibleRange.map((ev) => {
                 const isDraggingThis = draggedEvent?.id === ev.id;
                 const evTime = isDraggingThis ? draggedEvent.draftTime : ev.videoTime || 0;
                 const leftPct = (evTime / safeDuration) * 100;
@@ -903,7 +1004,7 @@ export default function TimelinePanel({
             {/* LANE 4: KEY MOMENTS & NOTES (Bookmarks and Telestration annotations) */}
             <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1 bg-[#09141d]/40">
               {/* Bookmarked Events */}
-              {keyMomentEvents.map((ev) => {
+              {keyMomentsInVisibleRange.map((ev) => {
                 const evTime = ev.videoTime || 0;
                 const leftPct = (evTime / safeDuration) * 100;
 
@@ -929,7 +1030,7 @@ export default function TimelinePanel({
               })}
 
               {/* Telestration Shapes */}
-              {projectAnnotations.map((shape) => {
+              {annotationsInVisibleRange.map((shape) => {
                 const shapeTime = shape.timestamp || 0;
                 const leftPct = (shapeTime / safeDuration) * 100;
 
@@ -958,7 +1059,7 @@ export default function TimelinePanel({
             {/* LANE 5: AI SUGGESTIONS (Rendered ONLY when AI suggestions exist!) */}
             {hasAISuggestions && (
               <div className="relative h-10 flex items-center z-20 px-1 bg-[#150e24]/40">
-                {aiSuggestions.map((sug) => {
+                {aiSuggestionsInVisibleRange.map((sug) => {
                   const sugTime = sug.time || 0;
                   const leftPct = (sugTime / safeDuration) * 100;
                   const widthPct = sug.duration ? Math.max(0.4, (sug.duration / safeDuration) * 100) : 1;
