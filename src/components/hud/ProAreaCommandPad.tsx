@@ -181,7 +181,7 @@ export default function ProAreaCommandPad({
         data-controller-wheel="area"
         className="relative w-full max-w-lg aspect-square sm:aspect-[4/3] flex flex-col items-center justify-center p-2 rounded-2xl bg-slate-900/60 border border-white/10 select-none overflow-hidden"
       >
-        <div ref={badmintonCourtRef} className="w-full flex justify-center items-center">
+        <div ref={badmintonCourtRef} className="w-full max-w-[16rem] flex justify-center items-center">
           <BadmintonTouchCourt
             pointX={activePointX}
             pointY={activePointY}
@@ -203,9 +203,10 @@ export default function ProAreaCommandPad({
               }
             }}
             isDoubles={true}
+            compact={true}
             flipCourtSide={flipCourtSide}
             uiLanguage={settings?.uiLanguage}
-            showControls={true}
+            showControls={false}
             teamAName={team1}
             teamBName={team2}
             aiPlayers={isAIConnected ? aiPlayers : undefined}

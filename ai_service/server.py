@@ -444,6 +444,11 @@ def _run_session_analysis(session: TrackingSession):
 
     if session.video_source == "demo":
         # Synthetic demo generator (60 frames ~ 2s clip)
+        # Demo sessions are explicitly synthetic and must not load or run the
+        # production detector. Besides wasting work on blank frames, doing so
+        # made the lifecycle depend on model warm-up time and could leave the
+        # session in PROCESSING past the API's completion window.
+        session.analyzer._detector = "dummy"
         total_frames = 60
         session.total_frames = total_frames
         session.duration_sec = 2.0

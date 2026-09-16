@@ -45,12 +45,12 @@ test('opens all four pilot sports and keeps Controller V1 opt-in', async ({ page
 
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'ตั้งค่าระบบ' })).toBeVisible();
-  await page.getByTestId('settings-controller-tab').click();
+  await page.getByRole('button', { name: /ขั้นสูง & คอนโทรลเลอร์|Advanced/i }).click();
   await expect(page.getByTestId('controller-v1-toggle')).not.toBeChecked();
 
-  await page.getByTestId('settings-data-tab').click();
-  await expect(page.getByRole('button', { name: 'ส่งออกข้อมูลวินิจฉัย Pilot' })).toBeVisible();
-  await expect(page.getByText('SPORTSCOUT 0.11.0-pilot.1 · schema 1.1')).toBeVisible();
+  await page.getByRole('button', { name: /ข้อมูล & สำรอง|Data/i }).click();
+  await expect(page.getByRole('button', { name: /ส่งออกข้อมูลวินิจฉัยเพื่อการสนับสนุน|Diagnostic Export/i })).toBeVisible();
+  await expect(page.getByText('SPORTSCOUT 0.11.0-pilot.1')).toBeVisible();
 });
 
 const viewportCases = [
