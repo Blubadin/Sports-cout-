@@ -154,7 +154,7 @@ export default function BadmintonTrackingLab() {
     {url && <>
       <div className="relative w-full max-w-4xl bg-black" style={{ aspectRatio: dimensions.width ? `${dimensions.width}/${dimensions.height}` : '16/9' }}>
         <video ref={videoRef} src={url} controls={!calibrating} className="w-full h-full" onLoadedMetadata={e => setDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight })} onTimeUpdate={e => setTime(e.currentTarget.currentTime)} onSeeked={e => setTime(e.currentTarget.currentTime)} />
-        <TrackingVideoOverlay frames={frames} time={time} showSkeleton={showSkeleton} />
+        <TrackingVideoOverlay frames={frames} time={time} showSkeleton={showSkeleton} isProcessing={processing} />
         {(calibrating || corners.length > 0) && <svg aria-label="Court calibration" viewBox={`0 0 ${dimensions.width || 1} ${dimensions.height || 1}`} className={`absolute inset-0 w-full h-full ${calibrating ? 'cursor-crosshair' : 'pointer-events-none'}`} onClick={e => {
           if (!calibrating || corners.length >= 4) return;
           const rect = e.currentTarget.getBoundingClientRect();

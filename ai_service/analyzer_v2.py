@@ -332,7 +332,11 @@ class BadmintonAnalyzerV2:
             cost = cost_matrix[r, c]
             
             # Gating threshold (if cost is too absurdly high, don't match)
-            if cost < 25.0:
+            # The first frame has no appearance/position history yet. Allow a
+            # wider gate so an empty player assignment can seed tracks from
+            # the detector; subsequent frames use the strict teleport gate.
+            gate = 100.0 if profile.last_real_pos is None else 25.0
+            if cost < gate:
                 d = detections[c]
                 profile = self.profiles[pid]
                 profile.track_id = d.get("track_id")

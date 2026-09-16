@@ -11,6 +11,16 @@ from server import app, tracking_sessions
 from fastapi.testclient import TestClient
 
 class RealTrackingTests(unittest.TestCase):
+    def test_empty_assignment_seeds_observed_track(self):
+        analyzer = BadmintonAnalyzerV2(game_type='singles')
+        analyzer.set_court_corners([[0,0],[200,0],[200,100],[0,100]])
+        analyzer.detect_and_track = Mock(return_value=[{'bbox':[20,10,60,30], 'center':(40,30), 'conf':0.73, 'track_id':42}])
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)
+        player = analyzer.process_frame(frame)['players'][0]
+        self.assertEqual(player['state'], 'observed')
+        self.assertEqual(player['trackId'], 42)
+        self.assertIsNotNone(player['bboxPct'])
+
     def test_track_confidence_and_pose_are_actual_observations(self):
         analyzer = BadmintonAnalyzerV2(game_type='singles')
         analyzer.set_court_corners([[0,0],[200,0],[200,100],[0,100]])
