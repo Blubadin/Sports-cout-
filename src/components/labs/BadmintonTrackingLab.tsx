@@ -1,766 +1,173 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Activity,
-  AlertCircle,
-  CheckCircle2,
-  Cpu,
-  Eye,
-  FileVideo,
-  Flame,
-  Layers,
-  Maximize2,
-  Play,
-  RotateCcw,
-  Sparkles,
-  Target,
-  Users,
-  Video,
-  X,
-  Server,
-  RefreshCw,
-} from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import type { BadmintonGameType } from '../../services/aiTrackingService';
-import { aiTrackingService } from '../../services/aiTrackingService';
+import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
 import type { TrackingTelemetryV1 } from '../../types';
-import {
-  downsampleAndChunkTrackingSamples,
-  saveTrackingAnalysis,
-  listTrackingAnalyses,
-  getTrackingSampleChunks,
-  type TrackingAnalysis,
-  type TrackingSampleChunk,
-} from '../../services/storage/trackingStorage';
+import { loadProjectVideoFileHandle } from '../../utils/videoFileStore';
+import { downsampleAndChunkTrackingSamples, saveTrackingAnalysis, listTrackingAnalyses, getTrackingSampleChunks, type TrackingAnalysis, type TrackingSampleChunk } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
-
-export type TrackingLabStatus =
-  | 'NOT_ELIGIBLE'
-  | 'BACKEND_OFFLINE'
-  | 'READY'
-  | 'CALIBRATING'
-  | 'ASSIGNING_PLAYERS'
-  | 'READY_TO_ANALYZE'
-  | 'PROCESSING'
-  | 'COMPLETED'
-  | 'ERROR';
-
-export interface TrackingSummaryMetrics {
-  totalDistanceM: number;
-  p95SpeedMps: number;
-  detectionCoveragePct: number;
-  sampleCount: number;
-  isSynthetic: boolean;
-  playerMetrics: {
-    playerId: string;
-    distanceM: number;
-    maxSpeedMps: number;
-    p95SpeedMps: number;
-    state: string;
-  }[];
-}
+import TrackingVideoOverlay from './TrackingVideoOverlay';
 
 export default function BadmintonTrackingLab() {
-  const { matchInfo, settings, videoSourceType, localFileName, showToast } = useScoutContext();
-  const { activeProjectId, projects, updateProjectVideoCalibration } = useWorkspace();
-  const activeProject = projects.find((p) => p.id === activeProjectId);
-
-  const isThai = settings.uiLanguage === 'th';
-  const isBadminton = matchInfo.sportType === 'badminton';
-  const isLocalVideo = videoSourceType === 'local' && Boolean(localFileName);
-  const trackingEligible = isBadminton && isLocalVideo;
-
-  const [status, setStatus] = useState<TrackingLabStatus>(
-    trackingEligible ? 'READY' : 'NOT_ELIGIBLE'
-  );
-  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  const { matchInfo, settings, localFileName, setLocalFileName, setVideoSourceType } = useScoutContext();
+  const { activeProjectId } = useWorkspace();
+  const th = settings.uiLanguage === 'th';
+  const [file, setFile] = useState<File | null>(null);
+  const [url, setUrl] = useState('');
+  const [online, setOnline] = useState<boolean | null>(null);
   const [gameType, setGameType] = useState<BadmintonGameType>('singles');
-  const [activeSubTab, setActiveSubTab] = useState<'tracking' | 'results' | 'calibration'>('tracking');
-  const [progressPct, setProgressPct] = useState<number>(0);
-  const [progressTime, setProgressTime] = useState<string>('00:00 / 00:00');
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [summaryMetrics, setSummaryMetrics] = useState<TrackingSummaryMetrics | null>(null);
-  const [calibrationCorners, setCalibrationCorners] = useState<number[][]>([]);
-  const [calibratingStep, setCalibratingStep] = useState<number>(0);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [persistedAnalysis, setPersistedAnalysis] = useState<TrackingAnalysis | null>(null);
-  const [persistedChunks, setPersistedChunks] = useState<TrackingSampleChunk[]>([]);
-
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // Load existing tracking analysis if present for active project
-  useEffect(() => {
-    if (!activeProjectId) return;
-    listTrackingAnalyses(activeProjectId).then(async (analyses) => {
-      if (analyses.length > 0) {
-        const latest = analyses[analyses.length - 1];
-        setPersistedAnalysis(latest);
-        const chunks = await getTrackingSampleChunks(latest.id);
-        setPersistedChunks(chunks);
-      }
-    });
-  }, [activeProjectId]);
-
-  // Check backend health
-  const checkBackend = useCallback(async () => {
-    const online = await aiTrackingService.checkBackendHealth();
-    setBackendOnline(online);
-    if (!online && status !== 'NOT_ELIGIBLE' && status !== 'PROCESSING') {
-      setStatus('BACKEND_OFFLINE');
-    } else if (online && status === 'BACKEND_OFFLINE') {
-      setStatus('READY');
-    }
-  }, [status]);
+  const [corners, setCorners] = useState<number[][]>([]);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [calibrating, setCalibrating] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [frames, setFrames] = useState<TrackingTelemetryV1[]>([]);
+  const [time, setTime] = useState(0);
+  const [showSkeleton, setShowSkeleton] = useState(true);
+  const [analysis, setAnalysis] = useState<TrackingAnalysis | null>(null);
+  const [chunks, setChunks] = useState<TrackingSampleChunk[]>([]);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const generation = useRef(0);
+  const session = useRef<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const upload = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    checkBackend();
-    const interval = setInterval(checkBackend, 10000);
-    return () => clearInterval(interval);
-  }, [checkBackend]);
-
-  // Sync eligibility
-  useEffect(() => {
-    if (!trackingEligible) {
-      setStatus('NOT_ELIGIBLE');
-    } else if (status === 'NOT_ELIGIBLE') {
-      if (backendOnline === false) {
-        setStatus('BACKEND_OFFLINE');
-      } else {
-        setStatus('READY');
-      }
-    }
-  }, [trackingEligible, backendOnline, status]);
-
-  // Cleanup polling timer on unmount
-  useEffect(() => {
-    return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-    };
+    let alive = true;
+    const check = async () => { const ok = await aiTrackingService.checkBackendHealth(); if (alive) setOnline(ok); };
+    void check();
+    const interval = setInterval(check, 10000);
+    return () => { alive = false; clearInterval(interval); };
   }, []);
 
-  // Calibration corner click handler
-  const handleCalibrationCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (status !== 'CALIBRATING') return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.round(((e.clientX - rect.left) / rect.width) * canvas.width);
-    const y = Math.round(((e.clientY - rect.top) / rect.height) * canvas.height);
-
-    const nextCorners = [...calibrationCorners, [x, y]];
-    setCalibrationCorners(nextCorners);
-
-    if (nextCorners.length >= 4) {
-      setStatus('ASSIGNING_PLAYERS');
-      showToast(isThai ? 'บันทึก 4 มุมสนามสำเร็จ' : 'Court corners calibrated');
-    } else {
-      setCalibratingStep(nextCorners.length);
-    }
-  };
-
-  // Draw virtual court lines on calibration canvas (PDF §63)
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw background court simulation
-    ctx.fillStyle = '#0f241a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw calibration points
-    calibrationCorners.forEach(([cx, cy], i) => {
-      ctx.fillStyle = '#38bdf8';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 11px sans-serif';
-      const labels = ['TL', 'TR', 'BR', 'BL'];
-      ctx.fillText(labels[i] || `${i + 1}`, cx + 8, cy - 6);
-    });
-
-    // Draw virtual court boundary if 4 points exist
-    if (calibrationCorners.length === 4) {
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(calibrationCorners[0][0], calibrationCorners[0][1]);
-      ctx.lineTo(calibrationCorners[1][0], calibrationCorners[1][1]);
-      ctx.lineTo(calibrationCorners[2][0], calibrationCorners[2][1]);
-      ctx.lineTo(calibrationCorners[3][0], calibrationCorners[3][1]);
-      ctx.closePath();
-      ctx.stroke();
-
-      // Net line (halfway)
-      const netLeftX = (calibrationCorners[0][0] + calibrationCorners[3][0]) / 2;
-      const netLeftY = (calibrationCorners[0][1] + calibrationCorners[3][1]) / 2;
-      const netRightX = (calibrationCorners[1][0] + calibrationCorners[2][0]) / 2;
-      const netRightY = (calibrationCorners[1][1] + calibrationCorners[2][1]) / 2;
-      ctx.strokeStyle = '#fbbf24';
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(netLeftX, netLeftY);
-      ctx.lineTo(netRightX, netRightY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-  }, [calibrationCorners]);
-
-  const handleStartAnalysis = useCallback(async () => {
-    if (!trackingEligible) return;
-    setErrorMessage(null);
-    setStatus('PROCESSING');
-    setProgressPct(0);
-    setProgressTime('00:00 / 00:00');
-
-    try {
-      if (backendOnline) {
-        // Use real Session API (PDF §55)
-        const session = await aiTrackingService.createSession(gameType, localFileName || 'demo');
-        setCurrentSessionId(session.sessionId);
-
-        // Calibrate if corners exist
-        const corners = calibrationCorners.length === 4
-          ? calibrationCorners
-          : [[200, 100], [1080, 100], [1080, 650], [200, 650]];
-        await aiTrackingService.calibrateSession(session.sessionId, corners, gameType);
-
-        // Assign default players
-        const maxP = gameType === 'singles' ? 2 : 4;
-        const initialPlayers = Array.from({ length: maxP }, (_, i) => ({
-          player_id: i + 1,
-          bbox: [300 + i * 150, 200 + (i % 2) * 200, 380 + i * 150, 360 + (i % 2) * 200],
-          name: `Player ${i + 1}`,
-        }));
-        await aiTrackingService.assignSessionPlayers(session.sessionId, initialPlayers);
-
-        // Start offline analysis
-        await aiTrackingService.startSessionAnalysis(session.sessionId);
-
-        // Poll status
-        pollTimerRef.current = setInterval(async () => {
-          try {
-            const st = await aiTrackingService.getSessionStatus(session.sessionId);
-            setProgressPct(Math.round(st.progressPct));
-            const elapsedM = Math.floor(st.elapsedSec / 60);
-            const elapsedS = Math.floor(st.elapsedSec % 60);
-            const totalM = Math.floor(st.durationSec / 60);
-            const totalS = Math.floor(st.durationSec % 60);
-            setProgressTime(
-              `0${elapsedM}:${elapsedS < 10 ? '0' : ''}${elapsedS} / 0${totalM}:${totalS < 10 ? '0' : ''}${totalS}`
-            );
-
-            if (st.status === 'COMPLETED') {
-              if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-              setStatus('COMPLETED');
-              setProgressPct(100);
-
-              // Retrieve results
-              const res = await aiTrackingService.getSessionResults(session.sessionId);
-              computeSummaryMetrics(res.telemetry, false);
-              showToast(isThai ? 'วิเคราะห์การเคลื่อนที่เสร็จสมบูรณ์' : 'Tracking analysis complete');
-            } else if (st.status === 'ERROR') {
-              if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-              setStatus('ERROR');
-              setErrorMessage(st.error || 'Tracking engine error');
-            }
-          } catch (e) {
-            console.warn('[TrackingLab] Poll error:', e);
-          }
-        }, 300);
-      } else {
-        // In-browser demonstration mode (explicitly marked synthetic, PDF §1.3)
-        let currentProgress = 0;
-        const interval = setInterval(() => {
-          currentProgress += 5;
-          if (currentProgress >= 100) {
-            clearInterval(interval);
-            setProgressPct(100);
-            setStatus('COMPLETED');
-            // Generate synthetic summary
-            computeSummaryMetrics([], true);
-            showToast(isThai ? 'วิเคราะห์ข้อมูลจำลองเสร็จสมบูรณ์' : 'Simulated analysis complete');
-          } else {
-            setProgressPct(currentProgress);
-            const sec = Math.floor((currentProgress / 100) * 180);
-            const m = Math.floor(sec / 60);
-            const s = sec % 60;
-            setProgressTime(`0${m}:${s < 10 ? '0' : ''}${s} / 03:00`);
-          }
-        }, 120);
-      }
-    } catch (err) {
-      setStatus('ERROR');
-      setErrorMessage(err instanceof Error ? err.message : 'Unknown tracking failure');
-    }
-  }, [trackingEligible, backendOnline, gameType, localFileName, calibrationCorners, isThai, showToast]);
-
-  const computeSummaryMetrics = async (telemetry: TrackingTelemetryV1[], isSynthetic: boolean) => {
-    let sourceTelemetry = telemetry;
-    if (sourceTelemetry.length === 0 && isSynthetic) {
-      const sessionId = currentSessionId || `session_${Date.now()}`;
-      sourceTelemetry = Array.from({ length: 60 }, (_, i) => {
-        const t = Number((i * 0.033).toFixed(3));
-        const nearX = 3.05 + Math.sin(i * 0.2) * 1.5;
-        const nearY = 3.0 + Math.cos(i * 0.2) * 1.5;
-        const farX = 3.05 - Math.sin(i * 0.2) * 1.5;
-        const farY = 10.5 - Math.cos(i * 0.2) * 1.5;
-        return {
-          schemaVersion: 1,
-          analysisId: sessionId,
-          timestampSec: t,
-          frameIndex: i,
-          source: 'synthetic_demo',
-          isSynthetic: true,
-          players: [
-            {
-              playerId: 'P1',
-              trackId: 1,
-              teamCode: 'team1',
-              courtPosition: {
-                xM: Number(nearX.toFixed(2)),
-                yM: Number(nearY.toFixed(2)),
-                xPct: Number(((nearX / 6.10) * 100).toFixed(1)),
-                yPct: Number(((nearY / 13.40) * 100).toFixed(1)),
-              },
-              playerRelativeZone: 'mid',
-              speedMps: Number((1.5 + Math.abs(Math.sin(i * 0.3) * 2.0)).toFixed(2)),
-              detectionConfidence: 0.92,
-              state: 'observed' as const,
-            },
-            {
-              playerId: 'P2',
-              trackId: 2,
-              teamCode: 'team2',
-              courtPosition: {
-                xM: Number(farX.toFixed(2)),
-                yM: Number(farY.toFixed(2)),
-                xPct: Number(((farX / 6.10) * 100).toFixed(1)),
-                yPct: Number(((farY / 13.40) * 100).toFixed(1)),
-              },
-              playerRelativeZone: 'mid',
-              speedMps: Number((1.8 + Math.abs(Math.cos(i * 0.3) * 2.2)).toFixed(2)),
-              detectionConfidence: 0.9,
-              state: 'observed' as const,
-            },
-          ],
-        };
-      });
-    }
-
-    const sessionId = currentSessionId || `session_${Date.now()}`;
-    const { chunks, summary, quality } = downsampleAndChunkTrackingSamples(sessionId, sourceTelemetry, 10, 15);
-
-    const analysisRecord: TrackingAnalysis = {
-      id: sessionId,
-      projectId: activeProjectId || 'current_project',
-      sportType: 'badminton',
-      gameType,
-      status: 'completed',
-      engineVersion: 'tracking-v1',
-      detectorModel: 'yolov8n-badminton',
-      trackerModel: 'bytetrack',
-      sampleRateHz: 10,
-      createdAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      players: [
-        { playerId: 'P1', name: 'Player 1', side: 'near' },
-        { playerId: 'P2', name: 'Player 2', side: 'far' },
-      ],
-      quality,
-      summary,
+    let alive = true;
+    setFile(null); setCorners([]); setFrames([]); setAnalysis(null); setChunks([]);
+    void loadProjectVideoFileHandle(activeProjectId, localFileName).then(async handle => {
+      if (!handle || (handle.queryPermission && await handle.queryPermission({ mode: 'read' }) !== 'granted')) return;
+      const restored = await handle.getFile();
+      if (alive) setFile(restored);
+    }).catch(() => {});
+    if (activeProjectId) void listTrackingAnalyses(activeProjectId).then(async records => {
+      const latest = records.at(-1);
+      if (!latest) return;
+      const saved = await getTrackingSampleChunks(latest.id);
+      if (alive) { setAnalysis(latest); setChunks(saved); }
+    }).catch(() => {});
+    return () => {
+      alive = false; generation.current++;
+      if (timer.current) clearTimeout(timer.current);
+      upload.current?.abort();
+      if (session.current) void aiTrackingService.deleteSession(session.current).catch(() => {});
+      session.current = null;
     };
+  }, [activeProjectId]);
 
-    await saveTrackingAnalysis(analysisRecord, chunks);
-    setPersistedAnalysis(analysisRecord);
-    setPersistedChunks(chunks);
+  useEffect(() => {
+    if (!file) { setUrl(''); return; }
+    const next = URL.createObjectURL(file); setUrl(next); setDimensions({ width: 0, height: 0 });
+    return () => URL.revokeObjectURL(next);
+  }, [file]);
 
-    const p1Summary = summary.players['P1'];
-    const p2Summary = summary.players['P2'];
-    const totalDist = (p1Summary?.totalDistanceMeters || 0) + (p2Summary?.totalDistanceMeters || 0);
-    const p95 = Math.max(p1Summary?.p95SpeedMps || 0, p2Summary?.p95SpeedMps || 0);
-
-    setSummaryMetrics({
-      totalDistanceM: Math.round(totalDist * 10) / 10,
-      p95SpeedMps: Math.round(p95 * 10) / 10,
-      detectionCoveragePct: Math.round(quality.detectionCoverage * 1000) / 10,
-      sampleCount: summary.sampleCount,
-      isSynthetic,
-      playerMetrics: Object.entries(summary.players).map(([pid, val]) => ({
-        playerId: pid,
-        distanceM: val.totalDistanceMeters,
-        maxSpeedMps: val.maxSpeedMps,
-        p95SpeedMps: val.p95SpeedMps,
-        state: 'observed',
-      })),
-    });
+  const cancel = () => {
+    generation.current++;
+    if (timer.current) clearTimeout(timer.current);
+    upload.current?.abort();
+    if (session.current) void aiTrackingService.deleteSession(session.current).catch(() => {});
+    session.current = null; setProcessing(false); setProgress(0);
   };
 
-  const handleCancelAnalysis = useCallback(async () => {
-    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-    if (currentSessionId) {
-      await aiTrackingService.deleteSession(currentSessionId).catch(() => {});
-    }
-    setStatus('READY');
-    setProgressPct(0);
-    showToast(isThai ? 'ยกเลิกการวิเคราะห์' : 'Analysis cancelled');
-  }, [currentSessionId, isThai, showToast]);
+  const run = async () => {
+    if (!file || online !== true || corners.length !== 4 || processing || matchInfo.sportType !== 'badminton') return;
+    const runId = ++generation.current;
+    const current = () => generation.current === runId;
+    setProcessing(true); setError(null); setProgress(0); setFrames([]);
+    let id: string | null = null;
+    const fail = (err: unknown) => { if (current()) { setError(err instanceof Error ? err.message : 'Tracking failed'); setProcessing(false); } };
+    try {
+      const created = await aiTrackingService.createSession(gameType, 'upload');
+      id = created.sessionId;
+      if (!current()) { void aiTrackingService.deleteSession(id); return; }
+      session.current = id;
+      upload.current = new AbortController();
+      await aiTrackingService.uploadSessionVideo(id, file, upload.current.signal);
+      if (!current()) return;
+      await aiTrackingService.calibrateSession(id, corners, gameType);
+      if (!current()) return;
+      await aiTrackingService.startSessionAnalysis(id);
+      if (!current()) return;
+      const sessionId = id;
+      const poll = async () => {
+        try {
+          const state = await aiTrackingService.getSessionStatus(sessionId);
+          if (!current()) return;
+          setProgress(Math.round(state.progressPct));
+          if (state.status === 'ERROR') throw new Error(state.error || 'Tracking engine error');
+          if (state.status === 'COMPLETED') {
+            const result = await aiTrackingService.getSessionResults(sessionId);
+            if (!current()) return;
+            if (result.telemetry.some(frame => frame.isSynthetic || frame.source === 'synthetic_demo')) throw new Error('The service returned demo data instead of real video analysis.');
+            setFrames(result.telemetry); setProgress(100);
+            const saved = downsampleAndChunkTrackingSamples(sessionId, result.telemetry, 10, 15);
+            const record: TrackingAnalysis = {
+              id: sessionId, projectId: activeProjectId || 'current_project', sportType: 'badminton', gameType,
+              status: 'completed', videoFingerprint: `${file.name}:${file.size}:${file.lastModified}`,
+              engineVersion: result.telemetry[0]?.engineVersion || 'tracking-v2', detectorModel: result.telemetry[0]?.modelVersion || 'YOLO', trackerModel: 'ByteTrack', poseModel: 'YOLO pose', sampleRateHz: 10,
+              createdAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+              players: Object.keys(saved.summary.players).map(playerId => ({ playerId, name: playerId, side: result.telemetry.flatMap(frame => frame.players).find(p => p.playerId === playerId)?.teamCode === 'team1' ? 'near' : 'far' })),
+              summary: saved.summary, quality: saved.quality,
+            };
+            await saveTrackingAnalysis(record, saved.chunks);
+            if (!current()) return;
+            setAnalysis(record); setChunks(saved.chunks); setProcessing(false);
+            if (videoRef.current) videoRef.current.currentTime = 0;
+            setTime(0);
+          } else { timer.current = setTimeout(poll, 500); }
+        } catch (err) { fail(err); }
+      };
+      void poll();
+    } catch (err) { fail(err); }
+  };
 
-  return (
-    <div className="flex flex-col h-full bg-[#0c1721] text-gray-200 p-4 gap-4 overflow-y-auto custom-scrollbar select-none">
-      {/* Labs Header */}
-      <div className="flex items-center justify-between border-b border-[#263642] pb-3 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center">
-            <Activity size={18} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-black uppercase tracking-wider text-white">
-                {isThai ? 'แบดมินตัน แทรคกิ้ง แล็บ' : 'Badminton Tracking Lab'}
-              </h2>
-              <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono font-bold">
-                Experimental
-              </span>
-              {backendOnline === true && (
-                <span className="text-[10px] bg-green-500/20 text-green-300 px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
-                  <Server size={10} /> Local AI Online
-                </span>
-              )}
-              {backendOnline === false && (
-                <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded font-mono font-bold flex items-center gap-1">
-                  <Server size={10} /> In-Browser Engine
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-400">
-              {isThai ? 'ระบบติดตามตำแหน่งและชีวกลศาสตร์นักกีฬาแบดมินตัน' : 'Computer Vision & Biomechanics Player Tracking'}
-            </p>
-          </div>
-        </div>
-
-        {/* Sub Navigation */}
-        <div className="flex bg-[#162330] p-1 rounded-lg border border-[#263642] gap-1">
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('tracking')}
-            className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
-              activeSubTab === 'tracking'
-                ? 'bg-sky-500 text-white shadow-sm'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            {isThai ? 'แทรคกิ้ง (Tracking)' : 'Tracking'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('results')}
-            className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
-              activeSubTab === 'results'
-                ? 'bg-sky-500 text-white shadow-sm'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            {isThai ? 'ผลลัพธ์ (Results)' : 'Tracking Results'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('calibration')}
-            className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
-              activeSubTab === 'calibration'
-                ? 'bg-sky-500 text-white shadow-sm'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            {isThai ? 'ปรับเทียบสนาม (Calibration)' : 'Calibration'}
-          </button>
-        </div>
+  const choose = (next: File | undefined) => {
+    if (!next) return;
+    cancel(); setFile(next); setLocalFileName(next.name); setVideoSourceType('local');
+    setCorners([]); setFrames([]); setAnalysis(null); setChunks([]); setError(null); setCalibrating(false);
+  };
+  const canRun = matchInfo.sportType === 'badminton' && online === true && !!file && corners.length === 4 && !processing;
+  const button = 'rounded-lg border border-slate-600 px-3 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed';
+  return <div className="h-full overflow-y-auto bg-[#0c1721] text-slate-200 p-4 space-y-4">
+    <div><h2 className="font-bold text-lg">{th ? 'แล็บตรวจจับร่างกายและการเคลื่อนที่แบดมินตัน' : 'Badminton Tracking Lab'}</h2>
+      <p className="text-sm text-slate-400">{th ? 'ตรวจจับผู้เล่นและจุดร่างกายจากวิดีโอจริง • ค่าท่าทางเป็นการประมาณแบบ 2 มิติ' : 'Real video player and body detection • Pose measurements are 2D estimates'}</p></div>
+    <div role="status" className={online ? 'text-emerald-400' : 'text-amber-300'}>{online === null ? (th ? 'กำลังตรวจสอบบริการ AI…' : 'Checking local AI service…') : online ? (th ? 'บริการ AI พร้อมใช้งาน' : 'Local AI service online') : (th ? 'บริการ AI ยังไม่ทำงาน' : 'Local AI service offline')}</div>
+    {online === false && <p className="text-sm">{th ? 'เปิดบริการ AI ในเครื่องก่อนเริ่มวิเคราะห์' : 'Start the local AI service before running analysis.'}</p>}
+    {matchInfo.sportType !== 'badminton' && <p className="text-amber-300">{th ? 'เลือกโปรเจกต์กีฬาแบดมินตันก่อนเริ่มวิเคราะห์' : 'Select a Badminton project to enable analysis.'}</p>}
+    <label className="block text-sm">{th ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select video file'}<input aria-label="Select video file" type="file" accept="video/*" disabled={processing} onChange={e => choose(e.target.files?.[0])} className="block mt-2" /></label>
+    {!file && localFileName && <p className="text-sm text-slate-400">{th ? `เลือกไฟล์ ${localFileName} อีกครั้งเพื่อให้ระบบอ่านวิดีโอได้` : `Reselect ${localFileName} to give the analyzer access to the video.`}</p>}
+    <label className="block text-sm">{th ? 'ประเภทการแข่งขัน ' : 'Game type '}<select disabled={processing} value={gameType} onChange={e => setGameType(e.target.value as BadmintonGameType)} className="bg-slate-800 p-2 rounded"><option value="singles">{th ? 'เดี่ยว' : 'Singles'}</option><option value="doubles">{th ? 'คู่' : 'Doubles'}</option></select></label>
+    {url && <>
+      <div className="relative w-full max-w-4xl bg-black" style={{ aspectRatio: dimensions.width ? `${dimensions.width}/${dimensions.height}` : '16/9' }}>
+        <video ref={videoRef} src={url} controls={!calibrating} className="w-full h-full" onLoadedMetadata={e => setDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight })} onTimeUpdate={e => setTime(e.currentTarget.currentTime)} onSeeked={e => setTime(e.currentTarget.currentTime)} />
+        <TrackingVideoOverlay frames={frames} time={time} showSkeleton={showSkeleton} />
+        {(calibrating || corners.length > 0) && <svg aria-label="Court calibration" viewBox={`0 0 ${dimensions.width || 1} ${dimensions.height || 1}`} className={`absolute inset-0 w-full h-full ${calibrating ? 'cursor-crosshair' : 'pointer-events-none'}`} onClick={e => {
+          if (!calibrating || corners.length >= 4) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          const next = [...corners, [Math.round((e.clientX - rect.left) / rect.width * dimensions.width), Math.round((e.clientY - rect.top) / rect.height * dimensions.height)]];
+          setCorners(next); if (next.length === 4) setCalibrating(false);
+        }}>
+          {corners.length > 1 && <polyline points={[...corners, ...(corners.length === 4 ? [corners[0]] : [])].map(p => p.join(',')).join(' ')} fill="none" stroke="#38bdf8" strokeWidth={dimensions.width / 400} />}
+          {corners.map(([x,y], i) => <g key={i}><circle cx={x} cy={y} r={dimensions.width / 160} fill="#38bdf8" /><text x={x + dimensions.width / 100} y={y} fontSize={dimensions.width / 50} fill="white">{['TL','TR','BR','BL'][i]}</text></g>)}
+        </svg>}
       </div>
-
-      {/* Eligibility Warning (PDF §48-49) */}
-      {!trackingEligible && (
-        <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-800/50 flex items-start gap-3 text-amber-200">
-          <AlertCircle size={20} className="shrink-0 text-amber-400 mt-0.5" />
-          <div className="text-xs space-y-1">
-            <p className="font-bold text-amber-300">
-              {isThai ? 'ต้องการไฟล์วิดีโอจากเครื่องสำหรับ Tracking' : 'Tracking requires a local video file.'}
-            </p>
-            <p className="text-amber-300/80 leading-relaxed">
-              {videoSourceType === 'youtube'
-                ? isThai
-                  ? 'วิดีโอ YouTube สามารถใช้สำหรับการสเกาต์แบบ Manual ได้ตามปกติ กรุณาเลือก Local Video เพื่อใช้ AI Tracking'
-                  : 'YouTube video remains available for manual scouting. Please select a local video to enable AI tracking.'
-                : isThai
-                ? 'กรุณาเปิดไฟล์วิดีโอการแข่งขันแบดมินตันเพื่อเริ่มต้นใช้งานระบบติดตามการเคลื่อนที่'
-                : 'Please load a local video file of a badminton match to begin tracking.'}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Backend Offline Guidance (PDF §52) */}
-      {trackingEligible && backendOnline === false && status === 'BACKEND_OFFLINE' && (
-        <div className="p-4 rounded-xl bg-slate-900/60 border border-sky-800/50 flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2 text-gray-300">
-            <Server size={18} className="text-sky-400 shrink-0" />
-            <div>
-              <span className="font-bold text-white block">Local AI Service Not Detected</span>
-              <span className="text-gray-400">
-                Run <code className="bg-[#1a2d3f] px-1 py-0.5 rounded text-sky-300">python ai_service/server.py</code> for hardware-accelerated YOLO tracking, or use browser demonstration mode.
-              </span>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={checkBackend}
-              className="px-3 py-1.5 rounded bg-[#1a2d3f] border border-[#263642] text-xs font-bold text-sky-400 hover:text-white flex items-center gap-1.5"
-            >
-              <RefreshCw size={12} /> {isThai ? 'ตรวจสอบใหม่' : 'Retry'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatus('READY')}
-              className="px-3 py-1.5 rounded bg-sky-500 text-white text-xs font-bold hover:bg-sky-400"
-            >
-              {isThai ? 'ใช้โหมดจำลอง' : 'Use Simulation'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Error Message Display */}
-      {status === 'ERROR' && (
-        <div className="p-4 rounded-xl bg-red-950/30 border border-red-800/50 flex items-center justify-between text-xs text-red-300">
-          <div className="flex items-center gap-2">
-            <AlertCircle size={18} className="text-red-400 shrink-0" />
-            <span>{errorMessage || 'An error occurred during tracking.'}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setStatus('READY')}
-            className="px-3 py-1 rounded bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 font-bold"
-          >
-            {isThai ? 'ลองใหม่' : 'Dismiss'}
-          </button>
-        </div>
-      )}
-
-      {/* Main Lab Workflow Steps (PDF §51) */}
-      {trackingEligible && activeSubTab === 'tracking' && (
-        <div className="flex flex-col gap-4">
-          {/* Step 1 & 2: Match & Video Config */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="bg-[#132332] p-3.5 rounded-xl border border-[#263642] flex flex-col gap-2">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                1. {isThai ? 'ประเภทเกมการแข่งขัน' : 'Game Format'}
-              </span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setGameType('singles')}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${
-                    gameType === 'singles'
-                      ? 'bg-sky-500/20 text-sky-300 border-sky-400 font-black'
-                      : 'bg-[#1a2d3f] border-[#263642] text-gray-400 hover:text-white'
-                  }`}
-                >
-                  {isThai ? 'เดี่ยว (Singles - 2 คน)' : 'Singles (2 Players)'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGameType('doubles')}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${
-                    gameType === 'doubles'
-                      ? 'bg-sky-500/20 text-sky-300 border-sky-400 font-black'
-                      : 'bg-[#1a2d3f] border-[#263642] text-gray-400 hover:text-white'
-                  }`}
-                >
-                  {isThai ? 'คู่ (Doubles - 4 คน)' : 'Doubles (4 Players)'}
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-[#132332] p-3.5 rounded-xl border border-[#263642] flex flex-col gap-2">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                2. {isThai ? 'ไฟล์วิดีโอที่ใช้' : 'Local Video File'}
-              </span>
-              <div className="flex items-center justify-between p-2 rounded-lg bg-[#1a2d3f] border border-[#263642] text-xs font-mono text-sky-300 truncate">
-                <span className="truncate">{localFileName || 'No file selected'}</span>
-                <span className="text-[10px] text-green-400 shrink-0 font-bold ml-2">✓ Verified</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Interactive Calibration & Player Assignment Stage (PDF §51, §63) */}
-          <div className="bg-[#132332] p-4 rounded-xl border border-[#263642] flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white uppercase tracking-wider">
-                3. {isThai ? 'การปรับเทียบสนามและผู้เล่น' : 'Court & Player Setup'}
-              </span>
-              <div className="flex gap-2">
-                {status !== 'CALIBRATING' ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCalibrationCorners([]);
-                      setCalibratingStep(0);
-                      setStatus('CALIBRATING');
-                    }}
-                    className="px-3 py-1 rounded bg-[#1a2d3f] hover:bg-[#223b54] border border-[#263642] text-xs font-bold text-sky-300 flex items-center gap-1.5"
-                  >
-                    <Target size={14} />
-                    {calibrationCorners.length === 4 ? (isThai ? 'ปรับเทียบใหม่' : 'Recalibrate') : (isThai ? 'เริ่มปรับเทียบ' : 'Calibrate')}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setStatus('READY')}
-                    className="px-3 py-1 rounded bg-red-500/20 border border-red-500/40 text-xs font-bold text-red-300"
-                  >
-                    {isThai ? 'ยกเลิก' : 'Cancel'}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {status === 'CALIBRATING' && (
-              <div className="p-2.5 rounded-lg bg-sky-950/40 border border-sky-800/60 text-xs text-sky-200">
-                <p className="font-bold">
-                  {isThai
-                    ? `คลิกเลือก 4 มุมนอกของสนามประเภทคู่ (${calibratingStep + 1}/4): ${['บนซ้าย (TL)', 'บนขวา (TR)', 'ล่างขวา (BR)', 'ล่างซ้าย (BL)'][calibratingStep]}`
-                    : `Click outer court corner (${calibratingStep + 1}/4): ${['Top-Left (TL)', 'Top-Right (TR)', 'Bottom-Right (BR)', 'Bottom-Left (BL)'][calibratingStep]}`}
-                </p>
-              </div>
-            )}
-
-            {/* Simulated Interactive Court Canvas */}
-            <div className="relative rounded-lg overflow-hidden border border-[#263642] bg-[#0f241a] flex items-center justify-center">
-              <canvas
-                ref={canvasRef}
-                width={640}
-                height={360}
-                onClick={handleCalibrationCanvasClick}
-                className={`w-full max-w-[640px] aspect-video ${status === 'CALIBRATING' ? 'cursor-crosshair' : 'cursor-default'}`}
-              />
-            </div>
-          </div>
-
-          {/* Processing Status Bar (PDF §56-57) */}
-          {status === 'PROCESSING' && (
-            <div className="p-4 rounded-xl bg-[#132332] border border-sky-500/40 shadow-lg flex flex-col gap-3">
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-sky-400" />
-                  <span className="font-bold text-sky-400">
-                    {isThai ? `กำลังวิเคราะห์วิดีโอ ${progressPct}%` : `Analyzing ${progressPct}%`}
-                  </span>
-                </div>
-                <span className="font-mono text-gray-400">{progressTime}</span>
-              </div>
-              <div className="w-full bg-[#1a2d3f] h-2 rounded-full overflow-hidden">
-                <div
-                  className="bg-sky-500 h-full transition-all duration-150"
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleCancelAnalysis}
-                  className="px-3 py-1 text-xs font-bold rounded-lg border border-red-500/40 text-red-400 hover:bg-red-500/20 transition-colors"
-                >
-                  {isThai ? 'ยกเลิก' : 'Cancel'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Actions CTA (PDF §51) */}
-          {status !== 'PROCESSING' && (
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={handleStartAnalysis}
-                className="flex-1 py-3 bg-sky-500 hover:bg-sky-400 text-white rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-sky-500/20 transition-all cursor-pointer active:scale-98"
-              >
-                <Play size={16} />
-                <span>{isThai ? 'เริ่มประมวลผลแทรคกิ้ง (Run Analysis)' : 'Run Movement Analysis'}</span>
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Calibration Subtab (PDF §63-64) */}
-      {activeSubTab === 'calibration' && (
-        <div className="p-4 rounded-xl bg-[#132332] border border-[#263642] flex flex-col gap-3 text-xs">
-          <h3 className="text-sm font-bold text-white">
-            {isThai ? 'การปรับเทียบพิกัดสนาม (Court Calibration)' : 'Badminton Court Calibration'}
-          </h3>
-          <p className="text-gray-400">
-            {isThai
-              ? 'สนามขนาดมาตรฐาน 6.10 × 13.40 ม. ระบบใช้ Homography แปลงพิกัดจาก 4 มุมนอกของสนามประเภทคู่'
-              : 'Standard court dimensions: 6.10 × 13.40m. Outer doubles court corners used for Homography transformation.'}
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
-            <div className="p-2 bg-[#1a2d3f] rounded border border-[#263642]">
-              <span className="text-gray-400 block text-[9px]">Length</span>
-              <span className="font-bold text-white">13.40 m</span>
-            </div>
-            <div className="p-2 bg-[#1a2d3f] rounded border border-[#263642]">
-              <span className="text-gray-400 block text-[9px]">Doubles Width</span>
-              <span className="font-bold text-white">6.10 m</span>
-            </div>
-            <div className="p-2 bg-[#1a2d3f] rounded border border-[#263642]">
-              <span className="text-gray-400 block text-[9px]">Singles Width</span>
-              <span className="font-bold text-white">5.18 m</span>
-            </div>
-            <div className="p-2 bg-[#1a2d3f] rounded border border-[#263642]">
-              <span className="text-gray-400 block text-[9px]">Singles Alley</span>
-              <span className="font-bold text-white">0.46 m</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Results Subtab (PDF §67-70, §75-79) */}
-      {activeSubTab === 'results' && (
-        <div className="flex flex-col gap-4">
-          {persistedAnalysis ? (
-            <BadmintonMovementDashboard
-              analysis={persistedAnalysis}
-              chunks={persistedChunks}
-              title={
-                isThai
-                  ? 'แดชบอร์ดการเคลื่อนที่ของผู้เล่น (Badminton Movement Dashboard)'
-                  : 'Badminton Player Movement Dashboard'
-              }
-            />
-          ) : (
-            <div className="p-4 rounded-xl bg-[#132332] border border-[#263642] flex flex-col gap-4 text-xs">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white">
-                    {isThai ? 'สถิติการเคลื่อนที่ (Movement Metrics)' : 'Player Movement Telemetry'}
-                  </h3>
-                  <p className="text-gray-400">
-                    {isThai
-                      ? 'ยังไม่มีข้อมูลการติดตามที่บันทึก กรุณากด เริ่มวิเคราะห์ เพื่อสร้างข้อมูล'
-                      : 'No saved tracking data yet. Run analysis above to generate player telemetry.'}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+      <button className={button} disabled={processing || !dimensions.width} onClick={() => { videoRef.current?.pause(); setCorners([]); setCalibrating(true); }}>{th ? 'เลือก 4 มุมสนามจากภาพวิดีโอ' : 'Calibrate four court corners'}</button>
+      <p className="text-sm text-slate-400">{th ? 'เลือกมุมนอกสนามคู่: บนซ้าย → บนขวา → ล่างขวา → ล่างซ้าย' : 'Choose outer doubles court corners: top left → top right → bottom right → bottom left'} ({corners.length}/4)</p>
+      <label className="block text-sm"><input type="checkbox" checked={showSkeleton} onChange={e => setShowSkeleton(e.target.checked)} /> {th ? 'แสดงจุดร่างกาย (2 มิติ)' : 'Show body skeleton (2D)'}</label>
+    </>}
+    {error && <p role="alert" className="text-red-300">{error}</p>}
+    {processing ? <div className="space-x-3"><span>{th ? 'กำลังวิเคราะห์' : 'Analyzing'} {progress}%</span><button className={button} onClick={cancel}>{th ? 'ยกเลิก' : 'Cancel analysis'}</button></div> : <button className={`${button} bg-sky-700`} disabled={!canRun} onClick={() => void run()}>{th ? 'เริ่มตรวจจับร่างกายและการเคลื่อนที่' : 'Run Movement Analysis'}</button>}
+    {frames.length > 0 && <p className="text-sm text-emerald-300">{th ? 'วิเคราะห์เสร็จแล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกาย' : 'Analysis complete. Play the video to inspect detected body positions.'}</p>}
+    {analysis && <BadmintonMovementDashboard analysis={analysis} chunks={chunks} title={th ? 'ผลการเคลื่อนที่ของผู้เล่น' : 'Player movement results'} />}
+  </div>;
 }

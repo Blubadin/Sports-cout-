@@ -44,7 +44,7 @@ const MatchInfoModal = React.lazy(() => import('./components/MatchInfoModal'));
 const EditEventModal = React.lazy(() => import('./components/EditEventModal'));
 
 type AnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks' | 'report' | 'labs';
-const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks', 'report', 'labs'];
+const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks', 'labs'];
 
 function Toast() {
   const { toastMessage } = useScoutContext();
@@ -626,7 +626,7 @@ function AppContent() {
                   </div>
                 )}
                 {!isWorkstation && (
-                <div className="coach-panel-flat flex p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'} onKeyDown={handleTablistKeyDown}>
+                <div className="coach-panel-flat flex flex-wrap p-1 gap-1 shrink-0" role="tablist" aria-label={settings.uiLanguage === 'th' ? 'มุมมองการวิเคราะห์' : 'Analysis views'} onKeyDown={handleTablistKeyDown}>
                   <button
                     id="analysis-tab-input"
                     role="tab"
@@ -691,6 +691,17 @@ function AppContent() {
                     <Star size={18} />
                     <span>{t('keyMoments.title', settings.uiLanguage)}</span>
                   </button>
+                  <button
+                    id="analysis-tab-labs"
+                    role="tab"
+                    aria-selected={activeTab === 'labs'}
+                    aria-controls="analysis-panel-labs"
+                    onClick={() => setActiveTab('labs')}
+                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${activeTab === 'labs' ? 'coach-tab-active' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                  >
+                    <MonitorPlay size={18} />
+                    <span>Labs</span>
+                  </button>
                 </div>
               )}
                 {activeTab === 'input' && (
@@ -729,7 +740,7 @@ function AppContent() {
                   </div>
                 )}
                 {activeTab === 'labs' && (
-                  <div className="w-full flex-1 min-h-0 h-full overflow-hidden">
+                  <div id="analysis-panel-labs" role="tabpanel" aria-label="Labs" className="w-full flex-1 min-h-0 h-full overflow-hidden">
                     <React.Suspense fallback={<div className="h-96 animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl" />}>
                       <BadmintonTrackingLab />
                     </React.Suspense>

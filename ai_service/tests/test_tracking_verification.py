@@ -191,7 +191,7 @@ class TestTrackingLostAndTeleportPrevention(unittest.TestCase):
 
         # In telemetry, position remains anchored
         telemetry = self.analyzer.process_frame(frame)
-        p1_telemetry = next(t for t in telemetry["players"] if t["trackId"] == 1)
+        p1_telemetry = next(t for t in telemetry["players"] if t["playerId"] == "P1")
         self.assertEqual(p1_telemetry["state"], "predicted")
         self.assertAlmostEqual(p1_telemetry["courtPosition"]["xM"], initial_pos[0], delta=0.01)
         self.assertAlmostEqual(p1_telemetry["courtPosition"]["yM"], initial_pos[1], delta=0.01)

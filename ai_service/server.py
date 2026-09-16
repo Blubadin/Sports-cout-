@@ -4,6 +4,7 @@ Bridges Python Badminton Motion Analyzer with React/TypeScript PWA.
 """
 
 import os
+import tempfile
 import asyncio
 import json
 import threading
@@ -11,7 +12,7 @@ import time
 from typing import Set
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import cv2
@@ -430,6 +431,8 @@ class TrackingSession:
         self.duration_sec = 0.0
         self.results: list[dict] = []
         self.error_message: str | None = None
+        self.owned_video_path: Path | None = None
+        self._uploading = False
         self._cancel = False
         self._thread: threading.Thread | None = None
 
@@ -488,6 +491,8 @@ def _run_session_analysis(session: TrackingSession):
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 300
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    session.analyzer.fps = fps
+    session.analyzer.dist_tracker.fps = fps
     session.total_frames = total_frames
     session.duration_sec = round(total_frames / fps, 2)
 
@@ -533,6 +538,42 @@ def create_tracking_session(req: CreateSessionRequest):
     }
 
 
+@app.post("/api/tracking/sessions/{session_id}/video")
+async def upload_session_video(session_id: str, request: Request):
+    session = tracking_sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session._uploading or (session._thread and session._thread.is_alive()):
+        raise HTTPException(status_code=409, detail="Session is busy")
+    session._uploading = True
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="sportscout_", suffix=".video", delete=False) as target:
+            temp_path = Path(target.name)
+            async for chunk in request.stream():
+                target.write(chunk)
+        cap = cv2.VideoCapture(str(temp_path))
+        try:
+            readable, frame = cap.read()
+            fps = cap.get(cv2.CAP_PROP_FPS)
+        finally:
+            cap.release()
+        if not readable or frame is None:
+            raise HTTPException(status_code=422, detail="The uploaded file cannot be decoded as video")
+        if session.owned_video_path:
+            session.owned_video_path.unlink(missing_ok=True)
+        session.owned_video_path = temp_path
+        session.video_source = str(temp_path)
+        session.analyzer.fps = fps if fps > 0 else 30.0
+        session.analyzer.dist_tracker.fps = session.analyzer.fps
+        temp_path = None
+        return {"sessionId": session_id, "width": frame.shape[1], "height": frame.shape[0], "fps": session.analyzer.fps}
+    finally:
+        session._uploading = False
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
+
+
 @app.post("/api/tracking/sessions/{session_id}/calibration")
 def calibrate_session(session_id: str, req: SessionCalibrationRequest):
     if session_id not in tracking_sessions:
@@ -550,8 +591,17 @@ def assign_session_players(session_id: str, req: SessionPlayerRequest):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
-    dummy_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
-    session.analyzer.assign_initial_players(dummy_frame, req.players)
+    if session.video_source == "demo":
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    else:
+        cap = cv2.VideoCapture(session.video_source)
+        try:
+            readable, frame = cap.read()
+        finally:
+            cap.release()
+        if not readable or frame is None:
+            raise HTTPException(status_code=422, detail="Upload a decodable video before assigning players")
+    session.analyzer.assign_initial_players(frame, req.players)
     session.status = "READY_TO_ANALYZE"
     return {"status": "success", "sessionStatus": session.status, "assignedCount": len(req.players)}
 
@@ -604,8 +654,17 @@ def get_session_results(session_id: str):
 def delete_tracking_session(session_id: str):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    session = tracking_sessions.pop(session_id)
+    session = tracking_sessions[session_id]
+    if session._uploading:
+        raise HTTPException(status_code=409, detail="Video upload is in progress")
     session._cancel = True
+    if session._thread and session._thread.is_alive():
+        session._thread.join(timeout=30)
+        if session._thread.is_alive():
+            raise HTTPException(status_code=409, detail="Analysis is stopping; retry deletion shortly")
+    tracking_sessions.pop(session_id)
+    if session.owned_video_path:
+        session.owned_video_path.unlink(missing_ok=True)
     return {"status": "deleted", "sessionId": session_id}
 
 

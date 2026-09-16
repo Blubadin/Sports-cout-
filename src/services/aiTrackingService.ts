@@ -796,6 +796,20 @@ class AITrackingService {
     if (!res.ok) throw new Error(`Failed to calibrate session: ${res.statusText}`);
   }
 
+  public async uploadSessionVideo(sessionId: string, file: File, signal?: AbortSignal): Promise<{ width: number; height: number }> {
+    const res = await fetch(`http://localhost:8000/api/tracking/sessions/${sessionId}/video`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+      signal,
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || `Video upload failed (${res.status})`);
+    }
+    return res.json();
+  }
+
   public async assignSessionPlayers(
     sessionId: string,
     players: { player_id: number; bbox: number[]; name?: string }[]

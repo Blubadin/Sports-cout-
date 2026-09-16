@@ -27,6 +27,8 @@ class PlayerProfile:
         self.last_real_pos: tuple[float, float] | None = None
         self.last_bbox: list[int] | None = None
         self.missed_frames = 0
+        self.track_id = None
+        self.detection_confidence = 0.0
 
     def update_appearance(self, frame: np.ndarray, bbox: list[int]):
         """Extract HSV color histogram from upper 60% of bbox (shirt / jersey)."""
@@ -83,17 +85,19 @@ class BadmintonAnalyzerV2:
             self.profiles[pid] = PlayerProfile(player_id=pid, team=team)
 
         self._detector = None
-        self._tracker = None
+        self._pose_detector = None
 
     def _lazy_init_ai(self):
-        """Lazy load YOLO and DeepSORT to avoid startup lag if running tests."""
+        """Lazy load the real detector; initialization failures must reach the session."""
         if self._detector is None:
-            try:
-                from ultralytics import YOLO
-                self._detector = YOLO(self.model_path)
-            except ImportError:
-                print("[BadmintonAnalyzerV2] Warning: ultralytics is not installed. AI inference will be simulated.")
-                self._detector = "dummy"
+            from ultralytics import YOLO
+            self._detector = YOLO(self.model_path)
+
+    def _estimate_pose(self, frame, bbox):
+        if self._pose_detector is None:
+            from pose_detector import YoloPoseDetector
+            self._pose_detector = YoloPoseDetector(device=self.device)
+        return self._pose_detector.estimate_pose_in_roi(frame, bbox)
 
     def set_court_corners(self, corners: list[list[float]] | np.ndarray):
         """Set court corners for perspective calibration."""
@@ -131,8 +135,10 @@ class BadmintonAnalyzerV2:
         detections = []
 
         if self._detector != "dummy" and self._detector is not None:
-            results = self._detector.predict(
+            results = self._detector.track(
                 frame,
+                persist=True,
+                tracker="bytetrack.yaml",
                 classes=[0],  # Person class
                 conf=self.conf,
                 device=self.device,
@@ -141,7 +147,8 @@ class BadmintonAnalyzerV2:
             for r in results:
                 boxes = r.boxes.xyxy.cpu().numpy()
                 confs = r.boxes.conf.cpu().numpy()
-                for box, conf in zip(boxes, confs):
+                track_ids = r.boxes.id.cpu().numpy() if r.boxes.id is not None else [None] * len(boxes)
+                for box, conf, track_id in zip(boxes, confs, track_ids):
                     x1, y1, x2, y2 = box.tolist()
                     cx = (x1 + x2) / 2.0
                     cy = y2  # Feet level on ground for court position
@@ -149,6 +156,7 @@ class BadmintonAnalyzerV2:
                         "bbox": [x1, y1, x2, y2],
                         "center": (cx, cy),
                         "conf": float(conf),
+                        "track_id": int(track_id) if track_id is not None else None,
                     })
         return detections
 
@@ -208,7 +216,7 @@ class BadmintonAnalyzerV2:
             player_telemetry.append({
                 # Canonical V1 Tracking Protocol (PDF §45)
                 "playerId": f"P{pid}",
-                "trackId": pid,
+                "trackId": p.track_id,
                 "teamCode": f"team{p.team}",
                 "bboxPct": bbox_pct,
                 "groundPointPct": ground_pt_pct,
@@ -222,7 +230,7 @@ class BadmintonAnalyzerV2:
                 "playerRelativeZone": rel_zone,
                 "speedMps": stats.get("current_speed_ms", 0.0),
                 "totalDistanceM": stats.get("total_dist_m", 0.0),
-                "detectionConfidence": 0.90 if p.missed_frames == 0 else max(0.1, round(0.90 - p.missed_frames * 0.05, 2)),
+                "detectionConfidence": p.detection_confidence if p.missed_frames == 0 else 0.0,
                 "state": tracking_state,
 
                 # Backward compatibility aliases
@@ -238,6 +246,14 @@ class BadmintonAnalyzerV2:
                 "is_active": p.missed_frames < 10,
                 "video_bbox_pct": bbox_pct,
             })
+
+            if pid in matched_players:
+                pose = self._estimate_pose(frame, matched_players[pid]["bbox"])
+                if pose["keypoints"]:
+                    player_telemetry[-1]["pose"] = {"keypoints": [
+                        {"x": float(x) / w * 100, "y": float(y) / h * 100, "score": float(score)}
+                        for x, y, score in pose["keypoints"]
+                    ], "metrics": pose["metrics"]}
 
         return {
             # Canonical V1 Protocol (PDF §45 & §47)
@@ -301,7 +317,8 @@ class BadmintonAnalyzerV2:
                         color_dist = cv2.compareHist(profile.color_hist, temp_p.color_hist, cv2.HISTCMP_BHATTACHARYYA)
                         color_cost = color_dist * 8.0
 
-                total_cost = spatial_dist + side_penalty + color_cost
+                identity_bonus = -10.0 if profile.track_id is not None and profile.track_id == d.get("track_id") else 0.0
+                total_cost = spatial_dist + side_penalty + color_cost + identity_bonus
                 cost_matrix[i, j] = total_cost
 
         # Hungarian Assignment: Optimal 1-to-1 match
@@ -318,6 +335,8 @@ class BadmintonAnalyzerV2:
             if cost < 25.0:
                 d = detections[c]
                 profile = self.profiles[pid]
+                profile.track_id = d.get("track_id")
+                profile.detection_confidence = d["conf"]
                 profile.last_real_pos = d["real_pos"]
                 profile.last_bbox = d["bbox"]
                 profile.missed_frames = 0
@@ -340,6 +359,8 @@ class BadmintonAnalyzerV2:
         if pid_a in self.profiles and pid_b in self.profiles:
             pa = self.profiles[pid_a]
             pb = self.profiles[pid_b]
+            pa.track_id, pb.track_id = pb.track_id, pa.track_id
+            pa.detection_confidence, pb.detection_confidence = pb.detection_confidence, pa.detection_confidence
             pa.color_hist, pb.color_hist = pb.color_hist, pa.color_hist
             pa.last_real_pos, pb.last_real_pos = pb.last_real_pos, pa.last_real_pos
             pa.last_bbox, pb.last_bbox = pb.last_bbox, pa.last_bbox

@@ -87,16 +87,11 @@ class YoloPoseDetector:
         self.conf = conf_threshold
         self.device = device
         self._model = None
-        self._init_model()
+
 
     def _init_model(self):
-        try:
-            from ultralytics import YOLO
-            self._model = YOLO(self.model_path)
-            print(f"[YoloPoseDetector] Loaded Pose Model: {self.model_path}")
-        except Exception as e:
-            print(f"[YoloPoseDetector] Note: {e}. Internal fallback mode.")
-            self._model = None
+        from ultralytics import YOLO
+        self._model = YOLO(self.model_path)
 
     def estimate_pose_in_roi(
         self,
@@ -107,6 +102,8 @@ class YoloPoseDetector:
         Estimate 17 keypoints for a specific tracked athlete ROI (PDF §81).
         player_bbox: [x1, y1, x2, y2] in full frame coordinates.
         """
+        if self._model is None:
+            self._init_model()
         h, w = frame.shape[:2]
         x1 = max(0, int(player_bbox[0]))
         y1 = max(0, int(player_bbox[1]))
@@ -136,7 +133,7 @@ class YoloPoseDetector:
                 kpts_conf = (
                     r.keypoints.conf.cpu().numpy()
                     if r.keypoints.conf is not None
-                    else np.ones((len(kpts_xy), 17))
+                    else np.zeros((len(kpts_xy), 17))
                 )
 
                 if len(kpts_xy) > 0:
