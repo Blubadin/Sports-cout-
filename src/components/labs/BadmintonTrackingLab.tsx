@@ -104,8 +104,13 @@ export default function BadmintonTrackingLab() {
           if (!current()) return;
           setProgress(Math.round(state.progressPct));
           if (state.status === 'ERROR') throw new Error(state.error || 'Tracking engine error');
+          // Results are available incrementally. Paint the latest observations
+          // over the local video while the backend continues processing.
+          const partial = await aiTrackingService.getSessionResults(sessionId);
+          if (!current()) return;
+          if (partial.telemetry.length > 0) setFrames(partial.telemetry);
           if (state.status === 'COMPLETED') {
-            const result = await aiTrackingService.getSessionResults(sessionId);
+            const result = partial;
             if (!current()) return;
             if (result.telemetry.some(frame => frame.isSynthetic || frame.source === 'synthetic_demo')) throw new Error('The service returned demo data instead of real video analysis.');
             setFrames(result.telemetry); setProgress(100);

@@ -429,6 +429,9 @@ class TrackingSession:
         self.total_frames = 0
         self.elapsed_sec = 0.0
         self.duration_sec = 0.0
+        # Pose inference is the expensive stage. Sampling every second frame
+        # keeps the overlay responsive while preserving the source timestamps.
+        self.frame_stride = 2
         self.results: list[dict] = []
         self.error_message: str | None = None
         self.owned_video_path: Path | None = None
@@ -505,6 +508,10 @@ def _run_session_analysis(session: TrackingSession):
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
             timestamp_sec = (pos_msec / 1000.0) if pos_msec > 0 else (frame_idx / fps)
+            if frame_idx % session.frame_stride != 0:
+                session.current_frame = frame_idx
+                session.progress_pct = round((frame_idx / total_frames) * 100.0, 1)
+                continue
             telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
             telemetry["source"] = "real_tracking"
             telemetry["isSynthetic"] = False
