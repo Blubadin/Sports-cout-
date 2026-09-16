@@ -349,6 +349,18 @@ class AITrackingService {
     return false;
   }
 
+  public async getCapabilities(): Promise<{
+    selectedDevice: 'cpu' | 'cuda' | 'mps';
+    requestedDevice?: string;
+    cudaAvailable: boolean;
+    mpsAvailable: boolean;
+    torchVersion?: string | null;
+  }> {
+    const res = await fetch("http://localhost:8000/api/capabilities");
+    if (!res.ok) throw new Error(`Failed to read AI capabilities: ${res.statusText}`);
+    return res.json();
+  }
+
   public connect(customUrl?: string) {
     if (customUrl) this.serverUrl = customUrl;
 
@@ -776,12 +788,19 @@ class AITrackingService {
 
   public async createSession(
     gameType: BadmintonGameType,
-    videoSource: string = "demo"
+    videoSource: string = "demo",
+    options?: { projectId?: string | null; videoFingerprint?: string | null; device?: 'auto' | 'cpu' | 'cuda' | 'mps' }
   ): Promise<{ sessionId: string; status: string }> {
     const res = await fetch("http://localhost:8000/api/tracking/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ video_source: videoSource, game_type: gameType }),
+      body: JSON.stringify({
+        video_source: videoSource,
+        game_type: gameType,
+        project_id: options?.projectId ?? null,
+        video_fingerprint: options?.videoFingerprint ?? null,
+        device: options?.device ?? 'auto',
+      }),
     });
     if (!res.ok) throw new Error(`Failed to create tracking session: ${res.statusText}`);
     return res.json();
@@ -808,6 +827,34 @@ class AITrackingService {
       throw new Error(detail.detail || `Video upload failed (${res.status})`);
     }
     return res.json();
+  }
+
+  public async listSessions(projectId?: string | null): Promise<Array<{
+    sessionId: string;
+    status: string;
+    gameType: BadmintonGameType;
+    projectId: string | null;
+    videoFingerprint: string | null;
+    progressPct: number;
+    currentFrame: number;
+    totalFrames: number;
+    resumable: boolean;
+  }>> {
+    const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+    const res = await fetch(`http://localhost:8000/api/tracking/sessions${query}`);
+    if (!res.ok) throw new Error(`Failed to list tracking sessions: ${res.statusText}`);
+    const payload = await res.json() as { sessions?: Array<{
+      sessionId: string;
+      status: string;
+      gameType: BadmintonGameType;
+      projectId: string | null;
+      videoFingerprint: string | null;
+      progressPct: number;
+      currentFrame: number;
+      totalFrames: number;
+      resumable: boolean;
+    }> };
+    return payload.sessions ?? [];
   }
 
   public async assignSessionPlayers(

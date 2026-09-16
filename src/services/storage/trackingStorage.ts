@@ -1,4 +1,3 @@
-import { createStore, del, entries, get, set } from 'idb-keyval';
 import type { TrackingTelemetryV1 } from '../../types';
 
 export interface TrackingPlayerMetadata {
@@ -112,26 +111,91 @@ export interface TrackingStorageDriver {
 // IndexedDB driver with stores: trackingAnalyses, trackingSampleChunks, trackingCandidates
 // -------------------------------------------------------------
 const DB_NAME = 'sportscout-tracking-v1';
-const analysesStore = typeof window !== 'undefined' ? createStore(DB_NAME, 'trackingAnalyses') : null;
-const chunksStore = typeof window !== 'undefined' ? createStore(DB_NAME, 'trackingSampleChunks') : null;
-const candidatesStore = typeof window !== 'undefined' ? createStore(DB_NAME, 'trackingCandidates') : null;
+const DB_VERSION = 2;
+export const TRACKING_STORE_NAMES = [
+  'trackingAnalyses',
+  'trackingSampleChunks',
+  'trackingCandidates',
+] as const;
+
+export interface TrackingDatabaseSchemaTarget {
+  objectStoreNames: { contains: (name: string) => boolean };
+  createObjectStore: (name: string) => unknown;
+}
+
+/** Ensure the complete tracking schema is created in the same upgrade. */
+export function ensureTrackingObjectStores(db: TrackingDatabaseSchemaTarget): void {
+  for (const storeName of TRACKING_STORE_NAMES) {
+    if (!db.objectStoreNames.contains(storeName)) db.createObjectStore(storeName);
+  }
+}
+
+let trackingDbPromise: Promise<IDBDatabase | null> | null = null;
+
+function openTrackingDatabase(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null);
+  if (trackingDbPromise) return trackingDbPromise;
+
+  trackingDbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => ensureTrackingObjectStores(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => {
+        db.close();
+        trackingDbPromise = null;
+      };
+      resolve(db);
+    };
+    request.onerror = () => reject(request.error ?? new Error('Unable to open tracking storage'));
+    request.onblocked = () => reject(new Error('Tracking storage upgrade is blocked by another tab. Close other SportsScout tabs and retry.'));
+  }).catch(error => {
+    trackingDbPromise = null;
+    throw error;
+  });
+
+  return trackingDbPromise;
+}
+
+function transactionError(tx: IDBTransaction): Error {
+  return tx.error ?? new Error('Tracking storage transaction failed');
+}
 
 export class IndexedDbTrackingDriver implements TrackingStorageDriver {
   async getAnalysis(id: string): Promise<TrackingAnalysis | null> {
-    if (!analysesStore) return null;
-    const item = await get<TrackingAnalysis>(id, analysesStore);
-    return item ?? null;
+    const db = await openTrackingDatabase();
+    if (!db) return null;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trackingAnalyses', 'readonly');
+      const request = tx.objectStore('trackingAnalyses').get(id);
+      request.onsuccess = () => resolve((request.result as TrackingAnalysis | undefined) ?? null);
+      request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.onerror = () => reject(transactionError(tx));
+    });
   }
 
   async saveAnalysis(analysis: TrackingAnalysis): Promise<void> {
-    if (!analysesStore) return;
-    await set(analysis.id, analysis, analysesStore);
+    const db = await openTrackingDatabase();
+    if (!db) return;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('trackingAnalyses', 'readwrite');
+      tx.objectStore('trackingAnalyses').put(analysis, analysis.id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
+    });
   }
 
   async listAnalyses(projectId?: string): Promise<TrackingAnalysis[]> {
-    if (!analysesStore) return [];
-    const all = await entries<string, TrackingAnalysis>(analysesStore);
-    const items = all.map(([, val]) => val);
+    const db = await openTrackingDatabase();
+    if (!db) return [];
+    const items = await new Promise<TrackingAnalysis[]>((resolve, reject) => {
+      const tx = db.transaction('trackingAnalyses', 'readonly');
+      const request = tx.objectStore('trackingAnalyses').getAll();
+      request.onsuccess = () => resolve(request.result as TrackingAnalysis[]);
+      request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.onerror = () => reject(transactionError(tx));
+    });
     if (projectId) {
       return items.filter((a) => a.projectId === projectId);
     }
@@ -139,62 +203,121 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
   }
 
   async deleteAnalysis(id: string): Promise<void> {
-    if (!analysesStore) return;
-    await del(id, analysesStore);
+    const db = await openTrackingDatabase();
+    if (!db) return;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('trackingAnalyses', 'readwrite');
+      tx.objectStore('trackingAnalyses').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
+    });
     await this.deleteChunks(id);
     await this.deleteCandidates(id);
   }
 
   async saveChunks(chunks: TrackingSampleChunk[]): Promise<void> {
-    if (!chunksStore) return;
-    for (const chunk of chunks) {
-      await set(chunk.id, chunk, chunksStore);
-    }
+    const db = await openTrackingDatabase();
+    if (!db || chunks.length === 0) return;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('trackingSampleChunks', 'readwrite');
+      const store = tx.objectStore('trackingSampleChunks');
+      for (const chunk of chunks) store.put(chunk, chunk.id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
+    });
   }
 
   async getChunks(analysisId: string): Promise<TrackingSampleChunk[]> {
-    if (!chunksStore) return [];
-    const all = await entries<string, TrackingSampleChunk>(chunksStore);
+    const db = await openTrackingDatabase();
+    if (!db) return [];
+    const all = await new Promise<TrackingSampleChunk[]>((resolve, reject) => {
+      const tx = db.transaction('trackingSampleChunks', 'readonly');
+      const request = tx.objectStore('trackingSampleChunks').getAll();
+      request.onsuccess = () => resolve(request.result as TrackingSampleChunk[]);
+      request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.onerror = () => reject(transactionError(tx));
+    });
     return all
-      .map(([, val]) => val)
       .filter((c) => c.analysisId === analysisId)
       .sort((a, b) => a.chunkIndex - b.chunkIndex);
   }
 
   async deleteChunks(analysisId: string): Promise<void> {
-    if (!chunksStore) return;
-    const all = await entries<string, TrackingSampleChunk>(chunksStore);
-    for (const [key, val] of all) {
-      if (val.analysisId === analysisId) {
-        await del(key, chunksStore);
-      }
-    }
+    const db = await openTrackingDatabase();
+    if (!db) return;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('trackingSampleChunks', 'readwrite');
+      const store = tx.objectStore('trackingSampleChunks');
+      const request = store.openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        if ((cursor.value as TrackingSampleChunk).analysisId === analysisId) cursor.delete();
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
+    });
   }
 
   async saveCandidate(candidate: TrackingCandidate): Promise<void> {
-    if (!candidatesStore) return;
-    await set(candidate.id, candidate, candidatesStore);
+    const db = await openTrackingDatabase();
+    if (!db) return;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('trackingCandidates', 'readwrite');
+      tx.objectStore('trackingCandidates').put(candidate, candidate.id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
+    });
   }
 
   async getCandidates(analysisId: string): Promise<TrackingCandidate[]> {
-    if (!candidatesStore) return [];
-    const all = await entries<string, TrackingCandidate>(candidatesStore);
+    const db = await openTrackingDatabase();
+    if (!db) return [];
+    const all = await new Promise<TrackingCandidate[]>((resolve, reject) => {
+      const tx = db.transaction('trackingCandidates', 'readonly');
+      const request = tx.objectStore('trackingCandidates').getAll();
+      request.onsuccess = () => resolve(request.result as TrackingCandidate[]);
+      request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.onerror = () => reject(transactionError(tx));
+    });
     return all
-      .map(([, val]) => val)
       .filter((c) => c.analysisId === analysisId)
       .sort((a, b) => a.timestamp - b.timestamp);
   }
 
   async deleteCandidates(analysisId: string): Promise<void> {
-    if (!candidatesStore) return;
-    const all = await entries<string, TrackingCandidate>(candidatesStore);
-    for (const [key, val] of all) {
-      if (val.analysisId === analysisId) {
-        await del(key, candidatesStore);
-      }
-    }
+    const db = await openTrackingDatabase();
+    if (!db) return;
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('trackingCandidates', 'readwrite');
+      const store = tx.objectStore('trackingCandidates');
+      const request = store.openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        if ((cursor.value as TrackingCandidate).analysisId === analysisId) cursor.delete();
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
+    });
   }
 }
+
+/*
+ * The previous implementation used idb-keyval.createStore three times against
+ * one database name. Those handles could race during the first upgrade and
+ * leave the database missing one of the requested stores. The native driver
+ * above owns one versioned schema so every transaction has a guaranteed store.
+ */
 
 // -------------------------------------------------------------
 // In-Memory Driver for Unit Testing / Environments without IndexedDB
@@ -562,8 +685,12 @@ export async function saveTrackingAnalysis(
   chunks: TrackingSampleChunk[]
 ): Promise<void> {
   const driver = getTrackingStorageDriver();
-  await driver.saveAnalysis(analysis);
+  const pending: TrackingAnalysis = analysis.status === 'completed'
+    ? { ...analysis, status: 'processing', completedAt: undefined }
+    : analysis;
+  await driver.saveAnalysis(pending);
   await driver.saveChunks(chunks);
+  if (analysis.status === 'completed') await driver.saveAnalysis(analysis);
 }
 
 export async function getTrackingAnalysis(analysisId: string): Promise<TrackingAnalysis | null> {

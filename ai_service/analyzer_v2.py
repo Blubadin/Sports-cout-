@@ -16,6 +16,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from court_mapper import CourtMapper, DistanceTracker, COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M, COURT_WIDTH_SINGLES_M
+from device_runtime import resolve_device
 
 
 class PlayerProfile:
@@ -64,13 +65,13 @@ class BadmintonAnalyzerV2:
         fps: float = 30.0,
         model_path: str = "yolov8n.pt",
         conf_threshold: float = 0.35,
-        device: str = "cpu",
+        device: str | None = None,
     ):
         self.game_type = game_type
         self.max_players = 4 if game_type == "doubles" else 2
         self.fps = fps
         self.conf = conf_threshold
-        self.device = device
+        self.device = resolve_device(device)
         self.model_path = model_path
 
         self.mapper = CourtMapper(game_type=game_type)

@@ -13,7 +13,7 @@ import ControllerSettingsPanel from './controller/ControllerSettingsPanel';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { createPilotDiagnosticReport } from '../utils/pilotDiagnostics';
 import { sanitizeFileName } from '../utils/security';
-import { SPORTSCOUT_APP_VERSION } from '../appMetadata';
+import { SPORTSCOUT_APP_VERSION, SPORTSCOUT_CREATOR } from '../appMetadata';
 import { FEATURE_FLAGS } from '../featureFlags';
 
 interface SettingsModalProps {
@@ -504,6 +504,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         <Trash2 size={18} /> {t('settings.clearData', settings.uiLanguage)}
                       </button>
                       <div className="pt-2 text-center text-[11px] font-mono text-gray-400">SPORTSCOUT {SPORTSCOUT_APP_VERSION}</div>
+                      <div className="text-center text-[10px] text-gray-400/80">Created by {SPORTSCOUT_CREATOR}</div>
                     </div>
                   </section>
                 </div>

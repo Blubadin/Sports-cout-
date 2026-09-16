@@ -19,6 +19,7 @@ import cv2
 
 from analyzer_v2 import BadmintonAnalyzerV2
 from court_mapper import CourtMapper
+from device_runtime import capability_report
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
 
@@ -81,7 +82,18 @@ def get_status():
         "max_players": analyzer.max_players,
         "connected_clients": len(connected_websockets),
         "has_calibrated": analyzer.court_corners_px is not None,
+        "device": analyzer.device,
     }
+
+
+@app.get("/api/capabilities")
+def get_capabilities():
+    """Expose the actual inference runtime so the UI never guesses GPU state."""
+    report = capability_report()
+    report["selectedDevice"] = analyzer.device
+    report["detectorModel"] = analyzer.model_path
+    report["poseModel"] = "yolov8n-pose.pt"
+    return report
 
 
 @app.post("/api/calibrate")
@@ -408,6 +420,9 @@ import numpy as np
 class CreateSessionRequest(BaseModel):
     video_source: str = "demo"
     game_type: str = "doubles"
+    project_id: str | None = None
+    video_fingerprint: str | None = None
+    device: str = "auto"
 
 class SessionCalibrationRequest(BaseModel):
     corners: list[list[float]]
@@ -417,11 +432,14 @@ class SessionPlayerRequest(BaseModel):
     players: list[dict]
 
 class TrackingSession:
-    def __init__(self, session_id: str, video_source: str = "demo", game_type: str = "doubles"):
+    def __init__(self, session_id: str, video_source: str = "demo", game_type: str = "doubles", project_id: str | None = None, video_fingerprint: str | None = None, device: str = "auto"):
         self.session_id = session_id
         self.video_source = video_source
         self.game_type = game_type
-        self.analyzer = BadmintonAnalyzerV2(game_type=game_type)
+        self.project_id = project_id
+        self.video_fingerprint = video_fingerprint
+        self.created_at = time.time()
+        self.analyzer = BadmintonAnalyzerV2(game_type=game_type, device=device)
         self.analyzer.analysis_id = session_id
         self.status = "READY"  # READY | CALIBRATING | ASSIGNING_PLAYERS | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
         self.progress_pct = 0.0
@@ -535,13 +553,49 @@ def _run_session_analysis(session: TrackingSession):
 @app.post("/api/tracking/sessions")
 def create_tracking_session(req: CreateSessionRequest):
     session_id = f"session_{uuid.uuid4().hex[:8]}"
-    session = TrackingSession(session_id, video_source=req.video_source, game_type=req.game_type)
+    try:
+        session = TrackingSession(
+            session_id,
+            video_source=req.video_source,
+            game_type=req.game_type,
+            project_id=req.project_id,
+            video_fingerprint=req.video_fingerprint,
+            device=req.device,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     tracking_sessions[session_id] = session
     return {
         "sessionId": session_id,
         "status": session.status,
         "gameType": session.game_type,
         "videoSource": session.video_source,
+    }
+
+
+@app.get("/api/tracking/sessions")
+def list_tracking_sessions(project_id: str | None = None):
+    sessions = [
+        session for session in tracking_sessions.values()
+        if project_id is None or session.project_id == project_id
+    ]
+    sessions.sort(key=lambda session: session.created_at, reverse=True)
+    return {
+        "sessions": [
+            {
+                "sessionId": session.session_id,
+                "status": session.status,
+                "gameType": session.game_type,
+                "projectId": session.project_id,
+                "videoFingerprint": session.video_fingerprint,
+                "device": session.analyzer.device,
+                "progressPct": session.progress_pct,
+                "currentFrame": session.current_frame,
+                "totalFrames": session.total_frames,
+                "resumable": session.status not in {"COMPLETED", "ERROR"},
+            }
+            for session in sessions
+        ]
     }
 
 

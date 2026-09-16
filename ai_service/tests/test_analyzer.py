@@ -86,6 +86,16 @@ class TestServerSafetyEndpoints(unittest.TestCase):
         self.assertIn("mode", data)
         self.assertIn("game_type", data)
 
+    def test_capabilities_endpoint_reports_real_runtime_device(self):
+        res = self.client.get("/api/capabilities")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn(data["selectedDevice"], {"cpu", "cuda", "mps"})
+        self.assertIn("cudaAvailable", data)
+        self.assertIn("mpsAvailable", data)
+        self.assertIn("detectorModel", data)
+        self.assertIn("poseModel", data)
+
     def test_nonexistent_video_does_not_silently_fallback(self):
         """Starting tracking with a non-existent file must fail with 404, not simulate fake AI."""
         res = self.client.post(

@@ -97,6 +97,33 @@ class TestTrackingSessionAPI(unittest.TestCase):
         self.assertEqual(status_data["status"], "ERROR")
         self.assertIn("Video file not found", status_data["error"])
 
+    def test_list_sessions_exposes_a_session_for_browser_resume(self):
+        """A reopened Lab can discover its existing backend session."""
+        res_create = self.client.post("/api/tracking/sessions", json={
+            "video_source": "demo",
+            "game_type": "singles",
+            "project_id": "project_resume",
+            "video_fingerprint": "rally.mp4:123:456",
+        })
+        self.assertEqual(res_create.status_code, 200)
+        session_id = res_create.json()["sessionId"]
+
+        res_list = self.client.get("/api/tracking/sessions", params={"project_id": "project_resume"})
+        self.assertEqual(res_list.status_code, 200)
+        payload = res_list.json()
+        self.assertEqual(len(payload["sessions"]), 1)
+        self.assertEqual(payload["sessions"][0]["sessionId"], session_id)
+        self.assertEqual(payload["sessions"][0]["videoFingerprint"], "rally.mp4:123:456")
+
+    def test_unavailable_gpu_request_is_rejected_explicitly(self):
+        res = self.client.post("/api/tracking/sessions", json={
+            "video_source": "demo",
+            "game_type": "singles",
+            "device": "cuda",
+        })
+        self.assertEqual(res.status_code, 422)
+        self.assertIn("cuda", res.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()
