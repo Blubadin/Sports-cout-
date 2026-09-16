@@ -61,6 +61,14 @@ class CourtMapper:
         px = cv2.perspectiveTransform(p, self.H_inv)
         return int(px[0][0][0]), int(px[0][0][1])
 
+    def real_to_pixel_subpixel(self, point_m: tuple[float, float]) -> tuple[float, float]:
+        """Convert real court (x_m, y_m) to subpixel float (x, y)."""
+        if self.H_inv is None:
+            return (0.0, 0.0)
+        p = np.array([[[float(point_m[0]), float(point_m[1])]]], dtype=np.float32)
+        px = cv2.perspectiveTransform(p, self.H_inv)
+        return float(px[0][0][0]), float(px[0][0][1])
+
     def real_to_percent(self, point_m: tuple[float, float]) -> tuple[float, float]:
         """
         Convert real court meters (x_m, y_m) to normalized percentage (0..100%).
@@ -70,6 +78,18 @@ class CourtMapper:
         x_pct = np.clip((point_m[0] / self.court_w) * 100.0, 0.0, 100.0)
         y_pct = np.clip((point_m[1] / self.court_l) * 100.0, 0.0, 100.0)
         return float(x_pct), float(y_pct)
+
+    def is_within_outer_court(self, point_m: tuple[float, float], margin: float = 0.0) -> bool:
+        """Check if point is within outer court bounds (6.10m x 13.40m)."""
+        x, y = point_m
+        return (-margin <= x <= COURT_WIDTH_DOUBLES_M + margin) and (-margin <= y <= COURT_LENGTH_M + margin)
+
+    def is_within_singles_bounds(self, point_m: tuple[float, float], margin: float = 0.0) -> bool:
+        """Check if point is within singles side boundaries (0.46m to 5.64m) and length (0 to 13.40m)."""
+        x, y = point_m
+        min_x = SINGLES_SIDE_ALLEY_M
+        max_x = COURT_WIDTH_DOUBLES_M - SINGLES_SIDE_ALLEY_M
+        return (min_x - margin <= x <= max_x + margin) and (-margin <= y <= COURT_LENGTH_M + margin)
 
     def get_zone_2d(self, point_m: tuple[float, float], is_shuttle: bool = False) -> str:
         """
@@ -181,8 +201,9 @@ class DistanceTracker:
             dist = CourtMapper.euclidean_distance(d["prev_real"], real)
             speed_ms = dist * self.fps
 
-            # Filter noise jitter (< 0.04m) and impossible speeds (> 11.0 m/s)
-            if dist > 0.04 and speed_ms < 11.0:
+            # Filter noise jitter and impossible speeds (> 11.0 m/s)
+            min_jitter = max(0.005, 0.04 * (30.0 / self.fps))
+            if dist > min_jitter and speed_ms < 11.0:
                 d["total_dist_m"] += dist
                 if zone in d["zone_dist"]:
                     d["zone_dist"][zone] += dist
