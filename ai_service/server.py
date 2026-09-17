@@ -23,7 +23,7 @@ from device_runtime import capability_report
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
 
-ALLOWED_ORIGINS = [
+DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173",
@@ -31,14 +31,35 @@ ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
-custom_origins = os.getenv("CORS_ORIGINS")
-if custom_origins:
-    ALLOWED_ORIGINS.extend([o.strip() for o in custom_origins.split(",") if o.strip()])
+
+DEFAULT_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+
+def get_cors_configuration(
+    cors_origins: str | None = None,
+    cors_origin_regex: str | None = None,
+) -> tuple[list[str], str | None]:
+    """Build safe CORS origins and regex from defaults and optional environment overrides."""
+    origins = list(DEFAULT_ALLOWED_ORIGINS)
+    if cors_origins:
+        for item in cors_origins.split(","):
+            cleaned = item.strip()
+            if cleaned and cleaned not in origins:
+                origins.append(cleaned)
+
+    regex = cors_origin_regex if cors_origin_regex is not None else DEFAULT_ORIGIN_REGEX
+    return origins, regex
+
+
+ALLOWED_ORIGINS, ALLOWED_ORIGIN_REGEX = get_cors_configuration(
+    cors_origins=os.getenv("CORS_ORIGINS"),
+    cors_origin_regex=os.getenv("CORS_ORIGIN_REGEX"),
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"^https?://.*",
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,7 +69,8 @@ app.add_middleware(
 @app.middleware("http")
 async def add_pna_and_cors_headers(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    if request.headers.get("access-control-request-private-network") == "true":
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response
 
 # Global State
