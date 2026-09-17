@@ -186,6 +186,7 @@ interface WorkstationTopBarProps {
   matchInfo: MatchInfo;
   saveStatus: ProjectSaveStatus;
   onEditMatch: () => void;
+  onSwitchToClassic?: () => void;
 }
 
 export function WorkstationTopBar({
@@ -196,6 +197,7 @@ export function WorkstationTopBar({
   matchInfo,
   saveStatus,
   onEditMatch,
+  onSwitchToClassic,
 }: WorkstationTopBarProps) {
   const saveLabel: Record<ProjectSaveStatus, Record<Language, string>> = {
     loading: { th: 'กำลังเตรียมข้อมูล', en: 'Preparing' },
@@ -246,6 +248,18 @@ export function WorkstationTopBar({
         <Cloud size={13} />
         <span>Offline Ready</span>
       </div>
+
+      {onSwitchToClassic && (
+        <button
+          type="button"
+          onClick={onSwitchToClassic}
+          title={language === 'th' ? 'สลับไปยังมุมมอง Classic' : 'Switch to Classic layout'}
+          className="flex items-center gap-1 text-[11px] font-bold text-sky-400 hover:text-sky-300 bg-sky-950/40 hover:bg-sky-900/50 border border-sky-800/60 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+        >
+          <SlidersHorizontal size={13} />
+          <span>Classic</span>
+        </button>
+      )}
     </header>
   );
 }

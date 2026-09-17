@@ -6,8 +6,8 @@ type FeatureFlagEnvironment = Partial<Record<'VITE_ENABLE_WORKSTATION' | 'VITE_E
 
 export function resolveFeatureFlags(environment: FeatureFlagEnvironment) {
   return Object.freeze({
-    workstation: environment.VITE_ENABLE_WORKSTATION === 'true',
-    footballPicco: environment.VITE_ENABLE_FOOTBALL_PICCO === 'true',
+    workstation: environment.VITE_ENABLE_WORKSTATION?.trim() === 'true',
+    footballPicco: environment.VITE_ENABLE_FOOTBALL_PICCO?.trim() === 'true',
   });
 }
 
