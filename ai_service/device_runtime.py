@@ -27,9 +27,12 @@ def _availability(torch_module: Any) -> tuple[bool, bool]:
     return cuda_available, mps_available
 
 
-def resolve_device(requested: str | None = None, *, torch_module: Any = None) -> str:
+_SENTINEL = object()
+
+
+def resolve_device(requested: str | None = None, *, torch_module: Any = _SENTINEL) -> str:
     """Return ``cuda``, ``mps`` or ``cpu`` and reject unavailable overrides."""
-    torch_module = torch_module if torch_module is not None else _load_torch()
+    torch_module = _load_torch() if torch_module is _SENTINEL else torch_module
     cuda_available, mps_available = _availability(torch_module)
     choice = (requested or "auto").strip().lower()
     if choice == "auto":
@@ -47,11 +50,11 @@ def resolve_device(requested: str | None = None, *, torch_module: Any = None) ->
     return choice
 
 
-def capability_report(*, requested: str | None = None, torch_module: Any = None) -> dict[str, Any]:
-    torch_module = torch_module if torch_module is not None else _load_torch()
+def capability_report(*, requested: str | None = None, torch_module: Any = _SENTINEL) -> dict[str, Any]:
+    torch_module = _load_torch() if torch_module is _SENTINEL else torch_module
     cuda_available, mps_available = _availability(torch_module)
     selected = resolve_device(requested, torch_module=torch_module)
-    version = getattr(getattr(torch_module, "version", None), "__version__", None)
+    version = getattr(torch_module, "__version__", None) if torch_module is not None else None
     return {
         "selectedDevice": selected,
         "requestedDevice": requested or "auto",

@@ -20,9 +20,9 @@ from device_runtime import resolve_device
 
 
 class PlayerProfile:
-    def __init__(self, player_id: int, team: int, name: str | None = None):
+    def __init__(self, player_id: int, team: int = 0, name: str | None = None):
         self.player_id = player_id
-        self.team = team  # Team 1 (Top / Far Court) or Team 2 (Bottom / Near Court)
+        self.team = team  # 0: Unknown, 1: Team 1 (Top / Far Court), 2: Team 2 (Bottom / Near Court)
         self.name = name or f"Player {player_id}"
         self.color_hist: np.ndarray | None = None
         self.last_real_pos: tuple[float, float] | None = None
@@ -61,14 +61,22 @@ class BadmintonAnalyzerV2:
     def __init__(
         self,
         game_type: str = "doubles",
-        max_players: int = 4,
+        max_players: int | None = None,
         fps: float = 30.0,
         model_path: str = "yolov8n.pt",
         conf_threshold: float = 0.35,
         device: str | None = None,
     ):
         self.game_type = game_type
-        self.max_players = 4 if game_type == "doubles" else 2
+        if max_players is None:
+            resolved_max = 4 if game_type == "doubles" else 2
+        else:
+            resolved_max = int(max_players)
+
+        if not (1 <= resolved_max <= 4):
+            raise ValueError(f"max_players must be between 1 and 4, got {resolved_max}")
+        self.max_players = resolved_max
+
         self.fps = fps
         self.conf = conf_threshold
         self.device = resolve_device(device)
@@ -79,10 +87,15 @@ class BadmintonAnalyzerV2:
         self.court_corners_px: np.ndarray | None = None
         self.frame_count = 0
 
-        # Initialize player profiles (P1, P2: Team 1; P3, P4: Team 2)
+        # Initialize player profiles (exactly max_players, no phantoms)
         self.profiles: dict[int, PlayerProfile] = {}
         for pid in range(1, self.max_players + 1):
-            team = 1 if pid <= (self.max_players // 2) else 2
+            if self.max_players == 2:
+                team = 1 if pid == 1 else 2
+            elif self.max_players == 4:
+                team = 1 if pid <= 2 else 2
+            else:
+                team = 0  # Irregular count (1 or 3): dynamic side inference from first observation
             self.profiles[pid] = PlayerProfile(player_id=pid, team=team)
 
         self._detector = None
@@ -128,6 +141,8 @@ class BadmintonAnalyzerV2:
                 p.last_real_pos = real
                 p.last_bbox = bbox
                 p.missed_frames = 0
+                if p.team == 0:
+                    p.team = 1 if real[1] < (COURT_LENGTH_M / 2.0) else 2
                 self.dist_tracker.update(pid, (cx, cy))
 
     def detect_and_track(self, frame: np.ndarray) -> list[dict]:
@@ -181,7 +196,7 @@ class BadmintonAnalyzerV2:
             valid_detections.append(d)
 
         # Match detections to the 4 player profiles using Hungarian Algorithm
-        matched_players = self._match_tracks_to_profiles(frame, valid_detections)
+        matched_players = self._match_tracks_to_profiles(frame, valid_detections, timestamp_sec=t_sec)
 
         # Build telemetry frame (TrackingTelemetryV1 compliant, PDF §45-47)
         h, w = frame.shape[:2] if frame is not None else (720, 1280)
@@ -192,7 +207,7 @@ class BadmintonAnalyzerV2:
             pos_m = stats.get("court_pos_m", {"x": 3.05, "y": 6.70})
             pos_pct = stats.get("court_pos_pct", {"x": 50.0, "y": 50.0})
             abs_zone = stats.get("current_zone", "ML")
-            rel_zone = self.mapper.get_relative_zone_2d((pos_m["x"], pos_m["y"]), p.team)
+            rel_zone = self.mapper.get_relative_zone_2d((pos_m["x"], pos_m["y"]), p.team) if p.team in (1, 2) else abs_zone
 
             # State: observed | predicted | lost (PDF §45)
             if p.missed_frames == 0:
@@ -218,7 +233,7 @@ class BadmintonAnalyzerV2:
                 # Canonical V1 Tracking Protocol (PDF §45)
                 "playerId": f"P{pid}",
                 "trackId": p.track_id,
-                "teamCode": f"team{p.team}",
+                "teamCode": f"team{p.team}" if p.team in (1, 2) else "unknown",
                 "bboxPct": bbox_pct,
                 "groundPointPct": ground_pt_pct,
                 "courtPosition": {
@@ -273,7 +288,43 @@ class BadmintonAnalyzerV2:
             "frame_idx": self.frame_count,
         }
 
-    def _match_tracks_to_profiles(self, frame: np.ndarray, detections: list[dict]) -> dict:
+    def get_live_player_statuses(self) -> list[dict]:
+        """
+        Return live status snapshot for each active player profile (Phase 3.10).
+        """
+        statuses = []
+        for pid, p in self.profiles.items():
+            stats = self.dist_tracker.get_stats(pid)
+            if p.missed_frames == 0:
+                tracking_state = "observed"
+            elif p.missed_frames < 15:
+                tracking_state = "predicted"
+            else:
+                tracking_state = "lost"
+
+            pos_m = stats.get("court_pos_m")
+            pos_pct = stats.get("court_pos_pct")
+            court_pos = None
+            if pos_m and pos_pct:
+                court_pos = {
+                    "xM": round(pos_m.get("x", 0.0), 2),
+                    "yM": round(pos_m.get("y", 0.0), 2),
+                    "xPct": round(pos_pct.get("x", 0.0), 2),
+                    "yPct": round(pos_pct.get("y", 0.0), 2),
+                }
+
+            statuses.append({
+                "playerId": f"P{pid}",
+                "trackId": p.track_id,
+                "totalDistanceM": round(stats.get("total_dist_m", 0.0), 2),
+                "currentSpeedMps": round(stats.get("current_speed_ms", 0.0), 2),
+                "trackingState": tracking_state,
+                "detectionConfidence": round(float(p.detection_confidence), 3) if p.missed_frames == 0 else 0.0,
+                "courtPosition": court_pos,
+            })
+        return statuses
+
+    def _match_tracks_to_profiles(self, frame: np.ndarray, detections: list[dict], timestamp_sec: float | None = None) -> dict:
         """
         Global Hungarian (Bipartite) matching between active PlayerProfiles and Detections.
         Prevents ID collisions and resolves partner swaps using spatial + appearance costs.
@@ -284,6 +335,38 @@ class BadmintonAnalyzerV2:
             return {}
 
         active_pids = list(self.profiles.keys())
+
+        # Check if all active profiles are unassigned (first-frame auto-seeding)
+        if all(p.last_real_pos is None for p in self.profiles.values()):
+            net_y = COURT_LENGTH_M / 2.0
+            # Deterministic sorting: top/far court (y < 6.70m) first, then bottom/near court (y >= 6.70m), then X left-to-right
+            sorted_detections = sorted(
+                detections,
+                key=lambda det: (0 if det["real_pos"][1] < net_y else 1, det["real_pos"][0])
+            )
+            matched = {}
+            matched_pids = set()
+            for idx, pid in enumerate(active_pids):
+                if idx < len(sorted_detections):
+                    d = sorted_detections[idx]
+                    profile = self.profiles[pid]
+                    profile.track_id = d.get("track_id")
+                    profile.detection_confidence = d["conf"]
+                    profile.last_real_pos = d["real_pos"]
+                    profile.last_bbox = d["bbox"]
+                    profile.missed_frames = 0
+                    if profile.team == 0:
+                        profile.team = 1 if d["real_pos"][1] < net_y else 2
+                    profile.update_appearance(frame, d["bbox"])
+
+                    cx, cy = d["center"]
+                    self.dist_tracker.update(pid, (cx, cy), timestamp_sec=timestamp_sec)
+                    matched[pid] = d
+                    matched_pids.add(pid)
+                else:
+                    self.profiles[pid].missed_frames += 1
+            return matched
+
         N = len(active_pids)
         M = len(detections)
 
@@ -300,13 +383,13 @@ class BadmintonAnalyzerV2:
                 else:
                     # Initial default expected position based on team & player
                     net_y = COURT_LENGTH_M / 2.0
-                    expected_y = 3.0 if profile.team == 1 else 10.0
+                    expected_y = 3.0 if profile.team == 1 else (10.0 if profile.team == 2 else net_y)
                     spatial_dist = abs(d_real[1] - expected_y)
 
-                # 2. Side Penalty: penalize jumping across net drastically (unless intentional switch)
+                # 2. Side Penalty: penalize jumping across net drastically once side is known
                 net_y = COURT_LENGTH_M / 2.0
                 d_team = 1 if d_real[1] < net_y else 2
-                side_penalty = 15.0 if d_team != profile.team else 0.0
+                side_penalty = 15.0 if (profile.team in (1, 2) and d_team != profile.team) else 0.0
 
                 # 3. Appearance Cost (HSV Histogram Bhattacharyya Distance)
                 color_cost = 0.0
@@ -331,6 +414,7 @@ class BadmintonAnalyzerV2:
         for r, c in zip(row_ind, col_ind):
             pid = active_pids[r]
             cost = cost_matrix[r, c]
+            profile = self.profiles[pid]
             
             # Gating threshold (if cost is too absurdly high, don't match)
             # The first frame has no appearance/position history yet. Allow a
@@ -339,16 +423,17 @@ class BadmintonAnalyzerV2:
             gate = 100.0 if profile.last_real_pos is None else 25.0
             if cost < gate:
                 d = detections[c]
-                profile = self.profiles[pid]
                 profile.track_id = d.get("track_id")
                 profile.detection_confidence = d["conf"]
                 profile.last_real_pos = d["real_pos"]
                 profile.last_bbox = d["bbox"]
                 profile.missed_frames = 0
+                if profile.team == 0:
+                    profile.team = 1 if d["real_pos"][1] < (COURT_LENGTH_M / 2.0) else 2
                 profile.update_appearance(frame, d["bbox"])
 
                 cx, cy = d["center"]
-                self.dist_tracker.update(pid, (cx, cy))
+                self.dist_tracker.update(pid, (cx, cy), timestamp_sec=timestamp_sec)
                 matched[pid] = d
                 matched_pids.add(pid)
 

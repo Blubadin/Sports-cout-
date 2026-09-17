@@ -21,6 +21,7 @@ describe('Phase 5 — Versioned Tracking Protocol (TrackingTelemetryV1)', () => 
       players: [
         {
           id: 1,
+          trackId: 101, // Distinct ByteTrack MOT ID
           team: 1,
           name: 'Player 1',
           court_pos_pct: { x: 30.0, y: 20.0 },
@@ -56,7 +57,7 @@ describe('Phase 5 — Versioned Tracking Protocol (TrackingTelemetryV1)', () => 
 
     const p1 = v1.players[0];
     expect(p1.playerId).toBe('P1');
-    expect(p1.trackId).toBe(1);
+    expect(p1.trackId).toBe(101);
     expect(p1.teamCode).toBe('team1');
     expect(p1.courtPosition.xPct).toBe(30.0);
     expect(p1.courtPosition.yPct).toBe(20.0);
@@ -70,6 +71,7 @@ describe('Phase 5 — Versioned Tracking Protocol (TrackingTelemetryV1)', () => 
 
     const p3 = v1.players[1];
     expect(p3.playerId).toBe('P3');
+    expect(p3.trackId).toBeUndefined(); // Never substitute playerId as trackId
     expect(p3.state).toBe('lost');
   });
 

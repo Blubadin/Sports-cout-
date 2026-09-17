@@ -23,7 +23,7 @@ from device_runtime import capability_report
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
 
-ALLOWED_ORIGINS = [
+DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173",
@@ -31,14 +31,35 @@ ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
-custom_origins = os.getenv("CORS_ORIGINS")
-if custom_origins:
-    ALLOWED_ORIGINS.extend([o.strip() for o in custom_origins.split(",") if o.strip()])
+
+DEFAULT_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+
+def get_cors_configuration(
+    cors_origins: str | None = None,
+    cors_origin_regex: str | None = None,
+) -> tuple[list[str], str | None]:
+    """Build safe CORS origins and regex from defaults and optional environment overrides."""
+    origins = list(DEFAULT_ALLOWED_ORIGINS)
+    if cors_origins:
+        for item in cors_origins.split(","):
+            cleaned = item.strip()
+            if cleaned and cleaned not in origins:
+                origins.append(cleaned)
+
+    regex = cors_origin_regex if cors_origin_regex is not None else DEFAULT_ORIGIN_REGEX
+    return origins, regex
+
+
+ALLOWED_ORIGINS, ALLOWED_ORIGIN_REGEX = get_cors_configuration(
+    cors_origins=os.getenv("CORS_ORIGINS"),
+    cors_origin_regex=os.getenv("CORS_ORIGIN_REGEX"),
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"^https?://.*",
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,7 +69,8 @@ app.add_middleware(
 @app.middleware("http")
 async def add_pna_and_cors_headers(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    if request.headers.get("access-control-request-private-network") == "true":
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response
 
 # Global State
@@ -430,6 +452,7 @@ class CreateSessionRequest(BaseModel):
     project_id: str | None = None
     video_fingerprint: str | None = None
     device: str = "auto"
+    tracked_player_count: int | None = None
 
 class SessionCalibrationRequest(BaseModel):
     corners: list[list[float]]
@@ -439,19 +462,42 @@ class SessionPlayerRequest(BaseModel):
     players: list[dict]
 
 class TrackingSession:
-    def __init__(self, session_id: str, video_source: str = "demo", game_type: str = "doubles", project_id: str | None = None, video_fingerprint: str | None = None, device: str = "auto"):
+    def __init__(
+        self,
+        session_id: str,
+        video_source: str = "demo",
+        game_type: str = "doubles",
+        project_id: str | None = None,
+        video_fingerprint: str | None = None,
+        device: str = "auto",
+        tracked_player_count: int | None = None,
+    ):
         self.session_id = session_id
         self.video_source = video_source
         self.game_type = game_type
         self.project_id = project_id
         self.video_fingerprint = video_fingerprint
         self.created_at = time.time()
-        self.analyzer = BadmintonAnalyzerV2(game_type=game_type, device=device)
+
+        count = tracked_player_count
+        if count is None:
+            count = 2 if game_type == "singles" else 4
+        if not (1 <= count <= 4):
+            raise ValueError(f"tracked_player_count must be between 1 and 4, got {count}")
+        self.tracked_player_count = count
+
+        self.analyzer = BadmintonAnalyzerV2(
+            game_type=game_type,
+            max_players=self.tracked_player_count,
+            device=device,
+        )
         self.analyzer.analysis_id = session_id
         self.status = "READY"  # READY | CALIBRATING | ASSIGNING_PLAYERS | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
         self.progress_pct = 0.0
         self.current_frame = 0
         self.total_frames = 0
+        self.analyzed_frames = 0
+        self.source_fps = 30.0
         self.elapsed_sec = 0.0
         self.duration_sec = 0.0
         # Pose inference is the expensive stage. Sampling every second frame
@@ -471,6 +517,7 @@ def _run_session_analysis(session: TrackingSession):
     session.status = "PROCESSING"
     session.progress_pct = 0.0
     session.results = []
+    session.analyzed_frames = 0
     start_time = time.time()
 
     if session.video_source == "demo":
@@ -483,6 +530,8 @@ def _run_session_analysis(session: TrackingSession):
         total_frames = 60
         session.total_frames = total_frames
         session.duration_sec = 2.0
+        session.source_fps = 30.0
+        session.frame_stride = 1
         for i in range(total_frames):
             if session._cancel:
                 break
@@ -492,6 +541,7 @@ def _run_session_analysis(session: TrackingSession):
             telemetry["source"] = "synthetic_demo"
             telemetry["isSynthetic"] = True
             session.results.append(telemetry)
+            session.analyzed_frames += 1
             session.current_frame = i + 1
             session.progress_pct = round(((i + 1) / total_frames) * 100.0, 1)
             session.elapsed_sec = round(time.time() - start_time, 1)
@@ -519,6 +569,7 @@ def _run_session_analysis(session: TrackingSession):
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 300
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    session.source_fps = fps
     session.analyzer.fps = fps
     session.analyzer.dist_tracker.fps = fps
     session.total_frames = total_frames
@@ -541,6 +592,7 @@ def _run_session_analysis(session: TrackingSession):
             telemetry["source"] = "real_tracking"
             telemetry["isSynthetic"] = False
             session.results.append(telemetry)
+            session.analyzed_frames += 1
             session.current_frame = frame_idx
             session.progress_pct = round((frame_idx / total_frames) * 100.0, 1)
             session.elapsed_sec = round(time.time() - start_time, 1)
@@ -568,6 +620,7 @@ def create_tracking_session(req: CreateSessionRequest):
             project_id=req.project_id,
             video_fingerprint=req.video_fingerprint,
             device=req.device,
+            tracked_player_count=req.tracked_player_count,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -577,6 +630,7 @@ def create_tracking_session(req: CreateSessionRequest):
         "status": session.status,
         "gameType": session.game_type,
         "videoSource": session.video_source,
+        "trackedPlayerCount": session.tracked_player_count,
     }
 
 
@@ -599,6 +653,8 @@ def list_tracking_sessions(project_id: str | None = None):
                 "progressPct": session.progress_pct,
                 "currentFrame": session.current_frame,
                 "totalFrames": session.total_frames,
+                "analyzedFrames": session.analyzed_frames,
+                "trackedPlayerCount": session.tracked_player_count,
                 "resumable": session.status not in {"COMPLETED", "ERROR"},
             }
             for session in sessions
@@ -649,7 +705,10 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
     session = tracking_sessions[session_id]
     session.game_type = req.game_type
     session.analyzer.game_type = req.game_type
-    session.analyzer.set_court_corners(req.corners)
+    try:
+        session.analyzer.set_court_corners(req.corners)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     session.status = "ASSIGNING_PLAYERS"
     return {"status": "success", "sessionStatus": session.status}
 
@@ -693,28 +752,53 @@ def get_session_status(session_id: str):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
+
+    sampling_fps = round(session.source_fps / session.frame_stride, 2) if session.frame_stride > 0 else 0.0
+    analysis_fps = round(session.analyzed_frames / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+    last_timestamp = session.results[-1].get("timestampSec") if session.results else None
+
     return {
         "sessionId": session_id,
         "status": session.status,
         "progressPct": session.progress_pct,
         "currentFrame": session.current_frame,
         "totalFrames": session.total_frames,
+        "analyzedFrames": session.analyzed_frames,
+        "frameStride": session.frame_stride,
         "elapsedSec": session.elapsed_sec,
+        "videoDurationSec": session.duration_sec,
         "durationSec": session.duration_sec,
+        "lastTelemetryTimestampSec": last_timestamp,
+        "sourceFps": round(session.source_fps, 2),
+        "samplingFps": sampling_fps,
+        "analysisFps": analysis_fps,
+        "trackedPlayerCount": session.tracked_player_count,
+        "device": session.analyzer.device,
+        "players": session.analyzer.get_live_player_statuses(),
         "error": session.error_message,
     }
 
 
 @app.get("/api/tracking/sessions/{session_id}/results")
-def get_session_results(session_id: str):
+def get_session_results(session_id: str, after: int | None = None):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
+    total_count = len(session.results)
+    if after is not None:
+        start_idx = max(0, int(after))
+        items = session.results[start_idx:]
+    else:
+        items = session.results
+
     return {
         "sessionId": session_id,
         "status": session.status,
-        "sampleCount": len(session.results),
-        "telemetry": session.results,
+        "sampleCount": len(items),
+        "totalSampleCount": total_count,
+        "nextCursor": total_count,
+        "trackedPlayerCount": session.tracked_player_count,
+        "telemetry": items,
     }
 
 

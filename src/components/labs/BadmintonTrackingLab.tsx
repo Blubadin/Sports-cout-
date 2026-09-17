@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
-import type { TrackingTelemetryV1 } from '../../types';
+import type { TrackingTelemetryV1, TrackingOverlayMode, TrackingSessionStatus } from '../../types';
 import { loadProjectVideoFileHandle } from '../../utils/videoFileStore';
 import { downsampleAndChunkTrackingSamples, saveTrackingAnalysis, listTrackingAnalyses, getTrackingSampleChunks, type TrackingAnalysis, type TrackingSampleChunk } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 import TrackingVideoOverlay from './TrackingVideoOverlay';
+import TrackingLabInspector from './TrackingLabInspector';
 
 export default function BadmintonTrackingLab() {
   const { matchInfo, settings, localFileName, setLocalFileName, setVideoSourceType } = useScoutContext();
@@ -19,6 +20,7 @@ export default function BadmintonTrackingLab() {
   const [capabilities, setCapabilities] = useState<{ selectedDevice: string; cudaAvailable: boolean; mpsAvailable: boolean } | null>(null);
   const [devicePreference, setDevicePreference] = useState<'auto' | 'cpu' | 'cuda' | 'mps'>('auto');
   const [gameType, setGameType] = useState<BadmintonGameType>('singles');
+  const [trackedPlayerCount, setTrackedPlayerCount] = useState<number>(2);
   const [corners, setCorners] = useState<number[][]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [calibrating, setCalibrating] = useState(false);
@@ -27,7 +29,8 @@ export default function BadmintonTrackingLab() {
   const [error, setError] = useState<string | null>(null);
   const [frames, setFrames] = useState<TrackingTelemetryV1[]>([]);
   const [time, setTime] = useState(0);
-  const [showSkeleton, setShowSkeleton] = useState(true);
+  const [overlayMode, setOverlayMode] = useState<TrackingOverlayMode>('skeleton');
+  const [sessionStatus, setSessionStatus] = useState<TrackingSessionStatus | null>(null);
   const [analysis, setAnalysis] = useState<TrackingAnalysis | null>(null);
   const [chunks, setChunks] = useState<TrackingSampleChunk[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +39,8 @@ export default function BadmintonTrackingLab() {
   const session = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upload = useRef<AbortController | null>(null);
+  const cursorRef = useRef<number>(0);
+  const accumulatedFrames = useRef<TrackingTelemetryV1[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -74,7 +79,12 @@ export default function BadmintonTrackingLab() {
       const latest = records.at(-1);
       if (!latest) return;
       const saved = await getTrackingSampleChunks(latest.id);
-      if (alive) { setAnalysis(latest); setChunks(saved); }
+      if (alive) {
+        setAnalysis(latest);
+        setChunks(saved);
+        if (latest.trackedPlayerCount) setTrackedPlayerCount(latest.trackedPlayerCount);
+        if (latest.gameType) setGameType(latest.gameType);
+      }
     }).catch(() => {});
     return () => {
       alive = false; generation.current++;
@@ -91,17 +101,32 @@ export default function BadmintonTrackingLab() {
     telemetry: TrackingTelemetryV1[],
     sourceFile: File,
     sessionGameType: BadmintonGameType,
+    sessionTrackedPlayerCount?: number,
   ) => {
     if (telemetry.some(frame => frame.isSynthetic || frame.source === 'synthetic_demo')) {
       throw new Error('The service returned demo data instead of real video analysis.');
     }
     const saved = downsampleAndChunkTrackingSamples(sessionId, telemetry, 10, 15);
+    const inferredCount = Object.keys(saved.summary.players).length || (sessionGameType === 'singles' ? 2 : 4);
+    const effectiveCount = sessionTrackedPlayerCount ?? telemetry[0]?.trackedPlayerCount ?? inferredCount;
     const record: TrackingAnalysis = {
       id: sessionId, projectId: activeProjectId || 'current_project', sportType: 'badminton', gameType: sessionGameType,
+      trackedPlayerCount: effectiveCount,
       status: 'completed', videoFingerprint: videoFingerprint(sourceFile),
       engineVersion: telemetry[0]?.engineVersion || 'tracking-v2', detectorModel: telemetry[0]?.modelVersion || 'YOLO', trackerModel: 'ByteTrack', poseModel: 'YOLO pose', sampleRateHz: 10,
       createdAt: new Date().toISOString(), completedAt: new Date().toISOString(),
-      players: Object.keys(saved.summary.players).map(playerId => ({ playerId, name: playerId, side: telemetry.flatMap(frame => frame.players).find(p => p.playerId === playerId)?.teamCode === 'team1' ? 'near' : 'far' })),
+      players: Object.keys(saved.summary.players).map(playerId => {
+        const pData = telemetry.flatMap(frame => frame.players).find(p => p.playerId === playerId);
+        let side: 'near' | 'far' | 'unknown' = 'unknown';
+        if (pData?.teamCode === 'team1') {
+          side = 'far';
+        } else if (pData?.teamCode === 'team2') {
+          side = 'near';
+        } else if (pData?.courtPosition?.yM !== undefined) {
+          side = pData.courtPosition.yM < 6.70 ? 'far' : 'near';
+        }
+        return { playerId, name: playerId, side };
+      }),
       summary: saved.summary, quality: saved.quality,
     };
     await saveTrackingAnalysis(record, saved.chunks);
@@ -110,19 +135,29 @@ export default function BadmintonTrackingLab() {
     setTime(0);
   };
 
-  const pollSession = (sessionId: string, runId: number, sourceFile: File, sessionGameType: BadmintonGameType) => {
+  const pollSession = (sessionId: string, runId: number, sourceFile: File, sessionGameType: BadmintonGameType, sessionTrackedPlayerCount?: number) => {
     const current = () => generation.current === runId;
     const poll = async (): Promise<void> => {
       try {
         const state = await aiTrackingService.getSessionStatus(sessionId);
         if (!current()) return;
+        setSessionStatus(state);
         setProgress(Math.round(state.progressPct));
         if (state.status === 'ERROR') throw new Error(state.error || 'Tracking engine error');
-        const partial = await aiTrackingService.getSessionResults(sessionId);
+        const effectiveCount = sessionTrackedPlayerCount ?? state.trackedPlayerCount;
+        const partial = await aiTrackingService.getSessionResults(sessionId, cursorRef.current);
         if (!current()) return;
-        if (partial.telemetry.length > 0) setFrames(partial.telemetry);
+        if (partial.telemetry.length > 0) {
+          cursorRef.current = partial.nextCursor;
+          const existingMap = new Set(accumulatedFrames.current.map(f => `${f.frameIndex}:${f.timestampSec}`));
+          const uniqueNew = partial.telemetry.filter(f => !existingMap.has(`${f.frameIndex}:${f.timestampSec}`));
+          if (uniqueNew.length > 0) {
+            accumulatedFrames.current.push(...uniqueNew);
+            setFrames([...accumulatedFrames.current]);
+          }
+        }
         if (state.status === 'COMPLETED') {
-          await persistCompletedResult(sessionId, partial.telemetry, sourceFile, sessionGameType);
+          await persistCompletedResult(sessionId, accumulatedFrames.current, sourceFile, sessionGameType, effectiveCount);
           session.current = null;
         } else {
           timer.current = setTimeout(() => void poll(), 500);
@@ -148,9 +183,11 @@ export default function BadmintonTrackingLab() {
         session.current = candidate.sessionId;
         const runId = ++generation.current;
         setProgress(Math.round(candidate.progressPct));
+        cursorRef.current = 0;
+        accumulatedFrames.current = [];
         setFrames([]);
         setProcessing(candidate.status === 'PROCESSING');
-        pollSession(candidate.sessionId, runId, file, candidate.gameType);
+        pollSession(candidate.sessionId, runId, file, candidate.gameType, candidate.trackedPlayerCount);
       } catch {
         // A missing backend should be reported by the normal health indicator.
       }
@@ -171,6 +208,9 @@ export default function BadmintonTrackingLab() {
     upload.current?.abort();
     if (session.current) void aiTrackingService.deleteSession(session.current).catch(() => {});
     session.current = null; setProcessing(false); setProgress(0);
+    cursorRef.current = 0;
+    accumulatedFrames.current = [];
+    setSessionStatus(null);
   };
 
   const run = async () => {
@@ -178,6 +218,9 @@ export default function BadmintonTrackingLab() {
     const runId = ++generation.current;
     const current = () => generation.current === runId;
     setProcessing(true); setError(null); setProgress(0); setFrames([]);
+    cursorRef.current = 0;
+    accumulatedFrames.current = [];
+    setSessionStatus(null);
     let id: string | null = null;
     const fail = (err: unknown) => { if (current()) { setError(err instanceof Error ? err.message : 'Tracking failed'); setProcessing(false); } };
     try {
@@ -185,6 +228,7 @@ export default function BadmintonTrackingLab() {
         projectId: activeProjectId,
         videoFingerprint: videoFingerprint(file),
         device: devicePreference,
+        trackedPlayerCount,
       });
       id = created.sessionId;
       if (!current()) { void aiTrackingService.deleteSession(id); return; }
@@ -196,7 +240,7 @@ export default function BadmintonTrackingLab() {
       if (!current()) return;
       await aiTrackingService.startSessionAnalysis(id);
       if (!current()) return;
-      pollSession(id, runId, file, gameType);
+      pollSession(id, runId, file, gameType, trackedPlayerCount);
     } catch (err) { fail(err); }
   };
 
@@ -204,6 +248,9 @@ export default function BadmintonTrackingLab() {
     if (!next) return;
     cancel(); setFile(next); setLocalFileName(next.name); setVideoSourceType('local');
     setCorners([]); setFrames([]); setAnalysis(null); setChunks([]); setError(null); setCalibrating(false);
+    cursorRef.current = 0;
+    accumulatedFrames.current = [];
+    setSessionStatus(null);
   };
   const canRun = matchInfo.sportType === 'badminton' && online === true && !!file && corners.length === 4 && !processing;
   const button = 'rounded-lg border border-slate-600 px-3 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed';
@@ -238,11 +285,44 @@ export default function BadmintonTrackingLab() {
       </button>
     </div>
     {!file && localFileName && <p className="text-sm text-slate-400">{th ? `เลือกไฟล์ ${localFileName} อีกครั้งเพื่อให้ระบบอ่านวิดีโอได้` : `Reselect ${localFileName} to give the analyzer access to the video.`}</p>}
-    <label className="block text-sm">{th ? 'ประเภทการแข่งขัน ' : 'Game type '}<select disabled={processing} value={gameType} onChange={e => setGameType(e.target.value as BadmintonGameType)} className="bg-slate-800 p-2 rounded"><option value="singles">{th ? 'เดี่ยว' : 'Singles'}</option><option value="doubles">{th ? 'คู่' : 'Doubles'}</option></select></label>
+    <div className="flex flex-wrap items-center gap-4 text-sm">
+      <label className="flex items-center gap-2">
+        <span>{th ? 'ประเภทการแข่งขัน' : 'Game type'}</span>
+        <select
+          aria-label={th ? 'ประเภทการแข่งขัน' : 'Game type'}
+          disabled={processing}
+          value={gameType}
+          onChange={e => {
+            const nextType = e.target.value as BadmintonGameType;
+            setGameType(nextType);
+            setTrackedPlayerCount(nextType === 'singles' ? 2 : 4);
+          }}
+          className="bg-slate-800 p-2 rounded"
+        >
+          <option value="singles">{th ? 'เดี่ยว' : 'Singles'}</option>
+          <option value="doubles">{th ? 'คู่' : 'Doubles'}</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-2">
+        <span>{th ? 'จำนวนผู้เล่นที่ตรวจจับ' : 'Players to track'}</span>
+        <select
+          aria-label={th ? 'จำนวนผู้เล่นที่ตรวจจับ' : 'Players to track'}
+          disabled={processing}
+          value={trackedPlayerCount}
+          onChange={e => setTrackedPlayerCount(Number(e.target.value))}
+          className="bg-slate-800 p-2 rounded"
+        >
+          <option value={1}>1 {th ? 'คน (เดี่ยวฝึกซ้อม)' : 'player (solo drill)'}</option>
+          <option value={2}>2 {th ? 'คน (เดี่ยวแข่งขัน)' : 'players (singles)'}</option>
+          <option value={3}>3 {th ? 'คน (2 ต่อ 1 / ป้อนลูก)' : 'players (2v1 / feeder)'}</option>
+          <option value={4}>4 {th ? 'คน (คู่แข่งขัน)' : 'players (doubles)'}</option>
+        </select>
+      </label>
+    </div>
     {url && <>
       <div className="relative w-full max-w-4xl bg-black" style={{ aspectRatio: dimensions.width ? `${dimensions.width}/${dimensions.height}` : '16/9' }}>
         <video ref={videoRef} src={url} controls={!calibrating} className="w-full h-full" onLoadedMetadata={e => setDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight })} onTimeUpdate={e => setTime(e.currentTarget.currentTime)} onSeeked={e => setTime(e.currentTarget.currentTime)} />
-        <TrackingVideoOverlay frames={frames} time={time} showSkeleton={showSkeleton} isProcessing={processing} />
+        <TrackingVideoOverlay frames={frames} time={time} mode={overlayMode} isProcessing={processing} />
         {(calibrating || corners.length > 0) && <svg aria-label="Court calibration" viewBox={`0 0 ${dimensions.width || 1} ${dimensions.height || 1}`} className={`absolute inset-0 w-full h-full ${calibrating ? 'cursor-crosshair' : 'pointer-events-none'}`} onClick={e => {
           if (!calibrating || corners.length >= 4) return;
           const rect = e.currentTarget.getBoundingClientRect();
@@ -256,11 +336,40 @@ export default function BadmintonTrackingLab() {
       </div>
       <button className={button} disabled={processing || !dimensions.width} onClick={() => { videoRef.current?.pause(); setCorners([]); setCalibrating(true); }}>{th ? 'เลือก 4 มุมสนามจากภาพวิดีโอ' : 'Calibrate four court corners'}</button>
       <p className="text-sm text-slate-400">{th ? 'เลือกมุมนอกสนามคู่: บนซ้าย → บนขวา → ล่างขวา → ล่างซ้าย' : 'Choose outer doubles court corners: top left → top right → bottom right → bottom left'} ({corners.length}/4)</p>
-      <label className="block text-sm"><input type="checkbox" checked={showSkeleton} onChange={e => setShowSkeleton(e.target.checked)} /> {th ? 'แสดงจุดร่างกาย (2 มิติ)' : 'Show body skeleton (2D)'}</label>
+      <div className="flex flex-wrap items-center gap-2 text-sm pt-1">
+        <span className="text-slate-400">{th ? 'โหมดแสดงผลบนวิดีโอ:' : 'Overlay mode:'}</span>
+        <div className="inline-flex rounded-lg border border-slate-700 bg-slate-900 p-0.5 text-xs">
+          {([
+            { id: 'skeleton', en: 'Skeleton', th: 'โครงกระดูก' },
+            { id: 'center', en: 'Body Center', th: 'จุดกลางร่างกาย' },
+            { id: 'feet', en: 'Feet', th: 'ตำแหน่งเท้า' },
+            { id: 'box', en: 'Bounding Box', th: 'กรอบผู้เล่น' },
+            { id: 'off', en: 'Off', th: 'ปิด' },
+          ] as const).map(m => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setOverlayMode(m.id)}
+              className={`px-2.5 py-1 rounded transition-colors ${
+                overlayMode === m.id
+                  ? 'bg-sky-600 text-white font-medium shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {th ? m.th : m.en}
+            </button>
+          ))}
+        </div>
+      </div>
     </>}
     {error && <p role="alert" className="text-red-300">{error}</p>}
     {processing ? <div className="space-x-3"><span>{th ? 'กำลังวิเคราะห์' : 'Analyzing'} {progress}%</span><button className={button} onClick={cancel}>{th ? 'ยกเลิก' : 'Cancel analysis'}</button></div> : <button className={`${button} bg-sky-700`} disabled={!canRun} onClick={() => void run()}>{th ? 'เริ่มตรวจจับร่างกายและการเคลื่อนที่' : 'Run Movement Analysis'}</button>}
-    {frames.length > 0 && <p className="text-sm text-emerald-300">{th ? 'วิเคราะห์เสร็จแล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกาย' : 'Analysis complete. Play the video to inspect detected body positions.'}</p>}
+    {!processing && (analysis?.status === 'completed' || sessionStatus?.status === 'COMPLETED') && (
+      <p className="text-sm text-emerald-300 font-medium">
+        {th ? 'วิเคราะห์เสร็จสมบูรณ์แล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกายและการเคลื่อนที่' : 'Analysis complete. Play the video to inspect detected body positions and movement.'}
+      </p>
+    )}
+    <TrackingLabInspector status={sessionStatus} isProcessing={processing} language={th ? 'th' : 'en'} />
     {analysis && <BadmintonMovementDashboard analysis={analysis} chunks={chunks} title={th ? 'ผลการเคลื่อนที่ของผู้เล่น' : 'Player movement results'} />}
   </div>;
 }

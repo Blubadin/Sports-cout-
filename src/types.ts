@@ -397,6 +397,34 @@ export interface AIPoseKeypoint {
   name?: string;
 }
 
+/**
+ * 2D Pose Estimates derived from monocular camera video.
+ * NOTE: These are strictly 2D planar pixel estimates and MUST NOT be
+ * represented as true 3D kinematics, ground reaction forces, joint torques,
+ * or absolute vertical jump heights.
+ */
+export interface PoseMetrics2D {
+  rightKneeAngleDeg?: number;
+  leftKneeAngleDeg?: number;
+  rightElbowAngleDeg?: number;
+  leftElbowAngleDeg?: number;
+  trunkLeanDeg?: number;
+  stanceWidthPx?: number;
+  lungeDetected?: boolean;
+  overheadArmDetected?: boolean;
+  airborneCandidate?: boolean;
+  // Python snake_case compatibility
+  right_knee_angle_deg?: number;
+  left_knee_angle_deg?: number;
+  right_elbow_angle_deg?: number;
+  left_elbow_angle_deg?: number;
+  trunk_lean_deg?: number;
+  stance_width_px?: number;
+  lunge_detected?: boolean;
+  overhead_arm_detected?: boolean;
+  airborne_candidate?: boolean;
+}
+
 export interface TrackingPoseV1 {
   keypoints: {
     x: number;
@@ -404,6 +432,7 @@ export interface TrackingPoseV1 {
     score: number;
     name?: string;
   }[];
+  metrics?: PoseMetrics2D;
   action?: string;
   confidence?: number;
 }
@@ -446,6 +475,7 @@ export interface TrackingTelemetryV1 {
   modelVersion?: string;
   isSynthetic?: boolean;
   source?: 'real_tracking' | 'synthetic_demo' | string;
+  trackedPlayerCount?: number;
   players: TrackingPlayerV1[];
 }
 
@@ -473,7 +503,57 @@ export interface AITelemetryFrame extends Partial<Omit<TrackingTelemetryV1, 'pla
   timestamp: number;
   frame_idx: number;
   game_type?: 'singles' | 'doubles';
+  tracked_player_count?: number;
   players: AITrackingPlayer[];
   source?: string;
+}
+
+export type TrackingOverlayMode = 'skeleton' | 'center' | 'feet' | 'box' | 'off';
+
+export interface BodyCenterProxy {
+  xPct: number;
+  yPct: number;
+  provenance: 'pose' | 'bbox';
+}
+
+export interface FeetPositionProxy {
+  xPct: number;
+  yPct: number;
+  provenance: 'pose_ankles' | 'pose_single_ankle' | 'bbox_ground';
+}
+
+export interface TrackingLivePlayerStatus {
+  playerId: string;
+  trackId: number | null;
+  totalDistanceM: number;
+  currentSpeedMps: number;
+  trackingState: 'observed' | 'predicted' | 'lost';
+  detectionConfidence: number;
+  courtPosition?: {
+    xM: number;
+    yM: number;
+    xPct: number;
+    yPct: number;
+  } | null;
+}
+
+export interface TrackingSessionStatus {
+  sessionId: string;
+  status: string;
+  progressPct: number;
+  currentFrame: number;
+  totalFrames: number;
+  analyzedFrames: number;
+  frameStride: number;
+  elapsedSec: number;
+  videoDurationSec: number;
+  lastTelemetryTimestampSec: number | null;
+  sourceFps: number;
+  samplingFps: number;
+  analysisFps: number;
+  trackedPlayerCount: number;
+  device: string;
+  players: TrackingLivePlayerStatus[];
+  error: string | null;
 }
 

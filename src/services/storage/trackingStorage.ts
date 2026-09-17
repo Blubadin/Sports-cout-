@@ -3,7 +3,7 @@ import type { TrackingTelemetryV1 } from '../../types';
 export interface TrackingPlayerMetadata {
   playerId: string;
   name?: string;
-  side: 'near' | 'far';
+  side: 'near' | 'far' | 'unknown';
   color?: string;
 }
 
@@ -47,6 +47,7 @@ export interface TrackingAnalysis {
   projectId: string;
   sportType: 'badminton';
   gameType: 'singles' | 'doubles';
+  trackedPlayerCount?: number;
   status: 'processing' | 'completed' | 'failed';
   videoFingerprint?: string;
   engineVersion: string;
@@ -567,27 +568,23 @@ export function downsampleAndChunkTrackingSamples(
     };
   }
 
-  // 1. Downsample to targetHz
-  const sampleInterval = 1 / targetHz;
-  const downsampledSamples: TrackingSample[] = [];
-  const playerSampleMap = new Map<string, TrackingSample[]>();
-  let lastTimestamp = -1;
+  // 1. Full-Rate Processing for Canonical Movement Metrics and Quality
+  const fullRatePlayerSamples = new Map<string, TrackingSample[]>();
   let totalConfidence = 0;
   let confidenceCount = 0;
-  let inputTrackedCount = 0;
-  for (const frame of frames) {
-    const hasTracked = frame.players.some((p) => p.state === 'observed' || (p.courtPosition && p.courtPosition.xM > 0));
-    if (hasTracked) inputTrackedCount++;
+  let inputObservedFrameCount = 0;
 
-    if (lastTimestamp >= 0 && frame.timestampSec - lastTimestamp < sampleInterval * 0.95) {
-      continue;
-    }
-    lastTimestamp = frame.timestampSec;
+  for (const frame of frames) {
+    // Quality honesty: ONLY count fresh observed detections, NEVER stale predicted/lost states
+    const hasObserved = frame.players.some((p) => p.state === 'observed');
+    if (hasObserved) inputObservedFrameCount++;
 
     for (const p of frame.players) {
       if (!p.courtPosition) continue;
-      totalConfidence += p.detectionConfidence;
-      confidenceCount++;
+      if (p.state === 'observed' && typeof p.detectionConfidence === 'number') {
+        totalConfidence += p.detectionConfidence;
+        confidenceCount++;
+      }
 
       const sample: TrackingSample = {
         timestamp: frame.timestampSec,
@@ -595,23 +592,50 @@ export function downsampleAndChunkTrackingSamples(
         courtX: Number(p.courtPosition.xM.toFixed(2)),
         courtY: Number(p.courtPosition.yM.toFixed(2)),
         speed: Number((p.speedMps ?? 0).toFixed(2)),
-        confidence: Number(p.detectionConfidence.toFixed(2)),
+        confidence: Number((p.detectionConfidence ?? 0).toFixed(2)),
+        trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
+        normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
+        normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
+      };
+
+      if (!fullRatePlayerSamples.has(p.playerId)) {
+        fullRatePlayerSamples.set(p.playerId, []);
+      }
+      fullRatePlayerSamples.get(p.playerId)!.push(sample);
+    }
+  }
+
+  // 2. Downsample to targetHz for Chunks & Storage Persistence
+  const sampleInterval = 1 / targetHz;
+  const downsampledSamples: TrackingSample[] = [];
+  let lastTimestamp = -1;
+
+  for (const frame of frames) {
+    if (lastTimestamp >= 0 && frame.timestampSec - lastTimestamp < sampleInterval * 0.95) {
+      continue;
+    }
+    lastTimestamp = frame.timestampSec;
+
+    for (const p of frame.players) {
+      if (!p.courtPosition) continue;
+      const sample: TrackingSample = {
+        timestamp: frame.timestampSec,
+        playerId: p.playerId,
+        courtX: Number(p.courtPosition.xM.toFixed(2)),
+        courtY: Number(p.courtPosition.yM.toFixed(2)),
+        speed: Number((p.speedMps ?? 0).toFixed(2)),
+        confidence: Number((p.detectionConfidence ?? 0).toFixed(2)),
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
         normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
         normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
       };
       downsampledSamples.push(sample);
-
-      if (!playerSampleMap.has(p.playerId)) {
-        playerSampleMap.set(p.playerId, []);
-      }
-      playerSampleMap.get(p.playerId)!.push(sample);
     }
   }
 
-  // 2. Compute Quality
-  const durationSec = frames[frames.length - 1].timestampSec - frames[0].timestampSec;
-  const detectionCoverage = frames.length > 0 ? inputTrackedCount / frames.length : 0;
+  // 3. Compute Quality (Honest metrics: only fresh observed frames count towards coverage)
+  const durationSec = frames.length > 1 ? frames[frames.length - 1].timestampSec - frames[0].timestampSec : 0;
+  const detectionCoverage = frames.length > 0 ? inputObservedFrameCount / frames.length : 0;
   const lostTimePercent = Math.max(0, (1 - detectionCoverage) * 100);
   const avgConfidence = confidenceCount > 0 ? totalConfidence / confidenceCount : 0;
   const lowConfidenceWarning = avgConfidence < 0.6 || detectionCoverage < 0.5;
@@ -624,9 +648,9 @@ export function downsampleAndChunkTrackingSamples(
     lowConfidenceWarning,
   };
 
-  // 3. Compute Player Summaries
+  // 4. Compute Player Summaries from Full-Rate Telemetry (preserving all high-frequency motion)
   const playerSummaries: Record<string, PlayerMovementMetrics> = {};
-  for (const [pId, pSamples] of playerSampleMap.entries()) {
+  for (const [pId, pSamples] of fullRatePlayerSamples.entries()) {
     playerSummaries[pId] = computePlayerMovementMetrics(pSamples);
   }
 

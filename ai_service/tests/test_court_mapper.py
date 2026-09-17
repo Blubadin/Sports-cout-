@@ -49,15 +49,16 @@ class TestCourtMapperDimensions(unittest.TestCase):
         )
 
     def test_singles_court_mapper_initialization(self):
+        """Singles camera homography uses outer doubles boundaries (6.10m x 13.40m)."""
         mapper = CourtMapper(game_type="singles")
-        self.assertEqual(mapper.court_w, 5.18)
+        self.assertEqual(mapper.court_w, 6.10)
         self.assertEqual(mapper.court_l, 13.40)
         np.testing.assert_array_almost_equal(
             mapper.real_corners,
             np.array([
                 [0.0, 0.0],
-                [5.18, 0.0],
-                [5.18, 13.40],
+                [6.10, 0.0],
+                [6.10, 13.40],
                 [0.0, 13.40],
             ], dtype=np.float32)
         )
@@ -146,6 +147,78 @@ class TestBadmintonZones(unittest.TestCase):
         self.assertEqual(self.doubles_mapper.get_zone_2d((3.0, 6.70), is_shuttle=True), "NET_ERR")
         # Player standing near net should NOT be NET_ERR
         self.assertEqual(self.doubles_mapper.get_zone_2d((1.5, 6.65), is_shuttle=False), "FL")
+
+
+class TestCalibrationValidation(unittest.TestCase):
+    def test_uncalibrated_raises_runtime_error(self):
+        mapper = CourtMapper()
+        self.assertFalse(mapper.is_calibrated)
+        with self.assertRaises(RuntimeError):
+            mapper.pixel_to_real((100.0, 100.0))
+        with self.assertRaises(RuntimeError):
+            mapper.real_to_pixel((3.0, 6.0))
+        with self.assertRaises(RuntimeError):
+            mapper.real_to_pixel_subpixel((3.0, 6.0))
+
+    def test_calibrate_rejects_non_4_points(self):
+        mapper = CourtMapper()
+        with self.assertRaises(ValueError):
+            mapper.calibrate([[0, 0], [100, 0], [100, 100]])
+        with self.assertRaises(ValueError):
+            mapper.calibrate([[0, 0], [100, 0], [100, 100], [0, 100], [50, 50]])
+
+    def test_calibrate_rejects_nan_and_inf(self):
+        mapper = CourtMapper()
+        with self.assertRaises(ValueError):
+            mapper.calibrate([[0, 0], [np.nan, 0], [100, 100], [0, 100]])
+        with self.assertRaises(ValueError):
+            mapper.calibrate([[0, 0], [np.inf, 0], [100, 100], [0, 100]])
+
+    def test_calibrate_rejects_duplicate_points(self):
+        mapper = CourtMapper()
+        with self.assertRaises(ValueError):
+            mapper.calibrate([[0, 0], [0, 0], [100, 100], [0, 100]])
+
+    def test_calibrate_rejects_degenerate_area(self):
+        mapper = CourtMapper()
+        # Collinear line has 0 area (< 10 px²)
+        with self.assertRaises(ValueError):
+            mapper.calibrate([[0, 0], [100, 0], [200, 0], [300, 0]])
+
+
+class TestTimestampAwareDistanceTracker(unittest.TestCase):
+    def setUp(self):
+        self.mapper = CourtMapper()
+        corners = np.array([
+            [100.0, 50.0],
+            [1180.0, 50.0],
+            [1180.0, 670.0],
+            [100.0, 670.0],
+        ], dtype=np.float32)
+        self.mapper.calibrate(corners)
+        self.tracker = DistanceTracker(self.mapper, fps=30.0)
+
+    def test_initial_assignment_establishes_zero_speed(self):
+        pt_px = self.mapper.real_to_pixel((3.05, 6.70))
+        res = self.tracker.update(1, pt_px, timestamp_sec=0.0)
+        self.assertEqual(res["total_dist_m"], 0.0)
+        self.assertEqual(res["current_speed_ms"], 0.0)
+
+    def test_timestamp_delta_speed_calculation(self):
+        # Initial pos at t=0.0s
+        self.tracker.update(1, self.mapper.real_to_pixel((3.05, 6.70)), timestamp_sec=0.0)
+        # Move 1.0m along Y in 0.5s => 2.0 m/s
+        res = self.tracker.update(1, self.mapper.real_to_pixel((3.05, 7.70)), timestamp_sec=0.5)
+        self.assertAlmostEqual(res["current_speed_ms"], 2.0, delta=0.05)
+        self.assertAlmostEqual(res["total_dist_m"], 1.0, delta=0.05)
+
+    def test_non_positive_delta_time_rejected(self):
+        # Initial pos at t=1.0s
+        self.tracker.update(1, self.mapper.real_to_pixel((3.05, 6.70)), timestamp_sec=1.0)
+        # Duplicate or earlier timestamp (t=1.0s or t=0.5s)
+        res = self.tracker.update(1, self.mapper.real_to_pixel((3.05, 7.70)), timestamp_sec=1.0)
+        self.assertEqual(res["current_speed_ms"], 0.0)
+        self.assertEqual(res["total_dist_m"], 0.0)
 
 
 if __name__ == "__main__":

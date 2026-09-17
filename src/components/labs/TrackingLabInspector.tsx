@@ -1,0 +1,201 @@
+import React from 'react';
+import type { TrackingSessionStatus, TrackingLivePlayerStatus } from '../../types';
+
+export interface TrackingLabInspectorProps {
+  status: TrackingSessionStatus | null;
+  isProcessing: boolean;
+  language?: 'th' | 'en';
+}
+
+export default function TrackingLabInspector({
+  status,
+  isProcessing,
+  language = 'en',
+}: TrackingLabInspectorProps) {
+  const th = language === 'th';
+
+  return (
+    <div
+      data-testid="tracking-lab-inspector"
+      className="bg-[#0b1219] border border-slate-800 rounded-lg p-4 space-y-4 text-slate-200"
+    >
+      {/* Inspector Tabs (Phase 3: Analysis tab only; Video/Performance/Research in Phase 4) */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+        <button
+          type="button"
+          className="px-3 py-1 text-xs font-semibold rounded bg-sky-900/60 text-sky-200 border border-sky-700"
+        >
+          {th ? 'การวิเคราะห์ (Analysis)' : 'Analysis'}
+        </button>
+      </div>
+
+      {!status ? (
+        <p className="text-xs text-slate-500 italic py-2">
+          {th
+            ? 'ยังไม่มีข้อมูลเซสชันสด เริ่มวิเคราะห์เพื่อดูข้อมูลแบบเรียลไทม์'
+            : 'No live session active. Start analysis to view telemetry stream.'}
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {/* Progress Bar & Status */}
+          <div>
+            <div className="flex justify-between text-xs text-slate-400 mb-1">
+              <span>{th ? 'ความคืบหน้า' : 'Progress'}</span>
+              <span className="font-mono font-medium text-slate-200">
+                {Math.round(status.progressPct)}% ({status.status})
+              </span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+              <div
+                className={`h-2 transition-all duration-300 ${
+                  status.status === 'ERROR'
+                    ? 'bg-red-500'
+                    : status.status === 'COMPLETED'
+                    ? 'bg-emerald-500'
+                    : 'bg-sky-500'
+                }`}
+                style={{ width: `${Math.min(100, Math.max(0, status.progressPct))}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Telemetry Stats Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+              <span className="text-slate-400 block">{th ? 'เฟรมต้นฉบับ / รวม' : 'Source Frame / Total'}</span>
+              <span className="font-mono font-bold text-slate-200">
+                {status.currentFrame} / {status.totalFrames || '—'}
+              </span>
+            </div>
+            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+              <span className="text-slate-400 block">{th ? 'เฟรมที่วิเคราะห์ AI' : 'Analyzed Frames'}</span>
+              <span className="font-mono font-bold text-sky-400">
+                {status.analyzedFrames}
+                <span className="text-[10px] text-slate-500 ml-1">(stride {status.frameStride})</span>
+              </span>
+            </div>
+            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+              <span className="text-slate-400 block">{th ? 'เวลาวิดีโอที่ตรวจถึง' : 'Video Time Reached'}</span>
+              <span className="font-mono font-bold text-slate-200">
+                {status.lastTelemetryTimestampSec !== null
+                  ? `${status.lastTelemetryTimestampSec.toFixed(2)}s`
+                  : '0.00s'}
+                <span className="text-[10px] text-slate-500 ml-1">
+                  / {status.videoDurationSec > 0 ? `${status.videoDurationSec.toFixed(1)}s` : '—'}
+                </span>
+              </span>
+            </div>
+            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+              <span className="text-slate-400 block">{th ? 'เวลาประมวลผลที่ใช้' : 'Elapsed Time'}</span>
+              <span className="font-mono font-bold text-slate-200">
+                {status.elapsedSec.toFixed(1)}s
+                {status.analysisFps > 0 && (
+                  <span className="text-[10px] text-emerald-400 ml-1">
+                    ({status.analysisFps.toFixed(1)} FPS)
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+              <span className="text-slate-400 block">{th ? 'อุปกรณ์ประมวลผล' : 'Inference Device'}</span>
+              <span className="font-mono font-bold text-slate-200 uppercase">
+                {status.device || 'CPU'}
+              </span>
+            </div>
+            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+              <span className="text-slate-400 block">{th ? 'ผู้เล่นที่ติดตาม' : 'Tracked Players'}</span>
+              <span className="font-mono font-bold text-slate-200">
+                {status.trackedPlayerCount} {th ? 'คน' : 'players'}
+              </span>
+            </div>
+            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+              <span className="text-slate-400 block">{th ? 'FPS ต้นฉบับ' : 'Source FPS'}</span>
+              <span className="font-mono font-bold text-slate-200">
+                {status.sourceFps.toFixed(1)} FPS
+              </span>
+            </div>
+            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+              <span className="text-slate-400 block">{th ? 'อัตราสุ่มตัวอย่าง' : 'Sampling Rate'}</span>
+              <span className="font-mono font-bold text-slate-200">
+                {status.samplingFps.toFixed(1)} Hz
+              </span>
+            </div>
+          </div>
+
+          {/* Dynamic Live Player Cards (Phase 3.10 & 3.12) */}
+          {status.players && status.players.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                {th ? 'สถานะผู้เล่นแบบเรียลไทม์' : 'Live Player Telemetry'}
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                {status.players.map((player: TrackingLivePlayerStatus) => {
+                  const isObserved = player.trackingState === 'observed';
+                  const isPredicted = player.trackingState === 'predicted';
+
+                  return (
+                    <div
+                      key={player.playerId}
+                      data-testid={`live-player-card-${player.playerId}`}
+                      className="bg-slate-900 border border-slate-800 rounded p-3 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-sky-400">
+                          {player.playerId}
+                        </span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            isObserved
+                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                              : isPredicted
+                              ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                              : 'bg-rose-950 text-rose-300 border border-rose-800'
+                          }`}
+                        >
+                          {isObserved
+                            ? th ? 'ตรวจพบ' : 'Observed'
+                            : isPredicted
+                            ? th ? 'คาดการณ์' : 'Predicted'
+                            : th ? 'ขาดหาย' : 'Lost'}
+                        </span>
+                      </div>
+
+                      <div className="text-xs flex justify-between text-slate-300">
+                        <span className="text-slate-500">{th ? 'ระยะทาง:' : 'Distance:'}</span>
+                        <span className="font-mono font-semibold">{player.totalDistanceM.toFixed(1)} m</span>
+                      </div>
+
+                      <div className="text-xs flex justify-between text-slate-300">
+                        <span className="text-slate-500">{th ? 'ความเร็ว:' : 'Speed:'}</span>
+                        <span className="font-mono">{player.currentSpeedMps.toFixed(1)} m/s</span>
+                      </div>
+
+                      <div className="text-xs flex justify-between text-slate-300">
+                        <span className="text-slate-500">{th ? 'ความแม่นยำ:' : 'Confidence:'}</span>
+                        <span className="font-mono">
+                          {Math.round(player.detectionConfidence * 100)}%
+                        </span>
+                      </div>
+
+                      {player.trackId !== null && player.trackId !== undefined && (
+                        <div className="text-[10px] text-slate-500 text-right">
+                          MOT ID: #{player.trackId}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {status.error && (
+            <div className="p-2 bg-red-950/60 border border-red-800 rounded text-red-300 text-xs">
+              {status.error}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
