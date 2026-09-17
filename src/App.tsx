@@ -262,7 +262,7 @@ function AppContent() {
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const workspaceExperience = resolveWorkspaceExperience({
     featureEnabled: FEATURE_FLAGS.workstation,
-    preferredExperience: settings.workspaceExperience,
+    preferredExperience: FEATURE_FLAGS.workstation ? 'workstation' : (settings.workspaceExperience || 'classic'),
     viewportWidth,
   });
   const isWorkstation = workspaceExperience === 'workstation';
