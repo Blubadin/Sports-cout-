@@ -30,7 +30,7 @@ class PlayerProfile:
         self.last_bbox: list[int] | None = None
         self.missed_frames = 0
         self.track_id = None
-        self.detection_confidence = 0.0
+        self.detection_confidence: float | None = None
         self.last_pose: dict | None = None
         self.last_pose_age = 0
 
@@ -234,13 +234,19 @@ class BadmintonAnalyzerV2:
         for pid, p in self.profiles.items():
             stats = self.dist_tracker.get_stats(pid)
             bbox = p.last_bbox if p.missed_frames < 30 else None
-            pos_m = stats.get("court_pos_m", {"x": 3.05, "y": 6.70})
-            pos_pct = stats.get("court_pos_pct", {"x": 50.0, "y": 50.0})
-            abs_zone = stats.get("current_zone", "ML")
-            rel_zone = self.mapper.get_relative_zone_2d((pos_m["x"], pos_m["y"]), p.team) if p.team in (1, 2) else abs_zone
+            pos_m = stats.get("court_pos_m")
+            pos_pct = stats.get("court_pos_pct")
+            abs_zone = stats.get("current_zone", "UNKNOWN")
+            rel_zone = (
+                self.mapper.get_relative_zone_2d((pos_m["x"], pos_m["y"]), p.team)
+                if (pos_m is not None and p.team in (1, 2))
+                else abs_zone
+            )
 
             # State: observed | predicted | lost (PDF §45)
-            if p.missed_frames == 0:
+            if p.last_real_pos is None:
+                tracking_state = "lost"
+            elif p.missed_frames == 0:
                 tracking_state = "observed"
             elif p.missed_frames < 15:
                 tracking_state = "predicted"
@@ -259,6 +265,21 @@ class BadmintonAnalyzerV2:
                 cy_pct = round((bbox[3] / h) * 100.0, 2)
                 ground_pt_pct = {"x": cx_pct, "y": cy_pct}
 
+            court_position = None
+            if pos_m is not None and pos_pct is not None and p.last_real_pos is not None:
+                court_position = {
+                    "xM": round(pos_m["x"], 2),
+                    "yM": round(pos_m["y"], 2),
+                    "xPct": round(pos_pct["x"], 2),
+                    "yPct": round(pos_pct["y"], 2),
+                }
+
+            confidence = (
+                round(float(p.detection_confidence), 3)
+                if (p.last_real_pos is not None and p.missed_frames == 0 and p.detection_confidence is not None)
+                else None
+            )
+
             player_telemetry.append({
                 # Canonical V1 Tracking Protocol (PDF §45)
                 "playerId": f"P{pid}",
@@ -266,17 +287,12 @@ class BadmintonAnalyzerV2:
                 "teamCode": f"team{p.team}" if p.team in (1, 2) else "unknown",
                 "bboxPct": bbox_pct,
                 "groundPointPct": ground_pt_pct,
-                "courtPosition": {
-                    "xM": pos_m["x"],
-                    "yM": pos_m["y"],
-                    "xPct": pos_pct["x"],
-                    "yPct": pos_pct["y"],
-                },
+                "courtPosition": court_position,
                 "absoluteZone": abs_zone,
                 "playerRelativeZone": rel_zone,
                 "speedMps": stats.get("current_speed_ms", 0.0),
                 "totalDistanceM": stats.get("total_dist_m", 0.0),
-                "detectionConfidence": p.detection_confidence if p.missed_frames == 0 else 0.0,
+                "detectionConfidence": confidence,
                 "state": tracking_state,
 
                 # Backward compatibility aliases
@@ -345,7 +361,9 @@ class BadmintonAnalyzerV2:
         statuses = []
         for pid, p in self.profiles.items():
             stats = self.dist_tracker.get_stats(pid)
-            if p.missed_frames == 0:
+            if p.last_real_pos is None:
+                tracking_state = "lost"
+            elif p.missed_frames == 0:
                 tracking_state = "observed"
             elif p.missed_frames < 15:
                 tracking_state = "predicted"
@@ -355,7 +373,7 @@ class BadmintonAnalyzerV2:
             pos_m = stats.get("court_pos_m")
             pos_pct = stats.get("court_pos_pct")
             court_pos = None
-            if pos_m and pos_pct:
+            if pos_m and pos_pct and p.last_real_pos is not None:
                 court_pos = {
                     "xM": round(pos_m.get("x", 0.0), 2),
                     "yM": round(pos_m.get("y", 0.0), 2),
@@ -363,13 +381,19 @@ class BadmintonAnalyzerV2:
                     "yPct": round(pos_pct.get("y", 0.0), 2),
                 }
 
+            confidence = (
+                round(float(p.detection_confidence), 3)
+                if (p.last_real_pos is not None and p.missed_frames == 0 and p.detection_confidence is not None)
+                else None
+            )
+
             statuses.append({
                 "playerId": f"P{pid}",
                 "trackId": p.track_id,
                 "totalDistanceM": round(stats.get("total_dist_m", 0.0), 2),
                 "currentSpeedMps": round(stats.get("current_speed_ms", 0.0), 2),
                 "trackingState": tracking_state,
-                "detectionConfidence": round(float(p.detection_confidence), 3) if p.missed_frames == 0 else 0.0,
+                "detectionConfidence": confidence,
                 "courtPosition": court_pos,
             })
         return statuses

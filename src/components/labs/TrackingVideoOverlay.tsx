@@ -225,7 +225,14 @@ export default function TrackingVideoOverlay({
 
             {/* Skeleton Mode */}
             {effectiveMode === 'skeleton' && p.pose && (
-              <g stroke="#4ade80" fill="#facc15" strokeWidth="0.25">
+              <g
+                data-testid={p.pose.isReused ? 'pose-reused' : 'pose-fresh'}
+                stroke={p.pose.isReused ? '#fbbf24' : '#4ade80'}
+                fill={p.pose.isReused ? '#f59e0b' : '#facc15'}
+                strokeWidth="0.25"
+                strokeDasharray={p.pose.isReused ? '0.6 0.3' : undefined}
+                opacity={p.pose.isReused ? Math.max(0.4, 1 - (p.pose.ageFrames ?? 1) * 0.15) : 1}
+              >
                 {BONES.map(([a, b]) => {
                   const start = p.pose!.keypoints[a];
                   const end = p.pose!.keypoints[b];
@@ -250,6 +257,17 @@ export default function TrackingVideoOverlay({
                       r="0.35"
                     />
                   ) : null
+                )}
+                {p.pose.isReused && (
+                  <text
+                    x={p.bboxPct ? p.bboxPct.x : 0}
+                    y={p.bboxPct ? p.bboxPct.y + p.bboxPct.height + 2 : 10}
+                    fill="#fbbf24"
+                    fontSize="1.5"
+                    fontFamily="monospace"
+                  >
+                    pose reused (+{p.pose.ageFrames ?? 1})
+                  </text>
                 )}
               </g>
             )}

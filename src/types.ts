@@ -431,39 +431,43 @@ export interface TrackingPoseV1 {
     y: number;
     score: number;
     name?: string;
+    isReused?: boolean;
+    ageFrames?: number;
   }[];
   metrics?: PoseMetrics2D;
   action?: string;
-  confidence?: number;
+  confidence?: number | null;
+  isReused?: boolean;
+  ageFrames?: number;
 }
 
 export interface TrackingPlayerV1 {
   playerId: string;
-  trackId?: number;
+  trackId?: number | null;
   teamCode?: string;
   bboxPct?: {
     x: number;
     y: number;
     width: number;
     height: number;
-  };
+  } | null;
   groundPointPct?: {
     x: number;
     y: number;
-  };
-  courtPosition: {
+  } | null;
+  courtPosition?: {
     xM: number;
     yM: number;
     xPct: number;
     yPct: number;
-  };
-  absoluteZone?: string;
-  playerRelativeZone?: string;
-  speedMps?: number;
+  } | null;
+  absoluteZone?: string | null;
+  playerRelativeZone?: string | null;
+  speedMps?: number | null;
   totalDistanceM?: number;
-  detectionConfidence: number;
+  detectionConfidence?: number | null;
   state: 'observed' | 'predicted' | 'lost';
-  pose?: TrackingPoseV1;
+  pose?: TrackingPoseV1 | null;
 }
 
 export interface TrackingTelemetryV1 {
@@ -528,7 +532,7 @@ export interface TrackingLivePlayerStatus {
   totalDistanceM: number;
   currentSpeedMps: number;
   trackingState: 'observed' | 'predicted' | 'lost';
-  detectionConfidence: number;
+  detectionConfidence?: number | null;
   courtPosition?: {
     xM: number;
     yM: number;

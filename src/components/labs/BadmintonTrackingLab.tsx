@@ -4,7 +4,7 @@ import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
 import type { TrackingTelemetryV1, TrackingOverlayMode, TrackingSessionStatus, ProcessingConfig, ProcessingProfile } from '../../types';
 import { loadProjectVideoFileHandle } from '../../utils/videoFileStore';
-import { downsampleAndChunkTrackingSamples, saveTrackingAnalysis, listTrackingAnalyses, getTrackingSampleChunks, type TrackingAnalysis, type TrackingSampleChunk } from '../../services/storage/trackingStorage';
+import { downsampleAndChunkTrackingSamples, saveTrackingAnalysis, listTrackingAnalyses, getLatestTrackingAnalysis, getTrackingSampleChunks, type TrackingAnalysis, type TrackingSampleChunk } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 import TrackingVideoOverlay from './TrackingVideoOverlay';
 import TrackingLabInspector from './TrackingLabInspector';
@@ -48,6 +48,7 @@ export default function BadmintonTrackingLab() {
   const upload = useRef<AbortController | null>(null);
   const cursorRef = useRef<number>(0);
   const accumulatedFrames = useRef<TrackingTelemetryV1[]>([]);
+  const isPersistingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -83,7 +84,7 @@ export default function BadmintonTrackingLab() {
       if (alive) setFile(restored);
     }).catch(() => {});
     if (activeProjectId) void listTrackingAnalyses(activeProjectId).then(async records => {
-      const latest = records.at(-1);
+      const latest = getLatestTrackingAnalysis(records);
       if (!latest) return;
       const saved = await getTrackingSampleChunks(latest.id);
       if (alive) {
@@ -152,41 +153,72 @@ export default function BadmintonTrackingLab() {
     telemetry: TrackingTelemetryV1[],
     sourceFile: File,
     sessionGameType: BadmintonGameType,
+    finalStatus?: TrackingSessionStatus | null,
     sessionTrackedPlayerCount?: number,
   ) => {
-    if (telemetry.some(frame => frame.isSynthetic || frame.source === 'synthetic_demo')) {
-      throw new Error('The service returned demo data instead of real video analysis.');
-    }
-    const saved = downsampleAndChunkTrackingSamples(sessionId, telemetry, 10, 15);
-    const inferredCount = Object.keys(saved.summary.players).length || (sessionGameType === 'singles' ? 2 : 4);
-    const effectiveCount = sessionTrackedPlayerCount ?? telemetry[0]?.trackedPlayerCount ?? inferredCount;
-    const record: TrackingAnalysis = {
-      id: sessionId, projectId: activeProjectId || 'current_project', sportType: 'badminton', gameType: sessionGameType,
-      trackedPlayerCount: effectiveCount,
-      status: 'completed', videoFingerprint: videoFingerprint(sourceFile),
-      engineVersion: telemetry[0]?.engineVersion || 'tracking-v2', detectorModel: telemetry[0]?.modelVersion || 'YOLO', trackerModel: 'ByteTrack', poseModel: 'YOLO pose', sampleRateHz: 10,
-      createdAt: new Date().toISOString(), completedAt: new Date().toISOString(),
-      processingConfig: sessionStatus?.processingConfig,
-      performance: sessionStatus?.performance,
-      qualityStats: sessionStatus?.quality,
-      players: Object.keys(saved.summary.players).map(playerId => {
-        const pData = telemetry.flatMap(frame => frame.players).find(p => p.playerId === playerId);
-        let side: 'near' | 'far' | 'unknown' = 'unknown';
-        if (pData?.teamCode === 'team1') {
-          side = 'far';
-        } else if (pData?.teamCode === 'team2') {
-          side = 'near';
-        } else if (pData?.courtPosition?.yM !== undefined) {
-          side = pData.courtPosition.yM < 6.70 ? 'far' : 'near';
+    if (isPersistingRef.current.has(sessionId)) return;
+    isPersistingRef.current.add(sessionId);
+
+    try {
+      if (telemetry.some(frame => frame.isSynthetic || frame.source === 'synthetic_demo')) {
+        throw new Error('The service returned demo data instead of real video analysis.');
+      }
+
+      const canonicalPlayerMetrics: Record<string, { totalDistanceM?: number }> = {};
+      if (finalStatus?.players) {
+        for (const p of finalStatus.players) {
+          canonicalPlayerMetrics[p.playerId] = { totalDistanceM: p.totalDistanceM };
         }
-        return { playerId, name: playerId, side };
-      }),
-      summary: saved.summary, quality: saved.quality,
-    };
-    await saveTrackingAnalysis(record, saved.chunks);
-    setAnalysis(record); setChunks(saved.chunks); setProcessing(false);
-    if (videoRef.current) videoRef.current.currentTime = 0;
-    setTime(0);
+      }
+
+      const saved = downsampleAndChunkTrackingSamples(sessionId, telemetry, 10, 15, canonicalPlayerMetrics);
+      const inferredCount = Object.keys(saved.summary.players).length || (sessionGameType === 'singles' ? 2 : 4);
+      const effectiveCount = sessionTrackedPlayerCount ?? finalStatus?.trackedPlayerCount ?? telemetry[0]?.trackedPlayerCount ?? inferredCount;
+      const record: TrackingAnalysis = {
+        id: sessionId,
+        projectId: activeProjectId || 'current_project',
+        sportType: 'badminton',
+        gameType: sessionGameType,
+        trackedPlayerCount: effectiveCount,
+        status: 'completed',
+        videoFingerprint: videoFingerprint(sourceFile),
+        engineVersion: telemetry[0]?.engineVersion || 'tracking-v2',
+        detectorModel: telemetry[0]?.modelVersion || 'YOLO',
+        trackerModel: 'ByteTrack',
+        poseModel: 'YOLO pose',
+        sampleRateHz: 10,
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        device: finalStatus?.device,
+        analyzedFrames: finalStatus?.analyzedFrames,
+        totalFrames: finalStatus?.totalFrames,
+        processingConfig: finalStatus?.processingConfig ?? sessionStatus?.processingConfig,
+        performance: finalStatus?.performance ?? sessionStatus?.performance,
+        qualityStats: finalStatus?.quality ?? sessionStatus?.quality,
+        players: Object.keys(saved.summary.players).map(playerId => {
+          const pData = telemetry.flatMap(frame => frame.players).find(p => p.playerId === playerId);
+          let side: 'near' | 'far' | 'unknown' = 'unknown';
+          if (pData?.teamCode === 'team1') {
+            side = 'far';
+          } else if (pData?.teamCode === 'team2') {
+            side = 'near';
+          } else if (pData?.courtPosition?.yM !== undefined && pData.courtPosition.yM !== null) {
+            side = pData.courtPosition.yM < 6.70 ? 'far' : 'near';
+          }
+          return { playerId, name: playerId, side };
+        }),
+        summary: saved.summary,
+        quality: saved.quality,
+      };
+      await saveTrackingAnalysis(record, saved.chunks);
+      setAnalysis(record);
+      setChunks(saved.chunks);
+      setProcessing(false);
+      if (videoRef.current) videoRef.current.currentTime = 0;
+      setTime(0);
+    } finally {
+      isPersistingRef.current.delete(sessionId);
+    }
   };
 
   const pollSession = (sessionId: string, runId: number, sourceFile: File, sessionGameType: BadmintonGameType, sessionTrackedPlayerCount?: number) => {
@@ -211,7 +243,7 @@ export default function BadmintonTrackingLab() {
           }
         }
         if (state.status === 'COMPLETED') {
-          await persistCompletedResult(sessionId, accumulatedFrames.current, sourceFile, sessionGameType, effectiveCount);
+          await persistCompletedResult(sessionId, accumulatedFrames.current, sourceFile, sessionGameType, state, effectiveCount);
           session.current = null;
         } else {
           timer.current = setTimeout(() => void poll(), 500);

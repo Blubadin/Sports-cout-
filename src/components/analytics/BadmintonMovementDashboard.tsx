@@ -265,30 +265,32 @@ export default function BadmintonMovementDashboard({
       const avgY = activeMetrics.basePosition.avgCourtY;
       const disp = activeMetrics.basePosition.dispersion;
 
-      const cx = toCanvasX(avgX);
-      const cy = toCanvasY(avgY);
-      const radiusPx = (disp / COURT_W_M) * courtW;
+      if (avgX !== null && avgY !== null) {
+        const cx = toCanvasX(avgX);
+        const cy = toCanvasY(avgY);
+        const radiusPx = (disp / COURT_W_M) * courtW;
 
-      // Dispersion ring
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
-      ctx.beginPath();
-      ctx.arc(cx, cy, radiusPx, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
-      ctx.stroke();
+        // Dispersion ring
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, radiusPx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.stroke();
 
-      // Base point
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath();
-      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
+        // Base point
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
 
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText(`Base (${avgX}m, ${avgY}m)`, cx + 10, cy - 8);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText(`Base (${avgX}m, ${avgY}m)`, cx + 10, cy - 8);
+      }
     }
   }, [filteredSamples, heatmapMode, activeMetrics]);
 
@@ -519,7 +521,9 @@ export default function BadmintonMovementDashboard({
                 <MapPin className="w-4 h-4 text-purple-400" /> Base Position
               </div>
               <div className="text-lg font-black text-white mt-1">
-                ({activeMetrics.basePosition.avgCourtX}m, {activeMetrics.basePosition.avgCourtY}m)
+                {activeMetrics.basePosition.avgCourtX !== null && activeMetrics.basePosition.avgCourtY !== null
+                  ? `(${activeMetrics.basePosition.avgCourtX}m, ${activeMetrics.basePosition.avgCourtY}m)`
+                  : '—'}
               </div>
               <div className="text-[11px] text-slate-400 mt-1">
                 Dispersion: ±{activeMetrics.basePosition.dispersion} meters

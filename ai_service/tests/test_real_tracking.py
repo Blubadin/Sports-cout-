@@ -35,7 +35,7 @@ class RealTrackingTests(unittest.TestCase):
         analyzer.detect_and_track.return_value=[]
         missed=analyzer.process_frame(frame)['players'][0]
         self.assertNotIn('pose',missed)
-        self.assertEqual(missed['detectionConfidence'],0)
+        self.assertIsNone(missed['detectionConfidence'])
 
     def test_detector_uses_persistent_bytetrack(self):
         analyzer=BadmintonAnalyzerV2()

@@ -201,13 +201,19 @@ export default function TrackingLabInspector({
 
                           <div className="text-xs flex justify-between text-slate-300">
                             <span className="text-slate-500">{th ? 'ความเร็ว:' : 'Speed:'}</span>
-                            <span className="font-mono">{player.currentSpeedMps.toFixed(1)} m/s</span>
+                            <span className="font-mono">
+                              {player.trackingState !== 'lost' && typeof player.currentSpeedMps === 'number'
+                                ? `${player.currentSpeedMps.toFixed(1)} m/s`
+                                : '—'}
+                            </span>
                           </div>
 
                           <div className="text-xs flex justify-between text-slate-300">
                             <span className="text-slate-500">{th ? 'ความแม่นยำ:' : 'Confidence:'}</span>
                             <span className="font-mono">
-                              {Math.round(player.detectionConfidence * 100)}%
+                              {player.trackingState !== 'lost' && typeof player.detectionConfidence === 'number'
+                                ? `${Math.round(player.detectionConfidence * 100)}%`
+                                : '—'}
                             </span>
                           </div>
 

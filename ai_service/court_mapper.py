@@ -301,17 +301,17 @@ class DistanceTracker:
             return {}
         d = self._data[player_id]
         speeds = d["speeds_ms"]
-        last_pos_pct = d["positions_pct"][-1] if d["positions_pct"] else (50.0, 50.0)
-        last_pos_m = d["positions_m"][-1] if d["positions_m"] else (3.35, 6.70)
+        last_pos_pct = d["positions_pct"][-1] if d["positions_pct"] else None
+        last_pos_m = d["positions_m"][-1] if d["positions_m"] else None
         return {
             "player_id": player_id,
             "total_dist_m": round(d["total_dist_m"], 2),
             "max_speed_ms": round(d["max_speed_ms"], 2),
             "current_speed_ms": d["current_speed_ms"],
             "avg_speed_ms": round(float(np.mean(speeds)) if speeds else 0.0, 2),
-            "current_zone": d["current_zone"],
-            "court_pos_pct": {"x": round(last_pos_pct[0], 2), "y": round(last_pos_pct[1], 2)},
-            "court_pos_m": {"x": round(last_pos_m[0], 2), "y": round(last_pos_m[1], 2)},
+            "current_zone": d["current_zone"] if last_pos_m else "UNKNOWN",
+            "court_pos_pct": {"x": round(last_pos_pct[0], 2), "y": round(last_pos_pct[1], 2)} if last_pos_pct else None,
+            "court_pos_m": {"x": round(last_pos_m[0], 2), "y": round(last_pos_m[1], 2)} if last_pos_m else None,
             "zone_dist": {k: round(v, 2) for k, v in d["zone_dist"].items()},
         }
 

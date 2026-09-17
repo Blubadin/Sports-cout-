@@ -653,7 +653,7 @@ class AITrackingService {
       return {
         ...p,
         playerId: `P${p.id}`,
-        trackId: p.id,
+        trackId: p.trackId,
         teamCode: `team${p.team}`,
         bboxPct: videoBbox,
         groundPointPct: posPct,
@@ -1003,11 +1003,18 @@ export function toTrackingTelemetryV1(frame: AITelemetryFrame): TrackingTelemetr
     source: frame.source || (isSynthetic ? "synthetic_demo" : "real_tracking"),
     trackedPlayerCount: frame.trackedPlayerCount ?? frame.tracked_player_count,
     players: (frame.players || []).map((p) => {
-      const posPct = p.court_pos_pct || { x: 50, y: 50 };
-      const posM = p.court_pos_m || {
-        x: Math.round((posPct.x / 100) * 6.10 * 100) / 100,
-        y: Math.round((posPct.y / 100) * 13.40 * 100) / 100,
-      };
+      const posPct = p.court_pos_pct;
+      const posM = p.court_pos_m;
+      const courtPos = p.courtPosition ?? (
+        posM && posPct
+          ? {
+              xM: posM.x,
+              yM: posM.y,
+              xPct: posPct.x,
+              yPct: posPct.y,
+            }
+          : null
+      );
       const groundPoint = p.groundPointPct || (
         p.video_bbox_pct
           ? {
@@ -1023,17 +1030,12 @@ export function toTrackingTelemetryV1(frame: AITelemetryFrame): TrackingTelemetr
         teamCode: p.teamCode || (p.team ? `team${p.team}` : undefined),
         bboxPct: p.bboxPct || p.video_bbox_pct,
         groundPointPct: groundPoint,
-        courtPosition: p.courtPosition || {
-          xM: posM.x,
-          yM: posM.y,
-          xPct: posPct.x,
-          yPct: posPct.y,
-        },
+        courtPosition: courtPos,
         absoluteZone: p.absoluteZone || p.zone,
         playerRelativeZone: p.playerRelativeZone || p.zone,
         speedMps: p.speedMps ?? p.speed_ms,
         totalDistanceM: p.totalDistanceM ?? p.total_dist_m,
-        detectionConfidence: p.detectionConfidence ?? (p.state === 'observed' ? 1.0 : 0.0),
+        detectionConfidence: typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null,
         state: p.state || (p.is_active ? "observed" : "lost"),
         pose: p.pose,
       };
