@@ -496,6 +496,8 @@ class TrackingSession:
         self.progress_pct = 0.0
         self.current_frame = 0
         self.total_frames = 0
+        self.analyzed_frames = 0
+        self.source_fps = 30.0
         self.elapsed_sec = 0.0
         self.duration_sec = 0.0
         # Pose inference is the expensive stage. Sampling every second frame
@@ -515,6 +517,7 @@ def _run_session_analysis(session: TrackingSession):
     session.status = "PROCESSING"
     session.progress_pct = 0.0
     session.results = []
+    session.analyzed_frames = 0
     start_time = time.time()
 
     if session.video_source == "demo":
@@ -527,6 +530,8 @@ def _run_session_analysis(session: TrackingSession):
         total_frames = 60
         session.total_frames = total_frames
         session.duration_sec = 2.0
+        session.source_fps = 30.0
+        session.frame_stride = 1
         for i in range(total_frames):
             if session._cancel:
                 break
@@ -536,6 +541,7 @@ def _run_session_analysis(session: TrackingSession):
             telemetry["source"] = "synthetic_demo"
             telemetry["isSynthetic"] = True
             session.results.append(telemetry)
+            session.analyzed_frames += 1
             session.current_frame = i + 1
             session.progress_pct = round(((i + 1) / total_frames) * 100.0, 1)
             session.elapsed_sec = round(time.time() - start_time, 1)
@@ -563,6 +569,7 @@ def _run_session_analysis(session: TrackingSession):
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 300
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    session.source_fps = fps
     session.analyzer.fps = fps
     session.analyzer.dist_tracker.fps = fps
     session.total_frames = total_frames
@@ -585,6 +592,7 @@ def _run_session_analysis(session: TrackingSession):
             telemetry["source"] = "real_tracking"
             telemetry["isSynthetic"] = False
             session.results.append(telemetry)
+            session.analyzed_frames += 1
             session.current_frame = frame_idx
             session.progress_pct = round((frame_idx / total_frames) * 100.0, 1)
             session.elapsed_sec = round(time.time() - start_time, 1)
@@ -645,6 +653,7 @@ def list_tracking_sessions(project_id: str | None = None):
                 "progressPct": session.progress_pct,
                 "currentFrame": session.current_frame,
                 "totalFrames": session.total_frames,
+                "analyzedFrames": session.analyzed_frames,
                 "trackedPlayerCount": session.tracked_player_count,
                 "resumable": session.status not in {"COMPLETED", "ERROR"},
             }
@@ -743,30 +752,53 @@ def get_session_status(session_id: str):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
+
+    sampling_fps = round(session.source_fps / session.frame_stride, 2) if session.frame_stride > 0 else 0.0
+    analysis_fps = round(session.analyzed_frames / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+    last_timestamp = session.results[-1].get("timestampSec") if session.results else None
+
     return {
         "sessionId": session_id,
         "status": session.status,
         "progressPct": session.progress_pct,
         "currentFrame": session.current_frame,
         "totalFrames": session.total_frames,
+        "analyzedFrames": session.analyzed_frames,
+        "frameStride": session.frame_stride,
         "elapsedSec": session.elapsed_sec,
+        "videoDurationSec": session.duration_sec,
         "durationSec": session.duration_sec,
+        "lastTelemetryTimestampSec": last_timestamp,
+        "sourceFps": round(session.source_fps, 2),
+        "samplingFps": sampling_fps,
+        "analysisFps": analysis_fps,
         "trackedPlayerCount": session.tracked_player_count,
+        "device": session.analyzer.device,
+        "players": session.analyzer.get_live_player_statuses(),
         "error": session.error_message,
     }
 
 
 @app.get("/api/tracking/sessions/{session_id}/results")
-def get_session_results(session_id: str):
+def get_session_results(session_id: str, after: int | None = None):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
+    total_count = len(session.results)
+    if after is not None:
+        start_idx = max(0, int(after))
+        items = session.results[start_idx:]
+    else:
+        items = session.results
+
     return {
         "sessionId": session_id,
         "status": session.status,
-        "sampleCount": len(session.results),
+        "sampleCount": len(items),
+        "totalSampleCount": total_count,
+        "nextCursor": total_count,
         "trackedPlayerCount": session.tracked_player_count,
-        "telemetry": session.results,
+        "telemetry": items,
     }
 
 

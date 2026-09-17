@@ -288,6 +288,42 @@ class BadmintonAnalyzerV2:
             "frame_idx": self.frame_count,
         }
 
+    def get_live_player_statuses(self) -> list[dict]:
+        """
+        Return live status snapshot for each active player profile (Phase 3.10).
+        """
+        statuses = []
+        for pid, p in self.profiles.items():
+            stats = self.dist_tracker.get_stats(pid)
+            if p.missed_frames == 0:
+                tracking_state = "observed"
+            elif p.missed_frames < 15:
+                tracking_state = "predicted"
+            else:
+                tracking_state = "lost"
+
+            pos_m = stats.get("court_pos_m")
+            pos_pct = stats.get("court_pos_pct")
+            court_pos = None
+            if pos_m and pos_pct:
+                court_pos = {
+                    "xM": round(pos_m.get("x", 0.0), 2),
+                    "yM": round(pos_m.get("y", 0.0), 2),
+                    "xPct": round(pos_pct.get("x", 0.0), 2),
+                    "yPct": round(pos_pct.get("y", 0.0), 2),
+                }
+
+            statuses.append({
+                "playerId": f"P{pid}",
+                "trackId": p.track_id,
+                "totalDistanceM": round(stats.get("total_dist_m", 0.0), 2),
+                "currentSpeedMps": round(stats.get("current_speed_ms", 0.0), 2),
+                "trackingState": tracking_state,
+                "detectionConfidence": round(float(p.detection_confidence), 3) if p.missed_frames == 0 else 0.0,
+                "courtPosition": court_pos,
+            })
+        return statuses
+
     def _match_tracks_to_profiles(self, frame: np.ndarray, detections: list[dict], timestamp_sec: float | None = None) -> dict:
         """
         Global Hungarian (Bipartite) matching between active PlayerProfiles and Detections.

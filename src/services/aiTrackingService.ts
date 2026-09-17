@@ -12,6 +12,7 @@ import {
   AITrackingPlayer,
   TrackingTelemetryV1,
   TrackingPlayerV1,
+  TrackingSessionStatus,
 } from "../types";
 
 export type AIConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -922,30 +923,26 @@ class AITrackingService {
     if (!res.ok) throw new Error(`Failed to start analysis: ${res.statusText}`);
   }
 
-  public async getSessionStatus(sessionId: string): Promise<{
-    sessionId: string;
-    status: string;
-    progressPct: number;
-    currentFrame: number;
-    totalFrames: number;
-    elapsedSec: number;
-    durationSec: number;
-    trackedPlayerCount?: number;
-    error: string | null;
-  }> {
+  public async getSessionStatus(sessionId: string): Promise<TrackingSessionStatus> {
     const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/status`));
     if (!res.ok) throw new Error(`Failed to get session status: ${res.statusText}`);
     return res.json();
   }
 
-  public async getSessionResults(sessionId: string): Promise<{
+  public async getSessionResults(
+    sessionId: string,
+    after?: number
+  ): Promise<{
     sessionId: string;
     status: string;
     sampleCount: number;
+    totalSampleCount: number;
+    nextCursor: number;
     trackedPlayerCount?: number;
     telemetry: TrackingTelemetryV1[];
   }> {
-    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/results`));
+    const query = after !== undefined ? `?after=${encodeURIComponent(after)}` : '';
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/results${query}`));
     if (!res.ok) throw new Error(`Failed to get session results: ${res.statusText}`);
     return res.json();
   }
