@@ -21,7 +21,11 @@ export function useAITracking() {
   );
   const [markingState, setMarkingState] = useState<MarkingState>(aiTrackingService.getMarkingState());
 
-  const serverUrl = settings?.aiTrackingServerUrl || "ws://localhost:8000/ws/telemetry";
+  const defaultWsHost = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+  const rawServerUrl = settings?.aiTrackingServerUrl || `ws://${defaultWsHost}:8000/ws/telemetry`;
+  const serverUrl = (rawServerUrl.includes('localhost') || rawServerUrl.includes('127.0.0.1')) && defaultWsHost !== 'localhost' && defaultWsHost !== '127.0.0.1'
+    ? rawServerUrl.replace(/localhost|127\.0\.0\.1/, defaultWsHost)
+    : rawServerUrl;
   const isEnabled = settings?.aiTrackingEnabled ?? false;
   const mode = settings?.aiTrackingMode || "browser";
 
