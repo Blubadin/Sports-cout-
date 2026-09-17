@@ -1,15 +1,20 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Trophy, Flag, Shield, Activity, Target, Flame, AlertTriangle, 
   CheckCircle2, Video, Printer, Eye, BarChart2, TrendingUp, 
-  Lightbulb, Layers, HelpCircle, ArrowRight, UserCheck, ShieldAlert
+  Lightbulb, Layers, HelpCircle, ArrowRight, UserCheck, ShieldAlert,
+  Gauge, Crosshair
 } from 'lucide-react';
 import { useScoutContext } from '../../context/ScoutContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
 import { EventRow, Team, Action } from '../../types';
 import { SPORT_TEMPLATES } from '../../sports';
 import { formatPreciseTime } from '../../utils';
 import { buildVolleyballPyramidSummary } from '../../volleyball/volleyballPyramid';
 import { buildDataQualityReport } from '../../utils/scoutData';
+import { getSportRuleEngine } from '../../sports/rules/registry';
+import { buildAnalyticsSummary } from '../../utils/analyticsEngine';
+import { loadBadmintonTrackingAnalysis, type TrackingAnalysis } from '../../services/storage/trackingStorage';
 import ReportClipModal from '../ReportClipModal';
 import VolleyballPyramidPanel from '../VolleyballPyramidPanel';
 
@@ -21,16 +26,62 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
   const { 
     events, teams, matchInfo, settings 
   } = useScoutContext();
+  const { activeProjectId } = useWorkspace();
   const isThai = settings.uiLanguage === 'th';
 
   const [selectedClipEvent, setSelectedClipEvent] = useState<EventRow | null>(null);
+  const [trackingAnalysis, setTrackingAnalysis] = useState<TrackingAnalysis | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (activeProjectId) {
+      loadBadmintonTrackingAnalysis(activeProjectId).then((analysis) => {
+        if (active && analysis) {
+          setTrackingAnalysis(analysis);
+        }
+      }).catch((err) => {
+        console.warn('Failed to load tracking analysis for coach report:', err);
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [activeProjectId]);
 
   const team1 = teams[0] || { id: 't1', code: 'Team A', name: 'Team A', thaiName: 'ทีม A' };
   const team2 = teams[1] || { id: 't2', code: 'Team B', name: 'Team B', thaiName: 'ทีม B' };
 
-  // Calculate Match Scores
-  const teamAScore = events.filter(e => e.resultText === '+1').length;
-  const teamBScore = events.filter(e => e.resultText === '-1').length;
+  // Canonical Sport Scoring Engine Resolution (PDF §59, §13)
+  const ruleEngine = useMemo(() => getSportRuleEngine(matchInfo.sportType), [matchInfo.sportType]);
+
+  const matchScores = useMemo(() => {
+    const scores: Record<string, number> = {
+      [team1.code]: 0,
+      [team2.code]: 0,
+    };
+    for (const ev of events) {
+      const resolution = ruleEngine.resolveEvent(ev.actions || [], {
+        sportType: matchInfo.sportType,
+        teamCodes: [team1.code, team2.code],
+      }, ev);
+      for (const [teamCode, delta] of Object.entries(resolution.teamScoreDeltas)) {
+        scores[teamCode] = (scores[teamCode] ?? 0) + delta;
+      }
+    }
+    return scores;
+  }, [ruleEngine, events, matchInfo.sportType, team1.code, team2.code]);
+
+  const teamAScore = matchScores[team1.code] ?? 0;
+  const teamBScore = matchScores[team2.code] ?? 0;
+
+  // Canonical Analytics Engine (PDF §13)
+  const analyticsSummary = useMemo(() => {
+    return buildAnalyticsSummary(events, {
+      sportType: matchInfo.sportType,
+      teams,
+      uiLanguage: settings.uiLanguage,
+    });
+  }, [events, matchInfo.sportType, teams, settings.uiLanguage]);
 
   const volleyballPyramidSummary = useMemo(() => {
     return buildVolleyballPyramidSummary(events);
@@ -509,7 +560,118 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
         )}
       </div>
 
-      {/* 6. DATA QUALITY & COVERAGE */}
+      {/* 5. MOVEMENT ANALYSIS (PDF §59, Phase 13: Displayed only when tracking data exists) */}
+      {trackingAnalysis?.summary && Object.keys(trackingAnalysis.summary.players || {}).length > 0 && (
+        <div className="bg-white dark:bg-[#111c26] rounded-3xl p-6 sm:p-8 border border-gray-200 dark:border-[#263642] shadow-xl space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-500 flex items-center justify-center">
+                <Gauge size={18} />
+              </div>
+              <div>
+                <h2 className="text-base font-black text-gray-900 dark:text-gray-100">
+                  {isThai ? '5. การวิเคราะห์การเคลื่อนที่ผู้เล่น (Movement Analysis)' : '5. Player Movement Analysis'}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {isThai ? 'คำนวณจาก Optical Tracking จริง: ระยะทาง, ความเร็ว P95, และการครอบคลุมพื้นที่สนาม' : 'Calculated from optical player tracking: distance, robust P95 speed, court coverage'}
+                </p>
+              </div>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-black uppercase">
+              {trackingAnalysis.gameType === 'singles' ? 'Singles (1v1)' : 'Doubles (2v2)'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {Object.entries(trackingAnalysis.summary.players).map(([playerId, m]) => (
+              <div key={playerId} className="p-4 rounded-2xl bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-[#263642] space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-black text-sky-600 dark:text-sky-400 uppercase">
+                    {playerId}
+                  </span>
+                  <span className="text-xs font-bold text-gray-500">
+                    {m.totalDistanceMeters.toFixed(1)} m
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="p-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="text-[10px] text-gray-400 font-bold uppercase">{isThai ? 'ความเร็ว P95' : 'P95 Speed'}</div>
+                    <div className="text-sm font-black text-gray-900 dark:text-white mt-0.5">{m.p95SpeedMps.toFixed(2)} m/s</div>
+                  </div>
+                  <div className="p-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="text-[10px] text-gray-400 font-bold uppercase">{isThai ? 'ความเร็วสูงสุด' : 'Max Speed'}</div>
+                    <div className="text-sm font-black text-rose-600 dark:text-rose-400 mt-0.5">{m.maxSpeedMps.toFixed(2)} m/s</div>
+                  </div>
+                  <div className="p-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="text-[10px] text-gray-400 font-bold uppercase">{isThai ? 'การกระจายตัว' : 'Dispersion'}</div>
+                    <div className="text-sm font-black text-amber-600 dark:text-amber-400 mt-0.5">{m.basePosition.dispersion.toFixed(2)} m</div>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[10px] font-bold text-gray-500">
+                    <span>{isThai ? 'แดนหน้า / กลาง / หลัง' : 'Front / Mid / Rear'}</span>
+                    <span>{m.courtCoverage.frontPercent.toFixed(0)}% / {m.courtCoverage.midPercent.toFixed(0)}% / {m.courtCoverage.rearPercent.toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-800 h-2 rounded-full overflow-hidden flex">
+                    <div className="bg-sky-500 h-full" style={{ width: `${m.courtCoverage.frontPercent}%` }} />
+                    <div className="bg-emerald-500 h-full" style={{ width: `${m.courtCoverage.midPercent}%` }} />
+                    <div className="bg-purple-500 h-full" style={{ width: `${m.courtCoverage.rearPercent}%` }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 6. TRACKING QUALITY & AUDIT (PDF §59, Phase 13) */}
+      {trackingAnalysis?.quality && (
+        <div className="bg-white dark:bg-[#111c26] rounded-3xl p-6 sm:p-8 border border-gray-200 dark:border-[#263642] shadow-xl space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-500 flex items-center justify-center">
+                <Crosshair size={18} />
+              </div>
+              <div>
+                <h2 className="text-base font-black text-gray-900 dark:text-gray-100">
+                  {isThai ? '6. คุณภาพการแทร็กและความน่าเชื่อถือ (Tracking Quality & Audit)' : '6. Tracking Quality & Audit'}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {isThai ? 'อัตราความครอบคลุม, ความเชื่อมั่นของโมเดล, และการตรวจสอบความถูกต้อง' : 'Detection coverage, confidence rating, and audit metrics'}
+                </p>
+              </div>
+            </div>
+            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+              trackingAnalysis.quality.lowConfidenceWarning
+                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                : 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300'
+            }`}>
+              {trackingAnalysis.quality.lowConfidenceWarning ? 'Warning: Low Confidence' : 'Validated Tracking'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 text-center">
+              <div className="text-[10px] font-black text-gray-400 uppercase">{isThai ? 'ความครอบคลุม' : 'Detection Coverage'}</div>
+              <div className="text-xl font-black text-teal-600 mt-1">{(trackingAnalysis.quality.detectionCoverage * 100).toFixed(1)}%</div>
+            </div>
+            <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 text-center">
+              <div className="text-[10px] font-black text-gray-400 uppercase">{isThai ? 'ความเชื่อมั่นเฉลี่ย' : 'Avg Confidence'}</div>
+              <div className="text-xl font-black text-sky-600 mt-1">{(trackingAnalysis.quality.confidence * 100).toFixed(1)}%</div>
+            </div>
+            <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 text-center">
+              <div className="text-[10px] font-black text-gray-400 uppercase">{isThai ? 'เวลาที่แทร็กหลุด' : 'Lost Track Time'}</div>
+              <div className="text-xl font-black text-indigo-600 mt-1">{trackingAnalysis.quality.lostTimePercent.toFixed(1)}%</div>
+            </div>
+            <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 text-center">
+              <div className="text-[10px] font-black text-gray-400 uppercase">{isThai ? 'การปรับแก้ด้วยมือ' : 'Manual Edits'}</div>
+              <div className="text-xl font-black text-emerald-600 mt-1">{trackingAnalysis.quality.manualCorrections}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6B. DATA QUALITY & COVERAGE */}
       {dataQuality && (
         <div className="bg-white dark:bg-[#111c26] rounded-3xl p-6 sm:p-8 border border-gray-200 dark:border-[#263642] shadow-xl space-y-4">
           <div className="flex items-center gap-2.5">

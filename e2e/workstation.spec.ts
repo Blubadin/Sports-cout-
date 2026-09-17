@@ -29,7 +29,7 @@ async function enableWorkstation(page: import('@playwright/test').Page, language
   // Wait for workspace dropdown to fully close before interacting with header buttons
   await expect(page.getByText(/คลังโครงการ|Workspace Library/i)).toBeHidden({ timeout: 5_000 });
   if (language === 'en') {
-    const langToggle = currentHeader.getByTitle('Toggle Language', { exact: true });
+    const langToggle = page.getByRole('button', { name: /^EN$/ });
     await expect(langToggle).toBeVisible({ timeout: 10_000 });
     await langToggle.click();
   }
@@ -60,7 +60,8 @@ test('enables the opt-in Workstation and switches functional presets', async ({ 
   await expect(page.getByText(/Waiting for input|รอเลือกข้อมูล/i)).toBeVisible();
   await page.getByRole('button', { name: /Review|ทบทวน/i }).first().click();
   await expect(page.getByRole('tab', { name: /ตารางเหตุการณ์|Events Table/i })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByText(/Workstation Beta/i).first()).toBeVisible();
+  await expect(page.getByRole('navigation', { name: /Workstation modes/i })
+    .getByRole('button', { name: /Review|ทบทวน/i })).toHaveAttribute('aria-current', 'page');
 });
 
 test('shows the Inspector empty, incomplete, and valid states in both languages', async ({ page }) => {

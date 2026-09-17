@@ -9,6 +9,7 @@ import {
   resetVolleyballActionForSkill,
   type VolleyballPathCaptureStage,
 } from '../volleyball/volleyballActionContext';
+import { resolveSportEvent } from '../sports/rules/registry';
 
 export type InputHistoryItem = 
   | { 
@@ -83,7 +84,7 @@ interface ScoutContextType {
   skipVolleyballTarget: () => void;
   setVolleyballSystemContext: (context?: 'in_system' | 'out_of_system') => void;
   hudLastSavedAt: number;
-  updateActionField: (field: keyof Action, value: any, descriptorGroupId?: string) => void;
+  updateActionField: (field: keyof Action, value: unknown, descriptorGroupId?: string) => void;
   updateActionPatch: (patch: Partial<Action>) => void;
   selectFoul: (foul?: import('../types').FoulOption) => void;
   clearFoul: () => void;
@@ -95,6 +96,11 @@ interface ScoutContextType {
   canRedoEventAction: boolean;
   undoEventAction: () => void;
   redoEventAction: () => void;
+  editingEvent: EventRow | null;
+  setEditingEvent: React.Dispatch<React.SetStateAction<EventRow | null>>;
+  quickBookmarkCurrentMoment: (targetVideoTime?: number) => void;
+  editLastEvent: () => void;
+  undoLastSavedEvent: () => void;
 }
 
 const ScoutContext = createContext<ScoutContextType | undefined>(undefined);
@@ -424,7 +430,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     });
   }, [matchInfo.sportType]);
 
-  const updateActionField = useCallback((field: keyof Action, value: any, descriptorGroupId?: string) => {
+  const updateActionField = useCallback((field: keyof Action, value: unknown, descriptorGroupId?: string) => {
     setCurrentAction(prevAction => {
       const isSame = descriptorGroupId 
         ? prevAction.descriptors?.[descriptorGroupId] === value 
@@ -444,7 +450,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
         if (isSame) {
           delete next.descriptors[descriptorGroupId];
         } else {
-          next.descriptors[descriptorGroupId] = value;
+          next.descriptors[descriptorGroupId] = String(value);
         }
       } else {
         (next as Record<string, unknown>)[field] = nextValue;
@@ -926,15 +932,37 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     const clipStartTime = previewStartTime;
     const clipEndTime = previewEndTime;
 
+    // Resolve sport-specific scoring and semantics
+    const eventResolution = resolveSportEvent(
+      finalActions,
+      {
+        sportType: matchInfo.sportType,
+        teamCodes: [teams[0]?.code || 'A', teams[1]?.code || 'B'],
+        activeTeamCode: finalActions[0]?.teamCode,
+      }
+    );
+
+    const populatedActions = finalActions.map((action, idx) => {
+      const actRes = eventResolution.actionResolutions[idx];
+      return {
+        ...action,
+        outcomeStatus: actRes?.outcomeStatus ?? action.outcomeStatus,
+        scoreDelta: actRes?.scoreDelta ?? action.scoreDelta,
+      };
+    });
+
     const newRow: EventRow = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       no: events.length + 1,
       point: matchInfo.currentPoint,
-      actions: finalActions,
+      actions: populatedActions,
       eventText,
       thaiMeaningText,
       extendedEventText,
       resultText,
+      scoreDelta: eventResolution.scoreDelta,
+      outcomeStatus: eventResolution.outcomeStatus,
+      rallyId: `rally-${matchInfo.currentPoint}`,
       videoTime: sequenceStartTime,
       sequenceStartTime,
       sequenceEndTime,
@@ -1061,6 +1089,87 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     );
   }, [saveEventsWithHistory]);
 
+  const [editingEvent, setEditingEvent] = useState<EventRow | null>(null);
+
+  const quickBookmarkCurrentMoment = useCallback((targetVideoTime?: number) => {
+    const time = typeof targetVideoTime === 'number' ? targetVideoTime : getCurrentTimeRef.current();
+    if (events.length === 0) {
+      const newEvent: EventRow = {
+        id: `km-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        no: 1,
+        point: 0,
+        resultText: '0',
+        videoTime: time,
+        isBookmarked: true,
+        eventText: 'Key Moment',
+        thaiMeaningText: 'เหตุการณ์สำคัญ',
+        actions: [],
+        createdAt: new Date().toISOString(),
+      };
+      saveEventsWithHistory([newEvent]);
+      showToast(settings.uiLanguage === 'th' ? 'บันทึกเป็นเหตุการณ์สำคัญแล้ว' : 'Saved to Key Moments');
+      return;
+    }
+
+    let targetEvent: EventRow | null = null;
+    let minDiff = 3.0;
+    for (const ev of events) {
+      if (typeof ev.videoTime === 'number') {
+        const diff = Math.abs(ev.videoTime - time);
+        if (diff < minDiff) {
+          minDiff = diff;
+          targetEvent = ev;
+        }
+      }
+    }
+    if (!targetEvent) {
+      targetEvent = events[events.length - 1];
+    }
+
+    toggleEventBookmark(targetEvent.id);
+    const willBeBookmarked = !targetEvent.isBookmarked;
+    showToast(
+      willBeBookmarked
+        ? (settings.uiLanguage === 'th' ? `บันทึกเป็นเหตุการณ์สำคัญแล้ว (#${targetEvent.no})` : `Saved to Key Moments (#${targetEvent.no})`)
+        : (settings.uiLanguage === 'th' ? `นำออกจากเหตุการณ์สำคัญแล้ว (#${targetEvent.no})` : `Removed from Key Moments (#${targetEvent.no})`)
+    );
+  }, [events, saveEventsWithHistory, toggleEventBookmark, settings.uiLanguage, showToast, getCurrentTimeRef]);
+
+  const editLastEvent = useCallback(() => {
+    if (events.length === 0) {
+      showToast(settings.uiLanguage === 'th' ? 'ยังไม่มีเหตุการณ์สำหรับแก้ไข' : 'No event available to edit');
+      return;
+    }
+    const last = events[events.length - 1];
+    setEditingEvent(last);
+  }, [events, showToast, settings.uiLanguage]);
+
+  const undoLastSavedEvent = useCallback(() => {
+    if (currentActions.length > 0 || Object.keys(currentAction).length > 0) {
+      undoLastAction();
+      return;
+    }
+    if (canUndoEventAction) {
+      undoEventAction();
+      showToast(settings.uiLanguage === 'th' ? 'ยกเลิกเหตุการณ์ล่าสุดแล้ว' : 'Undid last event');
+      return;
+    }
+    if (events.length > 0) {
+      const removed = events[events.length - 1];
+      saveEventsWithHistory(prev => prev.slice(0, -1));
+      showToast(settings.uiLanguage === 'th' ? `ยกเลิกเหตุการณ์ล่าสุดแล้ว (#${removed.no})` : `Undid last event (#${removed.no})`);
+    }
+  }, [currentActions.length, currentAction, undoLastAction, canUndoEventAction, undoEventAction, events, saveEventsWithHistory, showToast, settings.uiLanguage]);
+
+  useEffect(() => {
+    const handleQuickBookmarkEvent = (e: Event) => {
+      const custom = e as CustomEvent<{ time?: number }>;
+      quickBookmarkCurrentMoment(custom.detail?.time);
+    };
+    window.addEventListener('scout-quick-bookmark', handleQuickBookmarkEvent);
+    return () => window.removeEventListener('scout-quick-bookmark', handleQuickBookmarkEvent);
+  }, [quickBookmarkCurrentMoment]);
+
   const changeSportType = useCallback((newSport: SportType, force: boolean = false) => {
     const isThai = settings.uiLanguage === 'th';
     if (events.length > 0 && !force) {
@@ -1129,7 +1238,8 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       toastMessage, showToast,
       hudLastSavedText, hudLastSavedAt, updateActionField, updateActionPatch, selectFoul, clearFoul, commitSkillSelection, selectArea,
       volleyballPathStage, setVolleyballPathStage, skipVolleyballTarget, setVolleyballSystemContext, commitResult,
-      canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction
+      canUndoEventAction, canRedoEventAction, undoEventAction, redoEventAction,
+      editingEvent, setEditingEvent, quickBookmarkCurrentMoment, editLastEvent, undoLastSavedEvent
     }}>
       {children}
     </ScoutContext.Provider>

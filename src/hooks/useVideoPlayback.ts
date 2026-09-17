@@ -440,6 +440,9 @@ export function useVideoPlayback({
         setSpeedSafe(Math.min(2, playbackRate + 0.25));
       } else if (e.key === "0") {
         setSpeedSafe(1);
+      } else if ((e.code === "KeyB" || e.code === "KeyK") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("scout-quick-bookmark", { detail: { time: getCurrentTimeRef.current() } }));
       }
     };
     window.addEventListener("keydown", handleKeyDown);

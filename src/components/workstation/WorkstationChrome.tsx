@@ -44,6 +44,9 @@ export type Language = 'th' | 'en';
 export type WorkstationLeftTool =
   | 'select'
   | 'scout'
+  | 'annotate'
+  | 'court'
+  | 'clips'
   | 'draw'
   | 'zone'
   | 'track'
@@ -58,10 +61,11 @@ const PRESETS: Array<{
   icon: typeof Gamepad2;
   label: Record<Language, string>;
 }> = [
-  { id: 'scout', icon: Gamepad2, label: { th: 'Scout (บันทึก)', en: 'Scout' } },
-  { id: 'review', icon: Table2, label: { th: 'Review (ทบทวน)', en: 'Review' } },
-  { id: 'analysis', icon: BarChart3, label: { th: 'Analysis (สถิติ)', en: 'Analysis' } },
-  { id: 'report', icon: FileText, label: { th: 'Report (รายงาน)', en: 'Report' } },
+  { id: 'scout', icon: Gamepad2, label: { th: 'Scout', en: 'Scout' } },
+  { id: 'review', icon: Table2, label: { th: 'Review', en: 'Review' } },
+  { id: 'analysis', icon: BarChart3, label: { th: 'Analyze', en: 'Analyze' } },
+  { id: 'report', icon: FileText, label: { th: 'Report', en: 'Report' } },
+  { id: 'lab', icon: Activity, label: { th: 'Labs', en: 'Labs' } },
 ];
 
 export interface ToolItem {
@@ -74,15 +78,10 @@ export interface ToolItem {
 
 export const WORKSTATION_LEFT_TOOLS: ToolItem[] = [
   { id: 'select', icon: MousePointer2, labelTh: 'เลือก / พอยน์เตอร์', labelEn: 'Select', shortcut: 'V' },
-  { id: 'scout', icon: Crosshair, labelTh: 'บันทึกสถิติสด', labelEn: 'Scout', shortcut: 'S' },
-  { id: 'draw', icon: Pencil, labelTh: 'วาดแผนภาพ Telestration', labelEn: 'Draw', shortcut: 'D' },
-  { id: 'zone', icon: Grid, labelTh: 'พิกัดโซนสนาม / Calibrate', labelEn: 'Zone', shortcut: 'Z' },
-  { id: 'track', icon: Activity, labelTh: 'ติดตามการเคลื่อนที่', labelEn: 'Track', shortcut: 'M' },
-  { id: 'measure', icon: Ruler, labelTh: 'วัดระยะทาง / มุม', labelEn: 'Measure', shortcut: 'R' },
-  { id: 'text', icon: Type, labelTh: 'บันทึกข้อความแท็กติก', labelEn: 'Text', shortcut: 'T' },
-  { id: 'playlist', icon: ListVideo, labelTh: 'ชุดคลิปสำคัญ', labelEn: 'Playlist', shortcut: 'P' },
-  { id: 'camera', icon: Video, labelTh: 'สลับมุมกล้อง / ซูม', labelEn: 'Camera', shortcut: 'C' },
-  { id: 'reports', icon: FileText, labelTh: 'รายงาน 5Ws เต็มจอ', labelEn: 'Reports', shortcut: 'F' },
+  { id: 'scout', icon: Crosshair, labelTh: 'บันทึกสถิติ', labelEn: 'Scout', shortcut: 'S' },
+  { id: 'annotate', icon: Pencil, labelTh: 'วาด Telestration / คำอธิบาย', labelEn: 'Annotate', shortcut: 'A' },
+  { id: 'court', icon: Grid, labelTh: 'โซนสนาม / Calibrate', labelEn: 'Court', shortcut: 'C' },
+  { id: 'clips', icon: ListVideo, labelTh: 'คลิปและช่วงสำคัญ (Key Moments)', labelEn: 'Clips', shortcut: 'K' },
 ];
 
 /* -------------------------------------------------------------------------- */

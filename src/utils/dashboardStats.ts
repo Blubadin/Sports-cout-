@@ -2,6 +2,7 @@ import { EventRow, SportType, Team } from '../types';
 import { OUT_ZONE_LABELS, DETAILED_ZONE_LABELS } from '../sports';
 import { isAttackingSkill, isDefensiveSkill } from './scoutData';
 import { buildAnalyticsSummary } from './analyticsEngine';
+import { getSportRuleEngine } from '../sports/rules/registry';
 
 export function calculateDashboardStats(
   events: EventRow[],
@@ -93,37 +94,84 @@ export function calculateDashboardStats(
       }
     }
 
-    if (lastTeam) {
+    const effectiveSport = e.sportType || (filterSport !== 'ALL' ? filterSport : undefined);
+    if (effectiveSport) {
+      const ruleEngine = getSportRuleEngine(effectiveSport);
+      const actions = (e.actions && e.actions.length > 0) ? e.actions : [
+        {
+          id: e.id,
+          teamCode: lastTeam,
+          skillCode: e.eventText?.split(' / ')[1] || 'ACT',
+          resultCode: e.resultText === '+1' ? 'Yes' : e.resultText === '-1' ? 'Out' : 'Pass',
+        }
+      ];
+      const eventRes = ruleEngine.resolveEvent(
+        actions,
+        {
+          sportType: effectiveSport,
+          teamCodes: [teamA || 'A', teamB || 'B'],
+          activeTeamCode: lastTeam || teamA,
+        },
+        e
+      );
+      const deltaA = eventRes.teamScoreDeltas[teamA || 'A'] ?? 0;
+      const deltaB = eventRes.teamScoreDeltas[teamB || 'B'] ?? 0;
+      teamAScore += deltaA;
+      teamBScore += deltaB;
+
+      if (deltaA > 0) {
+        if (eventRes.outcomeStatus === 'success') {
+          teamAEarned += deltaA;
+          teamBOpponentEarned += deltaA;
+        } else {
+          teamBErrors += deltaA;
+          teamAErrorPoints += deltaA;
+        }
+      }
+      if (deltaB > 0) {
+        if (eventRes.outcomeStatus === 'success') {
+          teamBEarned += deltaB;
+          teamAOpponentEarned += deltaB;
+        } else {
+          teamAErrors += deltaB;
+          teamBErrorPoints += deltaB;
+        }
+      }
+    } else {
       if (lastTeam === teamA) {
-        teamATotalEvents++;
         if (e.resultText === '+1') {
           teamAScore++;
-          teamAYes++;
           teamAEarned++;
           teamBOpponentEarned++;
         } else if (e.resultText === '-1') {
           teamBScore++;
-          teamAOut++;
           teamAErrors++;
           teamBErrorPoints++;
-        } else {
-          teamAPass++;
         }
       } else if (lastTeam === teamB) {
-        teamBTotalEvents++;
         if (e.resultText === '+1') {
           teamBScore++;
-          teamBYes++;
           teamBEarned++;
           teamAOpponentEarned++;
         } else if (e.resultText === '-1') {
           teamAScore++;
-          teamBOut++;
           teamBErrors++;
           teamAErrorPoints++;
-        } else {
-          teamBPass++;
         }
+      }
+    }
+
+    if (lastTeam) {
+      if (lastTeam === teamA) {
+        teamATotalEvents++;
+        if (e.resultText === '+1') teamAYes++;
+        else if (e.resultText === '-1') teamAOut++;
+        else teamAPass++;
+      } else if (lastTeam === teamB) {
+        teamBTotalEvents++;
+        if (e.resultText === '+1') teamBYes++;
+        else if (e.resultText === '-1') teamBOut++;
+        else teamBPass++;
       }
     }
     
@@ -313,8 +361,8 @@ export function calculateDashboardStats(
     yes: analyticsSummary.eventResultCounts.Yes,
     out: analyticsSummary.eventResultCounts.Out,
     pass: analyticsSummary.eventResultCounts.Pass,
-    teamAScore: analyticsSummary.derivedOutcomePoints.byTeam[teamA || ''] ?? teamAScore,
-    teamBScore: analyticsSummary.derivedOutcomePoints.byTeam[teamB || ''] ?? teamBScore,
+    teamAScore: teamAScore,
+    teamBScore: teamBScore,
     teamCounts: analyticsSummary.teamCounts,
     skillCounts,
     areaCounts: analyticsSummary.areaCounts,

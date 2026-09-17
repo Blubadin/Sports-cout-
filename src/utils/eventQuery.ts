@@ -25,6 +25,23 @@ export interface EventQuery {
   sortDirection: SortDirection;
 }
 
+export const INITIAL_EVENT_QUERY: EventQuery = {
+  search: '',
+  team: '',
+  skill: '',
+  result: '',
+  resultDetail: '',
+  foul: '',
+  area: '',
+  startArea: '',
+  targetArea: '',
+  systemContext: '',
+  bookmark: 'all',
+  player: '',
+  sortBy: 'videoTime',
+  sortDirection: 'asc',
+};
+
 export interface EventQueryOptions {
   teams: string[];
   skills: string[];
@@ -184,4 +201,34 @@ export function getEventQueryOptions(events: EventRow[]): EventQueryOptions {
     systemContexts: sortedUnique(actions.map(action => action.domainPayload?.type === 'volleyball' ? action.domainPayload.systemContext : undefined)),
     players: sortedUnique(actions.map(actionPlayerLabel)),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Query Cache (Phase 14: Memoized Selectors & Query Cache)
+// ---------------------------------------------------------------------------
+type QueryCacheEntry = {
+  eventsRef: EventRow[];
+  queryKey: string;
+  result: EventRow[];
+};
+
+const queryCache = new Map<string, QueryCacheEntry>();
+
+export function getCachedEventQuery(events: EventRow[], query: EventQuery): EventRow[] {
+  const queryKey = JSON.stringify(query);
+  const cached = queryCache.get(queryKey);
+  if (cached && cached.eventsRef === events) {
+    return cached.result;
+  }
+  const result = applyEventQuery(events, query);
+  if (queryCache.size >= 50) {
+    const firstKey = queryCache.keys().next().value;
+    if (firstKey) queryCache.delete(firstKey);
+  }
+  queryCache.set(queryKey, { eventsRef: events, queryKey, result });
+  return result;
+}
+
+export function clearEventQueryCache(): void {
+  queryCache.clear();
 }

@@ -21,6 +21,14 @@ import SportSpecificKPIs from './charts/SportSpecificKPIs';
 import { buildVolleyballPyramidSummary } from '../volleyball/volleyballPyramid';
 import VolleyballPyramidPanel from './VolleyballPyramidPanel';
 import FullCoachReport from './report/FullCoachReport';
+import {
+  listTrackingAnalyses,
+  getTrackingSampleChunks,
+  type TrackingAnalysis,
+  type TrackingSampleChunk,
+} from '../services/storage/trackingStorage';
+import BadmintonMovementDashboard from './analytics/BadmintonMovementDashboard';
+import { useWorkspace } from '../context/WorkspaceContext';
 
 interface DashboardProps {
   variant?: 'classic' | 'workstation' | 'report';
@@ -28,6 +36,23 @@ interface DashboardProps {
 
 export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) {
   const { events, matchInfo, changeSportType, teams, setSeekRequest, setPreviewState, settings, sportTemplate } = useScoutContext();
+  const { activeProjectId } = useWorkspace();
+  const [analyticsView, setAnalyticsView] = useState<'events' | 'movement'>('events');
+  const [trackingAnalysis, setTrackingAnalysis] = useState<TrackingAnalysis | null>(null);
+  const [trackingChunks, setTrackingChunks] = useState<TrackingSampleChunk[]>([]);
+
+  React.useEffect(() => {
+    if (!activeProjectId) return;
+    listTrackingAnalyses(activeProjectId).then(async (analyses) => {
+      if (analyses.length > 0) {
+        const latest = analyses[analyses.length - 1];
+        setTrackingAnalysis(latest);
+        const chunks = await getTrackingSampleChunks(latest.id);
+        setTrackingChunks(chunks);
+      }
+    });
+  }, [activeProjectId]);
+
   const [filterSport, setFilterSport] = useState<SportType | 'ALL'>('ALL');
   const [mapMode, setMapMode] = useState<'heatmap' | 'sequence' | 'result'>('heatmap');
   const [selectedEventId, setSelectedEventId] = useState<string | undefined>();
@@ -451,8 +476,15 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
   const renderFieldMap = () => (
     <>
       <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl lg:col-span-3 flex flex-col items-center">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full mb-4 gap-2">
-              <h3 className="text-xs font-bold text-gray-500 uppercase">{t('dashboard.fieldMap', settings.uiLanguage)}</h3>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full mb-4 gap-2">
+          <div className="flex flex-col">
+            <h3 className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase">
+              {t('dashboard.fieldMap', settings.uiLanguage)} — Event Map
+            </h3>
+            <span className="text-[10px] text-gray-400 font-medium">
+              Source: Manual Scouting Actions (Not player movement tracking)
+            </span>
+          </div>
               <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
                 {mapMode === 'sequence' && (() => {
                   const eventOptions = events
@@ -760,55 +792,106 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
       </div>
 
       
-      {matchInfo.sportType === 'volleyball' && <VolleyballPyramidPanel summary={volleyballPyramidSummary} language={settings.uiLanguage} />}
-      {variant === 'workstation' ? (
-        <>
-          {renderAtAGlance()}
-          {stats.total > 0 && (
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                {renderPointsBreakdown()}
-             </div>
-          )}
-          {renderDataQuality()}
-          {stats.total > 0 ? (
-            <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading charts...</div>}>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {renderFieldMap()}
-              </div>
-              {renderCharts()}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-                {renderTeamComparison()}
-                {renderFouls()}
-              </div>
-            </Suspense>
-          ) : (
-            <div className="p-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl mb-8 mt-4">
-              <p className="text-gray-500 dark:text-gray-400 font-medium">
-                {t('dashboard.noEvents', settings.uiLanguage)}
-              </p>
-            </div>
-          )}
-        </>
+      {/* Analytics Mode Switcher: Events vs Player Movement Tracking (PDF §76-79) */}
+      <div className="flex items-center gap-2 mb-4">
+        <button
+          type="button"
+          onClick={() => setAnalyticsView('events')}
+          className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+            analyticsView === 'events'
+              ? 'bg-sky-600 text-white shadow-sm'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+          }`}
+        >
+          📊 {settings.uiLanguage === 'th' ? 'การวิเคราะห์เหตุการณ์ (Events Analytics)' : 'Scouting Events Analytics'}
+        </button>
+
+        {(matchInfo.sportType === 'badminton' || trackingAnalysis) && (
+          <button
+            type="button"
+            onClick={() => setAnalyticsView('movement')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+              analyticsView === 'movement'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+            }`}
+          >
+            🏸 {settings.uiLanguage === 'th' ? 'การวิเคราะห์การเคลื่อนที่ (Movement Tracking)' : 'Player Movement Tracking'}
+          </button>
+        )}
+      </div>
+
+      {analyticsView === 'movement' ? (
+        trackingAnalysis ? (
+          <div className="mb-6">
+            <BadmintonMovementDashboard
+              analysis={trackingAnalysis}
+              chunks={trackingChunks}
+              onSeekTime={setSeekRequest}
+            />
+          </div>
+        ) : (
+          <div className="p-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl mb-8 mt-4">
+            <p className="text-gray-500 dark:text-gray-400 font-medium">
+              {settings.uiLanguage === 'th'
+                ? 'ยังไม่มีข้อมูลการวิเคราะห์การเคลื่อนที่ (Optical Tracking) สำหรับแมตช์นี้ สามารถเริ่มการติดตามได้ที่แท็บ LABS'
+                : 'No optical tracking analysis recorded for this match yet. Run tracking in the LABS tab to generate movement data.'}
+            </p>
+          </div>
+        )
       ) : (
         <>
-          {renderDataQuality()}
-          {renderAtAGlance()}
-          {stats.total > 0 ? (
-            <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading charts...</div>}>
-              {renderCharts()}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-                {renderPointsBreakdown()}
-                {renderTeamComparison()}
-                {renderFouls()}
-                {renderFieldMap()}
-              </div>
-            </Suspense>
+          {matchInfo.sportType === 'volleyball' && <VolleyballPyramidPanel summary={volleyballPyramidSummary} language={settings.uiLanguage} />}
+          {variant === 'workstation' ? (
+            <>
+              {renderAtAGlance()}
+              {stats.total > 0 && (
+                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                    {renderPointsBreakdown()}
+                 </div>
+              )}
+              {renderDataQuality()}
+              {stats.total > 0 ? (
+                <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading charts...</div>}>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {renderFieldMap()}
+                  </div>
+                  {renderCharts()}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+                    {renderTeamComparison()}
+                    {renderFouls()}
+                  </div>
+                </Suspense>
+              ) : (
+                <div className="p-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl mb-8 mt-4">
+                  <p className="text-gray-500 dark:text-gray-400 font-medium">
+                    {t('dashboard.noEvents', settings.uiLanguage)}
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
-            <div className="p-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl mb-8 mt-4">
-              <p className="text-gray-500 dark:text-gray-400 font-medium">
-                {t('dashboard.noEvents', settings.uiLanguage)}
-              </p>
-            </div>
+            <>
+              {renderDataQuality()}
+              {renderAtAGlance()}
+              {stats.total > 0 ? (
+                <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading charts...</div>}>
+                  {renderCharts()}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+                    {renderPointsBreakdown()}
+                    {renderTeamComparison()}
+                    {renderFouls()}
+                    {renderFieldMap()}
+                  </div>
+                </Suspense>
+              ) : (
+                <div className="p-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl mb-8 mt-4">
+                  <p className="text-gray-500 dark:text-gray-400 font-medium">
+                    {t('dashboard.noEvents', settings.uiLanguage)}
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

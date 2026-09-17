@@ -7,10 +7,11 @@ from __future__ import annotations
 import numpy as np
 import cv2
 from scipy.ndimage import gaussian_filter
+from court_mapper import COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M, COURT_WIDTH_SINGLES_M
 
-COURT_L = 13.40
-COURT_W_DOUBLES = 6.71
-COURT_W_SINGLES = 6.10
+COURT_L = COURT_LENGTH_M
+COURT_W_DOUBLES = COURT_WIDTH_DOUBLES_M
+COURT_W_SINGLES = COURT_WIDTH_SINGLES_M
 
 
 class HeatmapGenerator:

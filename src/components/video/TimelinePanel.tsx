@@ -1,17 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { EventRow } from '../../types';
+import { EventRow, AISuggestion } from '../../types';
 import { formatPreciseTime } from '../../utils';
 import {
   Play,
   Pause,
-  Filter,
   ZoomIn,
   ZoomOut,
   RotateCcw,
   Edit3,
-  Trash2,
   Bookmark,
   ChevronRight,
   ChevronDown,
@@ -20,14 +18,22 @@ import {
   StepBack,
   StepForward,
   Repeat,
-  Sliders,
   Palette,
-  Eye,
-  Settings2,
   Clock,
   Sparkles,
+  Crosshair,
+  Layers,
+  Video,
+  X,
+  Compass,
+  Check,
 } from 'lucide-react';
 import EditEventModal from '../EditEventModal';
+import {
+  calculateVisibleTimeRange,
+  filterItemsInVisibleTimeRange,
+  type ViewportTimeRange,
+} from '../../utils/timelineOptimization';
 
 interface TimelinePanelProps {
   currentTime: number;
@@ -69,13 +75,14 @@ export default function TimelinePanel({
 }: TimelinePanelProps) {
   const scoutCtx = (useScoutContext() || {}) as any;
   const { activeProjectId, projects } = useWorkspace();
-  const activeProject = projects.find(project => project.id === activeProjectId);
+  const activeProject = projects.find((project) => project.id === activeProjectId);
   const projectAnnotations = activeProject?.videoMeta?.annotations || [];
+  const aiSuggestions: AISuggestion[] = (activeProject?.videoMeta as any)?.aiSuggestions || [];
+  const hasAISuggestions = aiSuggestions.length > 0;
 
   const events: EventRow[] = scoutCtx.events || [];
   const teams = scoutCtx.teams || [];
   const updateEventRow = scoutCtx.updateEventRow || (() => {});
-  const deleteEvent = scoutCtx.deleteEvent || (() => {});
   const settings = scoutCtx.settings || {};
   const showToast = scoutCtx.showToast || (() => {});
   const isThai = settings?.uiLanguage === 'th';
@@ -84,12 +91,21 @@ export default function TimelinePanel({
   const [resultFilter, setResultFilter] = useState<'all' | '+1' | '-1' | '0'>('all');
   const [isLooping, setIsLooping] = useState(false);
 
-  // Track collapse states
+  // Zoom & Viewport Follow State
+  const [zoomLevel, setZoomLevel] = useState<number>(1); // 1x, 1.5x, 2x, 3x, 4x
+  const [followPlayhead, setFollowPlayhead] = useState(false);
+
+  // Time Selection (Shift+Drag to select range, and loop selection)
+  const [timeSelection, setTimeSelection] = useState<{ start: number; end: number } | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+
+  // Track collapse states for 5 standard lanes
   const [expandedTracks, setExpandedTracks] = useState<Record<string, boolean>>({
-    teamA: true,
-    teamB: true,
+    video: true,
+    sequence: true,
+    events: true,
     keyMoments: true,
-    annotations: true,
+    aiSuggestions: true,
   });
 
   // Custom Color Overrides by eventId
@@ -108,11 +124,55 @@ export default function TimelinePanel({
   } | null>(null);
   const [hoveredEvent, setHoveredEvent] = useState<EventRow | null>(null);
   const [editingModalEvent, setEditingModalEvent] = useState<EventRow | null>(null);
-  const [zoomLevel, setZoomLevel] = useState<number>(1); // 1x to 4x zoom
+
+  // AI Suggestion Lane Human-in-the-Loop review (PDF §92-94)
+  const [selectedAISuggestion, setSelectedAISuggestion] = useState<AISuggestion | null>(null);
+  const [suggestionSkillCode, setSuggestionSkillCode] = useState<string>('SMH');
+
+  const handleAcceptAISuggestion = (sug: AISuggestion, overrideSkill?: string) => {
+    const skill = overrideSkill || suggestionSkillCode || sug.skillCode || 'SMH';
+    const newEvent: EventRow = {
+      id: `ai_event_${Date.now()}`,
+      no: events.length > 0 ? Math.max(...events.map((e) => e.no)) + 1 : 1,
+      point: events.length > 0 ? Math.max(...events.map((e) => e.point)) + 1 : 1,
+      videoTime: sug.time,
+      sportType: 'badminton',
+      eventText: `${skill} (AI Suggestion)`,
+      actions: [
+        {
+          id: `act_${Date.now()}`,
+          teamCode: sug.teamCode || team1.code || 'teamA',
+          skillCode: skill,
+          resultCode: 'Yes',
+          playerName: sug.playerId || 'P1',
+          videoTime: sug.time,
+        },
+      ],
+      resultText: '+1',
+      createdAt: new Date().toISOString(),
+    };
+
+    if (scoutCtx.addEvent) {
+      scoutCtx.addEvent(newEvent);
+    } else if (updateEventRow) {
+      updateEventRow(newEvent);
+    }
+
+    showToast(isThai ? `ยอมรับข้อเสนอ AI: ${skill}` : `Accepted AI Suggestion: ${skill}`);
+    setSelectedAISuggestion(null);
+  };
+
+  const handleRejectAISuggestion = (sug: AISuggestion) => {
+    // Record feedback for future model evaluation (PDF §93)
+    console.log('[AI Feedback] Rejected suggestion:', sug);
+    showToast(isThai ? 'ปฏิเสธข้อเสนอ AI' : 'Rejected AI Suggestion');
+    setSelectedAISuggestion(null);
+  };
 
   // Local video thumbnail cache
   const [thumbnails, setThumbnails] = useState<{ time: number; dataUrl: string }[]>([]);
-  const trackRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const trackCanvasRef = useRef<HTMLDivElement>(null);
 
   const team1 = teams?.[0] || { id: 't1', code: 'T1', name: 'Team 1' };
   const team2 = teams?.[1] || { id: 't2', code: 'T2', name: 'Team 2' };
@@ -123,6 +183,31 @@ export default function TimelinePanel({
   const toggleTrack = (trackKey: string) => {
     setExpandedTracks((prev) => ({ ...prev, [trackKey]: !prev[trackKey] }));
   };
+
+  // Loop Selection or End of Video Check
+  useEffect(() => {
+    if (!isLooping || !isPlaying) return;
+
+    if (timeSelection) {
+      const minT = Math.min(timeSelection.start, timeSelection.end);
+      const maxT = Math.max(timeSelection.start, timeSelection.end);
+      if (currentTime >= maxT || currentTime < minT - 0.5) {
+        onSeek(minT);
+      }
+    } else if (safeDuration > 0 && currentTime >= safeDuration - 0.1) {
+      onSeek(0);
+    }
+  }, [isLooping, isPlaying, currentTime, timeSelection, safeDuration, onSeek]);
+
+  // Viewport Follow Playhead
+  useEffect(() => {
+    if (!followPlayhead || zoomLevel <= 1 || !scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    const playheadRatio = safeDuration > 0 ? currentTime / safeDuration : 0;
+    const playheadPx = playheadRatio * container.scrollWidth;
+    const targetScrollLeft = playheadPx - container.clientWidth / 2;
+    container.scrollLeft = Math.max(0, targetScrollLeft);
+  }, [currentTime, followPlayhead, safeDuration, zoomLevel]);
 
   // Generate async thumbnails for local video
   useEffect(() => {
@@ -193,7 +278,7 @@ export default function TimelinePanel({
     return events.filter((ev) => {
       if (typeof ev.videoTime !== 'number' || ev.videoTime < 0) return false;
 
-      const teamId = ev.actions?.[0]?.teamId || (ev.point % 2 === 1 ? 't1' : 't2');
+      const teamId = ev.actions?.[0]?.teamCode || (ev.point % 2 === 1 ? 't1' : 't2');
       if (teamFilter !== 'all' && teamId !== teamFilter) return false;
       if (resultFilter !== 'all' && ev.resultText !== resultFilter) return false;
 
@@ -201,24 +286,106 @@ export default function TimelinePanel({
     });
   }, [events, teamFilter, resultFilter]);
 
-  // Split into Team A, Team B, and Key Moments
-  const teamAEvents = useMemo(() => {
-    return filteredEvents.filter((ev) => {
-      const tid = ev.actions?.[0]?.teamId;
-      return tid === 't1' || tid === team1.id || (!tid && ev.resultText === '+1');
-    });
-  }, [filteredEvents, team1.id]);
-
-  const teamBEvents = useMemo(() => {
-    return filteredEvents.filter((ev) => {
-      const tid = ev.actions?.[0]?.teamId;
-      return tid === 't2' || tid === team2.id || (!tid && ev.resultText === '-1');
-    });
-  }, [filteredEvents, team2.id]);
-
+  // Key moments
   const keyMomentEvents = useMemo(() => {
-    return filteredEvents.filter((ev) => ev.isStarred || ev.resultText === '+1' || ev.resultText === '-1');
+    return filteredEvents.filter((ev) => ev.isBookmarked || ev.resultText === '+1' || ev.resultText === '-1');
   }, [filteredEvents]);
+
+  // Viewport visible time range (Phase 14: Visible Viewport Range Windowing)
+  const [viewportRange, setViewportRange] = useState<ViewportTimeRange | null>(null);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || zoomLevel <= 1) {
+      setViewportRange(null);
+      return;
+    }
+
+    const updateRange = () => {
+      if (!container) return;
+      const range = calculateVisibleTimeRange(
+        container.scrollLeft,
+        container.clientWidth,
+        container.scrollWidth,
+        safeDuration,
+        0.25,
+      );
+      setViewportRange(range);
+    };
+
+    updateRange();
+    container.addEventListener('scroll', updateRange, { passive: true });
+    window.addEventListener('resize', updateRange, { passive: true });
+    return () => {
+      container.removeEventListener('scroll', updateRange);
+      window.removeEventListener('resize', updateRange);
+    };
+  }, [zoomLevel, safeDuration]);
+
+  // Visible events for rendering performance (Phase 14)
+  const eventsInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      filteredEvents,
+      (ev) => {
+        const start = ev.sequenceStartTime ?? ev.videoTime ?? 0;
+        const end = ev.sequenceEndTime && ev.sequenceEndTime > start
+          ? ev.sequenceEndTime
+          : ev.duration && ev.duration > 0
+          ? start + ev.duration
+          : start + 3;
+        return { start, end };
+      },
+      viewportRange,
+      (ev) => draggedEvent?.id === ev.id,
+    );
+  }, [filteredEvents, viewportRange, draggedEvent]);
+
+  const markersInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      filteredEvents,
+      (ev) => {
+        const t = ev.videoTime || 0;
+        return { start: t, end: t };
+      },
+      viewportRange,
+      (ev) => draggedEvent?.id === ev.id,
+    );
+  }, [filteredEvents, viewportRange, draggedEvent]);
+
+  const keyMomentsInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      keyMomentEvents,
+      (ev) => {
+        const t = ev.videoTime || 0;
+        return { start: t, end: t };
+      },
+      viewportRange,
+      (ev) => draggedEvent?.id === ev.id,
+    );
+  }, [keyMomentEvents, viewportRange, draggedEvent]);
+
+  const annotationsInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      projectAnnotations,
+      (shape) => {
+        const t = shape.timestamp || 0;
+        return { start: t, end: t };
+      },
+      viewportRange,
+    );
+  }, [projectAnnotations, viewportRange]);
+
+  const aiSuggestionsInVisibleRange = useMemo(() => {
+    return filterItemsInVisibleTimeRange(
+      aiSuggestions,
+      (sug) => {
+        const t = sug.time || 0;
+        const d = sug.duration || 0;
+        return { start: t, end: t + d };
+      },
+      viewportRange,
+    );
+  }, [aiSuggestions, viewportRange]);
 
   // Drag handlers for Marker / Clip
   const handleMarkerMouseDown = (e: React.MouseEvent, ev: EventRow) => {
@@ -230,46 +397,63 @@ export default function TimelinePanel({
     });
   };
 
+  // Track Mouse Down (Click to seek OR Shift+Drag to select time)
+  const handleTrackMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!trackCanvasRef.current) return;
+    const rect = trackCanvasRef.current.getBoundingClientRect();
+    const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const percent = clickX / rect.width;
+    const targetTime = Math.max(0, Math.min(percent * safeDuration, safeDuration));
+
+    if (e.shiftKey) {
+      setIsSelecting(true);
+      setTimeSelection({ start: targetTime, end: targetTime });
+    } else {
+      onSeek(targetTime);
+    }
+  };
+
   const handleTrackMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!draggedEvent || !trackRef.current) return;
-      const rect = trackRef.current.getBoundingClientRect();
+      if (!trackCanvasRef.current) return;
+      const rect = trackCanvasRef.current.getBoundingClientRect();
       const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-      const newPercent = clickX / rect.width;
-      const newTime = Math.max(0, Math.min(newPercent * safeDuration, safeDuration));
+      const percent = clickX / rect.width;
+      const hoverTime = Math.max(0, Math.min(percent * safeDuration, safeDuration));
 
-      setDraggedEvent((prev) => (prev ? { ...prev, draftTime: Number(newTime.toFixed(2)) } : null));
+      if (isSelecting && timeSelection) {
+        setTimeSelection((prev) => (prev ? { ...prev, end: hoverTime } : null));
+      } else if (draggedEvent) {
+        setDraggedEvent((prev) => (prev ? { ...prev, draftTime: Number(hoverTime.toFixed(2)) } : null));
+      }
     },
-    [draggedEvent, safeDuration]
+    [isSelecting, timeSelection, draggedEvent, safeDuration]
   );
 
   const handleTrackMouseUp = useCallback(() => {
-    if (!draggedEvent) return;
-    const targetEventId = draggedEvent.id;
-    const previousTime = draggedEvent.originalTime;
-    const finalTime = draggedEvent.draftTime;
-
-    if (Math.abs(previousTime - finalTime) > 0.05) {
-      updateEventRow(targetEventId, { videoTime: finalTime });
-
-      showToast(
-        isThai
-          ? `ปรับเวลา Event เป็น ${formatPreciseTime(finalTime)} แล้ว`
-          : `Updated event time to ${formatPreciseTime(finalTime)}`
-      );
+    if (isSelecting) {
+      setIsSelecting(false);
+      if (timeSelection && Math.abs(timeSelection.start - timeSelection.end) < 0.2) {
+        setTimeSelection(null);
+      }
     }
 
-    setDraggedEvent(null);
-  }, [draggedEvent, isThai, showToast, updateEventRow]);
+    if (draggedEvent) {
+      const targetEventId = draggedEvent.id;
+      const previousTime = draggedEvent.originalTime;
+      const finalTime = draggedEvent.draftTime;
 
-  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (draggedEvent || !trackRef.current) return;
-    const rect = trackRef.current.getBoundingClientRect();
-    const clickX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const percent = clickX / rect.width;
-    const targetTime = percent * safeDuration;
-    onSeek(targetTime);
-  };
+      if (Math.abs(previousTime - finalTime) > 0.05) {
+        updateEventRow(targetEventId, { videoTime: finalTime, sequenceStartTime: finalTime });
+        showToast(
+          isThai
+            ? `ปรับเวลา Event เป็น ${formatPreciseTime(finalTime)} แล้ว`
+            : `Updated event time to ${formatPreciseTime(finalTime)}`
+        );
+      }
+      setDraggedEvent(null);
+    }
+  }, [isSelecting, timeSelection, draggedEvent, isThai, showToast, updateEventRow]);
 
   const getMarkerColor = (ev: EventRow, defaultFallback: string) => {
     if (customColors[ev.id]) {
@@ -280,10 +464,10 @@ export default function TimelinePanel({
     return defaultFallback;
   };
 
-  // Generate ruler tick intervals (10 divisions across timeline)
+  // Generate ruler tick intervals dynamically based on zoomLevel
   const rulerTicks = useMemo(() => {
     const ticks: { time: number; label: string; pct: number }[] = [];
-    const count = 10;
+    const count = Math.round(10 * zoomLevel);
     for (let i = 0; i <= count; i++) {
       const t = (i / count) * safeDuration;
       ticks.push({
@@ -293,7 +477,44 @@ export default function TimelinePanel({
       });
     }
     return ticks;
-  }, [safeDuration]);
+  }, [safeDuration, zoomLevel]);
+
+  // Zoom handlers
+  const handleZoomIn = () => {
+    setZoomLevel((prev) => {
+      if (prev < 1.5) return 1.5;
+      if (prev < 2) return 2;
+      if (prev < 3) return 3;
+      return 4;
+    });
+  };
+
+  const handleZoomOut = () => {
+    setZoomLevel((prev) => {
+      if (prev > 3) return 3;
+      if (prev > 2) return 2;
+      if (prev > 1.5) return 1.5;
+      return 1;
+    });
+  };
+
+  const handleFit = () => {
+    setZoomLevel(1);
+    setFollowPlayhead(false);
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollLeft = 0;
+    }
+  };
+
+  // Selection boundaries for overlay
+  const selectionBounds = useMemo(() => {
+    if (!timeSelection) return null;
+    const minT = Math.min(timeSelection.start, timeSelection.end);
+    const maxT = Math.max(timeSelection.start, timeSelection.end);
+    const leftPct = (minT / safeDuration) * 100;
+    const widthPct = Math.max(0.2, ((maxT - minT) / safeDuration) * 100);
+    return { minT, maxT, leftPct, widthPct };
+  }, [timeSelection, safeDuration]);
 
   return (
     <div
@@ -301,25 +522,25 @@ export default function TimelinePanel({
       onMouseMove={handleTrackMouseMove}
       onMouseUp={handleTrackMouseUp}
     >
-      {/* 1. TOP TRANSPORT CONTROL BAR (Matching Image 3 & Image 1) */}
+      {/* 1. TOP TRANSPORT CONTROL & TIMELINE TOOLBAR */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs border-b border-[#263642] pb-2">
-        {/* Left: Tab Title & Transport Controls */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-sky-600/20 text-sky-400 border border-sky-500/40 rounded-lg font-black text-xs">
+        {/* Left: Transport Buttons */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-sky-600/20 text-sky-400 border border-sky-500/40 rounded-lg font-black text-xs shrink-0">
             <Clock size={13} />
-            <span>Timeline Track Editor</span>
+            <span>Timeline 2.0</span>
           </div>
 
           <span className="w-px h-4 bg-[#263642]" />
 
-          {/* Transport Buttons */}
-          <div className="flex items-center gap-1 bg-[#111c26] border border-[#263642] rounded-xl p-1 shadow-inner">
+          {/* Transport Controls */}
+          <div className="flex items-center gap-1 bg-[#111c26] border border-[#263642] rounded-xl p-1 shadow-inner shrink-0">
             {/* Step -1 Frame */}
             <button
               type="button"
               onClick={() => onStepFrame?.(false)}
               className="p-1.5 hover:bg-[#1f3142] text-gray-300 hover:text-white rounded-lg transition-colors cursor-pointer"
-              title={isThai ? 'ถอย 1 เฟรม (Step -1 Frame)' : 'Step Back 1 Frame'}
+              title={isThai ? 'ถอย 1 เฟรม' : 'Step Back 1 Frame'}
             >
               <StepBack size={14} />
             </button>
@@ -329,7 +550,7 @@ export default function TimelinePanel({
               type="button"
               onClick={() => onSkipSeconds?.(-3)}
               className="p-1.5 hover:bg-[#1f3142] text-gray-300 hover:text-white rounded-lg transition-colors cursor-pointer"
-              title={isThai ? 'ย้อน 3 วินาที (-3s)' : 'Skip Back 3s'}
+              title={isThai ? 'ย้อน 3 วินาที' : 'Skip Back 3s'}
             >
               <SkipBack size={14} />
             </button>
@@ -354,7 +575,7 @@ export default function TimelinePanel({
               type="button"
               onClick={() => onSkipSeconds?.(3)}
               className="p-1.5 hover:bg-[#1f3142] text-gray-300 hover:text-white rounded-lg transition-colors cursor-pointer"
-              title={isThai ? 'ไปข้างหน้า 3 วินาที (+3s)' : 'Skip Forward 3s'}
+              title={isThai ? 'ไปข้างหน้า 3 วินาที' : 'Skip Forward 3s'}
             >
               <SkipForward size={14} />
             </button>
@@ -364,7 +585,7 @@ export default function TimelinePanel({
               type="button"
               onClick={() => onStepFrame?.(true)}
               className="p-1.5 hover:bg-[#1f3142] text-gray-300 hover:text-white rounded-lg transition-colors cursor-pointer"
-              title={isThai ? 'เดินหน้า 1 เฟรม (Step +1 Frame)' : 'Step Forward 1 Frame'}
+              title={isThai ? 'เดินหน้า 1 เฟรม' : 'Step Forward 1 Frame'}
             >
               <StepForward size={14} />
             </button>
@@ -373,12 +594,15 @@ export default function TimelinePanel({
             <button
               type="button"
               onClick={() => setIsLooping(!isLooping)}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                isLooping ? 'bg-sky-600 text-white' : 'text-gray-400 hover:bg-[#1f3142] hover:text-gray-200'
+              className={`px-2 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-bold ${
+                isLooping
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-gray-400 hover:bg-[#1f3142] hover:text-gray-200'
               }`}
-              title="Loop Playback"
+              title={timeSelection ? 'Loop Selected Range' : 'Loop Entire Video'}
             >
-              <Repeat size={14} />
+              <Repeat size={13} />
+              <span>{isLooping ? (timeSelection ? 'Loop Selection' : 'Loop') : 'Loop'}</span>
             </button>
 
             {/* Speed Multiplier Dropdown */}
@@ -396,10 +620,28 @@ export default function TimelinePanel({
               </select>
             )}
           </div>
+
+          {/* Time Selection Indicator */}
+          {selectionBounds && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-sky-950/60 border border-sky-500/40 rounded-lg text-sky-300 font-mono text-[10px]">
+              <span>
+                Selection: {formatPreciseTime(selectionBounds.minT)} - {formatPreciseTime(selectionBounds.maxT)} (
+                {(selectionBounds.maxT - selectionBounds.minT).toFixed(2)}s)
+              </span>
+              <button
+                type="button"
+                onClick={() => setTimeSelection(null)}
+                className="hover:text-white p-0.5"
+                title="Clear selection"
+              >
+                <X size={11} />
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Right: Timecode Display & Filters */}
-        <div className="flex items-center gap-2">
+        {/* Right: Quick Filter, Timecode, and Real Scaling Zoom Bar */}
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Quick Filters */}
           <div className="flex bg-[#111c26] border border-[#263642] rounded-lg p-0.5 text-[10px] font-bold">
             <button
@@ -431,22 +673,58 @@ export default function TimelinePanel({
             <span className="text-gray-400">{formatPreciseTime(safeDuration)}</span>
           </div>
 
-          {/* Zoom */}
-          <div className="flex items-center gap-1 bg-[#111c26] border border-[#263642] rounded-lg p-0.5">
+          {/* Zoom & Viewport Controls (Fit, Follow, In, Out) */}
+          <div className="flex items-center gap-1 bg-[#111c26] border border-[#263642] rounded-lg p-0.5 text-[10px] font-bold">
+            {/* Fit Viewport Button */}
             <button
               type="button"
-              onClick={() => setZoomLevel((prev) => Math.max(1, prev - 0.5))}
+              onClick={handleFit}
+              className={`px-1.5 py-1 rounded transition-colors cursor-pointer ${
+                zoomLevel === 1 ? 'bg-[#1f3142] text-sky-400' : 'text-gray-400 hover:text-white'
+              }`}
+              title="Fit to entire video (1x)"
+            >
+              Fit
+            </button>
+
+            {/* Follow Playhead Toggle */}
+            <button
+              type="button"
+              onClick={() => setFollowPlayhead(!followPlayhead)}
+              className={`px-1.5 py-1 rounded flex items-center gap-1 transition-colors cursor-pointer ${
+                followPlayhead
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'text-gray-400 hover:text-white border border-transparent'
+              }`}
+              title={followPlayhead ? 'Follow playhead enabled' : 'Toggle follow playhead'}
+            >
+              <Compass size={11} className={followPlayhead ? 'animate-spin' : ''} />
+              <span>Follow</span>
+            </button>
+
+            <span className="w-px h-3 bg-[#263642]" />
+
+            {/* Zoom Out */}
+            <button
+              type="button"
+              onClick={handleZoomOut}
               disabled={zoomLevel <= 1}
               className="p-1 text-gray-400 hover:text-gray-100 disabled:opacity-30 cursor-pointer"
+              title="Zoom out"
             >
               <ZoomOut size={12} />
             </button>
-            <span className="text-[10px] font-mono font-bold px-1 text-gray-300">{zoomLevel}x</span>
+
+            {/* Zoom Badge */}
+            <span className="font-mono px-1 text-sky-300 font-bold">{zoomLevel}x</span>
+
+            {/* Zoom In */}
             <button
               type="button"
-              onClick={() => setZoomLevel((prev) => Math.min(3, prev + 0.5))}
-              disabled={zoomLevel >= 3}
+              onClick={handleZoomIn}
+              disabled={zoomLevel >= 4}
               className="p-1 text-gray-400 hover:text-gray-100 disabled:opacity-30 cursor-pointer"
+              title="Zoom in"
             >
               <ZoomIn size={12} />
             </button>
@@ -454,259 +732,371 @@ export default function TimelinePanel({
         </div>
       </div>
 
-      {/* 2. MULTI-LANE TRACK SYSTEM WITH LEFT HIERARCHY TREE (Matching Image 3) */}
+      {/* 2. MULTI-LANE TRACK SYSTEM (5 Standard Lanes: VIDEO, RALLY / SEQUENCE, EVENTS, KEY MOMENTS, AI SUGGESTIONS) */}
       <div className="grid grid-cols-12 gap-0 bg-[#070e14] rounded-xl border border-[#263642] overflow-hidden">
-        {/* Left: Track Tree Sidebar (Image 3 Left Hierarchy) */}
-        <div className="col-span-3 bg-[#0d1722] border-r border-[#263642] flex flex-col justify-between py-1 text-xs">
+        {/* Left: Track Sidebar (Lane Titles & Expand Toggles) */}
+        <div className="col-span-3 sm:col-span-2 bg-[#0d1722] border-r border-[#263642] flex flex-col justify-between py-1 text-xs">
           {/* Header Track Item */}
           <div className="h-6 px-2.5 flex items-center justify-between border-b border-[#263642] text-[10px] font-black uppercase text-gray-400">
-            <span>Track Name</span>
-            <span>Count</span>
+            <span>Lane / Track</span>
+            <span>Items</span>
           </div>
 
-          {/* Track 1 Tree Node */}
+          {/* Lane 1: VIDEO Track Node */}
           <div
             className="h-10 px-2.5 flex items-center justify-between border-b border-[#263642]/60 hover:bg-[#132332] transition-colors cursor-pointer"
-            onClick={() => toggleTrack('teamA')}
+            onClick={() => toggleTrack('video')}
           >
             <div className="flex items-center gap-1.5 truncate">
-              {expandedTracks.teamA ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-              <span className="w-2 h-2 rounded-full bg-sky-400 inline-block shrink-0" />
-              <span className="font-bold text-[11px] text-sky-300 truncate">{team1.name || team1.code} (Team A)</span>
+              {expandedTracks.video ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <Video size={13} className="text-sky-400 shrink-0" />
+              <span className="font-bold text-[11px] text-gray-200 truncate">VIDEO</span>
             </div>
-            <span className="text-[10px] font-mono font-bold text-gray-400">{teamAEvents.length}</span>
+            <span className="text-[10px] font-mono font-bold text-gray-400">{thumbnails.length || '1'}</span>
           </div>
 
-          {/* Track 2 Tree Node */}
+          {/* Lane 2: RALLY / SEQUENCE Node */}
           <div
             className="h-10 px-2.5 flex items-center justify-between border-b border-[#263642]/60 hover:bg-[#132332] transition-colors cursor-pointer"
-            onClick={() => toggleTrack('teamB')}
+            onClick={() => toggleTrack('sequence')}
           >
             <div className="flex items-center gap-1.5 truncate">
-              {expandedTracks.teamB ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-              <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
-              <span className="font-bold text-[11px] text-amber-300 truncate">{team2.name || team2.code} (Team B)</span>
+              {expandedTracks.sequence ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <Layers size={13} className="text-amber-400 shrink-0" />
+              <span className="font-bold text-[11px] text-amber-300 truncate">RALLY / SEQ</span>
             </div>
-            <span className="text-[10px] font-mono font-bold text-gray-400">{teamBEvents.length}</span>
+            <span className="text-[10px] font-mono font-bold text-gray-400">{filteredEvents.length}</span>
           </div>
 
-          {/* Track 3 Tree Node (Key Moments) */}
+          {/* Lane 3: EVENTS Node */}
+          <div
+            className="h-10 px-2.5 flex items-center justify-between border-b border-[#263642]/60 hover:bg-[#132332] transition-colors cursor-pointer"
+            onClick={() => toggleTrack('events')}
+          >
+            <div className="flex items-center gap-1.5 truncate">
+              {expandedTracks.events ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <Crosshair size={13} className="text-sky-400 shrink-0" />
+              <span className="font-bold text-[11px] text-sky-300 truncate">EVENTS</span>
+            </div>
+            <span className="text-[10px] font-mono font-bold text-gray-400">{filteredEvents.length}</span>
+          </div>
+
+          {/* Lane 4: KEY MOMENTS & NOTES Node */}
           <div
             className="h-10 px-2.5 flex items-center justify-between border-b border-[#263642]/60 hover:bg-[#132332] transition-colors cursor-pointer"
             onClick={() => toggleTrack('keyMoments')}
           >
             <div className="flex items-center gap-1.5 truncate">
               {expandedTracks.keyMoments ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-              <span className="w-2 h-2 rounded-full bg-purple-400 inline-block shrink-0" />
-              <span className="font-bold text-[11px] text-purple-300 truncate">Key Moments & PTS</span>
+              <Bookmark size={13} className="text-purple-400 shrink-0" />
+              <span className="font-bold text-[11px] text-purple-300 truncate">KEY MOMENTS</span>
             </div>
-            <span className="text-[10px] font-mono font-bold text-gray-400">{keyMomentEvents.length}</span>
+            <span className="text-[10px] font-mono font-bold text-gray-400">
+              {keyMomentEvents.length + projectAnnotations.length}
+            </span>
           </div>
 
-          {/* Track 4 Tree Node (Telestration & Tactical Annotations) */}
-          <div
-            className="h-10 px-2.5 flex items-center justify-between hover:bg-[#132332] transition-colors cursor-pointer"
-            onClick={() => toggleTrack('annotations')}
-          >
-            <div className="flex items-center gap-1.5 truncate">
-              {expandedTracks.annotations ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block shrink-0" />
-              <span className="font-bold text-[11px] text-emerald-300 truncate">🎨 Telestration & Notes</span>
-            </div>
-            <span className="text-[10px] font-mono font-bold text-gray-400">{projectAnnotations.length}</span>
-          </div>
-        </div>
-
-        {/* Right: Time Ruler & Interactive Lanes Canvas (Image 3 Right Canvas) */}
-        <div
-          ref={trackRef}
-          onClick={handleTrackClick}
-          className="col-span-9 relative bg-[#09121a] cursor-pointer overflow-hidden group flex flex-col justify-between"
-        >
-          {/* Time Ruler (Image 3 Scale with ticks 0, 50, 100, 150...) */}
-          <div className="h-6 border-b border-[#263642] bg-[#0c1721] relative flex items-center text-[9px] font-mono text-gray-400 select-none">
-            {rulerTicks.map((tick, i) => (
-              <div
-                key={i}
-                className="absolute top-0 bottom-0 flex flex-col justify-between border-l border-[#263642]/80 pl-1 pointer-events-none"
-                style={{ left: `${tick.pct}%` }}
-              >
-                <span>{tick.label}</span>
-                <span className="w-px h-1.5 bg-[#263642]" />
-              </div>
-            ))}
-          </div>
-
-          {/* Yellow Needle Playhead Line (Image 3 Signature Element) */}
-          <div
-            className="absolute top-0 bottom-0 w-[2px] bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)] z-30 pointer-events-none"
-            style={{
-              left: `${safeDuration > 0 ? (currentTime / safeDuration) * 100 : 0}%`,
-            }}
-          >
-            {/* Playhead Flag Cursor */}
-            <div className="w-3.5 h-3.5 bg-amber-400 rotate-45 -ml-1.5 -mt-1 shadow-lg border border-amber-200 flex items-center justify-center">
-              <span className="w-1 h-1 rounded-full bg-gray-900" />
-            </div>
-          </div>
-
-          {/* Dragging Tooltip */}
-          {draggedEvent && (
+          {/* Lane 5: AI SUGGESTIONS (Rendered ONLY when AI suggestions exist!) */}
+          {hasAISuggestions && (
             <div
-              className="absolute top-1 transform -translate-x-1/2 z-40 bg-sky-500 text-white font-mono text-[10px] font-bold px-2 py-0.5 rounded shadow-xl pointer-events-none flex items-center gap-1"
-              style={{
-                left: `${(draggedEvent.draftTime / safeDuration) * 100}%`,
-              }}
+              className="h-10 px-2.5 flex items-center justify-between hover:bg-[#132332] transition-colors cursor-pointer"
+              onClick={() => toggleTrack('aiSuggestions')}
             >
-              <span>{formatPreciseTime(draggedEvent.draftTime)}</span>
+              <div className="flex items-center gap-1.5 truncate">
+                {expandedTracks.aiSuggestions ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                <Sparkles size={13} className="text-violet-400 shrink-0" />
+                <span className="font-bold text-[11px] text-violet-300 truncate">AI SUGGESTIONS</span>
+              </div>
+              <span className="text-[10px] font-mono font-bold text-violet-400">{aiSuggestions.length}</span>
             </div>
           )}
+        </div>
 
-          {/* Track 1 Lane (Team A) */}
-          <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1">
-            {teamAEvents.map((ev) => {
-              const isDraggingThis = draggedEvent?.id === ev.id;
-              const evTime = isDraggingThis ? draggedEvent.draftTime : ev.videoTime || 0;
-              const leftPct = (evTime / safeDuration) * 100;
-              const colorClass = getMarkerColor(ev, 'bg-sky-600 border-sky-400 text-white');
-
-              return (
+        {/* Right: Scrollable Timeline Canvas with Scaling */}
+        <div
+          ref={scrollContainerRef}
+          className="col-span-9 sm:col-span-10 relative bg-[#09121a] overflow-x-auto custom-scrollbar group"
+        >
+          {/* Inner Zoomed Canvas Container */}
+          <div
+            ref={trackCanvasRef}
+            onMouseDown={handleTrackMouseDown}
+            style={{ width: `${zoomLevel * 100}%`, minWidth: '100%' }}
+            className="relative cursor-pointer select-none flex flex-col justify-between"
+          >
+            {/* Time Ruler with Dynamic Zoom Ticks */}
+            <div className="h-6 border-b border-[#263642] bg-[#0c1721] relative flex items-center text-[9px] font-mono text-gray-400 select-none">
+              {rulerTicks.map((tick, i) => (
                 <div
-                  key={ev.id}
-                  onMouseDown={(e) => handleMarkerMouseDown(e, ev)}
-                  onMouseEnter={() => setHoveredEvent(ev)}
-                  onMouseLeave={() => setHoveredEvent(null)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setContextMenu({ event: ev, x: e.clientX, y: e.clientY });
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSeek(ev.videoTime || 0);
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setEditingModalEvent(ev);
-                  }}
-                  title={`Pt #${ev.point}: ${ev.actions?.[0]?.skill || 'Action'} (${formatPreciseTime(evTime)})`}
-                  className={`absolute h-6 px-2 rounded-md border shadow-md cursor-grab active:cursor-grabbing transform -translate-x-1/2 transition-all hover:scale-105 hover:z-30 flex items-center gap-1 text-[9px] font-black ${colorClass}`}
-                  style={{ left: `${leftPct}%` }}
+                  key={i}
+                  className="absolute top-0 bottom-0 flex flex-col justify-between border-l border-[#263642]/80 pl-1 pointer-events-none"
+                  style={{ left: `${tick.pct}%` }}
                 >
-                  <span className="opacity-80">#{ev.point}</span>
-                  <span className="truncate max-w-[50px]">{ev.actions?.[0]?.skillCode || 'Act'}</span>
+                  <span>{tick.label}</span>
+                  <span className="w-px h-1.5 bg-[#263642]" />
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
 
-          {/* Track 2 Lane (Team B) */}
-          <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1">
-            {teamBEvents.map((ev) => {
-              const isDraggingThis = draggedEvent?.id === ev.id;
-              const evTime = isDraggingThis ? draggedEvent.draftTime : ev.videoTime || 0;
-              const leftPct = (evTime / safeDuration) * 100;
-              const colorClass = getMarkerColor(ev, 'bg-amber-600 border-amber-400 text-white');
-
-              return (
-                <div
-                  key={ev.id}
-                  onMouseDown={(e) => handleMarkerMouseDown(e, ev)}
-                  onMouseEnter={() => setHoveredEvent(ev)}
-                  onMouseLeave={() => setHoveredEvent(null)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setContextMenu({ event: ev, x: e.clientX, y: e.clientY });
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSeek(ev.videoTime || 0);
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setEditingModalEvent(ev);
-                  }}
-                  title={`Pt #${ev.point}: ${ev.actions?.[0]?.skill || 'Action'} (${formatPreciseTime(evTime)})`}
-                  className={`absolute h-6 px-2 rounded-md border shadow-md cursor-grab active:cursor-grabbing transform -translate-x-1/2 transition-all hover:scale-105 hover:z-30 flex items-center gap-1 text-[9px] font-black ${colorClass}`}
-                  style={{ left: `${leftPct}%` }}
-                >
-                  <span className="opacity-80">#{ev.point}</span>
-                  <span className="truncate max-w-[50px]">{ev.actions?.[0]?.skillCode || 'Act'}</span>
+            {/* Shift+Drag Time Selection Range Overlay (Across All Lanes) */}
+            {selectionBounds && (
+              <div
+                className="absolute top-0 bottom-0 bg-sky-500/20 border-x-2 border-sky-400 z-25 pointer-events-none transition-all shadow-[0_0_15px_rgba(56,189,248,0.2)]"
+                style={{
+                  left: `${selectionBounds.leftPct}%`,
+                  width: `${selectionBounds.widthPct}%`,
+                }}
+              >
+                <div className="absolute top-1 left-1 bg-sky-600 text-white font-mono text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
+                  {(selectionBounds.maxT - selectionBounds.minT).toFixed(2)}s
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            )}
 
-          {/* Track 3 Lane (Key Moments & Points) */}
-          <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1">
-            {keyMomentEvents.map((ev) => {
-              const isDraggingThis = draggedEvent?.id === ev.id;
-              const evTime = isDraggingThis ? draggedEvent.draftTime : ev.videoTime || 0;
-              const leftPct = (evTime / safeDuration) * 100;
-              const colorClass = getMarkerColor(ev, 'bg-purple-600 border-purple-400 text-white');
+            {/* Playhead Needle (Yellow signature vertical bar) */}
+            <div
+              className="absolute top-0 bottom-0 w-[2px] bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.9)] z-40 pointer-events-none transition-[left] duration-75 ease-out"
+              style={{
+                left: `${safeDuration > 0 ? (currentTime / safeDuration) * 100 : 0}%`,
+              }}
+            >
+              {/* Playhead Flag Cursor */}
+              <div className="w-3.5 h-3.5 bg-amber-400 rotate-45 -ml-1.5 -mt-1 shadow-lg border border-amber-200 flex items-center justify-center">
+                <span className="w-1 h-1 rounded-full bg-gray-900" />
+              </div>
+            </div>
 
-              return (
-                <div
-                  key={ev.id}
-                  onMouseDown={(e) => handleMarkerMouseDown(e, ev)}
-                  onMouseEnter={() => setHoveredEvent(ev)}
-                  onMouseLeave={() => setHoveredEvent(null)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setContextMenu({ event: ev, x: e.clientX, y: e.clientY });
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSeek(ev.videoTime || 0);
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setEditingModalEvent(ev);
-                  }}
-                  className={`absolute h-6 px-2.5 rounded-md border shadow-md cursor-grab active:cursor-grabbing transform -translate-x-1/2 transition-all hover:scale-105 hover:z-30 flex items-center gap-1 text-[9px] font-black ${colorClass}`}
-                  style={{ left: `${leftPct}%` }}
-                >
-                  <Bookmark size={10} className="fill-white" />
-                  <span>Pt #{ev.point}</span>
+            {/* Dragging Tooltip Indicator */}
+            {draggedEvent && (
+              <div
+                className="absolute top-1 transform -translate-x-1/2 z-50 bg-sky-500 text-white font-mono text-[10px] font-bold px-2 py-0.5 rounded shadow-xl pointer-events-none flex items-center gap-1"
+                style={{
+                  left: `${(draggedEvent.draftTime / safeDuration) * 100}%`,
+                }}
+              >
+                <span>{formatPreciseTime(draggedEvent.draftTime)}</span>
+              </div>
+            )}
+
+            {/* LANE 1: VIDEO (Thumbnails or Progress Strip) */}
+            <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1 bg-[#09141e]/50">
+              {thumbnails.length > 0 ? (
+                thumbnails.map((th, idx) => (
+                  <div
+                    key={idx}
+                    className="absolute top-1 bottom-1 rounded border border-[#263642] overflow-hidden opacity-80 hover:opacity-100 transition-opacity"
+                    style={{
+                      left: `${(th.time / safeDuration) * 100}%`,
+                      width: '60px',
+                    }}
+                  >
+                    <img src={th.dataUrl} alt="" className="w-full h-full object-cover" />
+                  </div>
+                ))
+              ) : (
+                <div className="w-full h-2 bg-[#122232] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-sky-600 to-amber-500 opacity-60"
+                    style={{ width: `${(currentTime / safeDuration) * 100}%` }}
+                  />
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </div>
 
-          {/* Track 4 Lane (Telestration & Tactical Annotations) */}
-          <div className="relative h-10 flex items-center z-20 px-1">
-            {projectAnnotations.map((shape) => {
-              const shapeTime = shape.timestamp || 0;
-              const leftPct = (shapeTime / safeDuration) * 100;
+            {/* LANE 2: RALLY / SEQUENCE (Range blocks based on sequenceStartTime / sequenceEndTime) */}
+            <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1 bg-[#071018]">
+              {eventsInVisibleRange.map((ev) => {
+                const isDraggingThis = draggedEvent?.id === ev.id;
+                const seqStart = isDraggingThis ? draggedEvent.draftTime : ev.sequenceStartTime ?? ev.videoTime ?? 0;
+                const seqEnd =
+                  ev.sequenceEndTime && ev.sequenceEndTime > seqStart
+                    ? ev.sequenceEndTime
+                    : ev.duration && ev.duration > 0
+                    ? seqStart + ev.duration
+                    : seqStart + 3;
 
-              return (
-                <div
-                  key={shape.id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSeek(shapeTime);
-                    showToast(isThai ? `กระโดดไปที่วาดแท็กติก (${formatPreciseTime(shapeTime)})` : `Jumped to tactical note (${formatPreciseTime(shapeTime)})`);
-                  }}
-                  title={`${shape.label || shape.type} @ ${formatPreciseTime(shapeTime)}${shape.duration ? ` (${shape.duration}s)` : ''}`}
-                  className="absolute h-6 px-2 rounded-md border shadow-md cursor-pointer transform -translate-x-1/2 transition-all hover:scale-110 hover:z-30 flex items-center gap-1 text-[9px] font-black text-white"
-                  style={{
-                    left: `${leftPct}%`,
-                    backgroundColor: `${shape.color}cc`,
-                    borderColor: shape.color,
-                    maxWidth: '130px',
-                  }}
-                >
-                  <span className="truncate">{shape.text ? `📝 ${shape.text}` : `🎨 ${shape.type.toUpperCase()}`}</span>
-                </div>
-              );
-            })}
+                const leftPct = (seqStart / safeDuration) * 100;
+                const widthPct = Math.max(0.4, ((seqEnd - seqStart) / safeDuration) * 100);
+                const seqDurationSec = Math.max(0, seqEnd - seqStart);
+
+                const outcomeBg =
+                  ev.resultText === '+1'
+                    ? 'bg-emerald-700/80 border-emerald-500 text-white'
+                    : ev.resultText === '-1'
+                    ? 'bg-rose-700/80 border-rose-500 text-white'
+                    : 'bg-slate-700/80 border-slate-500 text-gray-200';
+
+                return (
+                  <div
+                    key={`seq-${ev.id}`}
+                    onMouseDown={(e) => handleMarkerMouseDown(e, ev)}
+                    onMouseEnter={() => setHoveredEvent(ev)}
+                    onMouseLeave={() => setHoveredEvent(null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSeek(seqStart);
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setEditingModalEvent(ev);
+                    }}
+                    title={`Rally Pt #${ev.point}: ${formatPreciseTime(seqStart)} - ${formatPreciseTime(seqEnd)} (${seqDurationSec.toFixed(1)}s)`}
+                    className={`absolute h-6 px-1.5 rounded-md border shadow-sm cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:z-30 flex items-center gap-1 text-[9px] font-black truncate ${outcomeBg}`}
+                    style={{
+                      left: `${leftPct}%`,
+                      width: `${widthPct}%`,
+                      minWidth: '24px',
+                    }}
+                  >
+                    <span className="opacity-90 shrink-0">Pt #{ev.point}</span>
+                    {widthPct > 2 && (
+                      <span className="opacity-75 text-[8px] font-mono truncate">
+                        {seqDurationSec.toFixed(1)}s
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* LANE 3: EVENTS (Individual scout markers & touches, colored by team/result) */}
+            <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1">
+              {markersInVisibleRange.map((ev) => {
+                const isDraggingThis = draggedEvent?.id === ev.id;
+                const evTime = isDraggingThis ? draggedEvent.draftTime : ev.videoTime || 0;
+                const leftPct = (evTime / safeDuration) * 100;
+                const defaultFallback =
+                  ev.actions?.[0]?.teamCode === 't2' || ev.actions?.[0]?.teamCode === team2.code
+                    ? 'bg-amber-600 border-amber-400 text-white'
+                    : 'bg-sky-600 border-sky-400 text-white';
+                const colorClass = getMarkerColor(ev, defaultFallback);
+
+                return (
+                  <div
+                    key={`ev-${ev.id}`}
+                    onMouseDown={(e) => handleMarkerMouseDown(e, ev)}
+                    onMouseEnter={() => setHoveredEvent(ev)}
+                    onMouseLeave={() => setHoveredEvent(null)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setContextMenu({ event: ev, x: e.clientX, y: e.clientY });
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSeek(ev.videoTime || 0);
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setEditingModalEvent(ev);
+                    }}
+                    title={`Pt #${ev.point}: ${ev.actions?.[0]?.skillCode || 'Event'} (${formatPreciseTime(evTime)})`}
+                    className={`absolute h-6 px-2 rounded-md border shadow-md cursor-grab active:cursor-grabbing transform -translate-x-1/2 transition-all hover:scale-105 hover:z-30 flex items-center gap-1 text-[9px] font-black ${colorClass}`}
+                    style={{ left: `${leftPct}%` }}
+                  >
+                    <span className="opacity-80">#{ev.point}</span>
+                    <span className="truncate max-w-[50px]">{ev.actions?.[0]?.skillCode || 'Act'}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* LANE 4: KEY MOMENTS & NOTES (Bookmarks and Telestration annotations) */}
+            <div className="relative h-10 border-b border-[#263642]/60 flex items-center z-20 px-1 bg-[#09141d]/40">
+              {/* Bookmarked Events */}
+              {keyMomentsInVisibleRange.map((ev) => {
+                const evTime = ev.videoTime || 0;
+                const leftPct = (evTime / safeDuration) * 100;
+
+                return (
+                  <div
+                    key={`km-${ev.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSeek(evTime);
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setEditingModalEvent(ev);
+                    }}
+                    title={`Bookmark Pt #${ev.point} (${formatPreciseTime(evTime)})`}
+                    className="absolute h-6 px-2 rounded-md border bg-purple-600 border-purple-400 text-white shadow-md cursor-pointer transform -translate-x-1/2 transition-all hover:scale-105 hover:z-30 flex items-center gap-1 text-[9px] font-black"
+                    style={{ left: `${leftPct}%` }}
+                  >
+                    <Bookmark size={10} className="fill-white" />
+                    <span>Pt #{ev.point}</span>
+                  </div>
+                );
+              })}
+
+              {/* Telestration Shapes */}
+              {annotationsInVisibleRange.map((shape) => {
+                const shapeTime = shape.timestamp || 0;
+                const leftPct = (shapeTime / safeDuration) * 100;
+
+                return (
+                  <div
+                    key={`anno-${shape.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSeek(shapeTime);
+                    }}
+                    title={`${shape.label || shape.type} @ ${formatPreciseTime(shapeTime)}`}
+                    className="absolute h-6 px-2 rounded-md border shadow-md cursor-pointer transform -translate-x-1/2 transition-all hover:scale-110 hover:z-30 flex items-center gap-1 text-[9px] font-black text-white"
+                    style={{
+                      left: `${leftPct}%`,
+                      backgroundColor: `${shape.color}cc`,
+                      borderColor: shape.color,
+                      maxWidth: '130px',
+                    }}
+                  >
+                    <span className="truncate">{shape.text ? `📝 ${shape.text}` : `🎨 ${shape.type.toUpperCase()}`}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* LANE 5: AI SUGGESTIONS (Rendered ONLY when AI suggestions exist!) */}
+            {hasAISuggestions && (
+              <div className="relative h-10 flex items-center z-20 px-1 bg-[#150e24]/40">
+                {aiSuggestionsInVisibleRange.map((sug) => {
+                  const sugTime = sug.time || 0;
+                  const leftPct = (sugTime / safeDuration) * 100;
+                  const widthPct = sug.duration ? Math.max(0.4, (sug.duration / safeDuration) * 100) : 1;
+
+                  return (
+                    <div
+                      key={`ai-${sug.id}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSeek(sugTime);
+                        setSelectedAISuggestion(sug);
+                        setSuggestionSkillCode(sug.skillCode || 'SMH');
+                      }}
+                      title={`AI: ${sug.label} (${(sug.confidence ? (sug.confidence * 100).toFixed(0) : '90')}% conf) - Click to review`}
+                      className="absolute h-6 px-2 rounded-md border bg-violet-700/80 border-violet-400 text-violet-100 shadow-md cursor-pointer transform -translate-x-1/2 transition-all hover:scale-105 hover:z-30 flex items-center gap-1 text-[9px] font-black"
+                      style={{
+                        left: `${leftPct}%`,
+                        width: sug.duration ? `${widthPct}%` : undefined,
+                      }}
+                    >
+                      <Sparkles size={10} className="text-violet-300 shrink-0" />
+                      <span className="truncate">{sug.label}</span>
+                      {sug.confidence && (
+                        <span className="opacity-75 font-mono text-[8px]">
+                          {(sug.confidence * 100).toFixed(0)}%
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 3. CONTEXT MENU FOR OVERRIDE COLOR & QUICK ACTIONS (Image 3 Context Menu) */}
+      {/* 3. CONTEXT MENU FOR OVERRIDE COLOR & QUICK ACTIONS */}
       {contextMenu && (
         <div
           className="fixed z-50 bg-[#111c26] border border-[#263642] rounded-xl shadow-2xl p-1.5 w-48 text-xs font-sans animate-in fade-in zoom-in-95 duration-100"
@@ -784,7 +1174,9 @@ export default function TimelinePanel({
             >
               Pt #{hoveredEvent.point} ({hoveredEvent.resultText})
             </span>
-            <span className="font-mono text-sky-400 font-bold">{formatPreciseTime(hoveredEvent.videoTime || 0)}</span>
+            <span className="font-mono text-sky-400 font-bold">
+              {formatPreciseTime(hoveredEvent.videoTime || 0)}
+            </span>
             <span className="text-gray-300 font-medium">
               {hoveredEvent.thaiMeaningText ||
                 hoveredEvent.eventText ||
@@ -812,7 +1204,92 @@ export default function TimelinePanel({
           event={editingModalEvent}
         />
       )}
+
+      {/* 6. AI SUGGESTION CARD (PDF §92-94: Human-in-the-loop: Accept | Edit | Reject) */}
+      {selectedAISuggestion && (
+        <div
+          className="fixed z-50 bottom-24 left-1/2 transform -translate-x-1/2 bg-[#0c1721] border border-violet-500/80 rounded-xl shadow-2xl p-4 w-96 text-white animate-in fade-in zoom-in-95"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between pb-2 border-b border-[#263642]">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-violet-400" />
+              <span className="text-xs font-bold text-violet-200">
+                {isThai ? 'ตรวจสอบข้อเสนอ AI (Human-in-the-loop)' : 'AI Suggestion Review'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedAISuggestion(null)}
+              className="text-gray-400 hover:text-white"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between my-3 text-xs">
+            <div>
+              <div className="text-sm font-black text-white">{selectedAISuggestion.label}</div>
+              <div className="text-[11px] text-gray-400">
+                Time: <span className="font-mono text-sky-400">{formatPreciseTime(selectedAISuggestion.time)}</span> | Player:{' '}
+                <span className="text-purple-300 font-bold">{selectedAISuggestion.playerId || 'P1'}</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs font-mono font-bold text-emerald-400">
+                {((selectedAISuggestion.confidence || 0.85) * 100).toFixed(0)}%
+              </div>
+              <div className="text-[9px] text-gray-500 uppercase">Confidence</div>
+            </div>
+          </div>
+
+          {/* Quick Skill Selector (PDF §91, §93) */}
+          <div className="mb-3">
+            <span className="text-[10px] text-gray-400 font-bold uppercase block mb-1">
+              {isThai ? 'เปลี่ยนทักษะ (Change Skill):' : 'Change Skill:'}
+            </span>
+            <div className="flex flex-wrap gap-1 font-mono">
+              {['SMH', 'CLR', 'DRP', 'DRV', 'NET', 'LFT', 'SER'].map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => setSuggestionSkillCode(code)}
+                  className={`px-2 py-0.5 text-[11px] font-bold rounded transition-colors ${
+                    suggestionSkillCode === code
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-[#152433] text-gray-300 hover:bg-[#1f354a]'
+                  }`}
+                >
+                  {code}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-[#263642]">
+            <button
+              type="button"
+              onClick={() => handleAcceptAISuggestion(selectedAISuggestion)}
+              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow"
+            >
+              <Check size={14} /> {isThai ? 'ยอมรับ (Accept)' : 'Accept'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRejectAISuggestion(selectedAISuggestion)}
+              className="py-2 px-3 bg-rose-900/60 hover:bg-rose-800 text-rose-200 border border-rose-600/50 text-xs font-bold rounded-lg transition-colors"
+            >
+              {isThai ? 'ปฏิเสธ (Reject)' : 'Reject'}
+            </button>
+          </div>
+
+          <div className="text-[9px] text-gray-400 mt-2 text-center">
+            {isThai
+              ? 'ระบบ AI ไม่แก้ไขคะแนนบนสกอร์บอร์ดโดยอัตโนมัติ (PDF §94)'
+              : 'Notice: AI suggestions never alter scoreboard directly (PDF §94)'}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "start:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1",
     "generate-icons": "node scripts/generate-pwa-icons.mjs",
     "prebuild": "npm run generate-icons",
     "build": "vite build",

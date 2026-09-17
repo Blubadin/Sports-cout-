@@ -92,6 +92,9 @@ export default function ScoutHUDMode({
     showToast,
     volleyballPathStage,
     setVolleyballPathStage,
+    editLastEvent,
+    undoLastSavedEvent,
+    quickBookmarkCurrentMoment,
   } = useScoutContext();
 
   const layout = useHUDDeviceLayout();
@@ -466,8 +469,8 @@ export default function ScoutHUDMode({
   }, [handlePointerMove]);
 
   // Keyboard Shortcuts
-  const handleKeyDownRef = useRef<any>(null);
-  const handleKeyUpRef = useRef<any>(null);
+  const handleKeyDownRef = useRef<((e: KeyboardEvent) => void) | null>(null);
+  const handleKeyUpRef = useRef<((e: KeyboardEvent) => void) | null>(null);
 
   const handleKeyDownGlobal = (e: KeyboardEvent) => {
     if (e.repeat || e.defaultPrevented) return;
@@ -488,7 +491,13 @@ export default function ScoutHUDMode({
       selectTeam: (teamIndex) => handleCoachCommand({ type: 'selectTeam', teamIndex }),
       openMenu: (menu) => handleCoachCommand({ type: 'openMenu', menu }),
       saveEvent,
-      undoAction: undoLastAction,
+      undoAction: () => {
+        if (currentActions.length > 0 || Object.keys(currentAction).length > 0) {
+          undoLastAction();
+        } else {
+          undoLastSavedEvent();
+        }
+      },
       redoAction: redoEventAction,
       clearCurrent: clearCurrentEvent,
       cancelContext: () => {
@@ -501,6 +510,8 @@ export default function ScoutHUDMode({
       },
       togglePlayback: videoControls.togglePlay,
       seekBy: videoControls.seekBy,
+      quickBookmark: () => quickBookmarkCurrentMoment(videoControls.getCurrentTime()),
+      editLastEvent,
     });
     if (handled) e.preventDefault();
   };

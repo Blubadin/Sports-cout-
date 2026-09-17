@@ -16,6 +16,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from court_mapper import CourtMapper, DistanceTracker, COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M, COURT_WIDTH_SINGLES_M
+from device_runtime import resolve_device
 
 
 class PlayerProfile:
@@ -27,6 +28,8 @@ class PlayerProfile:
         self.last_real_pos: tuple[float, float] | None = None
         self.last_bbox: list[int] | None = None
         self.missed_frames = 0
+        self.track_id = None
+        self.detection_confidence = 0.0
 
     def update_appearance(self, frame: np.ndarray, bbox: list[int]):
         """Extract HSV color histogram from upper 60% of bbox (shirt / jersey)."""
@@ -62,13 +65,13 @@ class BadmintonAnalyzerV2:
         fps: float = 30.0,
         model_path: str = "yolov8n.pt",
         conf_threshold: float = 0.35,
-        device: str = "cpu",
+        device: str | None = None,
     ):
         self.game_type = game_type
         self.max_players = 4 if game_type == "doubles" else 2
         self.fps = fps
         self.conf = conf_threshold
-        self.device = device
+        self.device = resolve_device(device)
         self.model_path = model_path
 
         self.mapper = CourtMapper(game_type=game_type)
@@ -83,17 +86,19 @@ class BadmintonAnalyzerV2:
             self.profiles[pid] = PlayerProfile(player_id=pid, team=team)
 
         self._detector = None
-        self._tracker = None
+        self._pose_detector = None
 
     def _lazy_init_ai(self):
-        """Lazy load YOLO and DeepSORT to avoid startup lag if running tests."""
+        """Lazy load the real detector; initialization failures must reach the session."""
         if self._detector is None:
-            try:
-                from ultralytics import YOLO
-                self._detector = YOLO(self.model_path)
-            except ImportError:
-                print("⚠️ Warning: ultralytics is not installed. AI inference will be simulated.")
-                self._detector = "dummy"
+            from ultralytics import YOLO
+            self._detector = YOLO(self.model_path)
+
+    def _estimate_pose(self, frame, bbox):
+        if self._pose_detector is None:
+            from pose_detector import YoloPoseDetector
+            self._pose_detector = YoloPoseDetector(device=self.device)
+        return self._pose_detector.estimate_pose_in_roi(frame, bbox)
 
     def set_court_corners(self, corners: list[list[float]] | np.ndarray):
         """Set court corners for perspective calibration."""
@@ -118,7 +123,7 @@ class BadmintonAnalyzerV2:
                 bbox = a["bbox"]
                 p.update_appearance(frame, bbox)
                 cx = (bbox[0] + bbox[2]) / 2.0
-                cy = (bbox[1] + bbox[3]) / 2.0
+                cy = float(bbox[3])  # Feet level on ground plane
                 real = self.mapper.pixel_to_real((cx, cy))
                 p.last_real_pos = real
                 p.last_bbox = bbox
@@ -131,8 +136,10 @@ class BadmintonAnalyzerV2:
         detections = []
 
         if self._detector != "dummy" and self._detector is not None:
-            results = self._detector.predict(
+            results = self._detector.track(
                 frame,
+                persist=True,
+                tracker="bytetrack.yaml",
                 classes=[0],  # Person class
                 conf=self.conf,
                 device=self.device,
@@ -141,7 +148,8 @@ class BadmintonAnalyzerV2:
             for r in results:
                 boxes = r.boxes.xyxy.cpu().numpy()
                 confs = r.boxes.conf.cpu().numpy()
-                for box, conf in zip(boxes, confs):
+                track_ids = r.boxes.id.cpu().numpy() if r.boxes.id is not None else [None] * len(boxes)
+                for box, conf, track_id in zip(boxes, confs, track_ids):
                     x1, y1, x2, y2 = box.tolist()
                     cx = (x1 + x2) / 2.0
                     cy = y2  # Feet level on ground for court position
@@ -149,6 +157,7 @@ class BadmintonAnalyzerV2:
                         "bbox": [x1, y1, x2, y2],
                         "center": (cx, cy),
                         "conf": float(conf),
+                        "track_id": int(track_id) if track_id is not None else None,
                     })
         return detections
 
@@ -159,13 +168,14 @@ class BadmintonAnalyzerV2:
 
         raw_detections = self.detect_and_track(frame)
 
-        # Filter detections inside court polygon
+        # Filter detections inside court polygon (allow margin of -30px for feet slightly out of line)
         valid_detections = []
         for d in raw_detections:
             cx, cy = d["center"]
             if self.court_corners_px is not None:
-                inside = cv2.pointPolygonTest(self.court_corners_px.astype(np.int32), (int(cx), int(cy)), False)
-                if inside < -20.0:  # Allow slight margin outside lines
+                # measureDist=True returns signed distance: >0 inside, 0 on edge, <0 outside
+                dist_px = cv2.pointPolygonTest(self.court_corners_px.astype(np.float32), (float(cx), float(cy)), True)
+                if dist_px < -30.0:  # Reject detections outside margin
                     continue
             d["real_pos"] = self.mapper.pixel_to_real((cx, cy))
             valid_detections.append(d)
@@ -173,27 +183,94 @@ class BadmintonAnalyzerV2:
         # Match detections to the 4 player profiles using Hungarian Algorithm
         matched_players = self._match_tracks_to_profiles(frame, valid_detections)
 
-        # Build telemetry frame
+        # Build telemetry frame (TrackingTelemetryV1 compliant, PDF §45-47)
+        h, w = frame.shape[:2] if frame is not None else (720, 1280)
         player_telemetry = []
         for pid, p in self.profiles.items():
             stats = self.dist_tracker.get_stats(pid)
+            bbox = p.last_bbox if p.missed_frames < 30 else None
+            pos_m = stats.get("court_pos_m", {"x": 3.05, "y": 6.70})
+            pos_pct = stats.get("court_pos_pct", {"x": 50.0, "y": 50.0})
+            abs_zone = stats.get("current_zone", "ML")
+            rel_zone = self.mapper.get_relative_zone_2d((pos_m["x"], pos_m["y"]), p.team)
+
+            # State: observed | predicted | lost (PDF §45)
+            if p.missed_frames == 0:
+                tracking_state = "observed"
+            elif p.missed_frames < 15:
+                tracking_state = "predicted"
+            else:
+                tracking_state = "lost"
+
+            bbox_pct = None
+            ground_pt_pct = None
+            if bbox is not None:
+                bx = round((bbox[0] / w) * 100.0, 2)
+                by = round((bbox[1] / h) * 100.0, 2)
+                bw = round(((bbox[2] - bbox[0]) / w) * 100.0, 2)
+                bh = round(((bbox[3] - bbox[1]) / h) * 100.0, 2)
+                bbox_pct = {"x": bx, "y": by, "width": bw, "height": bh}
+                cx_pct = round(((bbox[0] + bbox[2]) / (2.0 * w)) * 100.0, 2)
+                cy_pct = round((bbox[3] / h) * 100.0, 2)
+                ground_pt_pct = {"x": cx_pct, "y": cy_pct}
+
             player_telemetry.append({
+                # Canonical V1 Tracking Protocol (PDF §45)
+                "playerId": f"P{pid}",
+                "trackId": p.track_id,
+                "teamCode": f"team{p.team}",
+                "bboxPct": bbox_pct,
+                "groundPointPct": ground_pt_pct,
+                "courtPosition": {
+                    "xM": pos_m["x"],
+                    "yM": pos_m["y"],
+                    "xPct": pos_pct["x"],
+                    "yPct": pos_pct["y"],
+                },
+                "absoluteZone": abs_zone,
+                "playerRelativeZone": rel_zone,
+                "speedMps": stats.get("current_speed_ms", 0.0),
+                "totalDistanceM": stats.get("total_dist_m", 0.0),
+                "detectionConfidence": p.detection_confidence if p.missed_frames == 0 else 0.0,
+                "state": tracking_state,
+
+                # Backward compatibility aliases
                 "id": pid,
                 "team": p.team,
                 "name": p.name,
-                "bbox": p.last_bbox if p.missed_frames < 30 else None,
-                "court_pos_pct": stats.get("court_pos_pct", {"x": 50.0, "y": 50.0}),
-                "court_pos_m": stats.get("court_pos_m", {"x": 3.35, "y": 6.70}),
-                "zone": stats.get("current_zone", "ML"),
+                "bbox": bbox,
+                "court_pos_pct": pos_pct,
+                "court_pos_m": pos_m,
+                "zone": abs_zone,
                 "speed_ms": stats.get("current_speed_ms", 0.0),
                 "total_dist_m": stats.get("total_dist_m", 0.0),
                 "is_active": p.missed_frames < 10,
+                "video_bbox_pct": bbox_pct,
             })
 
+            if pid in matched_players:
+                pose = self._estimate_pose(frame, matched_players[pid]["bbox"])
+                if pose["keypoints"]:
+                    player_telemetry[-1]["pose"] = {"keypoints": [
+                        {"x": float(x) / w * 100, "y": float(y) / h * 100, "score": float(score)}
+                        for x, y, score in pose["keypoints"]
+                    ], "metrics": pose["metrics"]}
+
         return {
+            # Canonical V1 Protocol (PDF §45 & §47)
+            "schemaVersion": 1,
+            "analysisId": getattr(self, "analysis_id", "live_session"),
+            "timestampSec": round(t_sec, 3),
+            "frameIndex": self.frame_count,
+            "engineVersion": "1.0.0",
+            "modelVersion": getattr(self, "model_path", "yolov8n.pt"),
+            "isSynthetic": False,
+            "source": "real_tracking",
+            "players": player_telemetry,
+
+            # Backward compatibility aliases
             "timestamp": round(t_sec, 3),
             "frame_idx": self.frame_count,
-            "players": player_telemetry,
         }
 
     def _match_tracks_to_profiles(self, frame: np.ndarray, detections: list[dict]) -> dict:
@@ -241,7 +318,8 @@ class BadmintonAnalyzerV2:
                         color_dist = cv2.compareHist(profile.color_hist, temp_p.color_hist, cv2.HISTCMP_BHATTACHARYYA)
                         color_cost = color_dist * 8.0
 
-                total_cost = spatial_dist + side_penalty + color_cost
+                identity_bonus = -10.0 if profile.track_id is not None and profile.track_id == d.get("track_id") else 0.0
+                total_cost = spatial_dist + side_penalty + color_cost + identity_bonus
                 cost_matrix[i, j] = total_cost
 
         # Hungarian Assignment: Optimal 1-to-1 match
@@ -255,9 +333,15 @@ class BadmintonAnalyzerV2:
             cost = cost_matrix[r, c]
             
             # Gating threshold (if cost is too absurdly high, don't match)
-            if cost < 25.0:
+            # The first frame has no appearance/position history yet. Allow a
+            # wider gate so an empty player assignment can seed tracks from
+            # the detector; subsequent frames use the strict teleport gate.
+            gate = 100.0 if profile.last_real_pos is None else 25.0
+            if cost < gate:
                 d = detections[c]
                 profile = self.profiles[pid]
+                profile.track_id = d.get("track_id")
+                profile.detection_confidence = d["conf"]
                 profile.last_real_pos = d["real_pos"]
                 profile.last_bbox = d["bbox"]
                 profile.missed_frames = 0
@@ -280,7 +364,9 @@ class BadmintonAnalyzerV2:
         if pid_a in self.profiles and pid_b in self.profiles:
             pa = self.profiles[pid_a]
             pb = self.profiles[pid_b]
+            pa.track_id, pb.track_id = pb.track_id, pa.track_id
+            pa.detection_confidence, pb.detection_confidence = pb.detection_confidence, pa.detection_confidence
             pa.color_hist, pb.color_hist = pb.color_hist, pa.color_hist
             pa.last_real_pos, pb.last_real_pos = pb.last_real_pos, pa.last_real_pos
             pa.last_bbox, pb.last_bbox = pb.last_bbox, pa.last_bbox
-            print(f"🔄 Swapped player identities {pid_a} <-> {pid_b}")
+            print(f"[BadmintonAnalyzerV2] Swapped player identities {pid_a} <-> {pid_b}")

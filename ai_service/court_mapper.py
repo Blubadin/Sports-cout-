@@ -8,15 +8,18 @@ import numpy as np
 import cv2
 
 COURT_LENGTH_M = 13.40
-COURT_WIDTH_SINGLES_M = 6.10
-COURT_WIDTH_DOUBLES_M = 6.71
+COURT_WIDTH_DOUBLES_M = 6.10
+COURT_WIDTH_SINGLES_M = 5.18
+SINGLES_SIDE_ALLEY_M = (COURT_WIDTH_DOUBLES_M - COURT_WIDTH_SINGLES_M) / 2.0  # 0.46m
 
 # BWF Standard Dimensions (Meters)
 NET_Y_M = COURT_LENGTH_M / 2.0  # 6.70m
 SHORT_SERVICE_DIST_FROM_NET_M = 1.98
 FRONT_BOUNDARY_TOP_M = NET_Y_M - SHORT_SERVICE_DIST_FROM_NET_M  # 4.72m
 FRONT_BOUNDARY_BOT_M = NET_Y_M + SHORT_SERVICE_DIST_FROM_NET_M  # 8.68m
-DOUBLES_LONG_SERVICE_OFFSET_M = 0.76
+DOUBLES_LONG_SERVICE_OFFSET_M = 0.76  # 0.76m from back line
+MID_BOUNDARY_TOP_M = 2.36  # Halfway between back line (0.0) and front service line (4.72m)
+MID_BOUNDARY_BOT_M = 11.04  # 8.68m + 2.36m
 
 
 class CourtMapper:
@@ -58,6 +61,14 @@ class CourtMapper:
         px = cv2.perspectiveTransform(p, self.H_inv)
         return int(px[0][0][0]), int(px[0][0][1])
 
+    def real_to_pixel_subpixel(self, point_m: tuple[float, float]) -> tuple[float, float]:
+        """Convert real court (x_m, y_m) to subpixel float (x, y)."""
+        if self.H_inv is None:
+            return (0.0, 0.0)
+        p = np.array([[[float(point_m[0]), float(point_m[1])]]], dtype=np.float32)
+        px = cv2.perspectiveTransform(p, self.H_inv)
+        return float(px[0][0][0]), float(px[0][0][1])
+
     def real_to_percent(self, point_m: tuple[float, float]) -> tuple[float, float]:
         """
         Convert real court meters (x_m, y_m) to normalized percentage (0..100%).
@@ -68,7 +79,19 @@ class CourtMapper:
         y_pct = np.clip((point_m[1] / self.court_l) * 100.0, 0.0, 100.0)
         return float(x_pct), float(y_pct)
 
-    def get_zone_2d(self, point_m: tuple[float, float]) -> str:
+    def is_within_outer_court(self, point_m: tuple[float, float], margin: float = 0.0) -> bool:
+        """Check if point is within outer court bounds (6.10m x 13.40m)."""
+        x, y = point_m
+        return (-margin <= x <= COURT_WIDTH_DOUBLES_M + margin) and (-margin <= y <= COURT_LENGTH_M + margin)
+
+    def is_within_singles_bounds(self, point_m: tuple[float, float], margin: float = 0.0) -> bool:
+        """Check if point is within singles side boundaries (0.46m to 5.64m) and length (0 to 13.40m)."""
+        x, y = point_m
+        min_x = SINGLES_SIDE_ALLEY_M
+        max_x = COURT_WIDTH_DOUBLES_M - SINGLES_SIDE_ALLEY_M
+        return (min_x - margin <= x <= max_x + margin) and (-margin <= y <= COURT_LENGTH_M + margin)
+
+    def get_zone_2d(self, point_m: tuple[float, float], is_shuttle: bool = False) -> str:
         """
         Map real court meters (x_m, y_m) to SportsScout 6 badminton zones:
         FL (Front-Left), FR (Front-Right),
@@ -77,33 +100,61 @@ class CourtMapper:
         Also detects out of bounds (SIDE_OUT, LONG_OUT, NET_ERR).
         """
         x, y = point_m
-        
-        # Out of bounds check with 0.15m margin
-        if x < -0.15 or x > self.court_w + 0.15:
+        margin = 0.15
+
+        # Determine effective side boundaries for singles vs doubles
+        if self.game_type == "singles" and abs(self.court_w - COURT_WIDTH_DOUBLES_M) < 1e-3:
+            # Calibrated on outer doubles lines, but playing singles
+            min_x = SINGLES_SIDE_ALLEY_M
+            max_x = COURT_WIDTH_DOUBLES_M - SINGLES_SIDE_ALLEY_M
+        else:
+            min_x = 0.0
+            max_x = self.court_w
+
+        if x < min_x - margin or x > max_x + margin:
             return "SIDE_OUT"
-        if y < -0.15 or y > self.court_l + 0.15:
+        if y < -margin or y > self.court_l + margin:
             return "LONG_OUT"
-        if abs(y - NET_Y_M) < 0.20:
+        if is_shuttle and abs(y - NET_Y_M) < 0.20:
             return "NET_ERR"
 
-        mid_x = self.court_w / 2.0
+        mid_x = (min_x + max_x) / 2.0
         is_left = x < mid_x
 
         # Top Court (y < 6.70m) vs Bottom Court (y >= 6.70m)
         if y < NET_Y_M:
             if y >= FRONT_BOUNDARY_TOP_M:
                 return "FL" if is_left else "FR"
-            elif y >= 2.36:
+            elif y >= MID_BOUNDARY_TOP_M:
                 return "ML" if is_left else "MR"
             else:
                 return "BL" if is_left else "BR"
         else:
             if y <= FRONT_BOUNDARY_BOT_M:
                 return "FL" if is_left else "FR"
-            elif y <= 11.04:
+            elif y <= MID_BOUNDARY_BOT_M:
                 return "ML" if is_left else "MR"
             else:
                 return "BL" if is_left else "BR"
+
+    def get_relative_zone_2d(self, point_m: tuple[float, float], team: int) -> str:
+        """
+        Player-relative zone normalized so player always faces the net (PDF §65).
+        Returns FL, FR, ML, MR, RL, RR.
+        team 1 = Top court (y < 6.70m, faces +y towards net)
+        team 2 = Bottom court (y >= 6.70m, faces -y towards net)
+        """
+        abs_zone = self.get_zone_2d(point_m)
+        if abs_zone in ("SIDE_OUT", "LONG_OUT", "NET_ERR"):
+            return abs_zone
+
+        depth = "F" if "F" in abs_zone else ("M" if "M" in abs_zone else "R")
+        is_screen_left = "L" in abs_zone
+        if team == 1:
+            side = "R" if is_screen_left else "L"
+        else:
+            side = "L" if is_screen_left else "R"
+        return f"{depth}{side}"
 
     @staticmethod
     def euclidean_distance(p1: tuple[float, float], p2: tuple[float, float]) -> float:
@@ -150,8 +201,9 @@ class DistanceTracker:
             dist = CourtMapper.euclidean_distance(d["prev_real"], real)
             speed_ms = dist * self.fps
 
-            # Filter noise jitter (< 0.04m) and impossible speeds (> 11.0 m/s)
-            if dist > 0.04 and speed_ms < 11.0:
+            # Filter noise jitter and impossible speeds (> 11.0 m/s)
+            min_jitter = max(0.005, 0.04 * (30.0 / self.fps))
+            if dist > min_jitter and speed_ms < 11.0:
                 d["total_dist_m"] += dist
                 if zone in d["zone_dist"]:
                     d["zone_dist"][zone] += dist

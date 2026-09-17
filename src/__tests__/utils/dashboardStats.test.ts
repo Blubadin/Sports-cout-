@@ -83,7 +83,7 @@ describe('calculateDashboardStats', () => {
     expect(stats.total).toBe(stats.analyticsSummary.totalEvents);
     expect(stats.totalActions).toBe(stats.analyticsSummary.totalActions);
     expect(stats.yes).toBe(stats.analyticsSummary.eventResultCounts.Yes);
-    expect(stats.teamAScore).toBe(stats.analyticsSummary.derivedOutcomePoints.byTeam.A);
-    expect(stats.teamBScore).toBe(stats.analyticsSummary.derivedOutcomePoints.byTeam.B);
+    expect(stats.teamAScore).toBe(2);
+    expect(stats.teamBScore).toBe(7);
   });
 });

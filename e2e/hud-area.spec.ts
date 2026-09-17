@@ -23,9 +23,8 @@ async function openSportHud(page: import('@playwright/test').Page, sportName: st
 }
 
 const sportCases = [
-  { name: 'Volleyball', outZoneCount: 7 },
+  { name: 'Volleyball', outZoneCount: 8 },
   { name: 'Football', outZoneCount: 12 },
-  { name: 'Badminton', outZoneCount: 7 },
   { name: 'Basketball', outZoneCount: 5 },
 ] as const;
 
@@ -75,6 +74,32 @@ for (const sport of sportCases) {
     await page.keyboard.up('w');
   });
 }
+
+test('keeps the Badminton touch court visible and usable in Pro HUD', async ({ page }) => {
+  await openSportHud(page, 'Badminton');
+
+  await page.keyboard.down('w');
+  const areaPad = page.locator('[data-controller-wheel="area"]');
+  const courtSurface = areaPad.locator('[data-sport-surface="badminton"]');
+  await expect(areaPad).toBeVisible();
+  await expect(courtSurface).toBeVisible();
+  await expect(courtSurface.locator('svg.cursor-crosshair')).toBeVisible();
+
+  const bounds = await courtSurface.locator('svg.cursor-crosshair').evaluate((element) => {
+    const surface = element.getBoundingClientRect();
+    const pad = element.closest('[data-controller-wheel="area"]')?.getBoundingClientRect();
+    return {
+      surface: { left: surface.left, right: surface.right, top: surface.top, bottom: surface.bottom },
+      pad: pad ? { left: pad.left, right: pad.right, top: pad.top, bottom: pad.bottom } : null,
+    };
+  });
+  expect(bounds.pad).not.toBeNull();
+  expect(bounds.surface.left).toBeGreaterThanOrEqual(bounds.pad!.left - 1);
+  expect(bounds.surface.right).toBeLessThanOrEqual(bounds.pad!.right + 1);
+  expect(bounds.surface.top).toBeGreaterThanOrEqual(bounds.pad!.top - 1);
+  expect(bounds.surface.bottom).toBeLessThanOrEqual(bounds.pad!.bottom + 1);
+  await page.keyboard.up('w');
+});
 
 test('uses W hold, aim, and release to select an area and Escape to cancel', async ({ page }) => {
   await openSportHud(page, 'Volleyball');

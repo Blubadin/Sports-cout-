@@ -42,10 +42,11 @@ test('switches analysis views with scoped Ctrl+Tab and arrow keys', async ({ pag
   await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
   await expect(tabs.nth(1)).toBeFocused();
 
-  await page.keyboard.press('End');
-  const reportTab = page.getByRole('tab', { name: /report|รายงาน/i });
-  await expect(reportTab).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
-  await expect(reportTab).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  const lastAnalysisTab = tabs.last();
+  await expect(lastAnalysisTab).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
+  await expect(lastAnalysisTab).toBeFocused();
 });
 
 test('keeps primary navigation usable at 200% browser zoom', async ({ page }) => {

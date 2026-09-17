@@ -10,7 +10,7 @@ import {
   Target,
   Sparkles,
 } from 'lucide-react';
-import type { AreaSelectionPayload, SportType } from '../../types';
+import type { AreaSelectionPayload, OutZoneType, SportType } from '../../types';
 
 export interface BadmintonTouchCourtProps {
   pointX?: number;
@@ -111,7 +111,7 @@ export function resolveBadmintonPointSelection({
   }
 
   if (isOutsideLength || isOutsideWidth) {
-    let outZone = 'side_left_near';
+    let outZone: OutZoneType = 'side_left_near';
     let label = isThai ? 'ออก (Out)' : 'Out';
 
     if (normY < courtTop) {
@@ -371,7 +371,10 @@ export default function BadmintonTouchCourt({
   const bottomCourtSideLabel = flipCourtSide ? teamBName : teamAName;
 
   return (
-    <div className={`relative flex flex-col items-center select-none w-full ${compact ? 'max-w-xs' : 'max-w-xl'}`}>
+    <div
+      data-sport-surface="badminton"
+      className={`relative flex flex-col items-center select-none w-full ${compact ? 'max-w-xs' : 'max-w-xl'}`}
+    >
       {/* Top Toolbar (Controls & Status) */}
       {showControls && (
         <div className="flex items-center justify-between w-full mb-1.5 px-1 text-xs">
@@ -453,10 +456,16 @@ export default function BadmintonTouchCourt({
         {/* Court Team Labels */}
         {viewMode === 'full' && (
           <>
-            <div className="absolute top-2 right-2 text-[10px] font-black text-amber-400/80 bg-black/40 px-1.5 py-0.5 rounded pointer-events-none">
+            <div
+              data-testid="court-team-far"
+              className="absolute top-2 right-2 text-[10px] font-black text-amber-400/80 bg-black/40 px-1.5 py-0.5 rounded pointer-events-none"
+            >
               {topCourtSideLabel} (Opp)
             </div>
-            <div className="absolute bottom-2 right-2 text-[10px] font-black text-sky-400/80 bg-black/40 px-1.5 py-0.5 rounded pointer-events-none">
+            <div
+              data-testid="court-team-near"
+              className="absolute bottom-2 right-2 text-[10px] font-black text-sky-400/80 bg-black/40 px-1.5 py-0.5 rounded pointer-events-none"
+            >
               {bottomCourtSideLabel} (Us)
             </div>
           </>

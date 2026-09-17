@@ -37,19 +37,19 @@ export default function SportSpecificKPIs({ events, teams, matchInfo, teamFilter
     };
 
     if (sport === 'volleyball') {
-      const serves = getActionsBySkill(['SRV']);
+      const serves = getActionsBySkill(['SV', 'SRV']);
       const totalServes = serves.length;
       const serveAces = serves.filter(s => s.resultText === '+1').length;
       const serveErrors = serves.filter(s => s.resultText === '-1').length;
       const serveEfficiency = totalServes > 0 ? ((serveAces - serveErrors) / totalServes * 100).toFixed(1) : '0.0';
       
-      const receives = getActionsBySkill(['RCV']);
+      const receives = getActionsBySkill(['REC', 'RCV']);
       const totalReceives = receives.length;
       const receiveExcellent = receives.filter(r => r.resultText === '+1').length;
       const receiveErrors = receives.filter(r => r.resultText === '-1').length;
       const receiveEfficiency = totalReceives > 0 ? ((receiveExcellent - receiveErrors) / totalReceives * 100).toFixed(1) : '0.0';
 
-      const attacks = getActionsBySkill(['ATK', 'SPK']);
+      const attacks = getActionsBySkill(['SPK', 'ATK']);
       const attackErrors = attacks.filter(a => a.resultText === '-1').length;
 
       const blocks = getActionsBySkill(['BLK']);
@@ -98,16 +98,6 @@ export default function SportSpecificKPIs({ events, teams, matchInfo, teamFilter
         { label: 'Goals', thLabel: 'ประตู', value: goals.toString(), color: 'text-emerald-600 dark:text-emerald-400' },
         { label: 'Pass Accuracy', thLabel: 'ความแม่นยำการส่งบอล', value: `${passRate}%`, color: 'text-sky-600 dark:text-sky-400' },
         { label: 'Total Shots', thLabel: 'โอกาสยิง', value: shots.length.toString(), color: 'text-orange-600 dark:text-orange-400' }
-      );
-    } else if (sport === 'tennis') {
-      const serves = getActionsBySkill(['SRV']);
-      const aces = serves.filter(s => s.resultText === '+1').length;
-
-      const unforced = filteredEvents.filter(e => e.resultText === '-1').length;
-
-      data.push(
-        { label: 'Aces', thLabel: 'เสิร์ฟเอซ', value: aces.toString(), color: 'text-green-600 dark:text-green-400' },
-        { label: 'Unforced Errors', thLabel: 'ตีเสียเอง', value: unforced.toString(), color: 'text-red-600 dark:text-red-400' }
       );
     }
 

@@ -31,31 +31,16 @@ import {
 } from '../utils/scoutData';
 import {
   applyEventQuery,
+  getCachedEventQuery,
   getEventQueryOptions,
   getEventTimestamp,
+  INITIAL_EVENT_QUERY,
   type EventQuery,
 } from '../utils/eventQuery';
 import { createEventsCsv } from '../utils/eventExport';
 import { consumeReviewDrilldown } from '../utils/reviewDrilldown';
 
 const TABLE_PAGE_SIZE = 100;
-
-const INITIAL_EVENT_QUERY: EventQuery = {
-  search: '',
-  team: '',
-  skill: '',
-  result: '',
-  resultDetail: '',
-  foul: '',
-  area: '',
-  startArea: '',
-  targetArea: '',
-  systemContext: '',
-  bookmark: 'all',
-  player: '',
-  sortBy: 'videoTime',
-  sortDirection: 'asc',
-};
 
 function ResultSelect({ value, onChange }: { value: string, onChange: (v: string) => void }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -353,7 +338,7 @@ export default function ScoutingTable() {
   const deferredSearch = React.useDeferredValue(query.search);
   const effectiveQuery = useMemo(() => ({ ...query, search: deferredSearch }), [deferredSearch, query]);
   const queryOptions = useMemo(() => getEventQueryOptions(events), [events]);
-  const filteredEvents = useMemo(() => applyEventQuery(events, effectiveQuery), [effectiveQuery, events]);
+  const filteredEvents = useMemo(() => getCachedEventQuery(events, effectiveQuery), [effectiveQuery, events]);
   const dataQuality = useMemo(() => buildDataQualityReport(filteredEvents), [filteredEvents]);
   const filteredAnalytics = useMemo(() => buildAnalyticsSummary(filteredEvents), [filteredEvents]);
   const pageCount = Math.max(1, Math.ceil(filteredEvents.length / TABLE_PAGE_SIZE));

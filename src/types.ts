@@ -268,7 +268,7 @@ export type MatchInfo = {
 
 export type AppSettings = {
   workspaceExperience?: WorkspaceExperience;
-  workbenchPreset?: 'scout' | 'review' | 'analysis' | 'report';
+  workbenchPreset?: 'scout' | 'review' | 'analysis' | 'report' | 'lab';
   autoNextPoint: boolean;
   theme?: 'light' | 'dark' | 'monochrome';
   darkMode: boolean; // keep for backwards compatibility
@@ -370,10 +370,25 @@ export type ScoutProject = {
       bl: [number, number]; // Bottom-left [x,y] 0-1
       br: [number, number]; // Bottom-right [x,y] 0-1
     };
+    aiSuggestions?: AISuggestion[];
   };
   createdAt: string;
   updatedAt: string;
 };
+
+export interface AISuggestion {
+  id: string;
+  time: number;
+  duration?: number;
+  label: string;
+  confidence?: number;
+  type?: 'rally' | 'skill' | 'touch';
+  skillCode?: string;
+  playerId?: string;
+  teamCode?: string;
+  courtLocation?: { x: number; y: number };
+  status?: 'pending' | 'accepted' | 'rejected';
+}
 
 export interface AIPoseKeypoint {
   x: number; // 0..100 or pixel
@@ -382,7 +397,59 @@ export interface AIPoseKeypoint {
   name?: string;
 }
 
-export interface AITrackingPlayer {
+export interface TrackingPoseV1 {
+  keypoints: {
+    x: number;
+    y: number;
+    score: number;
+    name?: string;
+  }[];
+  action?: string;
+  confidence?: number;
+}
+
+export interface TrackingPlayerV1 {
+  playerId: string;
+  trackId?: number;
+  teamCode?: string;
+  bboxPct?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  groundPointPct?: {
+    x: number;
+    y: number;
+  };
+  courtPosition: {
+    xM: number;
+    yM: number;
+    xPct: number;
+    yPct: number;
+  };
+  absoluteZone?: string;
+  playerRelativeZone?: string;
+  speedMps?: number;
+  totalDistanceM?: number;
+  detectionConfidence: number;
+  state: 'observed' | 'predicted' | 'lost';
+  pose?: TrackingPoseV1;
+}
+
+export interface TrackingTelemetryV1 {
+  schemaVersion: 1;
+  analysisId: string;
+  timestampSec: number;
+  frameIndex: number;
+  engineVersion?: string;
+  modelVersion?: string;
+  isSynthetic?: boolean;
+  source?: 'real_tracking' | 'synthetic_demo' | string;
+  players: TrackingPlayerV1[];
+}
+
+export interface AITrackingPlayer extends Partial<TrackingPlayerV1> {
   id: number;
   team: 1 | 2;
   name: string;
@@ -402,10 +469,11 @@ export interface AITrackingPlayer {
   video_keypoints_pct?: { x: number; y: number }[];
 }
 
-export interface AITelemetryFrame {
+export interface AITelemetryFrame extends Partial<Omit<TrackingTelemetryV1, 'players'>> {
   timestamp: number;
   frame_idx: number;
   game_type?: 'singles' | 'doubles';
   players: AITrackingPlayer[];
   source?: string;
 }
+

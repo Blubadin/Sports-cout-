@@ -1,3 +1,4 @@
 export const SPORTSCOUT_APP_NAME = 'SPORTSCOUT';
 export const SPORTSCOUT_APP_VERSION = '0.11.0-pilot.1';
 export const SPORTSCOUT_EXPORT_SCHEMA_VERSION = '1.2';
+export const SPORTSCOUT_CREATOR = 'Blubadin keawkham';

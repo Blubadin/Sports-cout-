@@ -7,7 +7,12 @@
  * 4. Generates both real-court coordinates and video-screen bounding boxes (video_bbox_pct) & AlphaPose skeleton!
  */
 
-import { AITelemetryFrame, AITrackingPlayer } from "../types";
+import {
+  AITelemetryFrame,
+  AITrackingPlayer,
+  TrackingTelemetryV1,
+  TrackingPlayerV1,
+} from "../types";
 
 export type AIConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 export type AIEngineMode = "browser" | "server";
@@ -22,20 +27,40 @@ export interface MarkingState {
 }
 
 type TelemetryListener = (frame: AITelemetryFrame) => void;
+type TelemetryV1Listener = (telemetry: TrackingTelemetryV1) => void;
 type StatusListener = (status: AIConnectionStatus) => void;
 type MarkingListener = (state: MarkingState) => void;
+
+export function getAiHost(): string {
+  if (typeof window !== 'undefined' && window.location.hostname) {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '::1') return '127.0.0.1';
+    return host;
+  }
+  return '127.0.0.1';
+}
 
 class AITrackingService {
   private mode: AIEngineMode = "browser";
   private gameType: BadmintonGameType = "doubles";
   private ws: WebSocket | null = null;
-  private serverUrl: string = "ws://localhost:8000/ws/telemetry";
+  private serverUrl: string = `ws://${getAiHost()}:8000/ws/telemetry`;
+  private activeBaseUrl: string | null = null;
+
+  public getApiUrl(path: string): string {
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    if (this.activeBaseUrl !== null) {
+      return `${this.activeBaseUrl}${cleanPath}`;
+    }
+    return `http://${getAiHost()}:8000${cleanPath}`;
+  }
   private status: AIConnectionStatus = "disconnected";
   private telemetryListeners: Set<TelemetryListener> = new Set();
+  private telemetryV1Listeners: Set<TelemetryV1Listener> = new Set();
   private statusListeners: Set<StatusListener> = new Set();
   private markingListeners: Set<MarkingListener> = new Set();
   private shouldReconnect: boolean = false;
-  private reconnectTimer: any = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private latestFrame: AITelemetryFrame | null = null;
 
   // Click-to-Mark Player State
@@ -43,7 +68,7 @@ class AITrackingService {
   private markingStep: number = 0;
 
   // In-Browser Engine State
-  private browserTimer: any = null;
+  private browserTimer: ReturnType<typeof setInterval> | null = null;
   private simTime: number = 0;
   private videoSynced: boolean = false;
   private isVideoPlaying: boolean = true;
@@ -171,8 +196,7 @@ class AITrackingService {
     this.simTime = currentTime;
     if (!isPlaying) {
       const frame = this.computeTelemetryForTime(currentTime);
-      this.latestFrame = frame;
-      this.telemetryListeners.forEach((listener) => listener(frame));
+      this.emitTelemetry(frame);
     }
   }
 
@@ -186,8 +210,7 @@ class AITrackingService {
       y: Math.max(-50, Math.min(50, cur.y + delta.y)),
     };
     const frame = this.computeTelemetryForTime(this.simTime);
-    this.latestFrame = frame;
-    this.telemetryListeners.forEach((listener) => listener(frame));
+    this.emitTelemetry(frame);
   }
 
   public getPlayerAnchorOffset(id: number): { x: number; y: number } {
@@ -230,8 +253,7 @@ class AITrackingService {
     }
 
     const frame = this.computeTelemetryForTime(this.simTime);
-    this.latestFrame = frame;
-    this.telemetryListeners.forEach((listener) => listener(frame));
+    this.emitTelemetry(frame);
   }
 
   public getPlayerCustomPosition(id: number) {
@@ -242,8 +264,7 @@ class AITrackingService {
     this.playerOffsets = {};
     this.playerCustomPositions = {};
     const frame = this.computeTelemetryForTime(this.simTime);
-    this.latestFrame = frame;
-    this.telemetryListeners.forEach((listener) => listener(frame));
+    this.emitTelemetry(frame);
   }
 
   /**
@@ -334,26 +355,66 @@ class AITrackingService {
    * Check if local Python AI service is online on localhost:8000.
    */
   public async checkBackendHealth(): Promise<boolean> {
-    try {
-      const res = await fetch("http://localhost:8000/api/status", {
-        signal: AbortSignal.timeout(1200),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.status === "online";
-      }
-    } catch {}
+    const endpoints = [
+      `/api/status`,
+      `http://${getAiHost()}:8000/api/status`,
+      `http://127.0.0.1:8000/api/status`,
+    ];
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === "online") {
+            this.activeBaseUrl = url.replace('/api/status', '');
+            return true;
+          }
+        }
+      } catch {}
+    }
     return false;
   }
 
+  public async getCapabilities(): Promise<{
+    selectedDevice: 'cpu' | 'cuda' | 'mps';
+    requestedDevice?: string;
+    cudaAvailable: boolean;
+    mpsAvailable: boolean;
+    torchVersion?: string | null;
+  }> {
+    const res = await fetch(this.getApiUrl('/api/capabilities'));
+    if (!res.ok) throw new Error(`Failed to read AI capabilities: ${res.statusText}`);
+    return res.json();
+  }
+
   public connect(customUrl?: string) {
-    if (customUrl) this.serverUrl = customUrl;
+    if (customUrl) {
+      let targetUrl = customUrl;
+      const host = getAiHost();
+      if (host !== 'localhost' && host !== '127.0.0.1') {
+        targetUrl = targetUrl.replace(/localhost|127\.0\.0\.1/, host);
+      }
+      this.serverUrl = targetUrl;
+    } else if (this.activeBaseUrl === '' && typeof window !== 'undefined') {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      this.serverUrl = `${protocol}//${window.location.host}/ws/telemetry`;
+    }
 
     if (this.mode === "browser") {
       this.startBrowserEngine();
     } else {
       this.connectWebSocket();
     }
+  }
+
+  public startStreaming(source?: string) {
+    this.connect();
+  }
+
+  public stopStreaming() {
+    this.disconnect();
   }
 
   public disconnect() {
@@ -579,13 +640,33 @@ class AITrackingService {
         y: Math.round((videoBbox.y + ((k.y - (c.y - 3.5)) / 3.8) * videoBbox.height) * 10) / 10,
       }));
 
+      const posPct = { x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 };
+      const posM = {
+        x: Math.round((c.x / 100) * (isSingles ? 5.18 : 6.10) * 100) / 100,
+        y: Math.round((c.y / 100) * 13.40 * 100) / 100,
+      };
+
       return {
         ...p,
-        court_pos_pct: { x: Math.round(c.x * 10) / 10, y: Math.round(c.y * 10) / 10 },
-        court_pos_m: {
-          x: Math.round((c.x / 100) * (isSingles ? 5.18 : 6.71) * 100) / 100,
-          y: Math.round((c.y / 100) * 13.4 * 100) / 100,
+        playerId: `P${p.id}`,
+        trackId: p.id,
+        teamCode: `team${p.team}`,
+        bboxPct: videoBbox,
+        groundPointPct: posPct,
+        courtPosition: {
+          xM: posM.x,
+          yM: posM.y,
+          xPct: posPct.x,
+          yPct: posPct.y,
         },
+        absoluteZone: currentZone,
+        playerRelativeZone: currentZone,
+        speedMps: Math.round(Math.min(9.5, speed) * 10) / 10,
+        totalDistanceM: Math.round((p.total_dist_m + distM) * 10) / 10,
+        detectionConfidence: 0.95,
+        state: "observed" as const,
+        court_pos_pct: posPct,
+        court_pos_m: posM,
         zone: currentZone,
         speed_ms: Math.round(Math.min(9.5, speed) * 10) / 10,
         total_dist_m: Math.round((p.total_dist_m + distM) * 10) / 10,
@@ -599,6 +680,13 @@ class AITrackingService {
     });
 
     return {
+      schemaVersion: 1,
+      analysisId: "in_browser_sim",
+      timestampSec: Math.round(t * 100) / 100,
+      frameIndex: Math.floor(t * 30),
+      engineVersion: "1.0.0",
+      modelVersion: "browser-sim-v1",
+      isSynthetic: true,
       timestamp: Math.round(t * 100) / 100,
       frame_idx: Math.floor(t * 30),
       game_type: this.gameType,
@@ -628,8 +716,7 @@ class AITrackingService {
       }
 
       const frame = this.computeTelemetryForTime(this.simTime);
-      this.latestFrame = frame;
-      this.telemetryListeners.forEach((listener) => listener(frame));
+      this.emitTelemetry(frame);
     }, intervalMs);
   }
 
@@ -656,8 +743,7 @@ class AITrackingService {
         try {
           const payload = JSON.parse(event.data);
           if (payload.type === "telemetry" && payload.data) {
-            this.latestFrame = payload.data;
-            this.telemetryListeners.forEach((listener) => listener(payload.data));
+            this.emitTelemetry(payload.data);
           }
         } catch (e) {
           console.warn("[AITrackingService] Failed to parse message:", e);
@@ -682,6 +768,15 @@ class AITrackingService {
       };
     } catch (e) {
       this.setStatus("error");
+    }
+  }
+
+  private emitTelemetry(frame: AITelemetryFrame) {
+    this.latestFrame = frame;
+    this.telemetryListeners.forEach((listener) => listener(frame));
+    if (this.telemetryV1Listeners.size > 0) {
+      const v1 = toTrackingTelemetryV1(frame);
+      this.telemetryV1Listeners.forEach((listener) => listener(v1));
     }
   }
 
@@ -715,6 +810,140 @@ class AITrackingService {
     };
   }
 
+  public onTelemetryV1(listener: TelemetryV1Listener): () => void {
+    this.telemetryV1Listeners.add(listener);
+    if (this.latestFrame) {
+      listener(toTrackingTelemetryV1(this.latestFrame));
+    }
+    return () => {
+      this.telemetryV1Listeners.delete(listener);
+    };
+  }
+
+  public getLatestTelemetryV1(): TrackingTelemetryV1 | null {
+    return this.latestFrame ? toTrackingTelemetryV1(this.latestFrame) : null;
+  }
+
+  public async createSession(
+    gameType: BadmintonGameType,
+    videoSource: string = "demo",
+    options?: { projectId?: string | null; videoFingerprint?: string | null; device?: 'auto' | 'cpu' | 'cuda' | 'mps' }
+  ): Promise<{ sessionId: string; status: string }> {
+    const res = await fetch(this.getApiUrl('/api/tracking/sessions'), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        video_source: videoSource,
+        game_type: gameType,
+        project_id: options?.projectId ?? null,
+        video_fingerprint: options?.videoFingerprint ?? null,
+        device: options?.device ?? 'auto',
+      }),
+    });
+    if (!res.ok) throw new Error(`Failed to create tracking session: ${res.statusText}`);
+    return res.json();
+  }
+
+  public async calibrateSession(sessionId: string, corners: number[][], gameType: BadmintonGameType): Promise<void> {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/calibration`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ corners, game_type: gameType }),
+    });
+    if (!res.ok) throw new Error(`Failed to calibrate session: ${res.statusText}`);
+  }
+
+  public async uploadSessionVideo(sessionId: string, file: File, signal?: AbortSignal): Promise<{ width: number; height: number }> {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/video`), {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+      signal,
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || `Video upload failed (${res.status})`);
+    }
+    return res.json();
+  }
+
+  public async listSessions(projectId?: string | null): Promise<Array<{
+    sessionId: string;
+    status: string;
+    gameType: BadmintonGameType;
+    projectId: string | null;
+    videoFingerprint: string | null;
+    progressPct: number;
+    currentFrame: number;
+    totalFrames: number;
+    resumable: boolean;
+  }>> {
+    const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions${query}`));
+    if (!res.ok) throw new Error(`Failed to list tracking sessions: ${res.statusText}`);
+    const payload = await res.json() as { sessions?: Array<{
+      sessionId: string;
+      status: string;
+      gameType: BadmintonGameType;
+      projectId: string | null;
+      videoFingerprint: string | null;
+      progressPct: number;
+      currentFrame: number;
+      totalFrames: number;
+      resumable: boolean;
+    }> };
+    return payload.sessions ?? [];
+  }
+
+  public async assignSessionPlayers(
+    sessionId: string,
+    players: { player_id: number; bbox: number[]; name?: string }[]
+  ): Promise<void> {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/players`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ players }),
+    });
+    if (!res.ok) throw new Error(`Failed to assign players: ${res.statusText}`);
+  }
+
+  public async startSessionAnalysis(sessionId: string): Promise<void> {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/start`), {
+      method: "POST",
+    });
+    if (!res.ok) throw new Error(`Failed to start analysis: ${res.statusText}`);
+  }
+
+  public async getSessionStatus(sessionId: string): Promise<{
+    sessionId: string;
+    status: string;
+    progressPct: number;
+    currentFrame: number;
+    totalFrames: number;
+    elapsedSec: number;
+    durationSec: number;
+    error: string | null;
+  }> {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/status`));
+    if (!res.ok) throw new Error(`Failed to get session status: ${res.statusText}`);
+    return res.json();
+  }
+
+  public async getSessionResults(sessionId: string): Promise<{
+    sessionId: string;
+    status: string;
+    sampleCount: number;
+    telemetry: TrackingTelemetryV1[];
+  }> {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/results`));
+    if (!res.ok) throw new Error(`Failed to get session results: ${res.statusText}`);
+    return res.json();
+  }
+
+  public async deleteSession(sessionId: string): Promise<void> {
+    await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}`), { method: "DELETE" });
+  }
+
   public onStatus(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
     listener(this.status);
@@ -727,6 +956,57 @@ class AITrackingService {
     this.status = newStatus;
     this.statusListeners.forEach((listener) => listener(newStatus));
   }
+}
+
+/**
+ * Converts any AITelemetryFrame into canonical TrackingTelemetryV1 (PDF §45).
+ */
+export function toTrackingTelemetryV1(frame: AITelemetryFrame): TrackingTelemetryV1 {
+  const isSynthetic =
+    frame.isSynthetic ??
+    (frame.source
+      ? frame.source.includes("synthetic") ||
+        frame.source.includes("simulated") ||
+        frame.source.includes("browser")
+      : false);
+
+  return {
+    schemaVersion: 1,
+    analysisId: frame.analysisId || "tracking_session",
+    timestampSec: frame.timestampSec ?? frame.timestamp,
+    frameIndex: frame.frameIndex ?? frame.frame_idx,
+    engineVersion: frame.engineVersion || "1.0.0",
+    modelVersion: frame.modelVersion || "badminton-tracking-v1",
+    isSynthetic,
+    source: frame.source || (isSynthetic ? "synthetic_demo" : "real_tracking"),
+    players: (frame.players || []).map((p) => {
+      const posPct = p.court_pos_pct || { x: 50, y: 50 };
+      const posM = p.court_pos_m || {
+        x: Math.round((posPct.x / 100) * 6.10 * 100) / 100,
+        y: Math.round((posPct.y / 100) * 13.40 * 100) / 100,
+      };
+      return {
+        playerId: p.playerId || `P${p.id}`,
+        trackId: p.trackId ?? p.id,
+        teamCode: p.teamCode || `team${p.team}`,
+        bboxPct: p.bboxPct || p.video_bbox_pct,
+        groundPointPct: p.groundPointPct || { x: posPct.x, y: posPct.y },
+        courtPosition: p.courtPosition || {
+          xM: posM.x,
+          yM: posM.y,
+          xPct: posPct.x,
+          yPct: posPct.y,
+        },
+        absoluteZone: p.absoluteZone || p.zone,
+        playerRelativeZone: p.playerRelativeZone || p.zone,
+        speedMps: p.speedMps ?? p.speed_ms,
+        totalDistanceM: p.totalDistanceM ?? p.total_dist_m,
+        detectionConfidence: p.detectionConfidence ?? 0.9,
+        state: p.state || (p.is_active ? "observed" : "lost"),
+        pose: p.pose,
+      };
+    }),
+  };
 }
 
 export const aiTrackingService = new AITrackingService();

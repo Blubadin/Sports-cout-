@@ -17,14 +17,15 @@ export default function WorkstationInspector() {
     videoTime,
   } = useScoutContext();
   const language = settings.uiLanguage || 'th';
-  const hasInput = Object.values(currentAction).some(value => value !== undefined && value !== '');
-  const isValid = hasInput && isActionComplete(currentAction);
+  const safeAction = currentAction || {};
+  const hasInput = Object.values(safeAction).some(value => value !== undefined && value !== '');
+  const isValid = hasInput && isActionComplete(safeAction);
   const state = isValid ? 'valid' : hasInput ? 'incomplete' : 'empty';
-  const missingMessage = hasInput ? getMissingActionMessage(currentAction) : null;
-  const team = teams.find(item => item.code === currentAction.teamCode);
-  const skill = sportTemplate.skills.find(item => item.code === currentAction.skillCode);
-  const result = sportTemplate.results.find(item => item.code === currentAction.resultCode);
-  const area = sportTemplate.areas.find(item => item.code === currentAction.areaCode);
+  const missingMessage = hasInput ? getMissingActionMessage(safeAction) : null;
+  const team = teams?.find(item => item.code === safeAction.teamCode);
+  const skill = sportTemplate?.skills?.find(item => item.code === safeAction.skillCode);
+  const result = sportTemplate?.results?.find(item => item.code === safeAction.resultCode);
+  const area = sportTemplate?.areas?.find(item => item.code === safeAction.areaCode);
 
   const fields = [
     { label: language === 'th' ? 'ทีม' : 'Team', value: team?.code || currentAction.teamCode },

@@ -74,7 +74,8 @@ export function calculateVolleyballMetrics(
         if (action.teamCode !== teamCode) continue;
 
         // Reception grading
-        if (action.skillCode === 'Receive' || action.domainPayload?.type === 'volleyball' && action.domainPayload.rallyPhase === 'reception') {
+        const isReception = action.skillCode === 'REC' || action.skillCode === 'Receive' || (action.domainPayload?.type === 'volleyball' && action.domainPayload.rallyPhase === 'reception');
+        if (isReception) {
           const grade = action.domainPayload?.type === 'volleyball' ? action.domainPayload.receptionGrade : action.resultCode;
           if (grade === '#' || grade === 'Pass' || grade === '3') pass3++;
           else if (grade === '+' || grade === '2') pass2++;
@@ -83,12 +84,13 @@ export function calculateVolleyballMetrics(
         }
 
         // Attack grading
-        if (action.skillCode === 'Spike' || action.domainPayload?.type === 'volleyball' && action.domainPayload.rallyPhase === 'attack') {
-          if (action.resultCode === 'Yes' || action.domainPayload?.type === 'volleyball' && action.domainPayload.attackGrade === 'kill') {
+        const isAttack = action.skillCode === 'SPK' || action.skillCode === 'Spike' || (action.domainPayload?.type === 'volleyball' && action.domainPayload.rallyPhase === 'attack');
+        if (isAttack) {
+          if (action.resultCode === 'Yes' || (action.domainPayload?.type === 'volleyball' && action.domainPayload.attackGrade === 'kill')) {
             kills++;
-          } else if (action.resultCode === 'Out' || action.domainPayload?.type === 'volleyball' && action.domainPayload.attackGrade === 'error') {
+          } else if (action.resultCode === 'Out' || (action.domainPayload?.type === 'volleyball' && action.domainPayload.attackGrade === 'error')) {
             errors++;
-          } else if (action.foulCode === 'Net Touch' || action.domainPayload?.type === 'volleyball' && action.domainPayload.attackGrade === 'blocked') {
+          } else if (action.foulCode === 'NET_TOUCH' || action.foulCode === 'Net Touch' || (action.domainPayload?.type === 'volleyball' && action.domainPayload.attackGrade === 'blocked')) {
             blocks++;
           } else {
             continued++;

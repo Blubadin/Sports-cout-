@@ -362,6 +362,7 @@ export const SPORT_TEMPLATES: Record<string, SportTemplate> = {
       { id: 'stl', code: 'STL', name: 'Steal', thaiName: 'สตีล' },
       { id: 'blk', code: 'BLK', name: 'Block', thaiName: 'บล็อก' },
       { id: 'to', code: 'TO', name: 'Turnover', thaiName: 'เสียบอล' },
+      { id: 'ast', code: 'AST', name: 'Assist', thaiName: 'แอสซิสต์' },
     ],
     areas: [
       { id: 'paint', code: 'PAINT', thaiName: 'ใต้แป้น', type: 'court' },
