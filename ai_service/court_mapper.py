@@ -25,7 +25,8 @@ MID_BOUNDARY_BOT_M = 11.04  # 8.68m + 2.36m
 class CourtMapper:
     def __init__(self, game_type: str = "doubles"):
         self.game_type = game_type
-        self.court_w = COURT_WIDTH_DOUBLES_M if game_type == "doubles" else COURT_WIDTH_SINGLES_M
+        # Physical court calibration lines visible on camera are always the outer doubles boundary (6.10m x 13.40m)
+        self.court_w = COURT_WIDTH_DOUBLES_M
         self.court_l = COURT_LENGTH_M
         self.court_real_size = (self.court_l, self.court_w)
         self.H: np.ndarray | None = None
@@ -34,37 +35,72 @@ class CourtMapper:
         # Real court corners: [Top-Left, Top-Right, Bottom-Right, Bottom-Left]
         self.real_corners = np.array([
             [0.0, 0.0],
-            [self.court_w, 0.0],
-            [self.court_w, self.court_l],
-            [0.0, self.court_l],
+            [COURT_WIDTH_DOUBLES_M, 0.0],
+            [COURT_WIDTH_DOUBLES_M, COURT_LENGTH_M],
+            [0.0, COURT_LENGTH_M],
         ], dtype=np.float32)
 
-    def calibrate(self, image_corners: np.ndarray):
-        """Calibrate using 4 image corners matching [TL, TR, BR, BL] of court."""
-        image_corners = np.array(image_corners, dtype=np.float32)
-        self.H, _ = cv2.findHomography(image_corners, self.real_corners)
-        self.H_inv, _ = cv2.findHomography(self.real_corners, image_corners)
+    @property
+    def is_calibrated(self) -> bool:
+        """Returns True if valid perspective homography matrices exist."""
+        return self.H is not None and self.H_inv is not None
+
+    def calibrate(self, image_corners: np.ndarray | list):
+        """
+        Calibrate using 4 image corners matching [TL, TR, BR, BL] of outer court boundary.
+        Validates: exactly 4 points, finite values, non-duplicate coordinates,
+        minimum polygon area (>= 10 px²), and non-singular homography rank.
+        """
+        corners = np.asarray(image_corners, dtype=np.float32)
+        if corners.shape != (4, 2):
+            raise ValueError(f"Calibration requires exactly 4 corner points (TL, TR, BR, BL), got shape {corners.shape}")
+
+        if not np.all(np.isfinite(corners)):
+            raise ValueError("Calibration points contain NaN or Inf values")
+
+        # Reject duplicate or near-coincident points
+        for i in range(4):
+            for j in range(i + 1, 4):
+                if float(np.linalg.norm(corners[i] - corners[j])) < 1.0:
+                    raise ValueError("Calibration points contain duplicate or degenerate coordinates")
+
+        # Reject degenerate polygon (minimum 10 px² contour area)
+        area = abs(float(cv2.contourArea(corners)))
+        if area < 10.0:
+            raise ValueError(f"Degenerate calibration polygon: area is {area:.2f} px² (must be >= 10 px²)")
+
+        H, _ = cv2.findHomography(corners, self.real_corners, method=0)
+        H_inv, _ = cv2.findHomography(self.real_corners, corners, method=0)
+
+        if H is None or H_inv is None:
+            raise ValueError("Failed to compute perspective homography matrix")
+
+        if np.linalg.matrix_rank(H) < 3 or np.linalg.matrix_rank(H_inv) < 3 or abs(float(np.linalg.det(H))) < 1e-9:
+            raise ValueError("Computed homography matrix is singular or degenerate")
+
+        self.H = H
+        self.H_inv = H_inv
 
     def pixel_to_real(self, point_px: tuple[float, float]) -> tuple[float, float]:
-        """Convert pixel (x, y) to real court (x_m, y_m)."""
-        if self.H is None:
-            return (0.0, 0.0)
+        """Convert pixel (x, y) to real court (x_m, y_m). Requires calibration."""
+        if not self.is_calibrated:
+            raise RuntimeError("CourtMapper is not calibrated. Call calibrate() first.")
         p = np.array([[[float(point_px[0]), float(point_px[1])]]], dtype=np.float32)
         real = cv2.perspectiveTransform(p, self.H)
         return float(real[0][0][0]), float(real[0][0][1])
 
     def real_to_pixel(self, point_m: tuple[float, float]) -> tuple[int, int]:
-        """Convert real court (x_m, y_m) to pixel (x, y)."""
-        if self.H_inv is None:
-            return (0, 0)
+        """Convert real court (x_m, y_m) to pixel (x, y). Requires calibration."""
+        if not self.is_calibrated:
+            raise RuntimeError("CourtMapper is not calibrated. Call calibrate() first.")
         p = np.array([[[float(point_m[0]), float(point_m[1])]]], dtype=np.float32)
         px = cv2.perspectiveTransform(p, self.H_inv)
         return int(px[0][0][0]), int(px[0][0][1])
 
     def real_to_pixel_subpixel(self, point_m: tuple[float, float]) -> tuple[float, float]:
-        """Convert real court (x_m, y_m) to subpixel float (x, y)."""
-        if self.H_inv is None:
-            return (0.0, 0.0)
+        """Convert real court (x_m, y_m) to subpixel float (x, y). Requires calibration."""
+        if not self.is_calibrated:
+            raise RuntimeError("CourtMapper is not calibrated. Call calibrate() first.")
         p = np.array([[[float(point_m[0]), float(point_m[1])]]], dtype=np.float32)
         px = cv2.perspectiveTransform(p, self.H_inv)
         return float(px[0][0][0]), float(px[0][0][1])
@@ -72,11 +108,12 @@ class CourtMapper:
     def real_to_percent(self, point_m: tuple[float, float]) -> tuple[float, float]:
         """
         Convert real court meters (x_m, y_m) to normalized percentage (0..100%).
+        Normalized to outer doubles court boundary (6.10m x 13.40m).
         x_pct: 0% (Left) to 100% (Right)
         y_pct: 0% (Top / Far Court) to 100% (Bottom / Near Court)
         """
-        x_pct = np.clip((point_m[0] / self.court_w) * 100.0, 0.0, 100.0)
-        y_pct = np.clip((point_m[1] / self.court_l) * 100.0, 0.0, 100.0)
+        x_pct = np.clip((point_m[0] / COURT_WIDTH_DOUBLES_M) * 100.0, 0.0, 100.0)
+        y_pct = np.clip((point_m[1] / COURT_LENGTH_M) * 100.0, 0.0, 100.0)
         return float(x_pct), float(y_pct)
 
     def is_within_outer_court(self, point_m: tuple[float, float], margin: float = 0.0) -> bool:
@@ -174,6 +211,7 @@ class DistanceTracker:
                 "player_id": player_id,
                 "total_dist_m": 0.0,
                 "prev_real": None,
+                "prev_time": None,
                 "positions_px": [],
                 "positions_m": [],
                 "positions_pct": [],
@@ -186,7 +224,12 @@ class DistanceTracker:
             }
         return self._data[player_id]
 
-    def update(self, player_id: int, center_px: tuple[float, float]) -> dict:
+    def update(
+        self,
+        player_id: int,
+        center_px: tuple[float, float],
+        timestamp_sec: float | None = None,
+    ) -> dict:
         d = self._get_or_create(player_id)
         real = self.mapper.pixel_to_real(center_px)
         pct = self.mapper.real_to_percent(real)
@@ -197,33 +240,60 @@ class DistanceTracker:
         d["positions_pct"].append(pct)
         d["current_zone"] = zone
 
-        if d["prev_real"] is not None:
-            dist = CourtMapper.euclidean_distance(d["prev_real"], real)
-            speed_ms = dist * self.fps
+        if d["prev_real"] is None:
+            # Initial assignment establishes position with 0 speed
+            d["prev_real"] = real
+            d["prev_time"] = timestamp_sec
+            d["speeds_ms"].append(0.0)
+            d["current_speed_ms"] = 0.0
+            return d
 
-            # Filter noise jitter and impossible speeds (> 11.0 m/s)
-            min_jitter = max(0.005, 0.04 * (30.0 / self.fps))
-            if dist > min_jitter and speed_ms < 11.0:
-                d["total_dist_m"] += dist
-                if zone in d["zone_dist"]:
-                    d["zone_dist"][zone] += dist
+        # Compute deltaTime
+        if timestamp_sec is not None and d["prev_time"] is not None:
+            delta_t = timestamp_sec - d["prev_time"]
+        elif self.fps > 0:
+            delta_t = 1.0 / self.fps
+        else:
+            delta_t = 0.0
 
-                d["raw_speeds"].append(speed_ms)
-                if len(d["raw_speeds"]) > self.smooth_k:
-                    d["raw_speeds"].pop(0)
-                smooth_speed = float(np.mean(d["raw_speeds"]))
-                d["speeds_ms"].append(smooth_speed)
-                d["current_speed_ms"] = round(smooth_speed, 2)
-                if smooth_speed > d["max_speed_ms"]:
-                    d["max_speed_ms"] = round(smooth_speed, 2)
-            else:
-                d["speeds_ms"].append(0.0)
-                d["current_speed_ms"] = 0.0
+        # Reject deltaTime <= 0 without NaN/Inf/negative speed
+        if delta_t <= 0.0 or not np.isfinite(delta_t):
+            d["speeds_ms"].append(0.0)
+            d["current_speed_ms"] = 0.0
+            d["prev_real"] = real
+            if timestamp_sec is not None:
+                d["prev_time"] = timestamp_sec
+            return d
+
+        dist = CourtMapper.euclidean_distance(d["prev_real"], real)
+        speed_ms = dist / delta_t
+
+        # Filter spatial jitter (< 0.03m / 3cm) and impossible speeds (> 11.0 m/s)
+        if dist >= 0.03 and speed_ms <= 11.0:
+            d["total_dist_m"] += dist
+            if zone in d["zone_dist"]:
+                d["zone_dist"][zone] += dist
+
+            d["raw_speeds"].append(speed_ms)
+            if len(d["raw_speeds"]) > self.smooth_k:
+                d["raw_speeds"].pop(0)
+            smooth_speed = float(np.mean(d["raw_speeds"]))
+            d["speeds_ms"].append(smooth_speed)
+            d["current_speed_ms"] = round(smooth_speed, 2)
+            if smooth_speed > d["max_speed_ms"]:
+                d["max_speed_ms"] = round(smooth_speed, 2)
         else:
             d["speeds_ms"].append(0.0)
             d["current_speed_ms"] = 0.0
 
         d["prev_real"] = real
+        if timestamp_sec is not None:
+            d["prev_time"] = timestamp_sec
+        elif d["prev_time"] is not None:
+            d["prev_time"] += delta_t
+        else:
+            d["prev_time"] = 0.0
+
         return d
 
     def get_stats(self, player_id: int) -> dict:

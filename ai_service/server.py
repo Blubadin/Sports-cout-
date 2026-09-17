@@ -671,7 +671,10 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
     session = tracking_sessions[session_id]
     session.game_type = req.game_type
     session.analyzer.game_type = req.game_type
-    session.analyzer.set_court_corners(req.corners)
+    try:
+        session.analyzer.set_court_corners(req.corners)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     session.status = "ASSIGNING_PLAYERS"
     return {"status": "success", "sessionStatus": session.status}
 

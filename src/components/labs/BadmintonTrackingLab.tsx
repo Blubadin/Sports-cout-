@@ -101,7 +101,18 @@ export default function BadmintonTrackingLab() {
       status: 'completed', videoFingerprint: videoFingerprint(sourceFile),
       engineVersion: telemetry[0]?.engineVersion || 'tracking-v2', detectorModel: telemetry[0]?.modelVersion || 'YOLO', trackerModel: 'ByteTrack', poseModel: 'YOLO pose', sampleRateHz: 10,
       createdAt: new Date().toISOString(), completedAt: new Date().toISOString(),
-      players: Object.keys(saved.summary.players).map(playerId => ({ playerId, name: playerId, side: telemetry.flatMap(frame => frame.players).find(p => p.playerId === playerId)?.teamCode === 'team1' ? 'near' : 'far' })),
+      players: Object.keys(saved.summary.players).map(playerId => {
+        const pData = telemetry.flatMap(frame => frame.players).find(p => p.playerId === playerId);
+        let side: 'near' | 'far' | 'unknown' = 'unknown';
+        if (pData?.teamCode === 'team1') {
+          side = 'far';
+        } else if (pData?.teamCode === 'team2') {
+          side = 'near';
+        } else if (pData?.courtPosition?.yM !== undefined) {
+          side = pData.courtPosition.yM < 6.70 ? 'far' : 'near';
+        }
+        return { playerId, name: playerId, side };
+      }),
       summary: saved.summary, quality: saved.quality,
     };
     await saveTrackingAnalysis(record, saved.chunks);

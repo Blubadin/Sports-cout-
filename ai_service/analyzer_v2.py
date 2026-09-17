@@ -181,7 +181,7 @@ class BadmintonAnalyzerV2:
             valid_detections.append(d)
 
         # Match detections to the 4 player profiles using Hungarian Algorithm
-        matched_players = self._match_tracks_to_profiles(frame, valid_detections)
+        matched_players = self._match_tracks_to_profiles(frame, valid_detections, timestamp_sec=t_sec)
 
         # Build telemetry frame (TrackingTelemetryV1 compliant, PDF §45-47)
         h, w = frame.shape[:2] if frame is not None else (720, 1280)
@@ -273,7 +273,7 @@ class BadmintonAnalyzerV2:
             "frame_idx": self.frame_count,
         }
 
-    def _match_tracks_to_profiles(self, frame: np.ndarray, detections: list[dict]) -> dict:
+    def _match_tracks_to_profiles(self, frame: np.ndarray, detections: list[dict], timestamp_sec: float | None = None) -> dict:
         """
         Global Hungarian (Bipartite) matching between active PlayerProfiles and Detections.
         Prevents ID collisions and resolves partner swaps using spatial + appearance costs.
@@ -331,6 +331,7 @@ class BadmintonAnalyzerV2:
         for r, c in zip(row_ind, col_ind):
             pid = active_pids[r]
             cost = cost_matrix[r, c]
+            profile = self.profiles[pid]
             
             # Gating threshold (if cost is too absurdly high, don't match)
             # The first frame has no appearance/position history yet. Allow a
@@ -339,7 +340,6 @@ class BadmintonAnalyzerV2:
             gate = 100.0 if profile.last_real_pos is None else 25.0
             if cost < gate:
                 d = detections[c]
-                profile = self.profiles[pid]
                 profile.track_id = d.get("track_id")
                 profile.detection_confidence = d["conf"]
                 profile.last_real_pos = d["real_pos"]
@@ -348,7 +348,7 @@ class BadmintonAnalyzerV2:
                 profile.update_appearance(frame, d["bbox"])
 
                 cx, cy = d["center"]
-                self.dist_tracker.update(pid, (cx, cy))
+                self.dist_tracker.update(pid, (cx, cy), timestamp_sec=timestamp_sec)
                 matched[pid] = d
                 matched_pids.add(pid)
 

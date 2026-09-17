@@ -125,6 +125,55 @@ describe('Phase 8 — Tracking Data Persistence & Metrics', () => {
       expect(summary.players['P1']).toBeDefined();
       expect(summary.players['P1'].basePosition.avgCourtX).toBe(2.5);
     });
+
+    it('does not count stale predicted positions as fresh detections for quality', () => {
+      const frames: TrackingTelemetryV1[] = [
+        // 10 frames observed
+        ...Array.from({ length: 10 }, (_, i) => ({
+          schemaVersion: 1 as const,
+          analysisId: 'quality_test',
+          timestampSec: i * 0.1,
+          frameIndex: i,
+          source: 'real_tracking',
+          isSynthetic: false,
+          players: [
+            {
+              playerId: 'P1',
+              trackId: 1,
+              teamCode: 'team1',
+              courtPosition: { xM: 3.0, yM: 4.0, xPct: 50.0, yPct: 30.0 },
+              detectionConfidence: 0.8,
+              state: 'observed' as const,
+            },
+          ],
+        })),
+        // 10 frames predicted (detector missed, position anchored)
+        ...Array.from({ length: 10 }, (_, i) => ({
+          schemaVersion: 1 as const,
+          analysisId: 'quality_test',
+          timestampSec: (10 + i) * 0.1,
+          frameIndex: 10 + i,
+          source: 'real_tracking',
+          isSynthetic: false,
+          players: [
+            {
+              playerId: 'P1',
+              trackId: 1,
+              teamCode: 'team1',
+              courtPosition: { xM: 3.0, yM: 4.0, xPct: 50.0, yPct: 30.0 },
+              detectionConfidence: 0.0,
+              state: 'predicted' as const, // Predicted should NOT count towards detectionCoverage!
+            },
+          ],
+        })),
+      ];
+
+      const { quality } = downsampleAndChunkTrackingSamples('quality_test', frames, 10, 1.0);
+
+      // Only 10 out of 20 frames were observed => coverage must be 0.5 (50%), lostTimePercent 50%
+      expect(quality.detectionCoverage).toBe(0.5);
+      expect(quality.lostTimePercent).toBe(50.0);
+    });
   });
 
   describe('Repository CRUD operations', () => {

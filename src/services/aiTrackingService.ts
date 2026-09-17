@@ -985,12 +985,21 @@ export function toTrackingTelemetryV1(frame: AITelemetryFrame): TrackingTelemetr
         x: Math.round((posPct.x / 100) * 6.10 * 100) / 100,
         y: Math.round((posPct.y / 100) * 13.40 * 100) / 100,
       };
+      const groundPoint = p.groundPointPct || (
+        p.video_bbox_pct
+          ? {
+              x: Number((p.video_bbox_pct.x + p.video_bbox_pct.width / 2).toFixed(2)),
+              y: Number((p.video_bbox_pct.y + p.video_bbox_pct.height).toFixed(2)),
+            }
+          : undefined
+      );
+
       return {
         playerId: p.playerId || `P${p.id}`,
-        trackId: p.trackId ?? p.id,
-        teamCode: p.teamCode || `team${p.team}`,
+        trackId: p.trackId,
+        teamCode: p.teamCode || (p.team ? `team${p.team}` : undefined),
         bboxPct: p.bboxPct || p.video_bbox_pct,
-        groundPointPct: p.groundPointPct || { x: posPct.x, y: posPct.y },
+        groundPointPct: groundPoint,
         courtPosition: p.courtPosition || {
           xM: posM.x,
           yM: posM.y,
@@ -1001,7 +1010,7 @@ export function toTrackingTelemetryV1(frame: AITelemetryFrame): TrackingTelemetr
         playerRelativeZone: p.playerRelativeZone || p.zone,
         speedMps: p.speedMps ?? p.speed_ms,
         totalDistanceM: p.totalDistanceM ?? p.total_dist_m,
-        detectionConfidence: p.detectionConfidence ?? 0.9,
+        detectionConfidence: p.detectionConfidence ?? (p.state === 'observed' ? 1.0 : 0.0),
         state: p.state || (p.is_active ? "observed" : "lost"),
         pose: p.pose,
       };

@@ -397,6 +397,34 @@ export interface AIPoseKeypoint {
   name?: string;
 }
 
+/**
+ * 2D Pose Estimates derived from monocular camera video.
+ * NOTE: These are strictly 2D planar pixel estimates and MUST NOT be
+ * represented as true 3D kinematics, ground reaction forces, joint torques,
+ * or absolute vertical jump heights.
+ */
+export interface PoseMetrics2D {
+  rightKneeAngleDeg?: number;
+  leftKneeAngleDeg?: number;
+  rightElbowAngleDeg?: number;
+  leftElbowAngleDeg?: number;
+  trunkLeanDeg?: number;
+  stanceWidthPx?: number;
+  lungeDetected?: boolean;
+  overheadArmDetected?: boolean;
+  airborneCandidate?: boolean;
+  // Python snake_case compatibility
+  right_knee_angle_deg?: number;
+  left_knee_angle_deg?: number;
+  right_elbow_angle_deg?: number;
+  left_elbow_angle_deg?: number;
+  trunk_lean_deg?: number;
+  stance_width_px?: number;
+  lunge_detected?: boolean;
+  overhead_arm_detected?: boolean;
+  airborne_candidate?: boolean;
+}
+
 export interface TrackingPoseV1 {
   keypoints: {
     x: number;
@@ -404,6 +432,7 @@ export interface TrackingPoseV1 {
     score: number;
     name?: string;
   }[];
+  metrics?: PoseMetrics2D;
   action?: string;
   confidence?: number;
 }
