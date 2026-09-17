@@ -553,7 +553,36 @@ export interface TrackingSessionStatus {
   analysisFps: number;
   trackedPlayerCount: number;
   device: string;
+  processingConfig?: ProcessingConfig;
+  performance?: TrackingPerformanceStats;
+  quality?: TrackingQualityStats;
   players: TrackingLivePlayerStatus[];
   error: string | null;
+}
+
+export type ProcessingProfile = 'auto' | 'reference' | 'fast' | 'balanced' | 'quality' | 'custom';
+
+export interface ProcessingConfig {
+  profile?: ProcessingProfile;
+  device: 'auto' | 'cpu' | 'cuda' | 'mps';
+  detectorInputSize: number;
+  useCourtRoi: boolean;
+  courtRoiMarginPx: number;
+  frameStride: number;
+  poseStride: number;
+}
+
+export interface TrackingPerformanceStats {
+  elapsedSec: number;
+  rtf: number;
+  realtimeSpeed: number;
+  analysisFps: number;
+  samplingFps: number;
+}
+
+export interface TrackingQualityStats {
+  observedCoveragePct: number;
+  lostFramesPct: number;
+  poseCoveragePct: number;
 }
 

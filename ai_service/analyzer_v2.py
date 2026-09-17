@@ -16,6 +16,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from court_mapper import CourtMapper, DistanceTracker, COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M, COURT_WIDTH_SINGLES_M
+from court_roi import calculate_court_roi, inverse_transform_bbox
 from device_runtime import resolve_device
 
 
@@ -30,6 +31,8 @@ class PlayerProfile:
         self.missed_frames = 0
         self.track_id = None
         self.detection_confidence = 0.0
+        self.last_pose: dict | None = None
+        self.last_pose_age = 0
 
     def update_appearance(self, frame: np.ndarray, bbox: list[int]):
         """Extract HSV color histogram from upper 60% of bbox (shirt / jersey)."""
@@ -66,6 +69,10 @@ class BadmintonAnalyzerV2:
         model_path: str = "yolov8n.pt",
         conf_threshold: float = 0.35,
         device: str | None = None,
+        detector_input_size: int = 640,
+        use_court_roi: bool = False,
+        court_roi_margin_px: int = 60,
+        pose_stride: int = 1,
     ):
         self.game_type = game_type
         if max_players is None:
@@ -81,6 +88,11 @@ class BadmintonAnalyzerV2:
         self.conf = conf_threshold
         self.device = resolve_device(device)
         self.model_path = model_path
+        self.detector_input_size = int(detector_input_size)
+        self.use_court_roi = bool(use_court_roi)
+        self.court_roi_margin_px = int(court_roi_margin_px)
+        self.pose_stride = max(1, int(pose_stride))
+        self.analyzed_frame_count = 0
 
         self.mapper = CourtMapper(game_type=game_type)
         self.dist_tracker = DistanceTracker(self.mapper, fps=self.fps)
@@ -146,18 +158,31 @@ class BadmintonAnalyzerV2:
                 self.dist_tracker.update(pid, (cx, cy))
 
     def detect_and_track(self, frame: np.ndarray) -> list[dict]:
-        """Detect person bounding boxes and return list of detections."""
+        """Detect person bounding boxes and return list of detections in full source coordinates."""
         self._lazy_init_ai()
         detections = []
 
         if self._detector != "dummy" and self._detector is not None:
+            h, w = frame.shape[:2]
+            inference_frame = frame
+            offset_x, offset_y = 0, 0
+
+            if self.use_court_roi and self.court_corners_px is not None:
+                roi_x1, roi_y1, roi_x2, roi_y2 = calculate_court_roi(
+                    self.court_corners_px, w, h, self.court_roi_margin_px
+                )
+                if (roi_x2 - roi_x1) >= 50 and (roi_y2 - roi_y1) >= 50:
+                    inference_frame = frame[roi_y1:roi_y2, roi_x1:roi_x2]
+                    offset_x, offset_y = roi_x1, roi_y1
+
             results = self._detector.track(
-                frame,
+                inference_frame,
                 persist=True,
                 tracker="bytetrack.yaml",
                 classes=[0],  # Person class
                 conf=self.conf,
                 device=self.device,
+                imgsz=self.detector_input_size,
                 verbose=False,
             )
             for r in results:
@@ -166,10 +191,13 @@ class BadmintonAnalyzerV2:
                 track_ids = r.boxes.id.cpu().numpy() if r.boxes.id is not None else [None] * len(boxes)
                 for box, conf, track_id in zip(boxes, confs, track_ids):
                     x1, y1, x2, y2 = box.tolist()
-                    cx = (x1 + x2) / 2.0
-                    cy = y2  # Feet level on ground for court position
+                    src_x1, src_y1, src_x2, src_y2 = inverse_transform_bbox(
+                        [x1, y1, x2, y2], offset_x, offset_y
+                    )
+                    cx = (src_x1 + src_x2) / 2.0
+                    cy = src_y2  # Feet level on ground for court position
                     detections.append({
-                        "bbox": [x1, y1, x2, y2],
+                        "bbox": [src_x1, src_y1, src_x2, src_y2],
                         "center": (cx, cy),
                         "conf": float(conf),
                         "track_id": int(track_id) if track_id is not None else None,
@@ -179,6 +207,8 @@ class BadmintonAnalyzerV2:
     def process_frame(self, frame: np.ndarray, timestamp_sec: float | None = None) -> dict:
         """Process a single frame and generate structured telemetry."""
         self.frame_count += 1
+        self.analyzed_frame_count += 1
+        should_run_pose = (self.analyzed_frame_count % self.pose_stride == 0)
         t_sec = timestamp_sec if timestamp_sec is not None else (self.frame_count / self.fps)
 
         raw_detections = self.detect_and_track(frame)
@@ -264,12 +294,32 @@ class BadmintonAnalyzerV2:
             })
 
             if pid in matched_players:
-                pose = self._estimate_pose(frame, matched_players[pid]["bbox"])
-                if pose["keypoints"]:
-                    player_telemetry[-1]["pose"] = {"keypoints": [
-                        {"x": float(x) / w * 100, "y": float(y) / h * 100, "score": float(score)}
-                        for x, y, score in pose["keypoints"]
-                    ], "metrics": pose["metrics"]}
+                if should_run_pose:
+                    pose = self._estimate_pose(frame, matched_players[pid]["bbox"])
+                    if pose["keypoints"]:
+                        pose_obj = {
+                            "keypoints": [
+                                {"x": float(x) / w * 100, "y": float(y) / h * 100, "score": float(score)}
+                                for x, y, score in pose["keypoints"]
+                            ],
+                            "metrics": pose["metrics"],
+                            "isReused": False,
+                            "ageFrames": 0,
+                        }
+                        p.last_pose = pose_obj
+                        p.last_pose_age = 0
+                        player_telemetry[-1]["pose"] = pose_obj
+                else:
+                    if p.last_pose is not None and p.missed_frames < 15:
+                        p.last_pose_age += 1
+                        reused_pose = dict(p.last_pose)
+                        reused_pose["isReused"] = True
+                        reused_pose["ageFrames"] = p.last_pose_age
+                        player_telemetry[-1]["pose"] = reused_pose
+            else:
+                if p.missed_frames >= 15:
+                    p.last_pose = None
+                    p.last_pose_age = 0
 
         return {
             # Canonical V1 Protocol (PDF §45 & §47)
@@ -454,4 +504,6 @@ class BadmintonAnalyzerV2:
             pa.color_hist, pb.color_hist = pb.color_hist, pa.color_hist
             pa.last_real_pos, pb.last_real_pos = pb.last_real_pos, pa.last_real_pos
             pa.last_bbox, pb.last_bbox = pb.last_bbox, pa.last_bbox
+            pa.last_pose, pb.last_pose = pb.last_pose, pa.last_pose
+            pa.last_pose_age, pb.last_pose_age = pb.last_pose_age, pa.last_pose_age
             print(f"[BadmintonAnalyzerV2] Swapped player identities {pid_a} <-> {pid_b}")

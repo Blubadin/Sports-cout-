@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { TrackingSessionStatus, TrackingLivePlayerStatus } from '../../types';
 
 export interface TrackingLabInspectorProps {
@@ -13,19 +13,50 @@ export default function TrackingLabInspector({
   language = 'en',
 }: TrackingLabInspectorProps) {
   const th = language === 'th';
+  const [activeTab, setActiveTab] = useState<'analysis' | 'performance' | 'config'>('analysis');
 
   return (
     <div
       data-testid="tracking-lab-inspector"
       className="bg-[#0b1219] border border-slate-800 rounded-lg p-4 space-y-4 text-slate-200"
     >
-      {/* Inspector Tabs (Phase 3: Analysis tab only; Video/Performance/Research in Phase 4) */}
+      {/* Inspector Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
         <button
           type="button"
-          className="px-3 py-1 text-xs font-semibold rounded bg-sky-900/60 text-sky-200 border border-sky-700"
+          data-testid="tab-analysis"
+          onClick={() => setActiveTab('analysis')}
+          className={`px-3 py-1 text-xs font-semibold rounded border transition-colors ${
+            activeTab === 'analysis'
+              ? 'bg-sky-900/60 text-sky-200 border-sky-700'
+              : 'bg-transparent text-slate-400 border-transparent hover:text-slate-200'
+          }`}
         >
           {th ? 'การวิเคราะห์ (Analysis)' : 'Analysis'}
+        </button>
+        <button
+          type="button"
+          data-testid="tab-performance"
+          onClick={() => setActiveTab('performance')}
+          className={`px-3 py-1 text-xs font-semibold rounded border transition-colors ${
+            activeTab === 'performance'
+              ? 'bg-sky-900/60 text-sky-200 border-sky-700'
+              : 'bg-transparent text-slate-400 border-transparent hover:text-slate-200'
+          }`}
+        >
+          {th ? 'ประสิทธิภาพ (Performance)' : 'Performance'}
+        </button>
+        <button
+          type="button"
+          data-testid="tab-config"
+          onClick={() => setActiveTab('config')}
+          className={`px-3 py-1 text-xs font-semibold rounded border transition-colors ${
+            activeTab === 'config'
+              ? 'bg-sky-900/60 text-sky-200 border-sky-700'
+              : 'bg-transparent text-slate-400 border-transparent hover:text-slate-200'
+          }`}
+        >
+          {th ? 'การตั้งค่า (Config)' : 'Config'}
         </button>
       </div>
 
@@ -59,132 +90,239 @@ export default function TrackingLabInspector({
             </div>
           </div>
 
-          {/* Telemetry Stats Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
-              <span className="text-slate-400 block">{th ? 'เฟรมต้นฉบับ / รวม' : 'Source Frame / Total'}</span>
-              <span className="font-mono font-bold text-slate-200">
-                {status.currentFrame} / {status.totalFrames || '—'}
-              </span>
-            </div>
-            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
-              <span className="text-slate-400 block">{th ? 'เฟรมที่วิเคราะห์ AI' : 'Analyzed Frames'}</span>
-              <span className="font-mono font-bold text-sky-400">
-                {status.analyzedFrames}
-                <span className="text-[10px] text-slate-500 ml-1">(stride {status.frameStride})</span>
-              </span>
-            </div>
-            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
-              <span className="text-slate-400 block">{th ? 'เวลาวิดีโอที่ตรวจถึง' : 'Video Time Reached'}</span>
-              <span className="font-mono font-bold text-slate-200">
-                {status.lastTelemetryTimestampSec !== null
-                  ? `${status.lastTelemetryTimestampSec.toFixed(2)}s`
-                  : '0.00s'}
-                <span className="text-[10px] text-slate-500 ml-1">
-                  / {status.videoDurationSec > 0 ? `${status.videoDurationSec.toFixed(1)}s` : '—'}
-                </span>
-              </span>
-            </div>
-            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
-              <span className="text-slate-400 block">{th ? 'เวลาประมวลผลที่ใช้' : 'Elapsed Time'}</span>
-              <span className="font-mono font-bold text-slate-200">
-                {status.elapsedSec.toFixed(1)}s
-                {status.analysisFps > 0 && (
-                  <span className="text-[10px] text-emerald-400 ml-1">
-                    ({status.analysisFps.toFixed(1)} FPS)
+          {/* Tab 1: Analysis */}
+          {activeTab === 'analysis' && (
+            <>
+              {/* Telemetry Stats Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'เฟรมต้นฉบับ / รวม' : 'Source Frame / Total'}</span>
+                  <span className="font-mono font-bold text-slate-200">
+                    {status.currentFrame} / {status.totalFrames || '—'}
                   </span>
-                )}
-              </span>
-            </div>
-            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
-              <span className="text-slate-400 block">{th ? 'อุปกรณ์ประมวลผล' : 'Inference Device'}</span>
-              <span className="font-mono font-bold text-slate-200 uppercase">
-                {status.device || 'CPU'}
-              </span>
-            </div>
-            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
-              <span className="text-slate-400 block">{th ? 'ผู้เล่นที่ติดตาม' : 'Tracked Players'}</span>
-              <span className="font-mono font-bold text-slate-200">
-                {status.trackedPlayerCount} {th ? 'คน' : 'players'}
-              </span>
-            </div>
-            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
-              <span className="text-slate-400 block">{th ? 'FPS ต้นฉบับ' : 'Source FPS'}</span>
-              <span className="font-mono font-bold text-slate-200">
-                {status.sourceFps.toFixed(1)} FPS
-              </span>
-            </div>
-            <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
-              <span className="text-slate-400 block">{th ? 'อัตราสุ่มตัวอย่าง' : 'Sampling Rate'}</span>
-              <span className="font-mono font-bold text-slate-200">
-                {status.samplingFps.toFixed(1)} Hz
-              </span>
-            </div>
-          </div>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'เฟรมที่วิเคราะห์ AI' : 'Analyzed Frames'}</span>
+                  <span className="font-mono font-bold text-sky-400">
+                    {status.analyzedFrames}
+                    <span className="text-[10px] text-slate-500 ml-1">(stride {status.frameStride})</span>
+                  </span>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'เวลาวิดีโอที่ตรวจถึง' : 'Video Time Reached'}</span>
+                  <span className="font-mono font-bold text-slate-200">
+                    {status.lastTelemetryTimestampSec !== null
+                      ? `${status.lastTelemetryTimestampSec.toFixed(2)}s`
+                      : '0.00s'}
+                    <span className="text-[10px] text-slate-500 ml-1">
+                      / {status.videoDurationSec > 0 ? `${status.videoDurationSec.toFixed(1)}s` : '—'}
+                    </span>
+                  </span>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'เวลาประมวลผลที่ใช้' : 'Elapsed Time'}</span>
+                  <span className="font-mono font-bold text-slate-200">
+                    {status.elapsedSec.toFixed(1)}s
+                    {status.analysisFps > 0 && (
+                      <span className="text-[10px] text-emerald-400 ml-1">
+                        ({status.analysisFps.toFixed(1)} FPS)
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'อุปกรณ์ประมวลผล' : 'Inference Device'}</span>
+                  <span className="font-mono font-bold text-slate-200 uppercase">
+                    {status.device || 'CPU'}
+                  </span>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'ผู้เล่นที่ติดตาม' : 'Tracked Players'}</span>
+                  <span className="font-mono font-bold text-slate-200">
+                    {status.trackedPlayerCount} {th ? 'คน' : 'players'}
+                  </span>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'FPS ต้นฉบับ' : 'Source FPS'}</span>
+                  <span className="font-mono font-bold text-slate-200">
+                    {status.sourceFps.toFixed(1)} FPS
+                  </span>
+                </div>
+                <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'อัตราสุ่มตัวอย่าง' : 'Sampling Rate'}</span>
+                  <span className="font-mono font-bold text-slate-200">
+                    {status.samplingFps.toFixed(1)} Hz
+                  </span>
+                </div>
+              </div>
 
-          {/* Dynamic Live Player Cards (Phase 3.10 & 3.12) */}
-          {status.players && status.players.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                {th ? 'สถานะผู้เล่นแบบเรียลไทม์' : 'Live Player Telemetry'}
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                {status.players.map((player: TrackingLivePlayerStatus) => {
-                  const isObserved = player.trackingState === 'observed';
-                  const isPredicted = player.trackingState === 'predicted';
+              {/* Dynamic Live Player Cards */}
+              {status.players && status.players.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    {th ? 'สถานะผู้เล่นแบบเรียลไทม์' : 'Live Player Telemetry'}
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                    {status.players.map((player: TrackingLivePlayerStatus) => {
+                      const isObserved = player.trackingState === 'observed';
+                      const isPredicted = player.trackingState === 'predicted';
 
-                  return (
-                    <div
-                      key={player.playerId}
-                      data-testid={`live-player-card-${player.playerId}`}
-                      className="bg-slate-900 border border-slate-800 rounded p-3 space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-sm text-sky-400">
-                          {player.playerId}
-                        </span>
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                            isObserved
-                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                              : isPredicted
-                              ? 'bg-amber-950 text-amber-300 border border-amber-800'
-                              : 'bg-rose-950 text-rose-300 border border-rose-800'
-                          }`}
+                      return (
+                        <div
+                          key={player.playerId}
+                          data-testid={`live-player-card-${player.playerId}`}
+                          className="bg-slate-900 border border-slate-800 rounded p-3 space-y-1.5"
                         >
-                          {isObserved
-                            ? th ? 'ตรวจพบ' : 'Observed'
-                            : isPredicted
-                            ? th ? 'คาดการณ์' : 'Predicted'
-                            : th ? 'ขาดหาย' : 'Lost'}
-                        </span>
-                      </div>
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-sm text-sky-400">
+                              {player.playerId}
+                            </span>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                isObserved
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                  : isPredicted
+                                  ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                                  : 'bg-rose-950 text-rose-300 border border-rose-800'
+                              }`}
+                            >
+                              {isObserved
+                                ? th ? 'ตรวจพบ' : 'Observed'
+                                : isPredicted
+                                ? th ? 'คาดการณ์' : 'Predicted'
+                                : th ? 'ขาดหาย' : 'Lost'}
+                            </span>
+                          </div>
 
-                      <div className="text-xs flex justify-between text-slate-300">
-                        <span className="text-slate-500">{th ? 'ระยะทาง:' : 'Distance:'}</span>
-                        <span className="font-mono font-semibold">{player.totalDistanceM.toFixed(1)} m</span>
-                      </div>
+                          <div className="text-xs flex justify-between text-slate-300">
+                            <span className="text-slate-500">{th ? 'ระยะทาง:' : 'Distance:'}</span>
+                            <span className="font-mono font-semibold">{player.totalDistanceM.toFixed(1)} m</span>
+                          </div>
 
-                      <div className="text-xs flex justify-between text-slate-300">
-                        <span className="text-slate-500">{th ? 'ความเร็ว:' : 'Speed:'}</span>
-                        <span className="font-mono">{player.currentSpeedMps.toFixed(1)} m/s</span>
-                      </div>
+                          <div className="text-xs flex justify-between text-slate-300">
+                            <span className="text-slate-500">{th ? 'ความเร็ว:' : 'Speed:'}</span>
+                            <span className="font-mono">{player.currentSpeedMps.toFixed(1)} m/s</span>
+                          </div>
 
-                      <div className="text-xs flex justify-between text-slate-300">
-                        <span className="text-slate-500">{th ? 'ความแม่นยำ:' : 'Confidence:'}</span>
-                        <span className="font-mono">
-                          {Math.round(player.detectionConfidence * 100)}%
-                        </span>
-                      </div>
+                          <div className="text-xs flex justify-between text-slate-300">
+                            <span className="text-slate-500">{th ? 'ความแม่นยำ:' : 'Confidence:'}</span>
+                            <span className="font-mono">
+                              {Math.round(player.detectionConfidence * 100)}%
+                            </span>
+                          </div>
 
-                      {player.trackId !== null && player.trackId !== undefined && (
-                        <div className="text-[10px] text-slate-500 text-right">
-                          MOT ID: #{player.trackId}
+                          {player.trackId !== null && player.trackId !== undefined && (
+                            <div className="text-[10px] text-slate-500 text-right">
+                              MOT ID: #{player.trackId}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Tab 2: Performance & Benchmark */}
+          {activeTab === 'performance' && (
+            <div className="space-y-3" data-testid="performance-tab-content">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                {th ? 'การวัดผลความเร็วและคุณภาพ (Speed & Quality)' : 'Throughput & Quality Telemetry'}
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'ตัวคูณเวลาจริง (RTF)' : 'Real-Time Factor (RTF)'}</span>
+                  <span className="font-mono font-bold text-amber-400 text-sm">
+                    {status.performance?.rtf !== undefined ? `${status.performance.rtf.toFixed(2)}x` : '—'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">{th ? '< 1.0 = เร็วกว่าเวลาจริง' : '< 1.0 = faster than real-time'}</span>
+                </div>
+                <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'ความเร็วเทียบวิดีโอ' : 'Realtime Multiplier'}</span>
+                  <span className="font-mono font-bold text-emerald-400 text-sm">
+                    {status.performance?.realtimeSpeed !== undefined ? `${status.performance.realtimeSpeed.toFixed(2)}x` : '—'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">{th ? 'เท่าของความเร็วจริง' : 'relative to video duration'}</span>
+                </div>
+                <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'ความเร็ววิเคราะห์ (Throughput)' : 'Analysis FPS'}</span>
+                  <span className="font-mono font-bold text-sky-400 text-sm">
+                    {status.analysisFps.toFixed(1)} FPS
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">{th ? 'เฟรม AI ต่อวินาทีจริง' : 'AI frames / wall-clock sec'}</span>
+                </div>
+                <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'ความครอบคลุมที่ตรวจพบ' : 'Observed Coverage'}</span>
+                  <span className="font-mono font-bold text-slate-200 text-sm">
+                    {status.quality?.observedCoveragePct !== undefined ? `${status.quality.observedCoveragePct}%` : '—'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">{th ? 'ตรวจพบผู้เล่นสม่ำเสมอ' : 'observed athlete states'}</span>
+                </div>
+                <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'อัตราสูญหาย (Lost Rate)' : 'Lost Player Rate'}</span>
+                  <span className="font-mono font-bold text-rose-400 text-sm">
+                    {status.quality?.lostFramesPct !== undefined ? `${status.quality.lostFramesPct}%` : '—'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">{th ? 'เฟรมที่ไม่พบผู้เล่น' : 'lost tracking state samples'}</span>
+                </div>
+                <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
+                  <span className="text-slate-400 block">{th ? 'สัดส่วนท่าทางที่ตรวจสด' : 'Fresh Pose Ratio'}</span>
+                  <span className="font-mono font-bold text-slate-200 text-sm">
+                    {status.quality?.poseCoveragePct !== undefined ? `${status.quality.poseCoveragePct}%` : '—'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">{th ? 'ไม่นับท่าที่ใช้ซ้ำ' : 'non-reused pose samples'}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tab 3: Configuration */}
+          {activeTab === 'config' && (
+            <div className="space-y-3" data-testid="config-tab-content">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                {th ? 'การตั้งค่าการประมวลผล (Effective Configuration)' : 'Effective Processing Configuration'}
+              </h4>
+              <div className="bg-slate-900/90 border border-slate-800 rounded p-3 text-xs space-y-2">
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">{th ? 'โปรไฟล์การตั้งค่า' : 'Active Profile'}</span>
+                  <span className="font-mono font-bold text-sky-400 uppercase">
+                    {status.processingConfig?.profile || 'reference'}
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">{th ? 'ความละเอียดตัวตรวจจับ (Detector Input Size)' : 'Detector Input Size'}</span>
+                  <span className="font-mono text-slate-200">
+                    {status.processingConfig?.detectorInputSize || 640} px
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">{th ? 'ตัดขอบสนาม (Court ROI)' : 'Court ROI Cropping'}</span>
+                  <span className="font-mono text-slate-200">
+                    {status.processingConfig?.useCourtRoi
+                      ? th ? `เปิดใช้งาน (ระยะเผื่อ ${status.processingConfig.courtRoiMarginPx || 60}px)` : `Enabled (margin: ${status.processingConfig.courtRoiMarginPx || 60}px)`
+                      : th ? 'ปิดใช้งาน (เต็มเฟรม)' : 'Disabled (Full Frame)'}
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">{th ? 'สุ่มเฟรมตรวจจับ (Frame Stride)' : 'Frame Stride'}</span>
+                  <span className="font-mono text-slate-200">
+                    {status.processingConfig?.frameStride || status.frameStride || 2}
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">{th ? 'สุ่มเฟรมท่าทาง (Pose Stride)' : 'Pose Stride'}</span>
+                  <span className="font-mono text-slate-200">
+                    {status.processingConfig?.poseStride || 1}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">{th ? 'อุปกรณ์ฮาร์ดแวร์' : 'Target Device'}</span>
+                  <span className="font-mono text-slate-200 uppercase">
+                    {status.processingConfig?.device || status.device || 'auto'}
+                  </span>
+                </div>
               </div>
             </div>
           )}

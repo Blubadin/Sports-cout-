@@ -1,4 +1,9 @@
-import type { TrackingTelemetryV1 } from '../../types';
+import type {
+  TrackingTelemetryV1,
+  ProcessingConfig,
+  TrackingPerformanceStats,
+  TrackingQualityStats,
+} from '../../types';
 
 export interface TrackingPlayerMetadata {
   playerId: string;
@@ -57,6 +62,9 @@ export interface TrackingAnalysis {
   sampleRateHz: number;
   createdAt: string;
   completedAt?: string;
+  processingConfig?: ProcessingConfig;
+  performance?: TrackingPerformanceStats;
+  qualityStats?: TrackingQualityStats;
   players: TrackingPlayerMetadata[];
   quality: TrackingQuality;
   summary: TrackingSummary;

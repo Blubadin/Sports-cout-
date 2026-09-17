@@ -13,6 +13,9 @@ import {
   TrackingTelemetryV1,
   TrackingPlayerV1,
   TrackingSessionStatus,
+  ProcessingConfig,
+  TrackingPerformanceStats,
+  TrackingQualityStats,
 } from "../types";
 
 export type AIConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -833,8 +836,14 @@ class AITrackingService {
       videoFingerprint?: string | null;
       device?: 'auto' | 'cpu' | 'cuda' | 'mps';
       trackedPlayerCount?: number;
+      processingConfig?: ProcessingConfig;
     }
-  ): Promise<{ sessionId: string; status: string; trackedPlayerCount?: number }> {
+  ): Promise<{
+    sessionId: string;
+    status: string;
+    trackedPlayerCount?: number;
+    processingConfig?: ProcessingConfig;
+  }> {
     const res = await fetch(this.getApiUrl('/api/tracking/sessions'), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -845,6 +854,7 @@ class AITrackingService {
         video_fingerprint: options?.videoFingerprint ?? null,
         device: options?.device ?? 'auto',
         tracked_player_count: options?.trackedPlayerCount ?? (gameType === 'singles' ? 2 : 4),
+        processing_config: options?.processingConfig ?? null,
       }),
     });
     if (!res.ok) throw new Error(`Failed to create tracking session: ${res.statusText}`);
@@ -884,6 +894,7 @@ class AITrackingService {
     currentFrame: number;
     totalFrames: number;
     trackedPlayerCount?: number;
+    processingConfig?: ProcessingConfig;
     resumable: boolean;
   }>> {
     const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
@@ -899,6 +910,7 @@ class AITrackingService {
       currentFrame: number;
       totalFrames: number;
       trackedPlayerCount?: number;
+      processingConfig?: ProcessingConfig;
       resumable: boolean;
     }> };
     return payload.sessions ?? [];
@@ -939,6 +951,9 @@ class AITrackingService {
     totalSampleCount: number;
     nextCursor: number;
     trackedPlayerCount?: number;
+    processingConfig?: ProcessingConfig;
+    performance?: TrackingPerformanceStats;
+    quality?: TrackingQualityStats;
     telemetry: TrackingTelemetryV1[];
   }> {
     const query = after !== undefined ? `?after=${encodeURIComponent(after)}` : '';

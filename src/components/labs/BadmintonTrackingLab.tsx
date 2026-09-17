@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
-import type { TrackingTelemetryV1, TrackingOverlayMode, TrackingSessionStatus } from '../../types';
+import type { TrackingTelemetryV1, TrackingOverlayMode, TrackingSessionStatus, ProcessingConfig, ProcessingProfile } from '../../types';
 import { loadProjectVideoFileHandle } from '../../utils/videoFileStore';
 import { downsampleAndChunkTrackingSamples, saveTrackingAnalysis, listTrackingAnalyses, getTrackingSampleChunks, type TrackingAnalysis, type TrackingSampleChunk } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
@@ -19,6 +19,13 @@ export default function BadmintonTrackingLab() {
   const [inferenceDevice, setInferenceDevice] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<{ selectedDevice: string; cudaAvailable: boolean; mpsAvailable: boolean } | null>(null);
   const [devicePreference, setDevicePreference] = useState<'auto' | 'cpu' | 'cuda' | 'mps'>('auto');
+  const [profile, setProfile] = useState<ProcessingProfile>('auto');
+  const [detectorInputSize, setDetectorInputSize] = useState<number>(640);
+  const [useCourtRoi, setUseCourtRoi] = useState<boolean>(false);
+  const [courtRoiMarginPx, setCourtRoiMarginPx] = useState<number>(60);
+  const [frameStride, setFrameStride] = useState<number>(2);
+  const [poseStride, setPoseStride] = useState<number>(1);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
   const [gameType, setGameType] = useState<BadmintonGameType>('singles');
   const [trackedPlayerCount, setTrackedPlayerCount] = useState<number>(2);
   const [corners, setCorners] = useState<number[][]>([]);
@@ -94,6 +101,50 @@ export default function BadmintonTrackingLab() {
     };
   }, [activeProjectId]);
 
+  const selectProfile = (nextProfile: ProcessingProfile) => {
+    setProfile(nextProfile);
+    if (nextProfile === 'reference') {
+      setDetectorInputSize(640);
+      setUseCourtRoi(false);
+      setCourtRoiMarginPx(60);
+      setFrameStride(2);
+      setPoseStride(1);
+    } else if (nextProfile === 'quality') {
+      setDetectorInputSize(640);
+      setUseCourtRoi(false);
+      setCourtRoiMarginPx(60);
+      setFrameStride(1);
+      setPoseStride(1);
+    } else if (nextProfile === 'balanced') {
+      setDetectorInputSize(512);
+      setUseCourtRoi(true);
+      setCourtRoiMarginPx(60);
+      setFrameStride(2);
+      setPoseStride(1);
+    } else if (nextProfile === 'fast') {
+      setDetectorInputSize(416);
+      setUseCourtRoi(true);
+      setCourtRoiMarginPx(60);
+      setFrameStride(3);
+      setPoseStride(2);
+    } else if (nextProfile === 'auto') {
+      const isCuda = capabilities?.cudaAvailable;
+      if (isCuda) {
+        setDetectorInputSize(512);
+        setUseCourtRoi(true);
+        setCourtRoiMarginPx(60);
+        setFrameStride(2);
+        setPoseStride(1);
+      } else {
+        setDetectorInputSize(416);
+        setUseCourtRoi(true);
+        setCourtRoiMarginPx(60);
+        setFrameStride(3);
+        setPoseStride(2);
+      }
+    }
+  };
+
   const videoFingerprint = (source: File) => `${source.name}:${source.size}:${source.lastModified}`;
 
   const persistCompletedResult = async (
@@ -115,6 +166,9 @@ export default function BadmintonTrackingLab() {
       status: 'completed', videoFingerprint: videoFingerprint(sourceFile),
       engineVersion: telemetry[0]?.engineVersion || 'tracking-v2', detectorModel: telemetry[0]?.modelVersion || 'YOLO', trackerModel: 'ByteTrack', poseModel: 'YOLO pose', sampleRateHz: 10,
       createdAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+      processingConfig: sessionStatus?.processingConfig,
+      performance: sessionStatus?.performance,
+      qualityStats: sessionStatus?.quality,
       players: Object.keys(saved.summary.players).map(playerId => {
         const pData = telemetry.flatMap(frame => frame.players).find(p => p.playerId === playerId);
         let side: 'near' | 'far' | 'unknown' = 'unknown';
@@ -224,11 +278,21 @@ export default function BadmintonTrackingLab() {
     let id: string | null = null;
     const fail = (err: unknown) => { if (current()) { setError(err instanceof Error ? err.message : 'Tracking failed'); setProcessing(false); } };
     try {
+      const processingConfig: ProcessingConfig = {
+        profile,
+        device: devicePreference,
+        detectorInputSize,
+        useCourtRoi,
+        courtRoiMarginPx,
+        frameStride,
+        poseStride,
+      };
       const created = await aiTrackingService.createSession(gameType, 'upload', {
         projectId: activeProjectId,
         videoFingerprint: videoFingerprint(file),
         device: devicePreference,
         trackedPlayerCount,
+        processingConfig,
       });
       id = created.sessionId;
       if (!current()) { void aiTrackingService.deleteSession(id); return; }
@@ -275,6 +339,130 @@ export default function BadmintonTrackingLab() {
         onClick={() => setDevicePreference('cuda')}
       >{th ? 'ใช้ GPU' : 'Use GPU'}</button>
     </div>
+
+    {/* Performance Profiles and Advanced Benchmark Controls */}
+    <div className="flex flex-wrap items-center gap-3 text-sm">
+      <label className="flex items-center gap-2">
+        <span>{th ? 'โปรไฟล์การประมวลผล' : 'Performance profile'}</span>
+        <select
+          aria-label={th ? 'โปรไฟล์การประมวลผล' : 'Performance profile'}
+          disabled={processing}
+          value={profile}
+          onChange={e => selectProfile(e.target.value as ProcessingProfile)}
+          className="bg-slate-800 p-2 rounded"
+        >
+          <option value="auto">{th ? 'อัตโนมัติ (Auto)' : 'Auto'}</option>
+          <option value="reference">{th ? 'มาตรฐาน (Reference baseline)' : 'Reference baseline'}</option>
+          <option value="fast">{th ? 'เน้นความเร็ว (Fast)' : 'Fast'}</option>
+          <option value="balanced">{th ? 'สมดุล (Balanced)' : 'Balanced'}</option>
+          <option value="quality">{th ? 'เน้นความแม่นยำ (Quality)' : 'Quality'}</option>
+          {profile === 'custom' && <option value="custom">{th ? 'กำหนดเอง (Custom)' : 'Custom'}</option>}
+        </select>
+      </label>
+      <button
+        type="button"
+        className="text-xs text-sky-400 hover:text-sky-300 underline"
+        onClick={() => setShowAdvancedSettings(prev => !prev)}
+      >
+        {showAdvancedSettings
+          ? th ? 'ซ่อนการตั้งค่าขั้นสูง ▲' : 'Hide advanced settings ▲'
+          : th ? 'ตั้งค่าขั้นสูง (Advanced) ▼' : 'Advanced settings ▼'}
+      </button>
+    </div>
+
+    {showAdvancedSettings && (
+      <div data-testid="advanced-settings-drawer" className="bg-slate-900/60 border border-slate-800 rounded p-3 text-xs space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label className="space-y-1 block">
+            <span className="text-slate-400 block">{th ? 'ความละเอียดตัวตรวจจับ' : 'Detector Input Size'}</span>
+            <select
+              aria-label="Detector Input Size"
+              disabled={processing}
+              value={detectorInputSize}
+              onChange={e => {
+                setDetectorInputSize(Number(e.target.value));
+                setProfile('custom');
+              }}
+              className="bg-slate-800 p-1.5 rounded w-full text-slate-200"
+            >
+              <option value={416}>416 px</option>
+              <option value={512}>512 px</option>
+              <option value={640}>640 px</option>
+            </select>
+          </label>
+          <label className="space-y-1 block">
+            <span className="text-slate-400 block">{th ? 'สุ่มเฟรมตรวจจับ (Frame Stride)' : 'Frame Stride'}</span>
+            <select
+              aria-label="Frame Stride"
+              disabled={processing}
+              value={frameStride}
+              onChange={e => {
+                setFrameStride(Number(e.target.value));
+                setProfile('custom');
+              }}
+              className="bg-slate-800 p-1.5 rounded w-full text-slate-200"
+            >
+              <option value={1}>1 ({th ? 'ทุกเฟรม' : 'Every frame'})</option>
+              <option value={2}>2 ({th ? 'ทุก 2 เฟรม' : 'Every 2nd frame'})</option>
+              <option value={3}>3 ({th ? 'ทุก 3 เฟรม' : 'Every 3rd frame'})</option>
+              <option value={4}>4 ({th ? 'ทุก 4 เฟรม' : 'Every 4th frame'})</option>
+            </select>
+          </label>
+          <label className="space-y-1 block">
+            <span className="text-slate-400 block">{th ? 'สุ่มเฟรมท่าทาง (Pose Stride)' : 'Pose Stride'}</span>
+            <select
+              aria-label="Pose Stride"
+              disabled={processing}
+              value={poseStride}
+              onChange={e => {
+                setPoseStride(Number(e.target.value));
+                setProfile('custom');
+              }}
+              className="bg-slate-800 p-1.5 rounded w-full text-slate-200"
+            >
+              <option value={1}>1 ({th ? 'ทุกเฟรมที่วิเคราะห์' : 'Every analyzed frame'})</option>
+              <option value={2}>2 ({th ? 'ทุก 2 เฟรม' : 'Every 2nd analyzed frame'})</option>
+              <option value={3}>3 ({th ? 'ทุก 3 เฟรม' : 'Every 3rd analyzed frame'})</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex items-center gap-4 pt-1">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              aria-label="Court ROI Cropping"
+              disabled={processing}
+              checked={useCourtRoi}
+              onChange={e => {
+                setUseCourtRoi(e.target.checked);
+                setProfile('custom');
+              }}
+              className="rounded bg-slate-800 border-slate-700 text-sky-500"
+            />
+            <span>{th ? 'ตัดเฉพาะบริเวณสนาม (Court ROI Cropping)' : 'Crop Court ROI to accelerate inference'}</span>
+          </label>
+          {useCourtRoi && (
+            <label className="flex items-center gap-2">
+              <span className="text-slate-400">{th ? 'ระยะเผื่อขอบ:' : 'Margin:'}</span>
+              <input
+                type="number"
+                aria-label="Court ROI Margin"
+                disabled={processing}
+                value={courtRoiMarginPx}
+                onChange={e => {
+                  setCourtRoiMarginPx(Math.max(10, Number(e.target.value)));
+                  setProfile('custom');
+                }}
+                className="bg-slate-800 p-1 rounded w-16 text-center text-slate-200"
+                min={10}
+                max={200}
+              />
+              <span className="text-slate-400">px</span>
+            </label>
+          )}
+        </div>
+      </div>
+    )}
     {online === false && <p className="text-sm">{th ? 'เปิดบริการ AI ในเครื่องก่อนเริ่มวิเคราะห์' : 'Start the local AI service before running analysis.'}</p>}
     {matchInfo.sportType !== 'badminton' && <p className="text-amber-300">{th ? 'เลือกโปรเจกต์กีฬาแบดมินตันก่อนเริ่มวิเคราะห์' : 'Select a Badminton project to enable analysis.'}</p>}
     <div className="space-y-2">
