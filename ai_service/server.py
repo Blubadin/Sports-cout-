@@ -44,6 +44,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_pna_and_cors_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
 # Global State
 analyzer = BadmintonAnalyzerV2(game_type="doubles", max_players=4)
 is_tracking = False

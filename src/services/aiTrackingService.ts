@@ -33,9 +33,11 @@ type MarkingListener = (state: MarkingState) => void;
 
 export function getAiHost(): string {
   if (typeof window !== 'undefined' && window.location.hostname) {
-    return window.location.hostname;
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '::1') return '127.0.0.1';
+    return host;
   }
-  return 'localhost';
+  return '127.0.0.1';
 }
 
 class AITrackingService {
@@ -43,6 +45,15 @@ class AITrackingService {
   private gameType: BadmintonGameType = "doubles";
   private ws: WebSocket | null = null;
   private serverUrl: string = `ws://${getAiHost()}:8000/ws/telemetry`;
+  private activeBaseUrl: string | null = null;
+
+  public getApiUrl(path: string): string {
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    if (this.activeBaseUrl !== null) {
+      return `${this.activeBaseUrl}${cleanPath}`;
+    }
+    return `http://${getAiHost()}:8000${cleanPath}`;
+  }
   private status: AIConnectionStatus = "disconnected";
   private telemetryListeners: Set<TelemetryListener> = new Set();
   private telemetryV1Listeners: Set<TelemetryV1Listener> = new Set();
@@ -344,15 +355,25 @@ class AITrackingService {
    * Check if local Python AI service is online on localhost:8000.
    */
   public async checkBackendHealth(): Promise<boolean> {
-    try {
-      const res = await fetch(`http://${getAiHost()}:8000/api/status`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.status === "online";
-      }
-    } catch {}
+    const endpoints = [
+      `/api/status`,
+      `http://${getAiHost()}:8000/api/status`,
+      `http://127.0.0.1:8000/api/status`,
+    ];
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === "online") {
+            this.activeBaseUrl = url.replace('/api/status', '');
+            return true;
+          }
+        }
+      } catch {}
+    }
     return false;
   }
 
@@ -363,7 +384,7 @@ class AITrackingService {
     mpsAvailable: boolean;
     torchVersion?: string | null;
   }> {
-    const res = await fetch(`http://${getAiHost()}:8000/api/capabilities`);
+    const res = await fetch(this.getApiUrl('/api/capabilities'));
     if (!res.ok) throw new Error(`Failed to read AI capabilities: ${res.statusText}`);
     return res.json();
   }
@@ -376,6 +397,9 @@ class AITrackingService {
         targetUrl = targetUrl.replace(/localhost|127\.0\.0\.1/, host);
       }
       this.serverUrl = targetUrl;
+    } else if (this.activeBaseUrl === '' && typeof window !== 'undefined') {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      this.serverUrl = `${protocol}//${window.location.host}/ws/telemetry`;
     }
 
     if (this.mode === "browser") {
@@ -805,7 +829,7 @@ class AITrackingService {
     videoSource: string = "demo",
     options?: { projectId?: string | null; videoFingerprint?: string | null; device?: 'auto' | 'cpu' | 'cuda' | 'mps' }
   ): Promise<{ sessionId: string; status: string }> {
-    const res = await fetch(`http://${getAiHost()}:8000/api/tracking/sessions`, {
+    const res = await fetch(this.getApiUrl('/api/tracking/sessions'), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -821,7 +845,7 @@ class AITrackingService {
   }
 
   public async calibrateSession(sessionId: string, corners: number[][], gameType: BadmintonGameType): Promise<void> {
-    const res = await fetch(`http://${getAiHost()}:8000/api/tracking/sessions/${sessionId}/calibration`, {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/calibration`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ corners, game_type: gameType }),
@@ -830,7 +854,7 @@ class AITrackingService {
   }
 
   public async uploadSessionVideo(sessionId: string, file: File, signal?: AbortSignal): Promise<{ width: number; height: number }> {
-    const res = await fetch(`http://${getAiHost()}:8000/api/tracking/sessions/${sessionId}/video`, {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/video`), {
       method: 'POST',
       headers: { 'Content-Type': file.type || 'application/octet-stream' },
       body: file,
@@ -855,7 +879,7 @@ class AITrackingService {
     resumable: boolean;
   }>> {
     const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
-    const res = await fetch(`http://${getAiHost()}:8000/api/tracking/sessions${query}`);
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions${query}`));
     if (!res.ok) throw new Error(`Failed to list tracking sessions: ${res.statusText}`);
     const payload = await res.json() as { sessions?: Array<{
       sessionId: string;
@@ -875,7 +899,7 @@ class AITrackingService {
     sessionId: string,
     players: { player_id: number; bbox: number[]; name?: string }[]
   ): Promise<void> {
-    const res = await fetch(`http://${getAiHost()}:8000/api/tracking/sessions/${sessionId}/players`, {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/players`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ players }),
@@ -884,7 +908,7 @@ class AITrackingService {
   }
 
   public async startSessionAnalysis(sessionId: string): Promise<void> {
-    const res = await fetch(`http://${getAiHost()}:8000/api/tracking/sessions/${sessionId}/start`, {
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/start`), {
       method: "POST",
     });
     if (!res.ok) throw new Error(`Failed to start analysis: ${res.statusText}`);
@@ -900,7 +924,7 @@ class AITrackingService {
     durationSec: number;
     error: string | null;
   }> {
-    const res = await fetch(`http://${getAiHost()}:8000/api/tracking/sessions/${sessionId}/status`);
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/status`));
     if (!res.ok) throw new Error(`Failed to get session status: ${res.statusText}`);
     return res.json();
   }
@@ -911,13 +935,13 @@ class AITrackingService {
     sampleCount: number;
     telemetry: TrackingTelemetryV1[];
   }> {
-    const res = await fetch(`http://${getAiHost()}:8000/api/tracking/sessions/${sessionId}/results`);
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/results`));
     if (!res.ok) throw new Error(`Failed to get session results: ${res.statusText}`);
     return res.json();
   }
 
   public async deleteSession(sessionId: string): Promise<void> {
-    await fetch(`http://${getAiHost()}:8000/api/tracking/sessions/${sessionId}`, { method: "DELETE" });
+    await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}`), { method: "DELETE" });
   }
 
   public onStatus(listener: StatusListener): () => void {
