@@ -508,3 +508,52 @@ export interface AITelemetryFrame extends Partial<Omit<TrackingTelemetryV1, 'pla
   source?: string;
 }
 
+export type TrackingOverlayMode = 'skeleton' | 'center' | 'feet' | 'box' | 'off';
+
+export interface BodyCenterProxy {
+  xPct: number;
+  yPct: number;
+  provenance: 'pose' | 'bbox';
+}
+
+export interface FeetPositionProxy {
+  xPct: number;
+  yPct: number;
+  provenance: 'pose_ankles' | 'pose_single_ankle' | 'bbox_ground';
+}
+
+export interface TrackingLivePlayerStatus {
+  playerId: string;
+  trackId: number | null;
+  totalDistanceM: number;
+  currentSpeedMps: number;
+  trackingState: 'observed' | 'predicted' | 'lost';
+  detectionConfidence: number;
+  courtPosition?: {
+    xM: number;
+    yM: number;
+    xPct: number;
+    yPct: number;
+  } | null;
+}
+
+export interface TrackingSessionStatus {
+  sessionId: string;
+  status: string;
+  progressPct: number;
+  currentFrame: number;
+  totalFrames: number;
+  analyzedFrames: number;
+  frameStride: number;
+  elapsedSec: number;
+  videoDurationSec: number;
+  lastTelemetryTimestampSec: number | null;
+  sourceFps: number;
+  samplingFps: number;
+  analysisFps: number;
+  trackedPlayerCount: number;
+  device: string;
+  players: TrackingLivePlayerStatus[];
+  error: string | null;
+}
+
