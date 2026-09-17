@@ -47,6 +47,7 @@ export interface TrackingAnalysis {
   projectId: string;
   sportType: 'badminton';
   gameType: 'singles' | 'doubles';
+  trackedPlayerCount?: number;
   status: 'processing' | 'completed' | 'failed';
   videoFingerprint?: string;
   engineVersion: string;

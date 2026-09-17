@@ -452,6 +452,7 @@ class CreateSessionRequest(BaseModel):
     project_id: str | None = None
     video_fingerprint: str | None = None
     device: str = "auto"
+    tracked_player_count: int | None = None
 
 class SessionCalibrationRequest(BaseModel):
     corners: list[list[float]]
@@ -461,14 +462,35 @@ class SessionPlayerRequest(BaseModel):
     players: list[dict]
 
 class TrackingSession:
-    def __init__(self, session_id: str, video_source: str = "demo", game_type: str = "doubles", project_id: str | None = None, video_fingerprint: str | None = None, device: str = "auto"):
+    def __init__(
+        self,
+        session_id: str,
+        video_source: str = "demo",
+        game_type: str = "doubles",
+        project_id: str | None = None,
+        video_fingerprint: str | None = None,
+        device: str = "auto",
+        tracked_player_count: int | None = None,
+    ):
         self.session_id = session_id
         self.video_source = video_source
         self.game_type = game_type
         self.project_id = project_id
         self.video_fingerprint = video_fingerprint
         self.created_at = time.time()
-        self.analyzer = BadmintonAnalyzerV2(game_type=game_type, device=device)
+
+        count = tracked_player_count
+        if count is None:
+            count = 2 if game_type == "singles" else 4
+        if not (1 <= count <= 4):
+            raise ValueError(f"tracked_player_count must be between 1 and 4, got {count}")
+        self.tracked_player_count = count
+
+        self.analyzer = BadmintonAnalyzerV2(
+            game_type=game_type,
+            max_players=self.tracked_player_count,
+            device=device,
+        )
         self.analyzer.analysis_id = session_id
         self.status = "READY"  # READY | CALIBRATING | ASSIGNING_PLAYERS | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
         self.progress_pct = 0.0
@@ -590,6 +612,7 @@ def create_tracking_session(req: CreateSessionRequest):
             project_id=req.project_id,
             video_fingerprint=req.video_fingerprint,
             device=req.device,
+            tracked_player_count=req.tracked_player_count,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -599,6 +622,7 @@ def create_tracking_session(req: CreateSessionRequest):
         "status": session.status,
         "gameType": session.game_type,
         "videoSource": session.video_source,
+        "trackedPlayerCount": session.tracked_player_count,
     }
 
 
@@ -621,6 +645,7 @@ def list_tracking_sessions(project_id: str | None = None):
                 "progressPct": session.progress_pct,
                 "currentFrame": session.current_frame,
                 "totalFrames": session.total_frames,
+                "trackedPlayerCount": session.tracked_player_count,
                 "resumable": session.status not in {"COMPLETED", "ERROR"},
             }
             for session in sessions
@@ -726,6 +751,7 @@ def get_session_status(session_id: str):
         "totalFrames": session.total_frames,
         "elapsedSec": session.elapsed_sec,
         "durationSec": session.duration_sec,
+        "trackedPlayerCount": session.tracked_player_count,
         "error": session.error_message,
     }
 
@@ -739,6 +765,7 @@ def get_session_results(session_id: str):
         "sessionId": session_id,
         "status": session.status,
         "sampleCount": len(session.results),
+        "trackedPlayerCount": session.tracked_player_count,
         "telemetry": session.results,
     }
 

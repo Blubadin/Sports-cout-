@@ -475,6 +475,7 @@ export interface TrackingTelemetryV1 {
   modelVersion?: string;
   isSynthetic?: boolean;
   source?: 'real_tracking' | 'synthetic_demo' | string;
+  trackedPlayerCount?: number;
   players: TrackingPlayerV1[];
 }
 
@@ -502,6 +503,7 @@ export interface AITelemetryFrame extends Partial<Omit<TrackingTelemetryV1, 'pla
   timestamp: number;
   frame_idx: number;
   game_type?: 'singles' | 'doubles';
+  tracked_player_count?: number;
   players: AITrackingPlayer[];
   source?: string;
 }

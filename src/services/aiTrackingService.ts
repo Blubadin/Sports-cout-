@@ -827,8 +827,13 @@ class AITrackingService {
   public async createSession(
     gameType: BadmintonGameType,
     videoSource: string = "demo",
-    options?: { projectId?: string | null; videoFingerprint?: string | null; device?: 'auto' | 'cpu' | 'cuda' | 'mps' }
-  ): Promise<{ sessionId: string; status: string }> {
+    options?: {
+      projectId?: string | null;
+      videoFingerprint?: string | null;
+      device?: 'auto' | 'cpu' | 'cuda' | 'mps';
+      trackedPlayerCount?: number;
+    }
+  ): Promise<{ sessionId: string; status: string; trackedPlayerCount?: number }> {
     const res = await fetch(this.getApiUrl('/api/tracking/sessions'), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -838,6 +843,7 @@ class AITrackingService {
         project_id: options?.projectId ?? null,
         video_fingerprint: options?.videoFingerprint ?? null,
         device: options?.device ?? 'auto',
+        tracked_player_count: options?.trackedPlayerCount ?? (gameType === 'singles' ? 2 : 4),
       }),
     });
     if (!res.ok) throw new Error(`Failed to create tracking session: ${res.statusText}`);
@@ -876,6 +882,7 @@ class AITrackingService {
     progressPct: number;
     currentFrame: number;
     totalFrames: number;
+    trackedPlayerCount?: number;
     resumable: boolean;
   }>> {
     const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
@@ -890,6 +897,7 @@ class AITrackingService {
       progressPct: number;
       currentFrame: number;
       totalFrames: number;
+      trackedPlayerCount?: number;
       resumable: boolean;
     }> };
     return payload.sessions ?? [];
@@ -922,6 +930,7 @@ class AITrackingService {
     totalFrames: number;
     elapsedSec: number;
     durationSec: number;
+    trackedPlayerCount?: number;
     error: string | null;
   }> {
     const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/status`));
@@ -933,6 +942,7 @@ class AITrackingService {
     sessionId: string;
     status: string;
     sampleCount: number;
+    trackedPlayerCount?: number;
     telemetry: TrackingTelemetryV1[];
   }> {
     const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/results`));
@@ -979,6 +989,7 @@ export function toTrackingTelemetryV1(frame: AITelemetryFrame): TrackingTelemetr
     modelVersion: frame.modelVersion || "badminton-tracking-v1",
     isSynthetic,
     source: frame.source || (isSynthetic ? "synthetic_demo" : "real_tracking"),
+    trackedPlayerCount: frame.trackedPlayerCount ?? frame.tracked_player_count,
     players: (frame.players || []).map((p) => {
       const posPct = p.court_pos_pct || { x: 50, y: 50 };
       const posM = p.court_pos_m || {
