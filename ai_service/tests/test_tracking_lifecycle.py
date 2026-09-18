@@ -227,33 +227,132 @@ class TestTrackingLifecycle(unittest.TestCase):
         self.assertEqual(res.json()["status"], "started")
         self.assertEqual(tracking_sessions[session_id].status, "PROCESSING")
 
-    # ── Double-start race test ──
-
     def test_double_start_creates_one_worker(self):
-        """Immediate double /start returns already_processing for the second call."""
+        """Use true concurrency to test double /start race protection without TestClient deadlock."""
+        import concurrent.futures
+        import threading
+        from server import start_session_analysis, tracking_sessions
+
         session_id = self._create_session(video_source="demo", game_type="singles")
-        # Calibrate demo so we can start
         res = self._calibrate(session_id)
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(tracking_sessions[session_id].status, "READY_TO_ANALYZE")
 
-        # First start
-        res1 = self.client.post(f"/api/tracking/sessions/{session_id}/start")
-        self.assertEqual(res1.status_code, 200)
-        self.assertEqual(res1.json()["status"], "started")
+        session = tracking_sessions[session_id]
+        
+        # Track thread start calls
+        start_calls = []
+        original_start = threading.Thread.start
 
-        # Immediate second start should return already_processing
-        res2 = self.client.post(f"/api/tracking/sessions/{session_id}/start")
-        self.assertEqual(res2.status_code, 200)
-        self.assertEqual(res2.json()["status"], "already_processing")
+        def mock_start(self_obj, *args, **kwargs):
+            if hasattr(self_obj, "_target") and self_obj._target and getattr(self_obj._target, "__name__", "") == "_run_session_analysis":
+                start_calls.append(self_obj)
+            return original_start(self_obj, *args, **kwargs)
 
-        # Wait for the demo to complete
-        for _ in range(30):
-            if tracking_sessions[session_id].status != "PROCESSING":
-                break
-            time.sleep(0.1)
+        def make_request():
+            try:
+                return start_session_analysis(session_id)
+            except Exception as e:
+                # FastAPI raises HTTPException, return it to check status
+                return e
+
+        with patch("threading.Thread.start", side_effect=mock_start, autospec=True):
+            # Fire 5 concurrent requests directly to the handler
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(make_request) for _ in range(5)]
+                results = [f.result() for f in futures]
+
+        started_count = sum(1 for r in results if isinstance(r, dict) and r.get("status") == "started")
+        already_processing_count = sum(1 for r in results if isinstance(r, dict) and r.get("status") == "already_processing")
+        
+        # If the state changed so fast, some might raise 409
+        from fastapi import HTTPException
+        conflict_count = sum(1 for r in results if isinstance(r, HTTPException) and r.status_code == 409)
+
+        self.assertEqual(started_count, 1)
+        self.assertEqual(already_processing_count + conflict_count, 4)
+        self.assertEqual(len(start_calls), 1, "Exactly one worker thread should be started")
+
+    def test_calibration_vs_start_race(self):
+        """Verify calibration is rejected if a start transition happens concurrently."""
+        import concurrent.futures
+        from server import calibrate_session, SessionCalibrationRequest, tracking_sessions
+
+        session_id = self._create_session(video_source="demo", game_type="singles")
+        res = self._calibrate(session_id)
+        self.assertEqual(res.status_code, 200)
+
+        session = tracking_sessions[session_id]
+        
+        def slow_calibrate():
+            from fastapi import HTTPException
+            try:
+                req = SessionCalibrationRequest(game_type="singles", corners=CORNERS)
+                return calibrate_session(session_id, req)
+            except HTTPException as e:
+                return e
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            # By taking the lock artificially and changing state, we can simulate
+            # what happens if start wins the race before calibration gets the lock
+            with session._state_lock:
+                # Calibrate request blocked waiting for lock
+                cal_future = executor.submit(slow_calibrate)
+                time.sleep(0.1) # Let it block
+                session.status = "PROCESSING" # Start wins and changes state
+            
+            cal_res = cal_future.result()
+            from fastapi import HTTPException
+            self.assertIsInstance(cal_res, HTTPException)
+            self.assertEqual(cal_res.status_code, 409)
+            self.assertIn("PROCESSING", str(cal_res.detail))
 
     # ── Demo provenance ──
+
+    def test_real_video_ingestion_smoke_test(self):
+        """End-to-end smoke test for real video ingestion without mocking VideoCapture."""
+        import cv2
+        import tempfile
+        import os
+        import numpy as np
+
+        # Check if MJPG encoder is available by attempting to create a dummy writer
+        # If it fails, we skip
+        test_path = tempfile.mktemp(suffix=".avi")
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        writer = cv2.VideoWriter(test_path, fourcc, 30.0, (320, 240))
+        if not writer.isOpened():
+            self.skipTest("cv2.VideoWriter with MJPG not available in this environment")
+        
+        # Write 5 frames of black to the dummy video
+        frame = np.zeros((240, 320, 3), dtype=np.uint8)
+        for _ in range(5):
+            writer.write(frame)
+        writer.release()
+
+        try:
+            with open(test_path, "rb") as f:
+                video_bytes = f.read()
+
+            session_id = self._create_session(game_type="singles")
+            
+            res = self.client.post(
+                f"/api/tracking/sessions/{session_id}/video?filename=test.avi",
+                headers={"Content-Type": "video/avi"},
+                content=video_bytes
+            )
+            
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.json()["width"], 320)
+            self.assertEqual(res.json()["height"], 240)
+            
+            session = tracking_sessions[session_id]
+            self.assertEqual(session.status, "VIDEO_READY")
+            self.assertIsNotNone(session.owned_video_path)
+            self.assertTrue(session.owned_video_path.exists())
+            
+        finally:
+            if os.path.exists(test_path):
+                os.remove(test_path)
 
     def test_demo_provenance(self):
         """Demo sessions follow a clear equivalent lifecycle."""
