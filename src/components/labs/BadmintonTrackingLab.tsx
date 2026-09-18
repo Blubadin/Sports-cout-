@@ -1,23 +1,50 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
-import type { TrackingTelemetryV1, TrackingOverlayMode, TrackingSessionStatus, ProcessingConfig, ProcessingProfile } from '../../types';
+import type {
+  TrackingTelemetryV1,
+  TrackingOverlayMode,
+  TrackingSessionStatus,
+  ProcessingConfig,
+  ProcessingProfile,
+} from '../../types';
 import { loadProjectVideoFileHandle } from '../../utils/videoFileStore';
-import { downsampleAndChunkTrackingSamples, saveTrackingAnalysis, listTrackingAnalyses, getLatestTrackingAnalysis, getTrackingSampleChunks, type TrackingAnalysis, type TrackingSampleChunk } from '../../services/storage/trackingStorage';
+import {
+  listTrackingAnalyses,
+  getLatestTrackingAnalysis,
+  getTrackingSampleChunks,
+} from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 import TrackingVideoOverlay from './TrackingVideoOverlay';
 import TrackingLabInspector from './TrackingLabInspector';
+import {
+  useProjectTrackingSession,
+  computeVideoFingerprint,
+} from '../../services/trackingSessionStore';
 
 export default function BadmintonTrackingLab() {
   const { matchInfo, settings, localFileName, setLocalFileName, setVideoSourceType } = useScoutContext();
   const { activeProjectId } = useWorkspace();
   const th = settings.uiLanguage === 'th';
-  const [file, setFile] = useState<File | null>(null);
+
+  const {
+    state,
+    update,
+    setFile,
+    setUIPreference,
+    cancel: cancelSession,
+    store,
+  } = useProjectTrackingSession(activeProjectId);
+
   const [url, setUrl] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
   const [inferenceDevice, setInferenceDevice] = useState<string | null>(null);
-  const [capabilities, setCapabilities] = useState<{ selectedDevice: string; cudaAvailable: boolean; mpsAvailable: boolean } | null>(null);
+  const [capabilities, setCapabilities] = useState<{
+    selectedDevice: string;
+    cudaAvailable: boolean;
+    mpsAvailable: boolean;
+  } | null>(null);
   const [devicePreference, setDevicePreference] = useState<'auto' | 'cpu' | 'cuda' | 'mps'>('auto');
   const [profile, setProfile] = useState<ProcessingProfile>('auto');
   const [detectorInputSize, setDetectorInputSize] = useState<number>(640);
@@ -26,30 +53,30 @@ export default function BadmintonTrackingLab() {
   const [frameStride, setFrameStride] = useState<number>(2);
   const [poseStride, setPoseStride] = useState<number>(1);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
-  const [gameType, setGameType] = useState<BadmintonGameType>('singles');
-  const [trackedPlayerCount, setTrackedPlayerCount] = useState<number>(2);
-  const [corners, setCorners] = useState<number[][]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [calibrating, setCalibrating] = useState(false);
-  const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [frames, setFrames] = useState<TrackingTelemetryV1[]>([]);
   const [time, setTime] = useState(0);
-  const [overlayMode, setOverlayMode] = useState<TrackingOverlayMode>('skeleton');
-  const [sessionStatus, setSessionStatus] = useState<TrackingSessionStatus | null>(null);
-  const [analysis, setAnalysis] = useState<TrackingAnalysis | null>(null);
-  const [chunks, setChunks] = useState<TrackingSampleChunk[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const generation = useRef(0);
-  const session = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upload = useRef<AbortController | null>(null);
-  const cursorRef = useRef<number>(0);
-  const accumulatedFrames = useRef<TrackingTelemetryV1[]>([]);
-  const isPersistingRef = useRef<Set<string>>(new Set());
 
+  const file = state.file;
+  const processing = state.status === 'PROCESSING' || state.status === 'UPLOADING';
+  const progress = state.progress;
+  const gameType = state.gameType;
+  const trackedPlayerCount = state.trackedPlayerCount;
+  const corners = state.corners;
+  const frames = state.telemetry;
+  const sessionStatus = state.sessionStatus;
+  const analysis = state.analysis;
+  const chunks = state.chunks;
+  const error = state.error;
+  const overlayMode = state.uiPreferences.overlayMode;
+
+  // 1. Backend health & capabilities
   useEffect(() => {
     let alive = true;
     const check = async () => {
@@ -58,50 +85,31 @@ export default function BadmintonTrackingLab() {
       setOnline(ok);
       if (ok) {
         try {
-          const capabilities = await aiTrackingService.getCapabilities();
+          const caps = await aiTrackingService.getCapabilities();
           if (alive) {
-            setCapabilities(capabilities);
-            setInferenceDevice(capabilities.selectedDevice);
+            setCapabilities(caps);
+            setInferenceDevice(caps.selectedDevice);
           }
         } catch {
-          if (alive) { setInferenceDevice(null); setCapabilities(null); }
+          if (alive) {
+            setInferenceDevice(null);
+            setCapabilities(null);
+          }
         }
       } else {
-        setInferenceDevice(null); setCapabilities(null);
+        setInferenceDevice(null);
+        setCapabilities(null);
       }
     };
     void check();
     const interval = setInterval(check, 10000);
-    return () => { alive = false; clearInterval(interval); };
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-    setFile(null); setCorners([]); setFrames([]); setAnalysis(null); setChunks([]);
-    void loadProjectVideoFileHandle(activeProjectId, localFileName).then(async handle => {
-      if (!handle || (handle.queryPermission && await handle.queryPermission({ mode: 'read' }) !== 'granted')) return;
-      const restored = await handle.getFile();
-      if (alive) setFile(restored);
-    }).catch(() => {});
-    if (activeProjectId) void listTrackingAnalyses(activeProjectId).then(async records => {
-      const latest = getLatestTrackingAnalysis(records);
-      if (!latest) return;
-      const saved = await getTrackingSampleChunks(latest.id);
-      if (alive) {
-        setAnalysis(latest);
-        setChunks(saved);
-        if (latest.trackedPlayerCount) setTrackedPlayerCount(latest.trackedPlayerCount);
-        if (latest.gameType) setGameType(latest.gameType);
-      }
-    }).catch(() => {});
-    return () => {
-      alive = false; generation.current++;
-      if (timer.current) clearTimeout(timer.current);
-      upload.current?.abort();
-      session.current = null;
-    };
-  }, [activeProjectId]);
-
+  // 2. Profile configuration helper
   const selectProfile = (nextProfile: ProcessingProfile) => {
     setProfile(nextProfile);
     if (nextProfile === 'reference') {
@@ -146,169 +154,278 @@ export default function BadmintonTrackingLab() {
     }
   };
 
-  const videoFingerprint = (source: File) => `${source.name}:${source.size}:${source.lastModified}`;
+  // 3. Object URL for video playback (re-created safely in SPA session)
+  useEffect(() => {
+    if (!file) {
+      setUrl('');
+      return;
+    }
+    const nextUrl = URL.createObjectURL(file);
+    setUrl(nextUrl);
+    setDimensions({ width: 0, height: 0 });
+    return () => {
+      URL.revokeObjectURL(nextUrl);
+    };
+  }, [file]);
 
-  const persistCompletedResult = async (
-    sessionId: string,
-    telemetry: TrackingTelemetryV1[],
-    sourceFile: File,
-    sessionGameType: BadmintonGameType,
-    finalStatus?: TrackingSessionStatus | null,
-    sessionTrackedPlayerCount?: number,
-  ) => {
-    if (isPersistingRef.current.has(sessionId)) return;
-    isPersistingRef.current.add(sessionId);
-
-    try {
-      if (telemetry.some(frame => frame.isSynthetic || frame.source === 'synthetic_demo')) {
-        throw new Error('The service returned demo data instead of real video analysis.');
-      }
-
-      const canonicalPlayerMetrics: Record<string, { totalDistanceM?: number }> = {};
-      if (finalStatus?.players) {
-        for (const p of finalStatus.players) {
-          canonicalPlayerMetrics[p.playerId] = { totalDistanceM: p.totalDistanceM };
-        }
-      }
-
-      const saved = downsampleAndChunkTrackingSamples(sessionId, telemetry, 10, 15, canonicalPlayerMetrics);
-      const inferredCount = Object.keys(saved.summary.players).length || (sessionGameType === 'singles' ? 2 : 4);
-      const effectiveCount = sessionTrackedPlayerCount ?? finalStatus?.trackedPlayerCount ?? telemetry[0]?.trackedPlayerCount ?? inferredCount;
-      const record: TrackingAnalysis = {
-        id: sessionId,
-        projectId: activeProjectId || 'current_project',
-        sportType: 'badminton',
-        gameType: sessionGameType,
-        trackedPlayerCount: effectiveCount,
-        status: 'completed',
-        videoFingerprint: videoFingerprint(sourceFile),
-        engineVersion: telemetry[0]?.engineVersion || 'tracking-v2',
-        detectorModel: telemetry[0]?.modelVersion || 'YOLO',
-        trackerModel: 'ByteTrack',
-        poseModel: 'YOLO pose',
-        sampleRateHz: 10,
-        createdAt: new Date().toISOString(),
-        completedAt: new Date().toISOString(),
-        device: finalStatus?.device,
-        analyzedFrames: finalStatus?.analyzedFrames,
-        totalFrames: finalStatus?.totalFrames,
-        processingConfig: finalStatus?.processingConfig ?? sessionStatus?.processingConfig,
-        performance: finalStatus?.performance ?? sessionStatus?.performance,
-        qualityStats: finalStatus?.quality ?? sessionStatus?.quality,
-        players: Object.keys(saved.summary.players).map(playerId => {
-          const pData = telemetry.flatMap(frame => frame.players).find(p => p.playerId === playerId);
-          let side: 'near' | 'far' | 'unknown' = 'unknown';
-          if (pData?.teamCode === 'team1') {
-            side = 'far';
-          } else if (pData?.teamCode === 'team2') {
-            side = 'near';
-          } else if (pData?.courtPosition?.yM !== undefined && pData.courtPosition.yM !== null) {
-            side = pData.courtPosition.yM < 6.70 ? 'far' : 'near';
+  // 4. Load persisted project analysis from IndexedDB if not already in state
+  useEffect(() => {
+    let alive = true;
+    if (activeProjectId && !state.analysis) {
+      void listTrackingAnalyses(activeProjectId)
+        .then(async (records) => {
+          const latest = getLatestTrackingAnalysis(records);
+          if (!latest || !alive) return;
+          const saved = await getTrackingSampleChunks(latest.id);
+          if (alive) {
+            update({
+              analysis: latest,
+              chunks: saved,
+              trackedPlayerCount: latest.trackedPlayerCount ?? state.trackedPlayerCount,
+              gameType: latest.gameType ?? state.gameType,
+            });
           }
-          return { playerId, name: playerId, side };
-        }),
-        summary: saved.summary,
-        quality: saved.quality,
+        })
+        .catch(() => {});
+    }
+    return () => {
+      alive = false;
+    };
+  }, [activeProjectId, state.analysis]);
+
+  // 5. Try restoring file handle from IndexedDB on hard page refresh
+  useEffect(() => {
+    let alive = true;
+    if (activeProjectId && !state.file) {
+      void loadProjectVideoFileHandle(activeProjectId, state.localFileName || localFileName)
+        .then(async (handle) => {
+          if (!handle || !alive) return;
+          if (handle.queryPermission && (await handle.queryPermission({ mode: 'read' })) !== 'granted') return;
+          const restored = await handle.getFile();
+          if (alive) {
+            setFile(restored);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      alive = false;
+    };
+  }, [activeProjectId, state.file, state.localFileName, localFileName]);
+
+  // 6. Polling session helper
+  const pollSession = useCallback(
+    (sessionId: string, runId: number) => {
+      const current = () => generation.current === runId;
+      const poll = async (): Promise<void> => {
+        try {
+          const latestStatus = await aiTrackingService.getSessionStatus(sessionId);
+          if (!current()) return;
+
+          const currentState = store.getProjectState(activeProjectId);
+          const cur = currentState?.cursor ?? 0;
+          const partial = await aiTrackingService.getSessionResults(sessionId, cur);
+          if (!current()) return;
+
+          if (partial.telemetry && partial.telemetry.length > 0) {
+            store.appendTelemetry(activeProjectId!, partial.telemetry, partial.nextCursor);
+          } else if (partial.nextCursor !== undefined && partial.nextCursor !== cur) {
+            update({ cursor: partial.nextCursor });
+          }
+
+          update({
+            sessionStatus: latestStatus,
+            progress: Math.round(latestStatus.progressPct),
+            currentFrame: latestStatus.currentFrame,
+            totalFrames: latestStatus.totalFrames,
+            analyzedFrames: latestStatus.analyzedFrames,
+            status:
+              latestStatus.status === 'ERROR'
+                ? 'ERROR'
+                : latestStatus.status === 'COMPLETED'
+                ? 'COMPLETED'
+                : 'PROCESSING',
+            error: latestStatus.error || null,
+          });
+
+          if (latestStatus.status === 'ERROR') {
+            throw new Error(latestStatus.error || 'Tracking engine error');
+          }
+
+          if (latestStatus.status === 'COMPLETED') {
+            const freshState = store.getProjectState(activeProjectId!);
+            if (freshState) {
+              await store.persistCompletedAnalysis(activeProjectId!, freshState);
+            }
+          } else {
+            timer.current = setTimeout(() => void poll(), 500);
+          }
+        } catch (err) {
+          if (current()) {
+            update({
+              error: err instanceof Error ? err.message : 'Tracking failed',
+              status: 'ERROR',
+            });
+          }
+        }
       };
-      await saveTrackingAnalysis(record, saved.chunks);
-      setAnalysis(record);
-      setChunks(saved.chunks);
-      setProcessing(false);
-      if (videoRef.current) videoRef.current.currentTime = 0;
-      setTime(0);
-    } finally {
-      isPersistingRef.current.delete(sessionId);
+      void poll();
+    },
+    [activeProjectId, store, update]
+  );
+
+  // 7. Navigation-Safe Session Lifecycle & Discovery
+  useEffect(() => {
+    if (!activeProjectId || online !== true) return;
+    let alive = true;
+    const runId = ++generation.current;
+
+    const syncSession = async () => {
+      // Case A: active project already has a sessionId in store
+      if (
+        state.sessionId &&
+        (state.status === 'PROCESSING' || state.status === 'UPLOADING' || state.status === 'COMPLETED')
+      ) {
+        try {
+          const currentStatus = await aiTrackingService.getSessionStatus(state.sessionId);
+          if (!alive) return;
+          update({
+            sessionStatus: currentStatus,
+            progress: Math.round(currentStatus.progressPct),
+            currentFrame: currentStatus.currentFrame,
+            totalFrames: currentStatus.totalFrames,
+            analyzedFrames: currentStatus.analyzedFrames,
+          });
+
+          if (currentStatus.status === 'PROCESSING') {
+            update({ status: 'PROCESSING' });
+            pollSession(state.sessionId, runId);
+          } else if (currentStatus.status === 'COMPLETED') {
+            const cur = state.cursor;
+            const partial = await aiTrackingService.getSessionResults(state.sessionId, cur);
+            if (partial.telemetry && partial.telemetry.length > 0) {
+              store.appendTelemetry(activeProjectId, partial.telemetry, partial.nextCursor);
+            }
+            const freshState = store.getProjectState(activeProjectId);
+            if (freshState && !freshState.analysis) {
+              await store.persistCompletedAnalysis(activeProjectId, freshState);
+            }
+          }
+        } catch {
+          // Status check failure
+        }
+        return;
+      }
+
+      // Case B: No sessionId in store, discover from backend listSessions
+      try {
+        const sessions = await aiTrackingService.listSessions(activeProjectId);
+        if (!alive) return;
+        const candidate = sessions.find(
+          (item) =>
+            item.projectId === activeProjectId &&
+            (item.status === 'PROCESSING' || item.status === 'COMPLETED')
+        );
+        if (candidate) {
+          update({
+            sessionId: candidate.sessionId,
+            status: candidate.status === 'COMPLETED' ? 'COMPLETED' : 'PROCESSING',
+            gameType: candidate.gameType,
+            trackedPlayerCount:
+              candidate.trackedPlayerCount ?? (candidate.gameType === 'singles' ? 2 : 4),
+            progress: Math.round(candidate.progressPct),
+            currentFrame: candidate.currentFrame,
+            totalFrames: candidate.totalFrames,
+            videoFingerprint: candidate.videoFingerprint,
+          });
+          pollSession(candidate.sessionId, runId);
+        }
+      } catch {
+        // Backend list error
+      }
+    };
+
+    void syncSession();
+
+    return () => {
+      alive = false;
+      generation.current++;
+      if (timer.current) {
+        clearTimeout(timer.current);
+        timer.current = null;
+      }
+      // Note: We intentionally do NOT abort or delete session here!
+      // Navigation is NOT cancellation!
+    };
+  }, [activeProjectId, online]);
+
+  // 8. Explicit User Actions
+  const cancel = async () => {
+    generation.current++;
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    upload.current?.abort();
+    await cancelSession();
+  };
+
+  const choose = (next: File | undefined) => {
+    if (!next) return;
+    const isReconnecting =
+      (state.sessionId || state.analysis) &&
+      (state.localFileName === next.name ||
+        state.videoFingerprint === computeVideoFingerprint(next));
+
+    setFile(next);
+    setLocalFileName(next.name);
+    setVideoSourceType('local');
+
+    if (!isReconnecting && state.status === 'IDLE') {
+      update({
+        corners: [],
+        telemetry: [],
+        cursor: 0,
+        analysis: null,
+        chunks: [],
+        error: null,
+        sessionStatus: null,
+      });
+      setCalibrating(false);
     }
   };
 
-  const pollSession = (sessionId: string, runId: number, sourceFile: File, sessionGameType: BadmintonGameType, sessionTrackedPlayerCount?: number) => {
-    const current = () => generation.current === runId;
-    const poll = async (): Promise<void> => {
-      try {
-        const state = await aiTrackingService.getSessionStatus(sessionId);
-        if (!current()) return;
-        setSessionStatus(state);
-        setProgress(Math.round(state.progressPct));
-        if (state.status === 'ERROR') throw new Error(state.error || 'Tracking engine error');
-        const effectiveCount = sessionTrackedPlayerCount ?? state.trackedPlayerCount;
-        const partial = await aiTrackingService.getSessionResults(sessionId, cursorRef.current);
-        if (!current()) return;
-        if (partial.telemetry.length > 0) {
-          cursorRef.current = partial.nextCursor;
-          const existingMap = new Set(accumulatedFrames.current.map(f => `${f.frameIndex}:${f.timestampSec}`));
-          const uniqueNew = partial.telemetry.filter(f => !existingMap.has(`${f.frameIndex}:${f.timestampSec}`));
-          if (uniqueNew.length > 0) {
-            accumulatedFrames.current.push(...uniqueNew);
-            setFrames([...accumulatedFrames.current]);
-          }
-        }
-        if (state.status === 'COMPLETED') {
-          await persistCompletedResult(sessionId, accumulatedFrames.current, sourceFile, sessionGameType, state, effectiveCount);
-          session.current = null;
-        } else {
-          timer.current = setTimeout(() => void poll(), 500);
-        }
-      } catch (err) {
-        if (current()) {
-          setError(err instanceof Error ? err.message : 'Tracking failed');
-          setProcessing(false);
-        }
-      }
-    };
-    void poll();
-  };
-
-  useEffect(() => {
-    if (!file || !activeProjectId || online !== true || processing) return;
-    let alive = true;
-    const recover = async () => {
-      try {
-        const sessions = await aiTrackingService.listSessions(activeProjectId);
-        const candidate = sessions.find(item => item.videoFingerprint === videoFingerprint(file) && (item.status === 'PROCESSING' || item.status === 'COMPLETED'));
-        if (!alive || !candidate) return;
-        session.current = candidate.sessionId;
-        const runId = ++generation.current;
-        setProgress(Math.round(candidate.progressPct));
-        cursorRef.current = 0;
-        accumulatedFrames.current = [];
-        setFrames([]);
-        setProcessing(candidate.status === 'PROCESSING');
-        pollSession(candidate.sessionId, runId, file, candidate.gameType, candidate.trackedPlayerCount);
-      } catch {
-        // A missing backend should be reported by the normal health indicator.
-      }
-    };
-    void recover();
-    return () => { alive = false; };
-  }, [file, activeProjectId, online]);
-
-  useEffect(() => {
-    if (!file) { setUrl(''); return; }
-    const next = URL.createObjectURL(file); setUrl(next); setDimensions({ width: 0, height: 0 });
-    return () => URL.revokeObjectURL(next);
-  }, [file]);
-
-  const cancel = () => {
-    generation.current++;
-    if (timer.current) clearTimeout(timer.current);
-    upload.current?.abort();
-    if (session.current) void aiTrackingService.deleteSession(session.current).catch(() => {});
-    session.current = null; setProcessing(false); setProgress(0);
-    cursorRef.current = 0;
-    accumulatedFrames.current = [];
-    setSessionStatus(null);
-  };
-
   const run = async () => {
-    if (!file || online !== true || corners.length !== 4 || processing || matchInfo.sportType !== 'badminton') return;
+    if (
+      !file ||
+      online !== true ||
+      corners.length !== 4 ||
+      processing ||
+      matchInfo.sportType !== 'badminton'
+    )
+      return;
     const runId = ++generation.current;
     const current = () => generation.current === runId;
-    setProcessing(true); setError(null); setProgress(0); setFrames([]);
-    cursorRef.current = 0;
-    accumulatedFrames.current = [];
-    setSessionStatus(null);
+
+    update({
+      status: 'UPLOADING',
+      error: null,
+      progress: 0,
+      telemetry: [],
+      cursor: 0,
+      sessionStatus: null,
+    });
+
     let id: string | null = null;
-    const fail = (err: unknown) => { if (current()) { setError(err instanceof Error ? err.message : 'Tracking failed'); setProcessing(false); } };
+    const fail = (err: unknown) => {
+      if (current()) {
+        update({
+          error: err instanceof Error ? err.message : 'Tracking failed',
+          status: 'ERROR',
+        });
+      }
+    };
+
     try {
       const processingConfig: ProcessingConfig = {
         profile,
@@ -319,277 +436,541 @@ export default function BadmintonTrackingLab() {
         frameStride,
         poseStride,
       };
+
       const created = await aiTrackingService.createSession(gameType, 'upload', {
         projectId: activeProjectId,
-        videoFingerprint: videoFingerprint(file),
+        videoFingerprint: computeVideoFingerprint(file),
         device: devicePreference,
         trackedPlayerCount,
         processingConfig,
       });
+
       id = created.sessionId;
-      if (!current()) { void aiTrackingService.deleteSession(id); return; }
-      session.current = id;
+      if (!current()) {
+        void aiTrackingService.deleteSession(id);
+        return;
+      }
+
+      update({
+        sessionId: id,
+        videoFingerprint: computeVideoFingerprint(file),
+        processingConfig,
+      });
+
       upload.current = new AbortController();
+      store.registerUploadController(activeProjectId!, upload.current);
       await aiTrackingService.uploadSessionVideo(id, file, upload.current.signal);
+      store.clearUploadController(activeProjectId!);
       if (!current()) return;
+
+      update({ status: 'CALIBRATED' });
       await aiTrackingService.calibrateSession(id, corners, gameType);
       if (!current()) return;
+
+      update({ status: 'PROCESSING' });
       await aiTrackingService.startSessionAnalysis(id);
       if (!current()) return;
-      pollSession(id, runId, file, gameType, trackedPlayerCount);
-    } catch (err) { fail(err); }
+
+      pollSession(id, runId);
+    } catch (err) {
+      fail(err);
+    }
   };
 
-  const choose = (next: File | undefined) => {
-    if (!next) return;
-    cancel(); setFile(next); setLocalFileName(next.name); setVideoSourceType('local');
-    setCorners([]); setFrames([]); setAnalysis(null); setChunks([]); setError(null); setCalibrating(false);
-    cursorRef.current = 0;
-    accumulatedFrames.current = [];
-    setSessionStatus(null);
-  };
-  const canRun = matchInfo.sportType === 'badminton' && online === true && !!file && corners.length === 4 && !processing;
-  const button = 'rounded-lg border border-slate-600 px-3 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed';
-  return <div className="h-full overflow-y-auto bg-[#0c1721] text-slate-200 p-4 space-y-4">
-    <div><h2 className="font-bold text-lg">{th ? 'แล็บตรวจจับร่างกายและการเคลื่อนที่แบดมินตัน' : 'Badminton Tracking Lab'}</h2>
-      <p className="text-sm text-slate-400">{th ? 'ตรวจจับผู้เล่นและจุดร่างกายจากวิดีโอจริง • ค่าท่าทางเป็นการประมาณแบบ 2 มิติ' : 'Real video player and body detection • Pose measurements are 2D estimates'}</p></div>
-    <div role="status" className={online ? 'text-emerald-400' : 'text-amber-300'}>{online === null ? (th ? 'กำลังตรวจสอบบริการ AI…' : 'Checking local AI service…') : online ? (th ? 'บริการ AI พร้อมใช้งาน' : 'Local AI service online') : (th ? 'บริการ AI ยังไม่ทำงาน' : 'Local AI service offline')}</div>
-    {inferenceDevice && <p className="text-xs text-slate-400">Inference device: {inferenceDevice}</p>}
-    <div className="flex items-center gap-2 text-sm">
-      <span>{th ? 'โหมดประมวลผล' : 'Processing mode'}</span>
-      <select aria-label="Processing mode" disabled={processing} value={devicePreference} onChange={e => setDevicePreference(e.target.value as 'auto' | 'cpu' | 'cuda' | 'mps')} className="bg-slate-800 p-2 rounded">
-        <option value="auto">{th ? 'อัตโนมัติ' : 'Auto'}</option>
-        <option value="cpu">CPU</option>
-        <option value="cuda" disabled={!capabilities?.cudaAvailable}>GPU (CUDA){capabilities?.cudaAvailable ? '' : ' — unavailable'}</option>
-        <option value="mps" disabled={!capabilities?.mpsAvailable}>GPU (MPS){capabilities?.mpsAvailable ? '' : ' — unavailable'}</option>
-      </select>
-      <button
-        type="button"
-        className={button}
-        disabled={processing || !capabilities?.cudaAvailable}
-        title={capabilities?.cudaAvailable ? 'Use NVIDIA CUDA for this analysis' : 'CUDA is unavailable in the current Python environment'}
-        onClick={() => setDevicePreference('cuda')}
-      >{th ? 'ใช้ GPU' : 'Use GPU'}</button>
-    </div>
+  const canRun =
+    matchInfo.sportType === 'badminton' &&
+    online === true &&
+    !!file &&
+    corners.length === 4 &&
+    !processing;
+  const button =
+    'rounded-lg border border-slate-600 px-3 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed';
 
-    {/* Performance Profiles and Advanced Benchmark Controls */}
-    <div className="flex flex-wrap items-center gap-3 text-sm">
-      <label className="flex items-center gap-2">
-        <span>{th ? 'โปรไฟล์การประมวลผล' : 'Performance profile'}</span>
+  return (
+    <div className="h-full overflow-y-auto bg-[#0c1721] text-slate-200 p-4 space-y-4">
+      <div>
+        <h2 className="font-bold text-lg">
+          {th ? 'แล็บตรวจจับร่างกายและการเคลื่อนที่แบดมินตัน' : 'Badminton Tracking Lab'}
+        </h2>
+        <p className="text-sm text-slate-400">
+          {th
+            ? 'ตรวจจับผู้เล่นและจุดร่างกายจากวิดีโอจริง • ค่าท่าทางเป็นการประมาณแบบ 2 มิติ'
+            : 'Real video player and body detection • Pose measurements are 2D estimates'}
+        </p>
+      </div>
+
+      <div
+        role="status"
+        className={online ? 'text-emerald-400' : 'text-amber-300'}
+      >
+        {online === null
+          ? th
+            ? 'กำลังตรวจสอบบริการ AI…'
+            : 'Checking local AI service…'
+          : online
+          ? th
+            ? 'บริการ AI พร้อมใช้งาน'
+            : 'Local AI service online'
+          : th
+          ? 'บริการ AI ยังไม่ทำงาน'
+          : 'Local AI service offline'}
+      </div>
+
+      {inferenceDevice && (
+        <p className="text-xs text-slate-400">Inference device: {inferenceDevice}</p>
+      )}
+
+      {/* Processing Mode */}
+      <div className="flex items-center gap-2 text-sm">
+        <span>{th ? 'โหมดประมวลผล' : 'Processing mode'}</span>
         <select
-          aria-label={th ? 'โปรไฟล์การประมวลผล' : 'Performance profile'}
+          aria-label="Processing mode"
           disabled={processing}
-          value={profile}
-          onChange={e => selectProfile(e.target.value as ProcessingProfile)}
+          value={devicePreference}
+          onChange={(e) => setDevicePreference(e.target.value as 'auto' | 'cpu' | 'cuda' | 'mps')}
           className="bg-slate-800 p-2 rounded"
         >
-          <option value="auto">{th ? 'อัตโนมัติ (Auto)' : 'Auto'}</option>
-          <option value="reference">{th ? 'มาตรฐาน (Reference baseline)' : 'Reference baseline'}</option>
-          <option value="fast">{th ? 'เน้นความเร็ว (Fast)' : 'Fast'}</option>
-          <option value="balanced">{th ? 'สมดุล (Balanced)' : 'Balanced'}</option>
-          <option value="quality">{th ? 'เน้นความแม่นยำ (Quality)' : 'Quality'}</option>
-          {profile === 'custom' && <option value="custom">{th ? 'กำหนดเอง (Custom)' : 'Custom'}</option>}
+          <option value="auto">{th ? 'อัตโนมัติ' : 'Auto'}</option>
+          <option value="cpu">CPU</option>
+          <option value="cuda" disabled={!capabilities?.cudaAvailable}>
+            GPU (CUDA){capabilities?.cudaAvailable ? '' : ' — unavailable'}
+          </option>
+          <option value="mps" disabled={!capabilities?.mpsAvailable}>
+            GPU (MPS){capabilities?.mpsAvailable ? '' : ' — unavailable'}
+          </option>
         </select>
-      </label>
-      <button
-        type="button"
-        className="text-xs text-sky-400 hover:text-sky-300 underline"
-        onClick={() => setShowAdvancedSettings(prev => !prev)}
-      >
-        {showAdvancedSettings
-          ? th ? 'ซ่อนการตั้งค่าขั้นสูง ▲' : 'Hide advanced settings ▲'
-          : th ? 'ตั้งค่าขั้นสูง (Advanced) ▼' : 'Advanced settings ▼'}
-      </button>
-    </div>
+        <button
+          type="button"
+          className={button}
+          disabled={processing || !capabilities?.cudaAvailable}
+          title={
+            capabilities?.cudaAvailable
+              ? 'Use NVIDIA CUDA for this analysis'
+              : 'CUDA is unavailable in the current Python environment'
+          }
+          onClick={() => setDevicePreference('cuda')}
+        >
+          {th ? 'ใช้ GPU' : 'Use GPU'}
+        </button>
+      </div>
 
-    {showAdvancedSettings && (
-      <div data-testid="advanced-settings-drawer" className="bg-slate-900/60 border border-slate-800 rounded p-3 text-xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <label className="space-y-1 block">
-            <span className="text-slate-400 block">{th ? 'ความละเอียดตัวตรวจจับ' : 'Detector Input Size'}</span>
-            <select
-              aria-label="Detector Input Size"
-              disabled={processing}
-              value={detectorInputSize}
-              onChange={e => {
-                setDetectorInputSize(Number(e.target.value));
-                setProfile('custom');
-              }}
-              className="bg-slate-800 p-1.5 rounded w-full text-slate-200"
-            >
-              <option value={416}>416 px</option>
-              <option value={512}>512 px</option>
-              <option value={640}>640 px</option>
-            </select>
-          </label>
-          <label className="space-y-1 block">
-            <span className="text-slate-400 block">{th ? 'สุ่มเฟรมตรวจจับ (Frame Stride)' : 'Frame Stride'}</span>
-            <select
-              aria-label="Frame Stride"
-              disabled={processing}
-              value={frameStride}
-              onChange={e => {
-                setFrameStride(Number(e.target.value));
-                setProfile('custom');
-              }}
-              className="bg-slate-800 p-1.5 rounded w-full text-slate-200"
-            >
-              <option value={1}>1 ({th ? 'ทุกเฟรม' : 'Every frame'})</option>
-              <option value={2}>2 ({th ? 'ทุก 2 เฟรม' : 'Every 2nd frame'})</option>
-              <option value={3}>3 ({th ? 'ทุก 3 เฟรม' : 'Every 3rd frame'})</option>
-              <option value={4}>4 ({th ? 'ทุก 4 เฟรม' : 'Every 4th frame'})</option>
-            </select>
-          </label>
-          <label className="space-y-1 block">
-            <span className="text-slate-400 block">{th ? 'สุ่มเฟรมท่าทาง (Pose Stride)' : 'Pose Stride'}</span>
-            <select
-              aria-label="Pose Stride"
-              disabled={processing}
-              value={poseStride}
-              onChange={e => {
-                setPoseStride(Number(e.target.value));
-                setProfile('custom');
-              }}
-              className="bg-slate-800 p-1.5 rounded w-full text-slate-200"
-            >
-              <option value={1}>1 ({th ? 'ทุกเฟรมที่วิเคราะห์' : 'Every analyzed frame'})</option>
-              <option value={2}>2 ({th ? 'ทุก 2 เฟรม' : 'Every 2nd analyzed frame'})</option>
-              <option value={3}>3 ({th ? 'ทุก 3 เฟรม' : 'Every 3rd analyzed frame'})</option>
-            </select>
-          </label>
-        </div>
-        <div className="flex items-center gap-4 pt-1">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              aria-label="Court ROI Cropping"
-              disabled={processing}
-              checked={useCourtRoi}
-              onChange={e => {
-                setUseCourtRoi(e.target.checked);
-                setProfile('custom');
-              }}
-              className="rounded bg-slate-800 border-slate-700 text-sky-500"
-            />
-            <span>{th ? 'ตัดเฉพาะบริเวณสนาม (Court ROI Cropping)' : 'Crop Court ROI to accelerate inference'}</span>
-          </label>
-          {useCourtRoi && (
-            <label className="flex items-center gap-2">
-              <span className="text-slate-400">{th ? 'ระยะเผื่อขอบ:' : 'Margin:'}</span>
-              <input
-                type="number"
-                aria-label="Court ROI Margin"
+      {/* Performance Profiles */}
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <label className="flex items-center gap-2">
+          <span>{th ? 'โปรไฟล์การประมวลผล' : 'Performance profile'}</span>
+          <select
+            aria-label={th ? 'โปรไฟล์การประมวลผล' : 'Performance profile'}
+            disabled={processing}
+            value={profile}
+            onChange={(e) => selectProfile(e.target.value as ProcessingProfile)}
+            className="bg-slate-800 p-2 rounded"
+          >
+            <option value="auto">{th ? 'อัตโนมัติ (Auto)' : 'Auto'}</option>
+            <option value="reference">{th ? 'มาตรฐาน (Reference baseline)' : 'Reference baseline'}</option>
+            <option value="fast">{th ? 'เน้นความเร็ว (Fast)' : 'Fast'}</option>
+            <option value="balanced">{th ? 'สมดุล (Balanced)' : 'Balanced'}</option>
+            <option value="quality">{th ? 'เน้นความแม่นยำ (Quality)' : 'Quality'}</option>
+            {profile === 'custom' && <option value="custom">{th ? 'กำหนดเอง (Custom)' : 'Custom'}</option>}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="text-xs text-sky-400 hover:text-sky-300 underline"
+          onClick={() => setShowAdvancedSettings((prev) => !prev)}
+        >
+          {showAdvancedSettings
+            ? th
+              ? 'ซ่อนการตั้งค่าขั้นสูง ▲'
+              : 'Hide advanced settings ▲'
+            : th
+            ? 'ตั้งค่าขั้นสูง (Advanced) ▼'
+            : 'Advanced settings ▼'}
+        </button>
+      </div>
+
+      {showAdvancedSettings && (
+        <div
+          data-testid="advanced-settings-drawer"
+          className="bg-slate-900/60 border border-slate-800 rounded p-3 text-xs space-y-3"
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label className="space-y-1 block">
+              <span className="text-slate-400 block">{th ? 'ความละเอียดตัวตรวจจับ' : 'Detector Input Size'}</span>
+              <select
+                aria-label="Detector Input Size"
                 disabled={processing}
-                value={courtRoiMarginPx}
-                onChange={e => {
-                  setCourtRoiMarginPx(Math.max(10, Number(e.target.value)));
+                value={detectorInputSize}
+                onChange={(e) => {
+                  setDetectorInputSize(Number(e.target.value));
                   setProfile('custom');
                 }}
-                className="bg-slate-800 p-1 rounded w-16 text-center text-slate-200"
-                min={10}
-                max={200}
-              />
-              <span className="text-slate-400">px</span>
+                className="bg-slate-800 p-1.5 rounded w-full text-slate-200"
+              >
+                <option value={416}>416 px</option>
+                <option value={512}>512 px</option>
+                <option value={640}>640 px</option>
+              </select>
             </label>
-          )}
+            <label className="space-y-1 block">
+              <span className="text-slate-400 block">{th ? 'สุ่มเฟรมตรวจจับ (Frame Stride)' : 'Frame Stride'}</span>
+              <select
+                aria-label="Frame Stride"
+                disabled={processing}
+                value={frameStride}
+                onChange={(e) => {
+                  setFrameStride(Number(e.target.value));
+                  setProfile('custom');
+                }}
+                className="bg-slate-800 p-1.5 rounded w-full text-slate-200"
+              >
+                <option value={1}>1 ({th ? 'ทุกเฟรม' : 'Every frame'})</option>
+                <option value={2}>2 ({th ? 'ทุก 2 เฟรม' : 'Every 2nd frame'})</option>
+                <option value={3}>3 ({th ? 'ทุก 3 เฟรม' : 'Every 3rd frame'})</option>
+                <option value={4}>4 ({th ? 'ทุก 4 เฟรม' : 'Every 4th frame'})</option>
+              </select>
+            </label>
+            <label className="space-y-1 block">
+              <span className="text-slate-400 block">{th ? 'สุ่มเฟรมท่าทาง (Pose Stride)' : 'Pose Stride'}</span>
+              <select
+                aria-label="Pose Stride"
+                disabled={processing}
+                value={poseStride}
+                onChange={(e) => {
+                  setPoseStride(Number(e.target.value));
+                  setProfile('custom');
+                }}
+                className="bg-slate-800 p-1.5 rounded w-full text-slate-200"
+              >
+                <option value={1}>1 ({th ? 'ทุกเฟรมที่วิเคราะห์' : 'Every analyzed frame'})</option>
+                <option value={2}>2 ({th ? 'ทุก 2 เฟรม' : 'Every 2nd analyzed frame'})</option>
+                <option value={3}>3 ({th ? 'ทุก 3 เฟรม' : 'Every 3rd analyzed frame'})</option>
+              </select>
+            </label>
+          </div>
+          <div className="flex items-center gap-4 pt-1">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                aria-label="Court ROI Cropping"
+                disabled={processing}
+                checked={useCourtRoi}
+                onChange={(e) => {
+                  setUseCourtRoi(e.target.checked);
+                  setProfile('custom');
+                }}
+                className="rounded bg-slate-800 border-slate-700 text-sky-500"
+              />
+              <span>{th ? 'ตัดเฉพาะบริเวณสนาม (Court ROI Cropping)' : 'Crop Court ROI to accelerate inference'}</span>
+            </label>
+            {useCourtRoi && (
+              <label className="flex items-center gap-2">
+                <span className="text-slate-400">{th ? 'ระยะเผื่อขอบ:' : 'Margin:'}</span>
+                <input
+                  type="number"
+                  aria-label="Court ROI Margin"
+                  disabled={processing}
+                  value={courtRoiMarginPx}
+                  onChange={(e) => {
+                    setCourtRoiMarginPx(Math.max(10, Number(e.target.value)));
+                    setProfile('custom');
+                  }}
+                  className="bg-slate-800 p-1 rounded w-16 text-center text-slate-200"
+                  min={10}
+                  max={200}
+                />
+                <span className="text-slate-400">px</span>
+              </label>
+            )}
+          </div>
         </div>
-      </div>
-    )}
-    {online === false && <p className="text-sm">{th ? 'เปิดบริการ AI ในเครื่องก่อนเริ่มวิเคราะห์' : 'Start the local AI service before running analysis.'}</p>}
-    {matchInfo.sportType !== 'badminton' && <p className="text-amber-300">{th ? 'เลือกโปรเจกต์กีฬาแบดมินตันก่อนเริ่มวิเคราะห์' : 'Select a Badminton project to enable analysis.'}</p>}
-    <div className="space-y-2">
-      <span className="block text-sm">{th ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select video file'}</span>
-      <input ref={fileInputRef} aria-label="Select video file" type="file" accept="video/*" disabled={processing} onChange={e => choose(e.target.files?.[0])} className="sr-only" />
-      <button type="button" className={`${button} bg-sky-700 hover:bg-sky-600`} disabled={processing} onClick={() => fileInputRef.current?.click()}>
-        {file ? (th ? 'เปลี่ยนไฟล์วิดีโอ' : 'Change video file') : (th ? 'เลือกไฟล์วิดีโอ' : 'Choose video file')}
-      </button>
-    </div>
-    {!file && localFileName && <p className="text-sm text-slate-400">{th ? `เลือกไฟล์ ${localFileName} อีกครั้งเพื่อให้ระบบอ่านวิดีโอได้` : `Reselect ${localFileName} to give the analyzer access to the video.`}</p>}
-    <div className="flex flex-wrap items-center gap-4 text-sm">
-      <label className="flex items-center gap-2">
-        <span>{th ? 'ประเภทการแข่งขัน' : 'Game type'}</span>
-        <select
-          aria-label={th ? 'ประเภทการแข่งขัน' : 'Game type'}
+      )}
+
+      {online === false && (
+        <p className="text-sm">
+          {th ? 'เปิดบริการ AI ในเครื่องก่อนเริ่มวิเคราะห์' : 'Start the local AI service before running analysis.'}
+        </p>
+      )}
+
+      {matchInfo.sportType !== 'badminton' && (
+        <p className="text-amber-300">
+          {th ? 'เลือกโปรเจกต์กีฬาแบดมินตันก่อนเริ่มวิเคราะห์' : 'Select a Badminton project to enable analysis.'}
+        </p>
+      )}
+
+      {/* Video Selection & Reconnection */}
+      <div className="space-y-2">
+        <span className="block text-sm">{th ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select video file'}</span>
+        <input
+          ref={fileInputRef}
+          aria-label="Select video file"
+          type="file"
+          accept="video/*"
           disabled={processing}
-          value={gameType}
-          onChange={e => {
-            const nextType = e.target.value as BadmintonGameType;
-            setGameType(nextType);
-            setTrackedPlayerCount(nextType === 'singles' ? 2 : 4);
-          }}
-          className="bg-slate-800 p-2 rounded"
-        >
-          <option value="singles">{th ? 'เดี่ยว' : 'Singles'}</option>
-          <option value="doubles">{th ? 'คู่' : 'Doubles'}</option>
-        </select>
-      </label>
-      <label className="flex items-center gap-2">
-        <span>{th ? 'จำนวนผู้เล่นที่ตรวจจับ' : 'Players to track'}</span>
-        <select
-          aria-label={th ? 'จำนวนผู้เล่นที่ตรวจจับ' : 'Players to track'}
+          onChange={(e) => choose(e.target.files?.[0])}
+          className="sr-only"
+        />
+        <button
+          type="button"
+          className={`${button} bg-sky-700 hover:bg-sky-600`}
           disabled={processing}
-          value={trackedPlayerCount}
-          onChange={e => setTrackedPlayerCount(Number(e.target.value))}
-          className="bg-slate-800 p-2 rounded"
+          onClick={() => fileInputRef.current?.click()}
         >
-          <option value={1}>1 {th ? 'คน (เดี่ยวฝึกซ้อม)' : 'player (solo drill)'}</option>
-          <option value={2}>2 {th ? 'คน (เดี่ยวแข่งขัน)' : 'players (singles)'}</option>
-          <option value={3}>3 {th ? 'คน (2 ต่อ 1 / ป้อนลูก)' : 'players (2v1 / feeder)'}</option>
-          <option value={4}>4 {th ? 'คน (คู่แข่งขัน)' : 'players (doubles)'}</option>
-        </select>
-      </label>
-    </div>
-    {url && <>
-      <div className="relative w-full max-w-4xl bg-black" style={{ aspectRatio: dimensions.width ? `${dimensions.width}/${dimensions.height}` : '16/9' }}>
-        <video ref={videoRef} src={url} controls={!calibrating} className="w-full h-full" onLoadedMetadata={e => setDimensions({ width: e.currentTarget.videoWidth, height: e.currentTarget.videoHeight })} onTimeUpdate={e => setTime(e.currentTarget.currentTime)} onSeeked={e => setTime(e.currentTarget.currentTime)} />
-        <TrackingVideoOverlay frames={frames} time={time} mode={overlayMode} isProcessing={processing} />
-        {(calibrating || corners.length > 0) && <svg aria-label="Court calibration" viewBox={`0 0 ${dimensions.width || 1} ${dimensions.height || 1}`} className={`absolute inset-0 w-full h-full ${calibrating ? 'cursor-crosshair' : 'pointer-events-none'}`} onClick={e => {
-          if (!calibrating || corners.length >= 4) return;
-          const rect = e.currentTarget.getBoundingClientRect();
-          if (!rect.width || !rect.height) return;
-          const next = [...corners, [Math.round((e.clientX - rect.left) / rect.width * dimensions.width), Math.round((e.clientY - rect.top) / rect.height * dimensions.height)]];
-          setCorners(next); if (next.length === 4) setCalibrating(false);
-        }}>
-          {corners.length > 1 && <polyline points={[...corners, ...(corners.length === 4 ? [corners[0]] : [])].map(p => p.join(',')).join(' ')} fill="none" stroke="#38bdf8" strokeWidth={dimensions.width / 400} />}
-          {corners.map(([x,y], i) => <g key={i}><circle cx={x} cy={y} r={dimensions.width / 160} fill="#38bdf8" /><text x={x + dimensions.width / 100} y={y} fontSize={dimensions.width / 50} fill="white">{['TL','TR','BR','BL'][i]}</text></g>)}
-        </svg>}
+          {file
+            ? th
+              ? 'เปลี่ยนไฟล์วิดีโอ'
+              : 'Change video file'
+            : th
+            ? 'เลือกไฟล์วิดีโอ'
+            : 'Choose video file'}
+        </button>
       </div>
-      <button className={button} disabled={processing || !dimensions.width} onClick={() => { videoRef.current?.pause(); setCorners([]); setCalibrating(true); }}>{th ? 'เลือก 4 มุมสนามจากภาพวิดีโอ' : 'Calibrate four court corners'}</button>
-      <p className="text-sm text-slate-400">{th ? 'เลือกมุมนอกสนามคู่: บนซ้าย → บนขวา → ล่างขวา → ล่างซ้าย' : 'Choose outer doubles court corners: top left → top right → bottom right → bottom left'} ({corners.length}/4)</p>
-      <div className="flex flex-wrap items-center gap-2 text-sm pt-1">
-        <span className="text-slate-400">{th ? 'โหมดแสดงผลบนวิดีโอ:' : 'Overlay mode:'}</span>
-        <div className="inline-flex rounded-lg border border-slate-700 bg-slate-900 p-0.5 text-xs">
-          {([
-            { id: 'skeleton', en: 'Skeleton', th: 'โครงกระดูก' },
-            { id: 'center', en: 'Body Center', th: 'จุดกลางร่างกาย' },
-            { id: 'feet', en: 'Feet', th: 'ตำแหน่งเท้า' },
-            { id: 'box', en: 'Bounding Box', th: 'กรอบผู้เล่น' },
-            { id: 'off', en: 'Off', th: 'ปิด' },
-          ] as const).map(m => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setOverlayMode(m.id)}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                overlayMode === m.id
-                  ? 'bg-sky-600 text-white font-medium shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {th ? m.th : m.en}
-            </button>
-          ))}
+
+      {/* Source Video Reconnect Banner when file is unattached but session/analysis exists */}
+      {!file && (state.sessionId || state.analysis || state.localFileName) && (
+        <div
+          data-testid="reconnect-source-video-banner"
+          className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-lg text-amber-200 text-xs flex flex-wrap items-center justify-between gap-2"
+        >
+          <div>
+            <div className="font-semibold">
+              {th ? 'โปรดเชื่อมต่อไฟล์วิดีโอต้นฉบับอีกครั้ง' : 'Reconnect source video'}
+            </div>
+            <div className="text-[11px] text-amber-300/80">
+              {th
+                ? `เลือกไฟล์ ${state.localFileName || 'วิดีโอ'} เพื่อดูคลิปและโอเวอร์เลย์ (ข้อมูลผลการวิเคราะห์ยังคงอยู่)`
+                : `Select ${state.localFileName || 'the video file'} to view playback & overlays. Analysis data is preserved.`}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded font-medium text-xs whitespace-nowrap"
+          >
+            {th ? 'เชื่อมต่อไฟล์วิดีโอ' : 'Reconnect source video'}
+          </button>
         </div>
+      )}
+
+      {!file && state.localFileName && !state.sessionId && !state.analysis && (
+        <p className="text-sm text-slate-400">
+          {th
+            ? `เลือกไฟล์ ${state.localFileName} อีกครั้งเพื่อให้ระบบอ่านวิดีโอได้`
+            : `Reselect ${state.localFileName} to give the analyzer access to the video.`}
+        </p>
+      )}
+
+      {/* Match Configuration Controls */}
+      <div className="flex flex-wrap items-center gap-4 text-sm">
+        <label className="flex items-center gap-2">
+          <span>{th ? 'ประเภทการแข่งขัน' : 'Game type'}</span>
+          <select
+            aria-label={th ? 'ประเภทการแข่งขัน' : 'Game type'}
+            disabled={processing}
+            value={gameType}
+            onChange={(e) => {
+              const nextType = e.target.value as BadmintonGameType;
+              update({
+                gameType: nextType,
+                trackedPlayerCount: nextType === 'singles' ? 2 : 4,
+              });
+            }}
+            className="bg-slate-800 p-2 rounded"
+          >
+            <option value="singles">{th ? 'เดี่ยว' : 'Singles'}</option>
+            <option value="doubles">{th ? 'คู่' : 'Doubles'}</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2">
+          <span>{th ? 'จำนวนผู้เล่นที่ตรวจจับ' : 'Players to track'}</span>
+          <select
+            aria-label={th ? 'จำนวนผู้เล่นที่ตรวจจับ' : 'Players to track'}
+            disabled={processing}
+            value={trackedPlayerCount}
+            onChange={(e) => update({ trackedPlayerCount: Number(e.target.value) })}
+            className="bg-slate-800 p-2 rounded"
+          >
+            <option value={1}>1 {th ? 'คน (เดี่ยวฝึกซ้อม)' : 'player (solo drill)'}</option>
+            <option value={2}>2 {th ? 'คน (เดี่ยวแข่งขัน)' : 'players (singles)'}</option>
+            <option value={3}>3 {th ? 'คน (2 ต่อ 1 / ป้อนลูก)' : 'players (2v1 / feeder)'}</option>
+            <option value={4}>4 {th ? 'คน (คู่แข่งขัน)' : 'players (doubles)'}</option>
+          </select>
+        </label>
       </div>
-    </>}
-    {error && <p role="alert" className="text-red-300">{error}</p>}
-    {processing ? <div className="space-x-3"><span>{th ? 'กำลังวิเคราะห์' : 'Analyzing'} {progress}%</span><button className={button} onClick={cancel}>{th ? 'ยกเลิก' : 'Cancel analysis'}</button></div> : <button className={`${button} bg-sky-700`} disabled={!canRun} onClick={() => void run()}>{th ? 'เริ่มตรวจจับร่างกายและการเคลื่อนที่' : 'Run Movement Analysis'}</button>}
-    {!processing && (analysis?.status === 'completed' || sessionStatus?.status === 'COMPLETED') && (
-      <p className="text-sm text-emerald-300 font-medium">
-        {th ? 'วิเคราะห์เสร็จสมบูรณ์แล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกายและการเคลื่อนที่' : 'Analysis complete. Play the video to inspect detected body positions and movement.'}
-      </p>
-    )}
-    <TrackingLabInspector status={sessionStatus} isProcessing={processing} language={th ? 'th' : 'en'} />
-    {analysis && <BadmintonMovementDashboard analysis={analysis} chunks={chunks} title={th ? 'ผลการเคลื่อนที่ของผู้เล่น' : 'Player movement results'} />}
-  </div>;
+
+      {/* Video & Overlays */}
+      {url && (
+        <>
+          <div
+            className="relative w-full max-w-4xl bg-black"
+            style={{
+              aspectRatio: dimensions.width ? `${dimensions.width}/${dimensions.height}` : '16/9',
+            }}
+          >
+            <video
+              ref={videoRef}
+              src={url}
+              controls={!calibrating}
+              className="w-full h-full"
+              onLoadedMetadata={(e) =>
+                setDimensions({
+                  width: e.currentTarget.videoWidth,
+                  height: e.currentTarget.videoHeight,
+                })
+              }
+              onTimeUpdate={(e) => {
+                const cur = e.currentTarget.currentTime;
+                setTime(cur);
+                setUIPreference('videoCurrentTime', cur);
+              }}
+              onSeeked={(e) => {
+                const cur = e.currentTarget.currentTime;
+                setTime(cur);
+                setUIPreference('videoCurrentTime', cur);
+              }}
+            />
+            <TrackingVideoOverlay
+              frames={frames}
+              time={time}
+              mode={overlayMode}
+              isProcessing={processing}
+            />
+            {(calibrating || corners.length > 0) && (
+              <svg
+                aria-label="Court calibration"
+                viewBox={`0 0 ${dimensions.width || 1} ${dimensions.height || 1}`}
+                className={`absolute inset-0 w-full h-full ${
+                  calibrating ? 'cursor-crosshair' : 'pointer-events-none'
+                }`}
+                onClick={(e) => {
+                  if (!calibrating || corners.length >= 4) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  if (!rect.width || !rect.height) return;
+                  const next = [
+                    ...corners,
+                    [
+                      Math.round(((e.clientX - rect.left) / rect.width) * dimensions.width),
+                      Math.round(((e.clientY - rect.top) / rect.height) * dimensions.height),
+                    ],
+                  ];
+                  update({ corners: next });
+                  if (next.length === 4) setCalibrating(false);
+                }}
+              >
+                {corners.length > 1 && (
+                  <polyline
+                    points={[...corners, ...(corners.length === 4 ? [corners[0]] : [])]
+                      .map((p) => p.join(','))
+                      .join(' ')}
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth={dimensions.width / 400}
+                  />
+                )}
+                {corners.map(([x, y], i) => (
+                  <g key={i}>
+                    <circle cx={x} cy={y} r={dimensions.width / 160} fill="#38bdf8" />
+                    <text
+                      x={x + dimensions.width / 100}
+                      y={y}
+                      fontSize={dimensions.width / 50}
+                      fill="white"
+                    >
+                      {['TL', 'TR', 'BR', 'BL'][i]}
+                    </text>
+                  </g>
+                ))}
+              </svg>
+            )}
+          </div>
+          <button
+            className={button}
+            disabled={processing || !dimensions.width}
+            onClick={() => {
+              videoRef.current?.pause();
+              update({ corners: [] });
+              setCalibrating(true);
+            }}
+          >
+            {th ? 'เลือก 4 มุมสนามจากภาพวิดีโอ' : 'Calibrate four court corners'}
+          </button>
+          <p className="text-sm text-slate-400">
+            {th
+              ? 'เลือกมุมนอกสนามคู่: บนซ้าย → บนขวา → ล่างขวา → ล่างซ้าย'
+              : 'Choose outer doubles court corners: top left → top right → bottom right → bottom left'}{' '}
+            ({corners.length}/4)
+          </p>
+          <div className="flex flex-wrap items-center gap-2 text-sm pt-1">
+            <span className="text-slate-400">{th ? 'โหมดแสดงผลบนวิดีโอ:' : 'Overlay mode:'}</span>
+            <div className="inline-flex rounded-lg border border-slate-700 bg-slate-900 p-0.5 text-xs">
+              {(
+                [
+                  { id: 'skeleton', en: 'Skeleton', th: 'โครงกระดูก' },
+                  { id: 'center', en: 'Body Center', th: 'จุดกลางร่างกาย' },
+                  { id: 'feet', en: 'Feet', th: 'ตำแหน่งเท้า' },
+                  { id: 'box', en: 'Bounding Box', th: 'กรอบผู้เล่น' },
+                  { id: 'off', en: 'Off', th: 'ปิด' },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setUIPreference('overlayMode', m.id)}
+                  className={`px-2.5 py-1 rounded transition-colors ${
+                    overlayMode === m.id
+                      ? 'bg-sky-600 text-white font-medium shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {th ? m.th : m.en}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {error && (
+        <p role="alert" className="text-red-300">
+          {error}
+        </p>
+      )}
+
+      {processing ? (
+        <div className="space-x-3">
+          <span>
+            {th ? 'กำลังวิเคราะห์' : 'Analyzing'} {progress}%
+          </span>
+          <button className={button} onClick={cancel}>
+            {th ? 'ยกเลิก' : 'Cancel analysis'}
+          </button>
+        </div>
+      ) : (
+        <button className={`${button} bg-sky-700`} disabled={!canRun} onClick={() => void run()}>
+          {th ? 'เริ่มตรวจจับร่างกายและการเคลื่อนที่' : 'Run Movement Analysis'}
+        </button>
+      )}
+
+      {!processing && (analysis?.status === 'completed' || sessionStatus?.status === 'COMPLETED') && (
+        <p className="text-sm text-emerald-300 font-medium">
+          {th
+            ? 'วิเคราะห์เสร็จสมบูรณ์แล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกายและการเคลื่อนที่'
+            : 'Analysis complete. Play the video to inspect detected body positions and movement.'}
+        </p>
+      )}
+
+      <TrackingLabInspector
+        status={sessionStatus}
+        isProcessing={processing}
+        language={th ? 'th' : 'en'}
+      />
+
+      {analysis && (
+        <BadmintonMovementDashboard
+          analysis={analysis}
+          chunks={chunks}
+          title={th ? 'ผลการเคลื่อนที่ของผู้เล่น' : 'Player movement results'}
+        />
+      )}
+    </div>
+  );
 }
