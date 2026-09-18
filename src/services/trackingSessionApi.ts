@@ -179,11 +179,13 @@ export class TrackingSessionApiClient {
     file: File,
     signal?: AbortSignal
   ): Promise<{ width: number; height: number }> {
-    const formData = new FormData();
-    formData.append('file', file);
-    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/video`), {
+    const encodedFilename = encodeURIComponent(file.name);
+    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/video?filename=${encodedFilename}`), {
       method: 'POST',
-      body: formData,
+      body: file,
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
       signal,
     });
     if (!res.ok) {
