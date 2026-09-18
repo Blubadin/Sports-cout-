@@ -5,6 +5,7 @@ and §105 (Tracking Lost / Predicted State Transitions & Teleport Prevention).
 """
 
 import unittest
+from unittest.mock import MagicMock
 import numpy as np
 import sys
 from pathlib import Path
@@ -145,6 +146,13 @@ class TestTrackingLostAndTeleportPrevention(unittest.TestCase):
 
     def setUp(self):
         self.analyzer = BadmintonAnalyzerV2(game_type="doubles", fps=30.0)
+        mock_det = MagicMock()
+        mock_det.track.return_value = []
+        self.analyzer._detector = mock_det
+        mock_pose = MagicMock()
+        mock_pose.estimate_pose_in_roi.return_value = {"keypoints": [], "metrics": {}}
+        self.analyzer._pose_detector = mock_pose
+
         corners = [
             [100.0, 50.0],
             [1180.0, 50.0],
