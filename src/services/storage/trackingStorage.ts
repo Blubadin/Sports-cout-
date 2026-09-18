@@ -3,6 +3,9 @@ import type {
   ProcessingConfig,
   TrackingPerformanceStats,
   TrackingQualityStats,
+  TrackingRuntimeProvenance,
+  SourceVideoMetadata,
+  CameraResearchMetadata,
 } from '../../types';
 
 export interface TrackingPlayerMetadata {
@@ -63,6 +66,11 @@ export interface TrackingAnalysis {
   createdAt: string;
   completedAt?: string;
   device?: string;
+  effectiveDevice?: string;
+  runtimeProvenance?: TrackingRuntimeProvenance;
+  videoMetadata?: SourceVideoMetadata;
+  researchMetadata?: CameraResearchMetadata;
+  localFileName?: string;
   analyzedFrames?: number;
   totalFrames?: number;
   processingConfig?: ProcessingConfig;

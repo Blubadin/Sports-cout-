@@ -20,6 +20,11 @@ import cv2
 from analyzer_v2 import BadmintonAnalyzerV2
 from court_mapper import CourtMapper
 from device_runtime import capability_report, resolve_device
+try:
+    from ai_service.video_metadata import extract_video_metadata
+except ImportError:
+    from video_metadata import extract_video_metadata
+
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
 
@@ -737,6 +742,9 @@ class TrackingSession:
         self.results: list[dict] = []
         self.error_message: str | None = None
         self.owned_video_path: Path | None = None
+        v_meta, r_meta = extract_video_metadata(video_source)
+        self.video_metadata: dict = v_meta
+        self.research_metadata: dict = r_meta
         self._uploading = False
         self._cancel = False
         self._thread: threading.Thread | None = None
@@ -931,8 +939,23 @@ async def upload_session_video(session_id: str, request: Request):
         session.video_source = str(temp_path)
         session.analyzer.fps = fps if fps > 0 else 30.0
         session.analyzer.dist_tracker.fps = session.analyzer.fps
+        orig_filename = (
+            request.query_params.get("filename")
+            or request.headers.get("X-Original-Filename")
+            or request.headers.get("X-Filename")
+        )
+        v_meta, r_meta = extract_video_metadata(str(temp_path), original_filename=orig_filename)
+        session.video_metadata = v_meta
+        session.research_metadata = r_meta
         temp_path = None
-        return {"sessionId": session_id, "width": frame.shape[1], "height": frame.shape[0], "fps": session.analyzer.fps}
+        return {
+            "sessionId": session_id,
+            "width": frame.shape[1],
+            "height": frame.shape[0],
+            "fps": session.analyzer.fps,
+            "videoMetadata": session.video_metadata,
+            "researchMetadata": session.research_metadata,
+        }
     finally:
         session._uploading = False
         if temp_path:
@@ -1069,6 +1092,8 @@ def get_session_status(session_id: str):
         "provenance": runtime_provenance,
         "performance": performance_stats,
         "quality": quality_stats,
+        "videoMetadata": getattr(session, "video_metadata", None),
+        "researchMetadata": getattr(session, "research_metadata", None),
         "players": session.analyzer.get_live_player_statuses(),
         "error": session.error_message,
     }
@@ -1104,6 +1129,8 @@ def get_session_results(session_id: str, after: int | None = None):
         "provenance": runtime_provenance,
         "performance": performance_stats,
         "quality": quality_stats,
+        "videoMetadata": getattr(session, "video_metadata", None),
+        "researchMetadata": getattr(session, "research_metadata", None),
         "telemetry": items,
     }
 

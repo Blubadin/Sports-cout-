@@ -570,8 +570,38 @@ export interface TrackingSessionStatus {
   provenance?: TrackingRuntimeProvenance;
   performance?: TrackingPerformanceStats;
   quality?: TrackingQualityStats;
+  videoMetadata?: SourceVideoMetadata;
+  researchMetadata?: CameraResearchMetadata;
   players: TrackingLivePlayerStatus[];
   error: string | null;
+}
+
+export type FrameRateType = 'CFR' | 'VFR' | 'Unknown';
+
+export interface SourceVideoMetadata {
+  filename?: string;
+  durationSec?: number | null;
+  width?: number | null;
+  height?: number | null;
+  aspectRatio?: string | null;
+  nominalFps?: number | null;
+  reportedFrameCount?: number | null;
+  frameCountProvenance?: string;
+  frameIntervalMs?: number | null;
+  codec?: string | null;
+  bitrateKbps?: number | null;
+  pixelFormat?: string | null;
+  frameRateType?: FrameRateType;
+}
+
+export interface CameraResearchMetadata {
+  cameraMake?: string | null;
+  cameraModel?: string | null;
+  exposureSec?: number | null;
+  iso?: number | null;
+  aperture?: number | null;
+  focalLengthMm?: number | null;
+  derivedShutterAngleDeg?: number | null;
 }
 
 export type ProcessingProfile = 'auto' | 'reference' | 'fast' | 'balanced' | 'quality' | 'custom';

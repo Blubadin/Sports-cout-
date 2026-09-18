@@ -978,6 +978,9 @@ export default function BadmintonTrackingLab() {
         status={sessionStatus}
         isProcessing={processing}
         language={th ? 'th' : 'en'}
+        projectId={activeProjectId}
+        videoFingerprint={state.videoFingerprint}
+        localFileName={state.localFileName || localFileName}
       />
 
       {analysis && (
