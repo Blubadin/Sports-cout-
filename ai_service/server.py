@@ -918,35 +918,58 @@ async def upload_session_video(session_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Session not found")
     if session._uploading or (session._thread and session._thread.is_alive()):
         raise HTTPException(status_code=409, detail="Session is busy")
+
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("multipart/form-data"):
+        raise HTTPException(status_code=400, detail="Multipart upload not supported. Send raw file bytes.")
+
+    orig_filename = (
+        request.query_params.get("filename")
+        or request.headers.get("X-Original-Filename")
+        or request.headers.get("X-Filename")
+    )
+    
+    safe_ext = ".video"
+    if orig_filename:
+        ext = Path(orig_filename).suffix.lower()
+        if ext in [".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"]:
+            safe_ext = ext
+
     session._uploading = True
     temp_path = None
     try:
-        with tempfile.NamedTemporaryFile(prefix="sportscout_", suffix=".video", delete=False) as target:
+        bytes_written = 0
+        with tempfile.NamedTemporaryFile(prefix="sportscout_", suffix=safe_ext, delete=False) as target:
             temp_path = Path(target.name)
             async for chunk in request.stream():
                 target.write(chunk)
+                bytes_written += len(chunk)
+
+        if bytes_written == 0:
+            raise HTTPException(status_code=400, detail="Empty upload")
+
         cap = cv2.VideoCapture(str(temp_path))
         try:
+            if not cap.isOpened():
+                raise HTTPException(status_code=422, detail="Container cannot be opened")
             readable, frame = cap.read()
+            if not readable or frame is None:
+                raise HTTPException(status_code=422, detail="Container opens but first frame cannot be decoded")
             fps = cap.get(cv2.CAP_PROP_FPS)
         finally:
             cap.release()
-        if not readable or frame is None:
-            raise HTTPException(status_code=422, detail="The uploaded file cannot be decoded as video")
+
         if session.owned_video_path:
             session.owned_video_path.unlink(missing_ok=True)
         session.owned_video_path = temp_path
         session.video_source = str(temp_path)
         session.analyzer.fps = fps if fps > 0 else 30.0
         session.analyzer.dist_tracker.fps = session.analyzer.fps
-        orig_filename = (
-            request.query_params.get("filename")
-            or request.headers.get("X-Original-Filename")
-            or request.headers.get("X-Filename")
-        )
+        
         v_meta, r_meta = extract_video_metadata(str(temp_path), original_filename=orig_filename)
         session.video_metadata = v_meta
         session.research_metadata = r_meta
+        session.status = "VIDEO_READY"
         temp_path = None
         return {
             "sessionId": session_id,
@@ -967,13 +990,20 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
+    
+    if session.video_source != "demo" and session.status not in ["VIDEO_READY", "READY_TO_ANALYZE", "PROCESSING", "COMPLETED"]:
+        raise HTTPException(status_code=409, detail="Must upload video before calibration")
+        
     session.game_type = req.game_type
     session.analyzer.game_type = req.game_type
     try:
         session.analyzer.set_court_corners(req.corners)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    session.status = "ASSIGNING_PLAYERS"
+    
+    if session.status not in ["PROCESSING", "COMPLETED"]:
+        session.status = "READY_TO_ANALYZE"
+        
     return {"status": "success", "sessionStatus": session.status}
 
 
@@ -982,6 +1012,10 @@ def assign_session_players(session_id: str, req: SessionPlayerRequest):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
+    
+    if session.status not in ["READY_TO_ANALYZE", "PROCESSING", "COMPLETED"]:
+        raise HTTPException(status_code=409, detail="Must calibrate before assigning players")
+        
     if session.video_source == "demo":
         frame = np.zeros((720, 1280, 3), dtype=np.uint8)
     else:
@@ -992,8 +1026,11 @@ def assign_session_players(session_id: str, req: SessionPlayerRequest):
             cap.release()
         if not readable or frame is None:
             raise HTTPException(status_code=422, detail="Upload a decodable video before assigning players")
+    
     session.analyzer.assign_initial_players(frame, req.players)
-    session.status = "READY_TO_ANALYZE"
+    if session.status not in ["PROCESSING", "COMPLETED"]:
+        session.status = "READY_TO_ANALYZE"
+        
     return {"status": "success", "sessionStatus": session.status, "assignedCount": len(req.players)}
 
 
@@ -1002,8 +1039,16 @@ def start_session_analysis(session_id: str):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
+    
     if session.status == "PROCESSING":
         return {"status": "already_processing", "sessionId": session_id}
+        
+    if session.status == "ERROR":
+        raise HTTPException(status_code=409, detail="Cannot start a session that is in ERROR state")
+        
+    if session.status != "READY_TO_ANALYZE":
+        raise HTTPException(status_code=409, detail="Must calibrate before starting analysis")
+    
     
     session._cancel = False
     session._thread = threading.Thread(target=_run_session_analysis, args=(session,), daemon=True)

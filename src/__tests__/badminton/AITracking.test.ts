@@ -138,9 +138,13 @@ describe('Phase 2 — Legacy HUD Tracking Removal & Boundary Isolation', () => {
       expect(result.width).toBe(1920);
       expect(result.height).toBe(1080);
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://127.0.0.1:8000/api/tracking/sessions/session-xyz/video',
+        `http://127.0.0.1:8000/api/tracking/sessions/session-xyz/video?filename=match.mp4`,
         expect.objectContaining({
           method: 'POST',
+          body: fakeFile,
+          headers: {
+            'Content-Type': 'video/mp4'
+          }
         })
       );
     });

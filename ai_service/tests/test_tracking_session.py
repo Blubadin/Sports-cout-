@@ -33,7 +33,7 @@ class TestTrackingSessionAPI(unittest.TestCase):
         corners = [[200.0, 100.0], [1080.0, 100.0], [1080.0, 650.0], [200.0, 650.0]]
         res_cal = self.client.post(f"/api/tracking/sessions/{session_id}/calibration", json={"corners": corners, "game_type": "singles"})
         self.assertEqual(res_cal.status_code, 200)
-        self.assertEqual(res_cal.json()["sessionStatus"], "ASSIGNING_PLAYERS")
+        self.assertEqual(res_cal.json()["sessionStatus"], "READY_TO_ANALYZE")
 
         # 3. Assign Players
         players = [
@@ -87,6 +87,7 @@ class TestTrackingSessionAPI(unittest.TestCase):
         """Session with non-existent video must report ERROR status and message, not fake AI."""
         res_create = self.client.post("/api/tracking/sessions", json={"video_source": "missing_video_9999.mp4", "game_type": "doubles"})
         session_id = res_create.json()["sessionId"]
+        tracking_sessions[session_id].status = "READY_TO_ANALYZE"
 
         res_start = self.client.post(f"/api/tracking/sessions/{session_id}/start")
         self.assertEqual(res_start.status_code, 200)
