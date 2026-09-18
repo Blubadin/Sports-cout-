@@ -234,23 +234,41 @@ export default function TrackingLabInspector({
           {/* Tab 2: Performance & Benchmark */}
           {activeTab === 'performance' && (
             <div className="space-y-3" data-testid="performance-tab-content">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                {th ? 'การวัดผลความเร็วและคุณภาพ (Speed & Quality)' : 'Throughput & Quality Telemetry'}
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  {th ? 'การวัดผลความเร็วและคุณภาพ (Speed & Quality)' : 'Throughput & Quality Telemetry'}
+                </h4>
+                {status.status === 'COMPLETED' ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">
+                    {th ? 'ผลลัพธ์สิ้นสุด (Final)' : 'Final benchmark'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800 font-mono">
+                    {th ? 'กำลังประมวลผล (Live)' : 'Live session'}
+                  </span>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                 <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'ตัวคูณเวลาจริง (RTF)' : 'Real-Time Factor (RTF)'}</span>
                   <span className="font-mono font-bold text-amber-400 text-sm">
-                    {status.performance?.rtf !== undefined ? `${status.performance.rtf.toFixed(2)}x` : '—'}
+                    {status.performance?.rtf !== null && status.performance?.rtf !== undefined ? `${status.performance.rtf.toFixed(2)}x` : '—'}
                   </span>
-                  <span className="text-[10px] text-slate-500 block">{th ? '< 1.0 = เร็วกว่าเวลาจริง' : '< 1.0 = faster than real-time'}</span>
+                  <span className="text-[10px] text-slate-500 block">
+                    {status.status === 'COMPLETED'
+                      ? th ? 'ประมวลผลวิดีโอเสร็จสมบูรณ์' : 'total processing / full video'
+                      : th ? 'คำนวณตามเวลาวิดีโอที่ตรวจแล้ว' : 'live processing / video reached'}
+                  </span>
                 </div>
                 <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'ความเร็วเทียบวิดีโอ' : 'Realtime Multiplier'}</span>
                   <span className="font-mono font-bold text-emerald-400 text-sm">
-                    {status.performance?.realtimeSpeed !== undefined ? `${status.performance.realtimeSpeed.toFixed(2)}x` : '—'}
+                    {status.performance?.realtimeSpeed !== null && status.performance?.realtimeSpeed !== undefined ? `${status.performance.realtimeSpeed.toFixed(2)}x` : '—'}
                   </span>
-                  <span className="text-[10px] text-slate-500 block">{th ? 'เท่าของความเร็วจริง' : 'relative to video duration'}</span>
+                  <span className="text-[10px] text-slate-500 block">
+                    {th ? 'เท่าของความเร็วจริง' : 'relative to video speed'}
+                  </span>
                 </div>
                 <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'ความเร็ววิเคราะห์ (Throughput)' : 'Analysis FPS'}</span>
@@ -264,7 +282,7 @@ export default function TrackingLabInspector({
                   <span className="font-mono font-bold text-slate-200 text-sm">
                     {status.quality?.observedCoveragePct !== undefined ? `${status.quality.observedCoveragePct}%` : '—'}
                   </span>
-                  <span className="text-[10px] text-slate-500 block">{th ? 'ตรวจพบผู้เล่นสม่ำเสมอ' : 'observed athlete states'}</span>
+                  <span className="text-[10px] text-slate-500 block">{th ? 'เฉลี่ยต่อผู้เล่น (Mean player)' : 'mean player observed rate'}</span>
                 </div>
                 <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'อัตราสูญหาย (Lost Rate)' : 'Lost Player Rate'}</span>
@@ -281,20 +299,83 @@ export default function TrackingLabInspector({
                   <span className="text-[10px] text-slate-500 block">{th ? 'ไม่นับท่าที่ใช้ซ้ำ' : 'non-reused pose samples'}</span>
                 </div>
               </div>
+
+              {/* Player-Level Coverage Breakdown (Phase 4) */}
+              {status.quality?.playerCoverage && Object.keys(status.quality.playerCoverage).length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <h5 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                    {th ? 'ความครอบคลุมรายบุคคล (Player Coverage Breakdown)' : 'Per-Player Tracking Coverage'}
+                  </h5>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                    {Object.values(status.quality.playerCoverage).map((cov) => (
+                      <div
+                        key={cov.playerId}
+                        data-testid={`coverage-card-${cov.playerId}`}
+                        className="bg-slate-900/90 border border-slate-800 rounded p-2.5 text-xs space-y-1"
+                      >
+                        <div className="flex justify-between items-center border-b border-slate-800 pb-1">
+                          <span className="font-bold text-sky-400">{cov.playerId}</span>
+                          <span className="font-mono font-semibold text-slate-200">
+                            {cov.observedCoveragePct}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-slate-400">
+                          <span>{th ? 'ตรวจพบ (Observed):' : 'Observed:'}</span>
+                          <span className="font-mono text-emerald-400">{cov.observedFrames} f</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-slate-400">
+                          <span>{th ? 'คาดการณ์ (Predicted):' : 'Predicted:'}</span>
+                          <span className="font-mono text-amber-400">{cov.predictedFrames} f</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-slate-400">
+                          <span>{th ? 'สูญหาย (Lost):' : 'Lost:'}</span>
+                          <span className="font-mono text-rose-400">{cov.lostFrames} f</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-slate-400 pt-0.5 border-t border-slate-800/50">
+                          <span>{th ? 'เวลาที่หาย:' : 'Lost time:'}</span>
+                          <span className="font-mono text-slate-300">{cov.lostTimeSec.toFixed(2)}s</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Tab 3: Configuration */}
+          {/* Tab 3: Configuration & Provenance */}
           {activeTab === 'config' && (
             <div className="space-y-3" data-testid="config-tab-content">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                {th ? 'การตั้งค่าการประมวลผล (Effective Configuration)' : 'Effective Processing Configuration'}
+                {th ? 'การตั้งค่าและแหล่งที่มา (Configuration & Runtime Provenance)' : 'Effective Configuration & Runtime Provenance'}
               </h4>
               <div className="bg-slate-900/90 border border-slate-800 rounded p-3 text-xs space-y-2">
                 <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
                   <span className="text-slate-400">{th ? 'โปรไฟล์การตั้งค่า' : 'Active Profile'}</span>
                   <span className="font-mono font-bold text-sky-400 uppercase">
-                    {status.processingConfig?.profile || 'reference'}
+                    {status.processingConfig?.effectiveProfile || status.processingConfig?.profile || 'reference'}
+                    {status.processingConfig?.requestedProfile && status.processingConfig.requestedProfile !== status.processingConfig.effectiveProfile && (
+                      <span className="text-[10px] text-slate-500 lowercase ml-1">
+                        (req: {status.processingConfig.requestedProfile})
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">{th ? 'อุปกรณ์ประมวลผล (Effective Device)' : 'Inference Device'}</span>
+                  <span className="font-mono text-slate-200 uppercase font-semibold">
+                    {status.effectiveDevice || status.processingConfig?.effectiveDevice || status.device || 'CPU'}
+                    {status.requestedDevice && status.requestedDevice !== (status.effectiveDevice || status.device) && (
+                      <span className="text-[10px] text-slate-500 lowercase ml-1">
+                        (requested: {status.requestedDevice})
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
+                  <span className="text-slate-400">{th ? 'โมเดลตรวจจับ / ท่าทาง' : 'Runtime Models'}</span>
+                  <span className="font-mono text-slate-200">
+                    {status.runtimeProvenance?.detectorModel || 'yolov8n.pt'} + {status.runtimeProvenance?.poseModel || 'yolov8n-pose.pt'} ({status.runtimeProvenance?.trackerModel || 'bytetrack'})
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
@@ -307,7 +388,7 @@ export default function TrackingLabInspector({
                   <span className="text-slate-400">{th ? 'ตัดขอบสนาม (Court ROI)' : 'Court ROI Cropping'}</span>
                   <span className="font-mono text-slate-200">
                     {status.processingConfig?.useCourtRoi
-                      ? th ? `เปิดใช้งาน (ระยะเผื่อ ${status.processingConfig.courtRoiMarginPx || 60}px)` : `Enabled (margin: ${status.processingConfig.courtRoiMarginPx || 60}px)`
+                      ? th ? `เปิดใช้งาน (ระยะเผื่อ ${status.processingConfig.courtRoiMarginPx || 60}px / ${status.processingConfig.courtRoiMarginM || 0.5}m)` : `Enabled (margin: ${status.processingConfig.courtRoiMarginPx || 60}px)`
                       : th ? 'ปิดใช้งาน (เต็มเฟรม)' : 'Disabled (Full Frame)'}
                   </span>
                 </div>
@@ -324,7 +405,7 @@ export default function TrackingLabInspector({
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">{th ? 'อุปกรณ์ฮาร์ดแวร์' : 'Target Device'}</span>
+                  <span className="text-slate-400">{th ? 'เป้าหมายฮาร์ดแวร์ที่ร้องขอ' : 'Target Device'}</span>
                   <span className="font-mono text-slate-200 uppercase">
                     {status.processingConfig?.device || status.device || 'auto'}
                   </span>

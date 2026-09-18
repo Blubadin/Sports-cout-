@@ -72,6 +72,7 @@ class BadmintonAnalyzerV2:
         detector_input_size: int = 640,
         use_court_roi: bool = False,
         court_roi_margin_px: int = 60,
+        court_roi_margin_m: float = 0.5,
         pose_stride: int = 1,
     ):
         self.game_type = game_type
@@ -91,6 +92,7 @@ class BadmintonAnalyzerV2:
         self.detector_input_size = int(detector_input_size)
         self.use_court_roi = bool(use_court_roi)
         self.court_roi_margin_px = int(court_roi_margin_px)
+        self.court_roi_margin_m = float(court_roi_margin_m)
         self.pose_stride = max(1, int(pose_stride))
         self.analyzed_frame_count = 0
 
@@ -213,16 +215,31 @@ class BadmintonAnalyzerV2:
 
         raw_detections = self.detect_and_track(frame)
 
-        # Filter detections inside court polygon (allow margin of -30px for feet slightly out of line)
+        # Filter detections inside calibrated physical court boundaries + margin in meters
         valid_detections = []
         for d in raw_detections:
             cx, cy = d["center"]
-            if self.court_corners_px is not None:
-                # measureDist=True returns signed distance: >0 inside, 0 on edge, <0 outside
-                dist_px = cv2.pointPolygonTest(self.court_corners_px.astype(np.float32), (float(cx), float(cy)), True)
-                if dist_px < -30.0:  # Reject detections outside margin
+            if self.court_corners_px is not None and self.mapper.is_calibrated:
+                try:
+                    real_pos = self.mapper.pixel_to_real((cx, cy))
+                    x_m, y_m = real_pos
+                    # Physical court boundaries with margin in meters (allowing athlete excursions, rejecting outsiders)
+                    min_x = -self.court_roi_margin_m
+                    max_x = self.mapper.court_w + self.court_roi_margin_m
+                    min_y = -self.court_roi_margin_m
+                    max_y = self.mapper.court_l + self.court_roi_margin_m
+                    if not (min_x <= x_m <= max_x and min_y <= y_m <= max_y):
+                        continue
+                    d["real_pos"] = real_pos
+                except Exception:
                     continue
-            d["real_pos"] = self.mapper.pixel_to_real((cx, cy))
+            elif self.court_corners_px is not None:
+                dist_px = cv2.pointPolygonTest(self.court_corners_px.astype(np.float32), (float(cx), float(cy)), True)
+                if dist_px < -30.0:
+                    continue
+                d["real_pos"] = (0.0, 0.0)
+            else:
+                d["real_pos"] = (0.0, 0.0)
             valid_detections.append(d)
 
         # Match detections to the 4 player profiles using Hungarian Algorithm
