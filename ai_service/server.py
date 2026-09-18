@@ -730,7 +730,7 @@ class TrackingSession:
             pose_stride=resolved_cfg["poseStride"],
         )
         self.analyzer.analysis_id = session_id
-        self.status = "READY"  # READY | CALIBRATING | ASSIGNING_PLAYERS | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
+        self.status = "READY"  # READY | VIDEO_READY | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
         self.progress_pct = 0.0
         self.current_frame = 0
         self.total_frames = 0
@@ -748,12 +748,13 @@ class TrackingSession:
         self._uploading = False
         self._cancel = False
         self._thread: threading.Thread | None = None
+        self._state_lock = threading.RLock()
 
 tracking_sessions: dict[str, TrackingSession] = {}
 
 
 def _run_session_analysis(session: TrackingSession):
-    session.status = "PROCESSING"
+    # session.status is already PROCESSING (set atomically by the /start endpoint)
     session.progress_pct = 0.0
     session.results = []
     session.analyzed_frames = 0
@@ -911,33 +912,40 @@ def list_tracking_sessions(project_id: str | None = None):
     }
 
 
+ALLOWED_UPLOAD_STATES = {"READY", "VIDEO_READY"}
+
+
 @app.post("/api/tracking/sessions/{session_id}/video")
 async def upload_session_video(session_id: str, request: Request):
     session = tracking_sessions.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    if session._uploading or (session._thread and session._thread.is_alive()):
-        raise HTTPException(status_code=409, detail="Session is busy")
 
-    content_type = request.headers.get("content-type", "")
-    if content_type.startswith("multipart/form-data"):
-        raise HTTPException(status_code=400, detail="Multipart upload not supported. Send raw file bytes.")
+    with session._state_lock:
+        if session.status not in ALLOWED_UPLOAD_STATES:
+            raise HTTPException(status_code=409, detail=f"Cannot upload video in {session.status} state")
+        if session._uploading or (session._thread and session._thread.is_alive()):
+            raise HTTPException(status_code=409, detail="Session is busy")
+        session._uploading = True
 
-    orig_filename = (
-        request.query_params.get("filename")
-        or request.headers.get("X-Original-Filename")
-        or request.headers.get("X-Filename")
-    )
-    
-    safe_ext = ".video"
-    if orig_filename:
-        ext = Path(orig_filename).suffix.lower()
-        if ext in [".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"]:
-            safe_ext = ext
-
-    session._uploading = True
     temp_path = None
     try:
+        content_type = request.headers.get("content-type", "")
+        if content_type.startswith("multipart/form-data"):
+            raise HTTPException(status_code=400, detail="Multipart upload not supported. Send raw file bytes.")
+
+        orig_filename = (
+            request.query_params.get("filename")
+            or request.headers.get("X-Original-Filename")
+            or request.headers.get("X-Filename")
+        )
+        
+        safe_ext = ".video"
+        if orig_filename:
+            ext = Path(orig_filename).suffix.lower()
+            if ext in [".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"]:
+                safe_ext = ext
+
         bytes_written = 0
         with tempfile.NamedTemporaryFile(prefix="sportscout_", suffix=safe_ext, delete=False) as target:
             temp_path = Path(target.name)
@@ -959,17 +967,19 @@ async def upload_session_video(session_id: str, request: Request):
         finally:
             cap.release()
 
-        if session.owned_video_path:
-            session.owned_video_path.unlink(missing_ok=True)
-        session.owned_video_path = temp_path
-        session.video_source = str(temp_path)
-        session.analyzer.fps = fps if fps > 0 else 30.0
-        session.analyzer.dist_tracker.fps = session.analyzer.fps
+        with session._state_lock:
+            if session.owned_video_path:
+                session.owned_video_path.unlink(missing_ok=True)
+            session.owned_video_path = temp_path
+            session.video_source = str(temp_path)
+            session.analyzer.fps = fps if fps > 0 else 30.0
+            session.analyzer.dist_tracker.fps = session.analyzer.fps
+            
+            v_meta, r_meta = extract_video_metadata(str(temp_path), original_filename=orig_filename)
+            session.video_metadata = v_meta
+            session.research_metadata = r_meta
+            session.status = "VIDEO_READY"
         
-        v_meta, r_meta = extract_video_metadata(str(temp_path), original_filename=orig_filename)
-        session.video_metadata = v_meta
-        session.research_metadata = r_meta
-        session.status = "VIDEO_READY"
         temp_path = None
         return {
             "sessionId": session_id,
@@ -980,9 +990,14 @@ async def upload_session_video(session_id: str, request: Request):
             "researchMetadata": session.research_metadata,
         }
     finally:
-        session._uploading = False
+        with session._state_lock:
+            session._uploading = False
         if temp_path:
             temp_path.unlink(missing_ok=True)
+
+
+ALLOWED_CALIBRATION_STATES_REAL = {"VIDEO_READY", "READY_TO_ANALYZE"}
+ALLOWED_CALIBRATION_STATES_DEMO = {"READY", "VIDEO_READY", "READY_TO_ANALYZE"}
 
 
 @app.post("/api/tracking/sessions/{session_id}/calibration")
@@ -990,21 +1005,21 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
-    
-    if session.video_source != "demo" and session.status not in ["VIDEO_READY", "READY_TO_ANALYZE", "PROCESSING", "COMPLETED"]:
-        raise HTTPException(status_code=409, detail="Must upload video before calibration")
-        
-    session.game_type = req.game_type
-    session.analyzer.game_type = req.game_type
-    try:
-        session.analyzer.set_court_corners(req.corners)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    if session.status not in ["PROCESSING", "COMPLETED"]:
+
+    with session._state_lock:
+        allowed = ALLOWED_CALIBRATION_STATES_DEMO if session.video_source == "demo" else ALLOWED_CALIBRATION_STATES_REAL
+        if session.status not in allowed:
+            raise HTTPException(status_code=409, detail=f"Cannot calibrate in {session.status} state")
+
+        session.game_type = req.game_type
+        session.analyzer.game_type = req.game_type
+        try:
+            session.analyzer.set_court_corners(req.corners)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
         session.status = "READY_TO_ANALYZE"
-        
-    return {"status": "success", "sessionStatus": session.status}
+        return {"status": "success", "sessionStatus": session.status}
 
 
 @app.post("/api/tracking/sessions/{session_id}/players")
@@ -1012,26 +1027,24 @@ def assign_session_players(session_id: str, req: SessionPlayerRequest):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
-    
-    if session.status not in ["READY_TO_ANALYZE", "PROCESSING", "COMPLETED"]:
-        raise HTTPException(status_code=409, detail="Must calibrate before assigning players")
-        
-    if session.video_source == "demo":
-        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
-    else:
-        cap = cv2.VideoCapture(session.video_source)
-        try:
-            readable, frame = cap.read()
-        finally:
-            cap.release()
-        if not readable or frame is None:
-            raise HTTPException(status_code=422, detail="Upload a decodable video before assigning players")
-    
-    session.analyzer.assign_initial_players(frame, req.players)
-    if session.status not in ["PROCESSING", "COMPLETED"]:
-        session.status = "READY_TO_ANALYZE"
-        
-    return {"status": "success", "sessionStatus": session.status, "assignedCount": len(req.players)}
+
+    with session._state_lock:
+        if session.status != "READY_TO_ANALYZE":
+            raise HTTPException(status_code=409, detail=f"Cannot assign players in {session.status} state")
+
+        if session.video_source == "demo":
+            frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+        else:
+            cap = cv2.VideoCapture(session.video_source)
+            try:
+                readable, frame = cap.read()
+            finally:
+                cap.release()
+            if not readable or frame is None:
+                raise HTTPException(status_code=422, detail="Upload a decodable video before assigning players")
+
+        session.analyzer.assign_initial_players(frame, req.players)
+        return {"status": "success", "sessionStatus": session.status, "assignedCount": len(req.players)}
 
 
 @app.post("/api/tracking/sessions/{session_id}/start")
@@ -1039,20 +1052,28 @@ def start_session_analysis(session_id: str):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
-    
-    if session.status == "PROCESSING":
-        return {"status": "already_processing", "sessionId": session_id}
-        
-    if session.status == "ERROR":
-        raise HTTPException(status_code=409, detail="Cannot start a session that is in ERROR state")
-        
-    if session.status != "READY_TO_ANALYZE":
-        raise HTTPException(status_code=409, detail="Must calibrate before starting analysis")
-    
-    
-    session._cancel = False
-    session._thread = threading.Thread(target=_run_session_analysis, args=(session,), daemon=True)
-    session._thread.start()
+
+    with session._state_lock:
+        if session.status == "PROCESSING":
+            return {"status": "already_processing", "sessionId": session_id}
+
+        if session.status == "ERROR":
+            raise HTTPException(status_code=409, detail="Cannot start a session in ERROR state")
+
+        if session.status != "READY_TO_ANALYZE":
+            raise HTTPException(status_code=409, detail=f"Cannot start analysis in {session.status} state")
+
+        # Atomically transition to PROCESSING before creating the thread
+        session.status = "PROCESSING"
+        session._cancel = False
+        try:
+            session._thread = threading.Thread(target=_run_session_analysis, args=(session,), daemon=True)
+            session._thread.start()
+        except Exception as e:
+            session.status = "ERROR"
+            session.error_message = f"Failed to start analysis worker: {e}"
+            raise HTTPException(status_code=500, detail=session.error_message)
+
     return {"status": "started", "sessionId": session_id}
 
 

@@ -47,7 +47,7 @@ export interface ProjectTrackingState {
   trackedPlayerCount: number;
   corners: number[][];
   processingConfig: ProcessingConfig;
-  status: 'IDLE' | 'CREATED' | 'UPLOADING' | 'VIDEO_READY' | 'READY_TO_ANALYZE' | 'CALIBRATED' | 'PROCESSING' | 'COMPLETED' | 'ERROR';
+  status: 'IDLE' | 'CREATED' | 'UPLOADING' | 'VIDEO_READY' | 'READY_TO_ANALYZE' | 'PROCESSING' | 'COMPLETED' | 'ERROR';
   progress: number;
   currentFrame: number;
   totalFrames: number;
