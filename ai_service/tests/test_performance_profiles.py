@@ -271,5 +271,202 @@ class TestTrackingSessionPerformanceAndQuality(unittest.TestCase):
         self.assertEqual(metrics["poseCoveragePct"], 50.0)
 
 
+class TestPhase4PerformanceAndQualityHardening(unittest.TestCase):
+    def test_deterministic_auto_and_device_resolution(self):
+        """Auto must map deterministically, and requested vs effective devices must be distinct."""
+        # Auto on CPU
+        cfg_cpu = resolve_processing_config({"profile": "auto", "device": "auto"}, runtime_device="cpu")
+        self.assertEqual(cfg_cpu["requestedProfile"], "auto")
+        self.assertEqual(cfg_cpu["effectiveProfile"], "fast")
+        self.assertEqual(cfg_cpu["requestedDevice"], "auto")
+        self.assertEqual(cfg_cpu["effectiveDevice"], "cpu")
+        self.assertNotEqual(cfg_cpu["effectiveDevice"], "auto")
+        self.assertEqual(cfg_cpu["detectorInputSize"], 416)
+        self.assertEqual(cfg_cpu["frameStride"], 3)
+        self.assertEqual(cfg_cpu["poseStride"], 2)
+
+        # Auto on CUDA
+        cfg_cuda = resolve_processing_config({"profile": "auto", "device": "auto"}, runtime_device="cuda")
+        self.assertEqual(cfg_cuda["requestedProfile"], "auto")
+        self.assertEqual(cfg_cuda["effectiveProfile"], "balanced")
+        self.assertEqual(cfg_cuda["requestedDevice"], "auto")
+        self.assertEqual(cfg_cuda["effectiveDevice"], "cuda")
+        self.assertNotEqual(cfg_cuda["effectiveDevice"], "auto")
+        self.assertEqual(cfg_cuda["detectorInputSize"], 512)
+        self.assertEqual(cfg_cuda["frameStride"], 2)
+        self.assertEqual(cfg_cuda["poseStride"], 1)
+
+    def test_live_vs_completed_rtf_semantics_and_zero_protection(self):
+        """During processing, RTF must use processed video time, not total duration. At completed, use total duration."""
+        from server import _build_session_metrics
+
+        session = TrackingSession(
+            session_id="test_rtf_session",
+            game_type="doubles",
+            tracked_player_count=2,
+            processing_config={"profile": "balanced"},
+        )
+        session.source_fps = 30.0
+        session.duration_sec = 100.0  # 100s video
+        session.frame_stride = 2
+
+        # 1. Processing state: 200 frames analyzed in 5.0 seconds of wall clock
+        # Processed video time = 400 source frames / 30.0 fps = 13.33 seconds
+        session.status = "PROCESSING"
+        session.current_frame = 400
+        session.analyzed_frames = 200
+        session.elapsed_sec = 5.0
+
+        perf, qual, prov = _build_session_metrics(session)
+        self.assertFalse(perf["isFinal"])
+        self.assertAlmostEqual(perf["processedVideoTimeSec"], 13.33, places=1)
+        # Live RTF = 5.0 / 13.33 = ~0.38, NOT 5.0 / 100.0 = 0.05!
+        self.assertAlmostEqual(perf["rtf"], 0.38, places=2)
+        # Live Realtime speed = 13.33 / 5.0 = ~2.67x
+        self.assertAlmostEqual(perf["realtimeSpeed"], 2.67, places=2)
+
+        # 2. Completed state: total wall clock = 40.0s for 100s video
+        session.status = "COMPLETED"
+        session.current_frame = 3000
+        session.analyzed_frames = 1500
+        session.elapsed_sec = 40.0
+
+        perf_comp, _, _ = _build_session_metrics(session)
+        self.assertTrue(perf_comp["isFinal"])
+        # Final RTF = 40.0 / 100.0 = 0.40
+        self.assertEqual(perf_comp["rtf"], 0.40)
+        # Final Realtime speed = 100.0 / 40.0 = 2.50x
+        self.assertEqual(perf_comp["realtimeSpeed"], 2.50)
+
+        # 3. Zero protection: zero durations or zero elapsed time must not raise ZeroDivisionError
+        session.elapsed_sec = 0.0
+        session.duration_sec = 0.0
+        session.current_frame = 0
+        session.analyzed_frames = 0
+        session.source_fps = 0.0
+        session.frame_stride = 0
+        session.status = "PROCESSING"
+
+        perf_zero, _, _ = _build_session_metrics(session)
+        self.assertEqual(perf_zero["elapsedSec"], 0.0)
+        self.assertIsNone(perf_zero["rtf"])
+        self.assertIsNone(perf_zero["realtimeSpeed"])
+        self.assertEqual(perf_zero["analysisFps"], 0.0)
+        self.assertEqual(perf_zero["samplingFps"], 0.0)
+
+    def test_player_level_coverage_predicted_separation_and_lost_time(self):
+        """Player coverage must separate observed vs predicted, calculate mean player coverage, and compute lost time."""
+        results = [
+            # Frame 0 at t=0.0s: P1 observed, P2 predicted, P3 lost, P4 missing
+            {
+                "timestampSec": 0.0,
+                "players": [
+                    {"playerId": "P1", "state": "observed"},
+                    {"playerId": "P2", "state": "predicted"},
+                    {"playerId": "P3", "state": "lost"},
+                ],
+            },
+            # Frame 1 at t=0.5s (dt=0.5s): P1 observed, P2 observed, P3 lost, P4 missing
+            {
+                "timestampSec": 0.5,
+                "players": [
+                    {"playerId": "P1", "state": "observed"},
+                    {"playerId": "P2", "state": "observed"},
+                    {"playerId": "P3", "state": "lost"},
+                ],
+            },
+        ]
+        # Total expected frames = 2
+        # P1: 2 observed, 0 predicted, 0 lost -> coverage = 100.0%, lostTime = 0.0s
+        # P2: 1 observed, 1 predicted, 0 lost -> coverage = 50.0% (predicted does NOT count as observed!), lostTime = 0.0s
+        # P3: 0 observed, 0 predicted, 2 lost -> coverage = 0.0%, lostTime = 1.0s (0.5s + 0.5s)
+        # P4: missing from frame -> 0 observed, 2 lost -> coverage = 0.0%, lostTime = 1.0s
+        # Mean observed coverage = (100.0 + 50.0 + 0.0 + 0.0) / 4 = 37.5%
+        metrics = compute_session_quality_metrics(results, 4)
+        cov = metrics["playerCoverage"]
+
+        self.assertEqual(cov["P1"]["observedFrames"], 2)
+        self.assertEqual(cov["P1"]["predictedFrames"], 0)
+        self.assertEqual(cov["P1"]["observedCoveragePct"], 100.0)
+        self.assertEqual(cov["P1"]["lostTimeSec"], 0.0)
+
+        self.assertEqual(cov["P2"]["observedFrames"], 1)
+        self.assertEqual(cov["P2"]["predictedFrames"], 1)
+        self.assertEqual(cov["P2"]["observedCoveragePct"], 50.0)
+        self.assertEqual(cov["P2"]["predictedFramesPct"], 50.0)
+        self.assertEqual(cov["P2"]["lostTimeSec"], 0.0)
+
+        self.assertEqual(cov["P3"]["observedFrames"], 0)
+        self.assertEqual(cov["P3"]["lostFrames"], 2)
+        self.assertEqual(cov["P3"]["observedCoveragePct"], 0.0)
+        self.assertEqual(cov["P3"]["lostFramesPct"], 100.0)
+        self.assertAlmostEqual(cov["P3"]["lostTimeSec"], 1.0, places=1)
+
+        self.assertEqual(cov["P4"]["observedFrames"], 0)
+        self.assertEqual(cov["P4"]["lostFrames"], 2)
+        self.assertEqual(cov["P4"]["observedCoveragePct"], 0.0)
+        self.assertAlmostEqual(cov["P4"]["lostTimeSec"], 1.0, places=1)
+
+        # Mean player coverage: a 4-player frame is NOT fully covered because 1 player exists
+        self.assertEqual(metrics["observedCoveragePct"], 37.5)
+        self.assertEqual(metrics["lostFramesPct"], 50.0)
+        self.assertEqual(metrics["predictedFramesPct"], 12.5)
+
+    def test_physical_court_margin_filtering(self):
+        """Detections must be filtered using physical margin in meters in calibrated court space."""
+        analyzer = BadmintonAnalyzerV2(
+            game_type="doubles",
+            max_players=2,
+            court_roi_margin_m=0.5,  # 0.5 meter buffer around 6.10m x 13.40m
+        )
+        # Synthetic square court: 100,100 to 700,900
+        corners = [[100.0, 100.0], [700.0, 100.0], [700.0, 900.0], [100.0, 900.0]]
+        analyzer.set_court_corners(corners)
+        analyzer._detector = "dummy"
+
+        # Point A: Inside court (center 400, 500) -> accepted
+        # Point B: Player 0.2m outside sideline (say x=80, which is 20px outside; 20px * (6.1/600) = 0.203m < 0.5m) -> accepted!
+        # Point C: Spectator 1.0m outside sideline (say x=0, which is 100px outside; 100px * (6.1/600) = 1.01m > 0.5m) -> rejected!
+        with patch.object(analyzer, "detect_and_track") as mock_det:
+            mock_det.return_value = [
+                {"bbox": [380, 450, 420, 500], "center": (400.0, 500.0), "conf": 0.9, "track_id": 1},
+                {"bbox": [70, 450, 90, 500], "center": (80.0, 500.0), "conf": 0.88, "track_id": 2},
+                {"bbox": [0, 450, 20, 500], "center": (0.0, 500.0), "conf": 0.85, "track_id": 3},
+            ]
+            frame = np.zeros((1000, 1000, 3), dtype=np.uint8)
+            res = analyzer.process_frame(frame, timestamp_sec=0.1)
+
+            active_bboxes = [p["bbox"] for p in res["players"] if p["bbox"] is not None]
+            self.assertIn([380, 450, 420, 500], active_bboxes)
+            self.assertIn([70, 450, 90, 500], active_bboxes)
+            self.assertNotIn([0, 450, 20, 500], active_bboxes)
+
+    def test_runtime_provenance_contract(self):
+        """Backend must provide runtime provenance with models, devices, and settings."""
+        from server import _build_session_metrics
+
+        session = TrackingSession(
+            session_id="test_prov_session",
+            game_type="doubles",
+            tracked_player_count=2,
+            processing_config={"profile": "fast", "device": "auto"},
+        )
+        _, _, prov = _build_session_metrics(session)
+
+        self.assertEqual(prov["detectorModel"], "yolov8n.pt")
+        self.assertEqual(prov["trackerModel"], "bytetrack")
+        self.assertEqual(prov["poseModel"], "yolov8n-pose.pt")
+        self.assertEqual(prov["requestedProfile"], "fast")
+        self.assertEqual(prov["effectiveProfile"], "fast")
+        self.assertEqual(prov["requestedDevice"], "auto")
+        self.assertIn(prov["effectiveDevice"], ["cpu", "cuda", "mps"])
+        self.assertEqual(prov["detectorInputSize"], 416)
+        self.assertEqual(prov["frameStride"], 3)
+        self.assertEqual(prov["poseStride"], 2)
+        self.assertTrue(prov["useCourtRoi"])
+        self.assertEqual(prov["courtRoiMarginM"], 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()
+

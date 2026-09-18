@@ -562,36 +562,110 @@ export interface TrackingSessionStatus {
   analysisFps: number;
   trackedPlayerCount: number;
   device: string;
+  requestedDevice?: string;
+  effectiveDevice?: string;
   processingConfig?: ProcessingConfig;
+  effectiveProcessingConfig?: ProcessingConfig;
+  runtimeProvenance?: TrackingRuntimeProvenance;
+  provenance?: TrackingRuntimeProvenance;
   performance?: TrackingPerformanceStats;
   quality?: TrackingQualityStats;
+  videoMetadata?: SourceVideoMetadata;
+  researchMetadata?: CameraResearchMetadata;
   players: TrackingLivePlayerStatus[];
   error: string | null;
+}
+
+export type FrameRateType = 'CFR' | 'VFR' | 'Unknown';
+
+export interface SourceVideoMetadata {
+  filename?: string;
+  durationSec?: number | null;
+  width?: number | null;
+  height?: number | null;
+  aspectRatio?: string | null;
+  nominalFps?: number | null;
+  reportedFrameCount?: number | null;
+  frameCountProvenance?: string;
+  frameIntervalMs?: number | null;
+  codec?: string | null;
+  bitrateKbps?: number | null;
+  pixelFormat?: string | null;
+  frameRateType?: FrameRateType;
+}
+
+export interface CameraResearchMetadata {
+  cameraMake?: string | null;
+  cameraModel?: string | null;
+  exposureSec?: number | null;
+  iso?: number | null;
+  aperture?: number | null;
+  focalLengthMm?: number | null;
+  derivedShutterAngleDeg?: number | null;
 }
 
 export type ProcessingProfile = 'auto' | 'reference' | 'fast' | 'balanced' | 'quality' | 'custom';
 
 export interface ProcessingConfig {
   profile?: ProcessingProfile;
+  requestedProfile?: ProcessingProfile;
+  effectiveProfile?: ProcessingProfile;
   device: 'auto' | 'cpu' | 'cuda' | 'mps';
+  requestedDevice?: 'auto' | 'cpu' | 'cuda' | 'mps';
+  effectiveDevice?: 'cpu' | 'cuda' | 'mps';
   detectorInputSize: number;
   useCourtRoi: boolean;
   courtRoiMarginPx: number;
+  courtRoiMarginM?: number;
   frameStride: number;
   poseStride: number;
 }
 
 export interface TrackingPerformanceStats {
   elapsedSec: number;
-  rtf: number;
-  realtimeSpeed: number;
+  processedVideoTimeSec?: number;
+  videoDurationSec?: number;
+  rtf: number | null;
+  realtimeSpeed: number | null;
   analysisFps: number;
   samplingFps: number;
+  isFinal?: boolean;
+}
+
+export interface PlayerTrackingCoverage {
+  playerId: string;
+  expectedFrames: number;
+  observedFrames: number;
+  predictedFrames: number;
+  lostFrames: number;
+  observedCoveragePct: number;
+  predictedFramesPct: number;
+  lostFramesPct: number;
+  lostTimeSec: number;
 }
 
 export interface TrackingQualityStats {
   observedCoveragePct: number;
   lostFramesPct: number;
+  predictedFramesPct?: number;
   poseCoveragePct: number;
+  playerCoverage?: Record<string, PlayerTrackingCoverage>;
+}
+
+export interface TrackingRuntimeProvenance {
+  detectorModel: string;
+  trackerModel: string;
+  poseModel: string;
+  device: string;
+  requestedDevice: string;
+  effectiveDevice: string;
+  requestedProfile: string;
+  effectiveProfile: string;
+  detectorInputSize: number;
+  frameStride: number;
+  poseStride: number;
+  useCourtRoi: boolean;
+  courtRoiMarginPx: number;
+  courtRoiMarginM?: number;
 }
 

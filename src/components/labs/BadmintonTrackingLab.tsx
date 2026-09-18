@@ -429,10 +429,13 @@ export default function BadmintonTrackingLab() {
     try {
       const processingConfig: ProcessingConfig = {
         profile,
+        requestedProfile: profile,
         device: devicePreference,
+        requestedDevice: devicePreference,
         detectorInputSize,
         useCourtRoi,
         courtRoiMarginPx,
+        courtRoiMarginM: 0.5,
         frameStride,
         poseStride,
       };
@@ -520,50 +523,16 @@ export default function BadmintonTrackingLab() {
         <p className="text-xs text-slate-400">Inference device: {inferenceDevice}</p>
       )}
 
-      {/* Processing Mode */}
-      <div className="flex items-center gap-2 text-sm">
-        <span>{th ? 'โหมดประมวลผล' : 'Processing mode'}</span>
-        <select
-          aria-label="Processing mode"
-          disabled={processing}
-          value={devicePreference}
-          onChange={(e) => setDevicePreference(e.target.value as 'auto' | 'cpu' | 'cuda' | 'mps')}
-          className="bg-slate-800 p-2 rounded"
-        >
-          <option value="auto">{th ? 'อัตโนมัติ' : 'Auto'}</option>
-          <option value="cpu">CPU</option>
-          <option value="cuda" disabled={!capabilities?.cudaAvailable}>
-            GPU (CUDA){capabilities?.cudaAvailable ? '' : ' — unavailable'}
-          </option>
-          <option value="mps" disabled={!capabilities?.mpsAvailable}>
-            GPU (MPS){capabilities?.mpsAvailable ? '' : ' — unavailable'}
-          </option>
-        </select>
-        <button
-          type="button"
-          className={button}
-          disabled={processing || !capabilities?.cudaAvailable}
-          title={
-            capabilities?.cudaAvailable
-              ? 'Use NVIDIA CUDA for this analysis'
-              : 'CUDA is unavailable in the current Python environment'
-          }
-          onClick={() => setDevicePreference('cuda')}
-        >
-          {th ? 'ใช้ GPU' : 'Use GPU'}
-        </button>
-      </div>
-
-      {/* Performance Profiles */}
+      {/* Primary Control: Processing Profile Hierarchy (Phase 4) */}
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <label className="flex items-center gap-2">
-          <span>{th ? 'โปรไฟล์การประมวลผล' : 'Performance profile'}</span>
+          <span className="font-medium">{th ? 'โปรไฟล์การประมวลผล' : 'Performance profile'}</span>
           <select
             aria-label={th ? 'โปรไฟล์การประมวลผล' : 'Performance profile'}
             disabled={processing}
             value={profile}
             onChange={(e) => selectProfile(e.target.value as ProcessingProfile)}
-            className="bg-slate-800 p-2 rounded"
+            className="bg-slate-800 p-2 rounded border border-slate-700 text-slate-200"
           >
             <option value="auto">{th ? 'อัตโนมัติ (Auto)' : 'Auto'}</option>
             <option value="reference">{th ? 'มาตรฐาน (Reference baseline)' : 'Reference baseline'}</option>
@@ -573,9 +542,31 @@ export default function BadmintonTrackingLab() {
             {profile === 'custom' && <option value="custom">{th ? 'กำหนดเอง (Custom)' : 'Custom'}</option>}
           </select>
         </label>
+
         <button
           type="button"
-          className="text-xs text-sky-400 hover:text-sky-300 underline"
+          className={button}
+          disabled={processing || !capabilities?.cudaAvailable}
+          title={
+            capabilities?.cudaAvailable
+              ? 'Use NVIDIA CUDA for this analysis'
+              : 'CUDA is unavailable in the current Python environment'
+          }
+          onClick={() => {
+            setDevicePreference('cuda');
+            setProfile('custom');
+          }}
+        >
+          {th ? 'ใช้ GPU' : 'Use GPU'}
+        </button>
+
+        <span className="text-xs px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded font-mono text-slate-300">
+          {th ? 'อุปกรณ์ฮาร์ดแวร์:' : 'Inference:'} <span className="uppercase text-sky-400 font-semibold">{devicePreference === 'auto' ? `Auto (${inferenceDevice || 'CPU'})` : devicePreference}</span>
+        </span>
+
+        <button
+          type="button"
+          className="text-xs text-sky-400 hover:text-sky-300 underline font-medium"
           onClick={() => setShowAdvancedSettings((prev) => !prev)}
         >
           {showAdvancedSettings
@@ -593,7 +584,30 @@ export default function BadmintonTrackingLab() {
           data-testid="advanced-settings-drawer"
           className="bg-slate-900/60 border border-slate-800 rounded p-3 text-xs space-y-3"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <label className="space-y-1 block">
+              <span className="text-slate-400 block">{th ? 'เป้าหมายฮาร์ดแวร์' : 'Target Hardware'}</span>
+              <select
+                aria-label="Processing mode"
+                disabled={processing}
+                value={devicePreference}
+                onChange={(e) => {
+                  setDevicePreference(e.target.value as 'auto' | 'cpu' | 'cuda' | 'mps');
+                  setProfile('custom');
+                }}
+                className="bg-slate-800 p-1.5 rounded w-full text-slate-200 border border-slate-700"
+              >
+                <option value="auto">{th ? 'อัตโนมัติ (Auto)' : 'Auto'}</option>
+                <option value="cpu">CPU</option>
+                <option value="cuda" disabled={!capabilities?.cudaAvailable}>
+                  GPU (CUDA){capabilities?.cudaAvailable ? '' : ' — unavailable'}
+                </option>
+                <option value="mps" disabled={!capabilities?.mpsAvailable}>
+                  GPU (MPS){capabilities?.mpsAvailable ? '' : ' — unavailable'}
+                </option>
+              </select>
+            </label>
+
             <label className="space-y-1 block">
               <span className="text-slate-400 block">{th ? 'ความละเอียดตัวตรวจจับ' : 'Detector Input Size'}</span>
               <select
@@ -611,6 +625,7 @@ export default function BadmintonTrackingLab() {
                 <option value={640}>640 px</option>
               </select>
             </label>
+
             <label className="space-y-1 block">
               <span className="text-slate-400 block">{th ? 'สุ่มเฟรมตรวจจับ (Frame Stride)' : 'Frame Stride'}</span>
               <select
@@ -629,6 +644,7 @@ export default function BadmintonTrackingLab() {
                 <option value={4}>4 ({th ? 'ทุก 4 เฟรม' : 'Every 4th frame'})</option>
               </select>
             </label>
+
             <label className="space-y-1 block">
               <span className="text-slate-400 block">{th ? 'สุ่มเฟรมท่าทาง (Pose Stride)' : 'Pose Stride'}</span>
               <select
@@ -962,6 +978,9 @@ export default function BadmintonTrackingLab() {
         status={sessionStatus}
         isProcessing={processing}
         language={th ? 'th' : 'en'}
+        projectId={activeProjectId}
+        videoFingerprint={state.videoFingerprint}
+        localFileName={state.localFileName || localFileName}
       />
 
       {analysis && (

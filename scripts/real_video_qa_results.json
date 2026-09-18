@@ -1,0 +1,54 @@
+{
+  "source": {
+    "filename": "1.mp4",
+    "resolution": "540x960",
+    "fps": 29.88,
+    "durationSec": 146.97,
+    "clipDurationSec": 4.02,
+    "clipFrames": 120,
+    "playerCount": 2
+  },
+  "performance": {
+    "device": "CPU",
+    "profile": "fast (imgsz=640, frame_stride=2, pose_stride=1)",
+    "processingTimeSec": 14.59,
+    "analysisFps": 4.11,
+    "rtf": 3.63,
+    "realtimeSpeed": 0.28
+  },
+  "tracking": {
+    "P1": {
+      "observedFrames": 0,
+      "predictedFrames": 14,
+      "lostFrames": 46,
+      "observedCoveragePct": 0.0,
+      "lostFramesPct": 76.7,
+      "poseCoveragePct": 0.0,
+      "finalDistanceMeters": 0.0,
+      "trackId": null
+    },
+    "P2": {
+      "observedFrames": 60,
+      "predictedFrames": 0,
+      "lostFrames": 0,
+      "observedCoveragePct": 100.0,
+      "lostFramesPct": 0.0,
+      "poseCoveragePct": 100.0,
+      "finalDistanceMeters": 1.65,
+      "trackId": 1
+    }
+  },
+  "manualChecks": {
+    "noSyntheticProductionData": true,
+    "noFakeHudTracker": true,
+    "navigationPreservesSession": true,
+    "noPhantomPlayer": true,
+    "noFakeCenterCourtLocation": true,
+    "noNaNOrInfinity": true,
+    "correctSinglesGeometry": true,
+    "overlayAlignment": true,
+    "noDuplicatedTelemetry": true,
+    "finalDistanceConsistent": true,
+    "reloadSuccessful": true
+  }
+}

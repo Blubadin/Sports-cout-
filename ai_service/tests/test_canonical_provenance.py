@@ -15,6 +15,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from unittest.mock import MagicMock
 from analyzer_v2 import BadmintonAnalyzerV2
 from court_mapper import CourtMapper, DistanceTracker
 
@@ -22,6 +23,9 @@ from court_mapper import CourtMapper, DistanceTracker
 class TestCanonicalProvenance(unittest.TestCase):
     def setUp(self):
         self.analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=2)
+        mock_pose = MagicMock()
+        mock_pose.estimate_pose_in_roi.return_value = {"keypoints": [], "metrics": {}}
+        self.analyzer._pose_detector = mock_pose
         self.corners = [[100, 100], [700, 100], [700, 500], [100, 500]]
         self.analyzer.set_court_corners(self.corners)
 

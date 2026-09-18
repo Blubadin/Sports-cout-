@@ -20,6 +20,11 @@ import cv2
 from analyzer_v2 import BadmintonAnalyzerV2
 from court_mapper import CourtMapper
 from device_runtime import capability_report, resolve_device
+try:
+    from ai_service.video_metadata import extract_video_metadata
+except ImportError:
+    from video_metadata import extract_video_metadata
+
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
 
@@ -448,52 +453,66 @@ import numpy as np
 
 def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> dict:
     cfg = dict(cfg or {})
-    profile = cfg.get("profile") or "reference"
-    device = cfg.get("device") or "auto"
+    requested_profile = cfg.get("profile") or "reference"
+    requested_device = cfg.get("device") or "auto"
+
+    effective_device = resolve_device(requested_device) if requested_device != "auto" else runtime_device
+    if effective_device == "auto":
+        effective_device = resolve_device("auto")
 
     # Default Reference baseline
     detector_input_size = 640
     use_court_roi = False
     court_roi_margin_px = 60
+    court_roi_margin_m = 0.5
     frame_stride = 2
     pose_stride = 1
+    effective_profile = requested_profile
 
-    if profile == "quality":
+    if requested_profile == "quality":
         detector_input_size = 640
         use_court_roi = False
         court_roi_margin_px = 60
+        court_roi_margin_m = 0.5
         frame_stride = 1
         pose_stride = 1
-    elif profile == "balanced":
+    elif requested_profile == "balanced":
         detector_input_size = 512
         use_court_roi = True
         court_roi_margin_px = 60
+        court_roi_margin_m = 0.5
         frame_stride = 2
         pose_stride = 1
-    elif profile == "fast":
+    elif requested_profile == "fast":
         detector_input_size = 416
         use_court_roi = True
         court_roi_margin_px = 60
+        court_roi_margin_m = 0.5
         frame_stride = 3
         pose_stride = 2
-    elif profile == "auto":
-        is_cuda = (runtime_device == "cuda")
+    elif requested_profile == "auto":
+        is_cuda = (effective_device == "cuda")
         if is_cuda:
             detector_input_size = 512
             use_court_roi = True
             court_roi_margin_px = 60
+            court_roi_margin_m = 0.5
             frame_stride = 2
             pose_stride = 1
+            effective_profile = "balanced"
         else:
             detector_input_size = 416
             use_court_roi = True
             court_roi_margin_px = 60
+            court_roi_margin_m = 0.5
             frame_stride = 3
             pose_stride = 2
-    elif profile == "custom":
+            effective_profile = "fast"
+    elif requested_profile == "custom":
         detector_input_size = cfg.get("detector_input_size", cfg.get("detectorInputSize", 640))
         use_court_roi = cfg.get("use_court_roi", cfg.get("useCourtRoi", False))
         court_roi_margin_px = cfg.get("court_roi_margin_px", cfg.get("courtRoiMarginPx", 60))
+        court_roi_margin_m = cfg.get("court_roi_margin_m", cfg.get("courtRoiMarginM", 0.5))
         frame_stride = cfg.get("frame_stride", cfg.get("frameStride", 2))
         pose_stride = cfg.get("pose_stride", cfg.get("poseStride", 1))
 
@@ -504,60 +523,144 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         use_court_roi = cfg.get("use_court_roi", cfg.get("useCourtRoi"))
     if "court_roi_margin_px" in cfg or "courtRoiMarginPx" in cfg:
         court_roi_margin_px = cfg.get("court_roi_margin_px", cfg.get("courtRoiMarginPx"))
+    if "court_roi_margin_m" in cfg or "courtRoiMarginM" in cfg:
+        court_roi_margin_m = cfg.get("court_roi_margin_m", cfg.get("courtRoiMarginM"))
     if "frame_stride" in cfg or "frameStride" in cfg:
         frame_stride = cfg.get("frame_stride", cfg.get("frameStride"))
     if "pose_stride" in cfg or "poseStride" in cfg:
         pose_stride = cfg.get("pose_stride", cfg.get("poseStride"))
 
     return {
-        "profile": profile,
-        "device": device,
+        "profile": requested_profile,
+        "requestedProfile": requested_profile,
+        "effectiveProfile": effective_profile,
+        "device": requested_device,
+        "requestedDevice": requested_device,
+        "effectiveDevice": effective_device,
         "detectorInputSize": int(detector_input_size),
         "useCourtRoi": bool(use_court_roi),
         "courtRoiMarginPx": int(court_roi_margin_px),
+        "courtRoiMarginM": float(court_roi_margin_m),
         "frameStride": max(1, int(frame_stride)),
         "poseStride": max(1, int(pose_stride)),
     }
 
 
-def compute_session_quality_metrics(results: list[dict], tracked_player_count: int) -> dict:
+def compute_session_quality_metrics(results: list[dict], tracked_player_count: int = 2) -> dict:
+    count = max(1, min(4, int(tracked_player_count or 2)))
+    player_ids = [f"P{i}" for i in range(1, count + 1)]
+
+    empty_player_stats = {
+        pid: {
+            "playerId": pid,
+            "expectedFrames": 0,
+            "observedFrames": 0,
+            "predictedFrames": 0,
+            "lostFrames": 0,
+            "observedCoveragePct": 0.0,
+            "predictedFramesPct": 0.0,
+            "lostFramesPct": 0.0,
+            "lostTimeSec": 0.0,
+        }
+        for pid in player_ids
+    }
+
     if not results:
         return {
             "observedCoveragePct": 0.0,
             "lostFramesPct": 0.0,
+            "predictedFramesPct": 0.0,
             "poseCoveragePct": 0.0,
+            "playerCoverage": empty_player_stats,
         }
 
-    total_samples = 0
-    observed_samples = 0
-    lost_samples = 0
-    pose_observed_samples = 0
+    total_expected_frames = len(results)
+    player_observed = {pid: 0 for pid in player_ids}
+    player_predicted = {pid: 0 for pid in player_ids}
+    player_lost = {pid: 0 for pid in player_ids}
+    player_lost_time = {pid: 0.0 for pid in player_ids}
 
-    for frame in results:
-        players = frame.get("players", [])
-        for p in players:
-            total_samples += 1
-            state = p.get("state")
+    total_pose_observed = 0
+    total_player_samples = 0
+
+    timestamps = []
+    for idx, frame in enumerate(results):
+        t = frame.get("timestampSec", frame.get("timestamp_sec"))
+        if t is None:
+            t = round(idx * 0.033, 3)
+        timestamps.append(float(t))
+
+    for idx, frame in enumerate(results):
+        if idx > 0:
+            dt = max(0.0, timestamps[idx] - timestamps[idx - 1])
+        elif len(timestamps) > 1:
+            dt = max(0.0, timestamps[1] - timestamps[0])
+        else:
+            dt = 0.033
+
+        frame_players = frame.get("players", [])
+        frame_state_by_pid = {}
+        for p_idx, p in enumerate(frame_players):
+            pid = p.get("playerId")
+            if not pid and "id" in p:
+                pid = f"P{p['id']}"
+            if not pid:
+                pid = player_ids[p_idx] if p_idx < len(player_ids) else f"P{p_idx + 1}"
+            frame_state_by_pid[pid] = p
+
+        for pid in player_ids:
+            p_data = frame_state_by_pid.get(pid)
+            if p_data is None:
+                player_lost[pid] += 1
+                player_lost_time[pid] += dt
+                total_player_samples += 1
+                continue
+
+            total_player_samples += 1
+            state = p_data.get("state")
             if state == "observed":
-                observed_samples += 1
-            elif state == "lost":
-                lost_samples += 1
+                player_observed[pid] += 1
+            elif state == "predicted":
+                player_predicted[pid] += 1
+            else:
+                player_lost[pid] += 1
+                player_lost_time[pid] += dt
 
-            pose = p.get("pose")
+            pose = p_data.get("pose")
             if pose and not pose.get("isReused", False):
-                pose_observed_samples += 1
+                total_pose_observed += 1
 
-    if total_samples == 0:
-        return {
-            "observedCoveragePct": 0.0,
-            "lostFramesPct": 0.0,
-            "poseCoveragePct": 0.0,
+    player_coverage = {}
+    for pid in player_ids:
+        obs = player_observed[pid]
+        pred = player_predicted[pid]
+        lost = player_lost[pid]
+        cov_pct = round((obs / total_expected_frames) * 100.0, 1) if total_expected_frames > 0 else 0.0
+        pred_pct = round((pred / total_expected_frames) * 100.0, 1) if total_expected_frames > 0 else 0.0
+        lost_pct = round((lost / total_expected_frames) * 100.0, 1) if total_expected_frames > 0 else 0.0
+        player_coverage[pid] = {
+            "playerId": pid,
+            "expectedFrames": total_expected_frames,
+            "observedFrames": obs,
+            "predictedFrames": pred,
+            "lostFrames": lost,
+            "observedCoveragePct": cov_pct,
+            "predictedFramesPct": pred_pct,
+            "lostFramesPct": lost_pct,
+            "lostTimeSec": round(player_lost_time[pid], 2),
         }
+
+    mean_observed_pct = round(sum(p["observedCoveragePct"] for p in player_coverage.values()) / len(player_coverage), 1)
+    mean_lost_pct = round(sum(p["lostFramesPct"] for p in player_coverage.values()) / len(player_coverage), 1)
+    mean_pred_pct = round(sum(p["predictedFramesPct"] for p in player_coverage.values()) / len(player_coverage), 1)
+    pose_cov_pct = round((total_pose_observed / total_player_samples) * 100.0, 1) if total_player_samples > 0 else 0.0
 
     return {
-        "observedCoveragePct": round((observed_samples / total_samples) * 100.0, 1),
-        "lostFramesPct": round((lost_samples / total_samples) * 100.0, 1),
-        "poseCoveragePct": round((pose_observed_samples / total_samples) * 100.0, 1),
+        "observedCoveragePct": mean_observed_pct,
+        "lostFramesPct": mean_lost_pct,
+        "predictedFramesPct": mean_pred_pct,
+        "poseCoveragePct": pose_cov_pct,
+        "playerCoverage": player_coverage,
     }
 
 
@@ -606,16 +709,24 @@ class TrackingSession:
         raw_config = dict(processing_config or {})
         if "device" not in raw_config:
             raw_config["device"] = device
-        resolved_cfg = resolve_processing_config(raw_config, runtime_device=resolve_device(device))
+        runtime_dev = resolve_device(device)
+        resolved_cfg = resolve_processing_config(raw_config, runtime_device=runtime_dev)
         self.processing_config = resolved_cfg
+        self.effective_processing_config = resolved_cfg
+        self.requested_profile = resolved_cfg["requestedProfile"]
+        self.effective_profile = resolved_cfg["effectiveProfile"]
+        self.requested_device = resolved_cfg["requestedDevice"]
+        self.effective_device = resolved_cfg["effectiveDevice"]
+        self.device = resolved_cfg["effectiveDevice"]
 
         self.analyzer = BadmintonAnalyzerV2(
             game_type=game_type,
             max_players=self.tracked_player_count,
-            device=resolved_cfg["device"],
+            device=self.effective_device,
             detector_input_size=resolved_cfg["detectorInputSize"],
             use_court_roi=resolved_cfg["useCourtRoi"],
             court_roi_margin_px=resolved_cfg["courtRoiMarginPx"],
+            court_roi_margin_m=resolved_cfg.get("courtRoiMarginM", 2.0),
             pose_stride=resolved_cfg["poseStride"],
         )
         self.analyzer.analysis_id = session_id
@@ -631,6 +742,9 @@ class TrackingSession:
         self.results: list[dict] = []
         self.error_message: str | None = None
         self.owned_video_path: Path | None = None
+        v_meta, r_meta = extract_video_metadata(video_source)
+        self.video_metadata: dict = v_meta
+        self.research_metadata: dict = r_meta
         self._uploading = False
         self._cancel = False
         self._thread: threading.Thread | None = None
@@ -757,7 +871,11 @@ def create_tracking_session(req: CreateSessionRequest):
         "gameType": session.game_type,
         "videoSource": session.video_source,
         "trackedPlayerCount": session.tracked_player_count,
+        "device": session.effective_device,
+        "requestedDevice": session.requested_device,
+        "effectiveDevice": session.effective_device,
         "processingConfig": session.processing_config,
+        "effectiveProcessingConfig": session.effective_processing_config,
     }
 
 
@@ -776,13 +894,16 @@ def list_tracking_sessions(project_id: str | None = None):
                 "gameType": session.game_type,
                 "projectId": session.project_id,
                 "videoFingerprint": session.video_fingerprint,
-                "device": session.analyzer.device,
+                "device": session.effective_device,
+                "requestedDevice": session.requested_device,
+                "effectiveDevice": session.effective_device,
                 "progressPct": session.progress_pct,
                 "currentFrame": session.current_frame,
                 "totalFrames": session.total_frames,
                 "analyzedFrames": session.analyzed_frames,
                 "trackedPlayerCount": session.tracked_player_count,
                 "processingConfig": session.processing_config,
+                "effectiveProcessingConfig": session.effective_processing_config,
                 "resumable": session.status not in {"COMPLETED", "ERROR"},
             }
             for session in sessions
@@ -818,8 +939,23 @@ async def upload_session_video(session_id: str, request: Request):
         session.video_source = str(temp_path)
         session.analyzer.fps = fps if fps > 0 else 30.0
         session.analyzer.dist_tracker.fps = session.analyzer.fps
+        orig_filename = (
+            request.query_params.get("filename")
+            or request.headers.get("X-Original-Filename")
+            or request.headers.get("X-Filename")
+        )
+        v_meta, r_meta = extract_video_metadata(str(temp_path), original_filename=orig_filename)
+        session.video_metadata = v_meta
+        session.research_metadata = r_meta
         temp_path = None
-        return {"sessionId": session_id, "width": frame.shape[1], "height": frame.shape[0], "fps": session.analyzer.fps}
+        return {
+            "sessionId": session_id,
+            "width": frame.shape[1],
+            "height": frame.shape[0],
+            "fps": session.analyzer.fps,
+            "videoMetadata": session.video_metadata,
+            "researchMetadata": session.research_metadata,
+        }
     finally:
         session._uploading = False
         if temp_path:
@@ -875,26 +1011,61 @@ def start_session_analysis(session_id: str):
     return {"status": "started", "sessionId": session_id}
 
 
+def _build_session_metrics(session: TrackingSession):
+    sampling_fps = round(session.source_fps / session.frame_stride, 2) if session.frame_stride > 0 else 0.0
+    analysis_fps = round(session.analyzed_frames / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+    processed_video_time = round(session.current_frame / session.source_fps, 2) if session.source_fps > 0 else 0.0
+
+    if session.status == "COMPLETED":
+        # Final performance metrics: computed against total video duration (with zero protection)
+        rtf = round(session.elapsed_sec / session.duration_sec, 2) if session.duration_sec > 0 else 0.0
+        realtime_speed = round(session.duration_sec / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+    else:
+        # Live processing metrics: computed against processed video time, NOT total duration!
+        rtf = round(session.elapsed_sec / processed_video_time, 2) if processed_video_time > 0.05 else None
+        realtime_speed = round(processed_video_time / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else None
+
+    performance = {
+        "elapsedSec": round(session.elapsed_sec, 1),
+        "processedVideoTimeSec": processed_video_time,
+        "videoDurationSec": session.duration_sec,
+        "rtf": rtf,
+        "realtimeSpeed": realtime_speed,
+        "analysisFps": analysis_fps,
+        "samplingFps": sampling_fps,
+        "isFinal": (session.status == "COMPLETED"),
+    }
+
+    quality = compute_session_quality_metrics(session.results, session.tracked_player_count)
+
+    provenance = {
+        "detectorModel": session.analyzer.model_path,
+        "trackerModel": "bytetrack",
+        "poseModel": "yolov8n-pose.pt",
+        "device": session.effective_device,
+        "requestedDevice": session.requested_device,
+        "effectiveDevice": session.effective_device,
+        "requestedProfile": session.requested_profile,
+        "effectiveProfile": session.effective_profile,
+        "detectorInputSize": session.analyzer.detector_input_size,
+        "frameStride": session.frame_stride,
+        "poseStride": session.analyzer.pose_stride,
+        "useCourtRoi": session.analyzer.use_court_roi,
+        "courtRoiMarginPx": session.analyzer.court_roi_margin_px,
+        "courtRoiMarginM": session.analyzer.court_roi_margin_m,
+    }
+
+    return performance, quality, provenance
+
+
 @app.get("/api/tracking/sessions/{session_id}/status")
 def get_session_status(session_id: str):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
 
-    sampling_fps = round(session.source_fps / session.frame_stride, 2) if session.frame_stride > 0 else 0.0
-    analysis_fps = round(session.analyzed_frames / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
-    rtf = round(session.elapsed_sec / session.duration_sec, 2) if session.duration_sec > 0 else 0.0
-    realtime_speed = round(session.duration_sec / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+    performance_stats, quality_stats, runtime_provenance = _build_session_metrics(session)
     last_timestamp = session.results[-1].get("timestampSec") if session.results else None
-    quality_stats = compute_session_quality_metrics(session.results, session.tracked_player_count)
-
-    performance_stats = {
-        "elapsedSec": round(session.elapsed_sec, 1),
-        "rtf": rtf,
-        "realtimeSpeed": realtime_speed,
-        "analysisFps": analysis_fps,
-        "samplingFps": sampling_fps,
-    }
 
     return {
         "sessionId": session_id,
@@ -909,13 +1080,20 @@ def get_session_status(session_id: str):
         "durationSec": session.duration_sec,
         "lastTelemetryTimestampSec": last_timestamp,
         "sourceFps": round(session.source_fps, 2),
-        "samplingFps": sampling_fps,
-        "analysisFps": analysis_fps,
+        "samplingFps": performance_stats["samplingFps"],
+        "analysisFps": performance_stats["analysisFps"],
         "trackedPlayerCount": session.tracked_player_count,
-        "device": session.analyzer.device,
+        "device": session.effective_device,
+        "requestedDevice": session.requested_device,
+        "effectiveDevice": session.effective_device,
         "processingConfig": session.processing_config,
+        "effectiveProcessingConfig": session.effective_processing_config,
+        "runtimeProvenance": runtime_provenance,
+        "provenance": runtime_provenance,
         "performance": performance_stats,
         "quality": quality_stats,
+        "videoMetadata": getattr(session, "video_metadata", None),
+        "researchMetadata": getattr(session, "research_metadata", None),
         "players": session.analyzer.get_live_player_statuses(),
         "error": session.error_message,
     }
@@ -933,10 +1111,7 @@ def get_session_results(session_id: str, after: int | None = None):
     else:
         items = session.results
 
-    sampling_fps = round(session.source_fps / session.frame_stride, 2) if session.frame_stride > 0 else 0.0
-    analysis_fps = round(session.analyzed_frames / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
-    rtf = round(session.elapsed_sec / session.duration_sec, 2) if session.duration_sec > 0 else 0.0
-    realtime_speed = round(session.duration_sec / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+    performance_stats, quality_stats, runtime_provenance = _build_session_metrics(session)
 
     return {
         "sessionId": session_id,
@@ -945,15 +1120,17 @@ def get_session_results(session_id: str, after: int | None = None):
         "totalSampleCount": total_count,
         "nextCursor": total_count,
         "trackedPlayerCount": session.tracked_player_count,
+        "device": session.effective_device,
+        "requestedDevice": session.requested_device,
+        "effectiveDevice": session.effective_device,
         "processingConfig": session.processing_config,
-        "performance": {
-            "elapsedSec": round(session.elapsed_sec, 1),
-            "rtf": rtf,
-            "realtimeSpeed": realtime_speed,
-            "analysisFps": analysis_fps,
-            "samplingFps": sampling_fps,
-        },
-        "quality": compute_session_quality_metrics(session.results, session.tracked_player_count),
+        "effectiveProcessingConfig": session.effective_processing_config,
+        "runtimeProvenance": runtime_provenance,
+        "provenance": runtime_provenance,
+        "performance": performance_stats,
+        "quality": quality_stats,
+        "videoMetadata": getattr(session, "video_metadata", None),
+        "researchMetadata": getattr(session, "research_metadata", None),
         "telemetry": items,
     }
 

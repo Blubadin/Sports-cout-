@@ -10,6 +10,7 @@ from pathlib import Path
 # Add ai_service to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from unittest.mock import MagicMock
 from analyzer_v2 import BadmintonAnalyzerV2
 from court_mapper import CourtMapper
 
@@ -17,6 +18,13 @@ from court_mapper import CourtMapper
 class TestTrackingProtocolV1(unittest.TestCase):
     def setUp(self):
         self.analyzer = BadmintonAnalyzerV2(game_type="doubles")
+        mock_det = MagicMock()
+        mock_det.track.return_value = []
+        self.analyzer._detector = mock_det
+        mock_pose = MagicMock()
+        mock_pose.estimate_pose_in_roi.return_value = {"keypoints": [], "metrics": {}}
+        self.analyzer._pose_detector = mock_pose
+
         # 1280x720 frame coordinate court corners
         self.court_corners = [
             [200.0, 100.0],

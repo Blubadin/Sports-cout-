@@ -74,6 +74,37 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
       observedCoveragePct: 92.5,
       lostFramesPct: 7.5,
       poseCoveragePct: 50.0,
+      playerCoverage: {
+        P1: {
+          playerId: 'P1',
+          expectedFrames: 55,
+          observedFrames: 51,
+          predictedFrames: 2,
+          lostFrames: 2,
+          observedCoveragePct: 92.7,
+          predictedFramesPct: 3.6,
+          lostFramesPct: 3.6,
+          lostTimeSec: 0.13,
+        },
+      },
+    },
+    requestedDevice: 'auto',
+    effectiveDevice: 'cpu',
+    runtimeProvenance: {
+      detectorModel: 'yolov8n.pt',
+      trackerModel: 'bytetrack',
+      poseModel: 'yolov8n-pose.pt',
+      device: 'cpu',
+      requestedDevice: 'auto',
+      effectiveDevice: 'cpu',
+      requestedProfile: 'fast',
+      effectiveProfile: 'fast',
+      detectorInputSize: 416,
+      frameStride: 2,
+      poseStride: 2,
+      useCourtRoi: true,
+      courtRoiMarginPx: 60,
+      courtRoiMarginM: 0.5,
     },
     players: [
       {
@@ -145,6 +176,24 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
       expect(screen.getByText(/fast/i)).toBeInTheDocument(); // Profile
       expect(screen.getByText('416 px')).toBeInTheDocument(); // Detector input size
       expect(screen.getByText('Enabled (margin: 60px)')).toBeInTheDocument(); // Court ROI
+    });
+
+    it('renders per-player tracking coverage and live indicator badge', () => {
+      render(<TrackingLabInspector status={mockStatus} isProcessing={true} language="en" />);
+
+      fireEvent.click(screen.getByTestId('tab-performance'));
+      expect(screen.getByText(/Live session/i)).toBeInTheDocument();
+      expect(screen.getByTestId('coverage-card-P1')).toBeInTheDocument();
+      expect(screen.getByText('51 f')).toBeInTheDocument();
+      expect(screen.getByText('0.13s')).toBeInTheDocument();
+    });
+
+    it('renders runtime models and effective vs requested device in config tab', () => {
+      render(<TrackingLabInspector status={mockStatus} isProcessing={true} language="en" />);
+
+      fireEvent.click(screen.getByTestId('tab-config'));
+      expect(screen.getByText(/yolov8n\.pt \+ yolov8n-pose\.pt \(bytetrack\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/requested: auto/i)).toBeInTheDocument();
     });
   });
 
@@ -225,9 +274,13 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
           expect.objectContaining({
             processingConfig: expect.objectContaining({
               profile: 'reference',
+              requestedProfile: 'reference',
+              device: 'auto',
+              requestedDevice: 'auto',
               detectorInputSize: 640,
               useCourtRoi: false,
               courtRoiMarginPx: 60,
+              courtRoiMarginM: 0.5,
               frameStride: 2,
               poseStride: 1,
             }),
