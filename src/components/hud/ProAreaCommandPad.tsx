@@ -13,7 +13,6 @@ import {
   type ProAreaOutZoneItem,
 } from "../../utils/proAreaLayout";
 import BadmintonTouchCourt, { resolveBadmintonPointSelection } from "../badminton/BadmintonTouchCourt";
-import { useAITracking } from "../../hooks/useAITracking";
 
 type ProAreaCommandPadProps = {
   sportType: SportType;
@@ -45,7 +44,6 @@ export default function ProAreaCommandPad({
   hoveredArea,
 }: ProAreaCommandPadProps) {
   const { settings } = useScoutContext();
-  const { players: aiPlayers, isConnected: isAIConnected } = useAITracking();
   const containerRef = useRef<HTMLDivElement>(null);
   const badmintonCourtRef = useRef<HTMLDivElement>(null);
   const [containerRect, setContainerRect] = useState<DOMRect | null>(null);
@@ -209,7 +207,6 @@ export default function ProAreaCommandPad({
             showControls={false}
             teamAName={team1}
             teamBName={team2}
-            aiPlayers={isAIConnected ? aiPlayers : undefined}
           />
         </div>
       </div>

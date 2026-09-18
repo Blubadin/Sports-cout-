@@ -31,7 +31,6 @@ import HUDSequenceHistoryDrawer from "./HUDSequenceHistoryDrawer";
 import HUDMiniCourtSelector from "./HUDMiniCourtSelector";
 import ProAreaCommandPad from "./ProAreaCommandPad";
 import HUDControllerPrompts from "./HUDControllerPrompts";
-import AIVideoTrackingOverlay from "./AIVideoTrackingOverlay";
 import { getAreaDisplay } from "../../utils/areaHelper";
 import {
   dispatchCoachCommand,
@@ -619,9 +618,6 @@ export default function ScoutHUDMode({
       id="scout-hud-container"
       className={`absolute inset-0 z-50 transition-opacity duration-300 pointer-events-none flex flex-col ${showUI ? "opacity-100" : "opacity-0"} pb-[env(safe-area-inset-bottom)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]`}
     >
-      {/* AI Video Tracking Overlay (Athletes bounding boxes & AlphaPose skeletons directly over video) */}
-      <AIVideoTrackingOverlay videoControls={videoControls} />
-
       {/* Top Warning for Portrait screen layout */}
       {isPortrait && layoutMode === "auto" && (
         <div className="absolute top-[60px] left-1/2 -translate-x-1/2 bg-amber-500/90 text-white font-bold text-[9px] md:text-xs px-3 py-1 rounded-full pointer-events-none z-50 shadow-md backdrop-blur-sm flex items-center gap-1.5 animate-pulse">

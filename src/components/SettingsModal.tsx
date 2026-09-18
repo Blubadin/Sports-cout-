@@ -548,44 +548,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         </div>
                         <input type="checkbox" checked={settings.hudShowVideoControls ?? true} onChange={e => setSettings(p => ({...p, hudShowVideoControls: e.target.checked}))} className="rounded text-sky-600 w-4 h-4 cursor-pointer" />
                       </label>
-
-                      <div className="p-3 bg-gray-50 dark:bg-gray-950 rounded-lg border border-gray-200 dark:border-gray-800 space-y-2 md:col-span-2">
-                        <label className="flex items-center justify-between cursor-pointer">
-                          <div>
-                            <div className="font-semibold text-xs text-gray-800 dark:text-gray-200">{isThai ? 'เปิดใช้งาน AI Auto-Tracking ผู้เล่น' : 'Enable AI Player Auto-Tracking'}</div>
-                            <div className="text-[11px] text-gray-500">{isThai ? 'แสดงหมุดผู้เล่น 4 คน (P1-P4) และความเร็ว/ระยะทางบนสนามแบดมินตันใน HUD' : 'Display 4 player pins (P1-P4) and speed/distance on Badminton HUD court.'}</div>
-                          </div>
-                          <input type="checkbox" checked={settings.aiTrackingEnabled ?? false} onChange={e => setSettings(p => ({...p, aiTrackingEnabled: e.target.checked}))} className="rounded text-sky-600 w-4 h-4 cursor-pointer" />
-                        </label>
-
-                        {settings.aiTrackingEnabled && (
-                          <div className="pt-2 border-t border-gray-200 dark:border-gray-800 flex flex-wrap items-center gap-4 text-xs">
-                            <span className="font-bold text-gray-500">{isThai ? 'โหมดประมวลผล:' : 'Engine:'}</span>
-                            <label className="flex items-center gap-1.5 cursor-pointer text-gray-700 dark:text-gray-300">
-                              <input
-                                type="radio"
-                                name="aiMode"
-                                value="browser"
-                                checked={(settings.aiTrackingMode ?? 'browser') === 'browser'}
-                                onChange={() => setSettings(p => ({...p, aiTrackingMode: 'browser'}))}
-                                className="text-sky-600 cursor-pointer"
-                              />
-                              <span className="font-medium">{isThai ? '⚡ ในเบราว์เซอร์ทันที (ไม่ต้องเปิด Python)' : '⚡ In-Browser (No Python)'}</span>
-                            </label>
-                            <label className="flex items-center gap-1.5 cursor-pointer text-gray-700 dark:text-gray-300">
-                              <input
-                                type="radio"
-                                name="aiMode"
-                                value="server"
-                                checked={settings.aiTrackingMode === 'server'}
-                                onChange={() => setSettings(p => ({...p, aiTrackingMode: 'server'}))}
-                                className="text-sky-600 cursor-pointer"
-                              />
-                              <span className="font-medium">{isThai ? '🐍 Python Backend (localhost:8000)' : '🐍 Python Backend (localhost:8000)'}</span>
-                            </label>
-                          </div>
-                        )}
-                      </div>
                     </div>
                   </section>
 

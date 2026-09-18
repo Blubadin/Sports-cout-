@@ -318,11 +318,16 @@ export type AppSettings = {
   hudExperienceMode?: 'auto' | 'pro' | 'phone';
   phoneScoutDensity?: 'compact' | 'comfortable';
   controllerV1Enabled?: boolean;
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiTrackingEnabled?: boolean;
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiTrackingMode?: 'browser' | 'server';
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiTrackingServerUrl?: string;
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiShowSkeleton?: boolean;
   badmintonGameType?: 'singles' | 'doubles';
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiShowVideoOverlay?: boolean;
 };
 
