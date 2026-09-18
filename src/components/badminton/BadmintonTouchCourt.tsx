@@ -31,7 +31,6 @@ export interface BadmintonTouchCourtProps {
   onExpand?: () => void;
   teamAName?: string;
   teamBName?: string;
-  aiPlayers?: import('../../types').AITrackingPlayer[];
 }
 
 // BWF Standard Normalized Dimensions
@@ -225,7 +224,6 @@ export default function BadmintonTouchCourt({
   teamBName = 'Team B',
   onHoverPoint,
   hoverPoint,
-  aiPlayers,
 }: BadmintonTouchCourtProps) {
   const isThai = uiLanguage === 'th';
   const svgRef = useRef<SVGSVGElement>(null);
@@ -616,127 +614,6 @@ export default function BadmintonTouchCourt({
               NET
             </text>
           </g>
-
-          {/* AI Tracked Players (AlphaPose Skeleton & Live Telemetry Overlay) */}
-          {aiPlayers && aiPlayers.length > 0 && (
-            <g className="ai-players-layer pointer-events-none">
-              {aiPlayers.map((player) => {
-                if (!player.court_pos_pct) return null;
-                let px = 8 + (player.court_pos_pct.x / 100) * 84;
-                let py = 6 + (player.court_pos_pct.y / 100) * 88;
-                if (flipCourtSide) {
-                  px = 8 + ((100 - player.court_pos_pct.x) / 100) * 84;
-                  py = 6 + ((100 - player.court_pos_pct.y) / 100) * 88;
-                }
-                const isTeam1 = player.team === 1;
-                const teamColor = isTeam1 ? '#38bdf8' : '#f59e0b';
-                const actionColor = player.pose_action === 'SMASH' ? '#ef4444' : player.pose_action === 'NET_SHOT' ? '#10b981' : '#38bdf8';
-
-                // AlphaPose Skeleton Bones
-                const kpts = player.keypoints;
-                const toSvgCoord = (k: { x: number; y: number }) => {
-                  let kx = 8 + (k.x / 100) * 84;
-                  let ky = 6 + (k.y / 100) * 88;
-                  if (flipCourtSide) {
-                    kx = 8 + ((100 - k.x) / 100) * 84;
-                    ky = 6 + ((100 - k.y) / 100) * 88;
-                  }
-                  return { x: kx, y: ky };
-                };
-
-                const bonePairs = [
-                  [5, 6], [5, 7], [7, 9], [6, 8], [8, 10], // Arms
-                  [5, 11], [6, 12], [11, 12],             // Torso
-                  [11, 13], [13, 15], [12, 14], [14, 16], // Legs
-                ];
-
-                return (
-                  <g key={player.id} className="transition-all duration-150 ease-out">
-                    {/* AlphaPose Skeleton Lines */}
-                    {kpts && kpts.length >= 17 && (
-                      <g className="skeleton-bones opacity-70">
-                        {bonePairs.map(([i1, i2], bIdx) => {
-                          const p1 = toSvgCoord(kpts[i1]);
-                          const p2 = toSvgCoord(kpts[i2]);
-                          return (
-                            <line
-                              key={bIdx}
-                              x1={p1.x}
-                              y1={p1.y}
-                              x2={p2.x}
-                              y2={p2.y}
-                              stroke={teamColor}
-                              strokeWidth="0.5"
-                              strokeLinecap="round"
-                            />
-                          );
-                        })}
-                        {/* Joints */}
-                        {kpts.map((k, jIdx) => {
-                          const pt = toSvgCoord(k);
-                          return (
-                            <circle
-                              key={jIdx}
-                              cx={pt.x}
-                              cy={pt.y}
-                              r="0.5"
-                              fill="#ffffff"
-                            />
-                          );
-                        })}
-                      </g>
-                    )}
-
-                    {/* Pulse Ground Shadow */}
-                    <circle cx={px} cy={py} r="3.2" fill={teamColor} opacity="0.25" />
-                    {/* Player Ground Pin */}
-                    <circle cx={px} cy={py} r="1.8" fill={teamColor} stroke="#ffffff" strokeWidth="0.5" />
-
-                    {/* Player Label */}
-                    <text
-                      x={px}
-                      y={py - 2.5}
-                      textAnchor="middle"
-                      fill="#ffffff"
-                      fontSize="2.2"
-                      fontWeight="900"
-                      stroke="#0f172a"
-                      strokeWidth="0.4"
-                      paintOrder="stroke"
-                    >
-                      {`P${player.id}`}
-                    </text>
-
-                    {/* AlphaPose Stroke Action Badge */}
-                    {player.pose_action && player.pose_action !== 'READY' && (
-                      <g>
-                        <rect
-                          x={px - 6}
-                          y={py - 6.2}
-                          width="12"
-                          height="2.8"
-                          rx="0.8"
-                          fill={actionColor}
-                          opacity="0.92"
-                        />
-                        <text
-                          x={px}
-                          y={py - 4.2}
-                          textAnchor="middle"
-                          fill="#ffffff"
-                          fontSize="1.6"
-                          fontWeight="900"
-                          letterSpacing="0.2"
-                        >
-                          {player.pose_action}
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                );
-              })}
-            </g>
-          )}
 
           {/* Selected Point Marker (Compact Precision Pin) */}
           {displayPoint && (

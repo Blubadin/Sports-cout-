@@ -96,8 +96,25 @@ describe('Phase 5 — Versioned Tracking Protocol (TrackingTelemetryV1)', () => 
       received.push(telemetry);
     });
 
-    // Emitting position triggers emitTelemetry
-    aiTrackingService.setPlayerDirectPosition(1, 40, 30);
+    const mockFrame: AITelemetryFrame = {
+      timestamp: 10.0,
+      frame_idx: 300,
+      source: 'real_tracking',
+      players: [
+        {
+          id: 1,
+          team: 1,
+          name: 'Player 1',
+          court_pos_pct: { x: 40, y: 30 },
+          zone: 'BL',
+          speed_ms: 2.0,
+          total_dist_m: 10.0,
+          is_active: true,
+        },
+      ],
+    };
+
+    aiTrackingService.emitTelemetry(mockFrame);
 
     expect(received.length).toBeGreaterThan(0);
     const last = received[received.length - 1];
@@ -109,7 +126,25 @@ describe('Phase 5 — Versioned Tracking Protocol (TrackingTelemetryV1)', () => 
   });
 
   it('provides getLatestTelemetryV1 aligned with latest frame', () => {
-    aiTrackingService.syncWithVideo(5.0, false);
+    const mockFrame: AITelemetryFrame = {
+      timestamp: 5.0,
+      frame_idx: 150,
+      source: 'real_tracking',
+      players: [
+        {
+          id: 1,
+          team: 1,
+          name: 'Player 1',
+          court_pos_pct: { x: 50, y: 50 },
+          court_pos_m: { x: 3.0, y: 6.0 },
+          zone: 'C',
+          speed_ms: 1.5,
+          total_dist_m: 20.0,
+          is_active: true,
+        },
+      ],
+    };
+    aiTrackingService.emitTelemetry(mockFrame);
     const v1 = aiTrackingService.getLatestTelemetryV1();
 
     expect(v1).not.toBeNull();

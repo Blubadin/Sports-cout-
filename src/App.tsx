@@ -4,7 +4,7 @@ import { ScoutProvider, useScoutContext } from './context/ScoutContext';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { t } from './i18n';
 import WorkspaceMenu from './components/WorkspaceMenu';
-import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star, FileText, MonitorPlay } from 'lucide-react';
+import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star, FileText, MonitorPlay, SlidersHorizontal } from 'lucide-react';
 import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { MAX_IMPORT_FILE_BYTES, validateImportFileSize } from './utils/importSafety';
@@ -294,6 +294,15 @@ function AppContent() {
   }, [settings.uiLanguage]);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const modeParam = new URLSearchParams(window.location.search).get('mode');
+      if (modeParam === 'workstation' || modeParam === 'classic') {
+        setSettings(current => ({ ...current, workspaceExperience: modeParam }));
+      }
+    }
+  }, [setSettings]);
+
+  useEffect(() => {
     if (!activeProjectId || isSettingsOpen || isKeyboardShortcutsOpen || isMatchInfoOpen) return;
 
     const handleTabKey = (event: KeyboardEvent) => {
@@ -381,6 +390,7 @@ function AppContent() {
             matchInfo={matchInfo}
             saveStatus={saveStatus}
             onEditMatch={() => setIsMatchInfoOpen(true)}
+            onSwitchToClassic={() => setSettings(current => ({ ...current, workspaceExperience: 'classic' }))}
           />
           <WorkstationCommandBar
             language={settings.uiLanguage}
@@ -472,6 +482,16 @@ function AppContent() {
               >
                 <MonitorPlay size={15} />
                 <span className="hidden sm:inline">HUD</span>
+              </button>
+            )}
+            {FEATURE_FLAGS.workstation && (
+              <button
+                onClick={() => setSettings(prev => ({ ...prev, workspaceExperience: 'workstation' }))}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 border border-sky-500/30 font-bold text-xs transition-all active:scale-95 cursor-pointer shadow-sm"
+                title={settings.uiLanguage === 'th' ? 'สลับไปยังโหมด Workstation Pro' : 'Switch to Workstation Pro'}
+              >
+                <SlidersHorizontal size={14} />
+                <span className="hidden sm:inline">Workstation</span>
               </button>
             )}
             <button

@@ -19,7 +19,7 @@ import cv2
 
 from analyzer_v2 import BadmintonAnalyzerV2
 from court_mapper import CourtMapper
-from device_runtime import capability_report
+from device_runtime import capability_report, resolve_device
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
 
@@ -446,6 +446,121 @@ async def websocket_telemetry(websocket: WebSocket):
 import uuid
 import numpy as np
 
+def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> dict:
+    cfg = dict(cfg or {})
+    profile = cfg.get("profile") or "reference"
+    device = cfg.get("device") or "auto"
+
+    # Default Reference baseline
+    detector_input_size = 640
+    use_court_roi = False
+    court_roi_margin_px = 60
+    frame_stride = 2
+    pose_stride = 1
+
+    if profile == "quality":
+        detector_input_size = 640
+        use_court_roi = False
+        court_roi_margin_px = 60
+        frame_stride = 1
+        pose_stride = 1
+    elif profile == "balanced":
+        detector_input_size = 512
+        use_court_roi = True
+        court_roi_margin_px = 60
+        frame_stride = 2
+        pose_stride = 1
+    elif profile == "fast":
+        detector_input_size = 416
+        use_court_roi = True
+        court_roi_margin_px = 60
+        frame_stride = 3
+        pose_stride = 2
+    elif profile == "auto":
+        is_cuda = (runtime_device == "cuda")
+        if is_cuda:
+            detector_input_size = 512
+            use_court_roi = True
+            court_roi_margin_px = 60
+            frame_stride = 2
+            pose_stride = 1
+        else:
+            detector_input_size = 416
+            use_court_roi = True
+            court_roi_margin_px = 60
+            frame_stride = 3
+            pose_stride = 2
+    elif profile == "custom":
+        detector_input_size = cfg.get("detector_input_size", cfg.get("detectorInputSize", 640))
+        use_court_roi = cfg.get("use_court_roi", cfg.get("useCourtRoi", False))
+        court_roi_margin_px = cfg.get("court_roi_margin_px", cfg.get("courtRoiMarginPx", 60))
+        frame_stride = cfg.get("frame_stride", cfg.get("frameStride", 2))
+        pose_stride = cfg.get("pose_stride", cfg.get("poseStride", 1))
+
+    # Explicit user overrides if provided
+    if "detector_input_size" in cfg or "detectorInputSize" in cfg:
+        detector_input_size = cfg.get("detector_input_size", cfg.get("detectorInputSize"))
+    if "use_court_roi" in cfg or "useCourtRoi" in cfg:
+        use_court_roi = cfg.get("use_court_roi", cfg.get("useCourtRoi"))
+    if "court_roi_margin_px" in cfg or "courtRoiMarginPx" in cfg:
+        court_roi_margin_px = cfg.get("court_roi_margin_px", cfg.get("courtRoiMarginPx"))
+    if "frame_stride" in cfg or "frameStride" in cfg:
+        frame_stride = cfg.get("frame_stride", cfg.get("frameStride"))
+    if "pose_stride" in cfg or "poseStride" in cfg:
+        pose_stride = cfg.get("pose_stride", cfg.get("poseStride"))
+
+    return {
+        "profile": profile,
+        "device": device,
+        "detectorInputSize": int(detector_input_size),
+        "useCourtRoi": bool(use_court_roi),
+        "courtRoiMarginPx": int(court_roi_margin_px),
+        "frameStride": max(1, int(frame_stride)),
+        "poseStride": max(1, int(pose_stride)),
+    }
+
+
+def compute_session_quality_metrics(results: list[dict], tracked_player_count: int) -> dict:
+    if not results:
+        return {
+            "observedCoveragePct": 0.0,
+            "lostFramesPct": 0.0,
+            "poseCoveragePct": 0.0,
+        }
+
+    total_samples = 0
+    observed_samples = 0
+    lost_samples = 0
+    pose_observed_samples = 0
+
+    for frame in results:
+        players = frame.get("players", [])
+        for p in players:
+            total_samples += 1
+            state = p.get("state")
+            if state == "observed":
+                observed_samples += 1
+            elif state == "lost":
+                lost_samples += 1
+
+            pose = p.get("pose")
+            if pose and not pose.get("isReused", False):
+                pose_observed_samples += 1
+
+    if total_samples == 0:
+        return {
+            "observedCoveragePct": 0.0,
+            "lostFramesPct": 0.0,
+            "poseCoveragePct": 0.0,
+        }
+
+    return {
+        "observedCoveragePct": round((observed_samples / total_samples) * 100.0, 1),
+        "lostFramesPct": round((lost_samples / total_samples) * 100.0, 1),
+        "poseCoveragePct": round((pose_observed_samples / total_samples) * 100.0, 1),
+    }
+
+
 class CreateSessionRequest(BaseModel):
     video_source: str = "demo"
     game_type: str = "doubles"
@@ -453,6 +568,7 @@ class CreateSessionRequest(BaseModel):
     video_fingerprint: str | None = None
     device: str = "auto"
     tracked_player_count: int | None = None
+    processing_config: dict | None = None
 
 class SessionCalibrationRequest(BaseModel):
     corners: list[list[float]]
@@ -471,6 +587,7 @@ class TrackingSession:
         video_fingerprint: str | None = None,
         device: str = "auto",
         tracked_player_count: int | None = None,
+        processing_config: dict | None = None,
     ):
         self.session_id = session_id
         self.video_source = video_source
@@ -486,10 +603,20 @@ class TrackingSession:
             raise ValueError(f"tracked_player_count must be between 1 and 4, got {count}")
         self.tracked_player_count = count
 
+        raw_config = dict(processing_config or {})
+        if "device" not in raw_config:
+            raw_config["device"] = device
+        resolved_cfg = resolve_processing_config(raw_config, runtime_device=resolve_device(device))
+        self.processing_config = resolved_cfg
+
         self.analyzer = BadmintonAnalyzerV2(
             game_type=game_type,
             max_players=self.tracked_player_count,
-            device=device,
+            device=resolved_cfg["device"],
+            detector_input_size=resolved_cfg["detectorInputSize"],
+            use_court_roi=resolved_cfg["useCourtRoi"],
+            court_roi_margin_px=resolved_cfg["courtRoiMarginPx"],
+            pose_stride=resolved_cfg["poseStride"],
         )
         self.analyzer.analysis_id = session_id
         self.status = "READY"  # READY | CALIBRATING | ASSIGNING_PLAYERS | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
@@ -500,9 +627,7 @@ class TrackingSession:
         self.source_fps = 30.0
         self.elapsed_sec = 0.0
         self.duration_sec = 0.0
-        # Pose inference is the expensive stage. Sampling every second frame
-        # keeps the overlay responsive while preserving the source timestamps.
-        self.frame_stride = 2
+        self.frame_stride = resolved_cfg["frameStride"]
         self.results: list[dict] = []
         self.error_message: str | None = None
         self.owned_video_path: Path | None = None
@@ -621,6 +746,7 @@ def create_tracking_session(req: CreateSessionRequest):
             video_fingerprint=req.video_fingerprint,
             device=req.device,
             tracked_player_count=req.tracked_player_count,
+            processing_config=req.processing_config,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -631,6 +757,7 @@ def create_tracking_session(req: CreateSessionRequest):
         "gameType": session.game_type,
         "videoSource": session.video_source,
         "trackedPlayerCount": session.tracked_player_count,
+        "processingConfig": session.processing_config,
     }
 
 
@@ -655,6 +782,7 @@ def list_tracking_sessions(project_id: str | None = None):
                 "totalFrames": session.total_frames,
                 "analyzedFrames": session.analyzed_frames,
                 "trackedPlayerCount": session.tracked_player_count,
+                "processingConfig": session.processing_config,
                 "resumable": session.status not in {"COMPLETED", "ERROR"},
             }
             for session in sessions
@@ -755,7 +883,18 @@ def get_session_status(session_id: str):
 
     sampling_fps = round(session.source_fps / session.frame_stride, 2) if session.frame_stride > 0 else 0.0
     analysis_fps = round(session.analyzed_frames / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+    rtf = round(session.elapsed_sec / session.duration_sec, 2) if session.duration_sec > 0 else 0.0
+    realtime_speed = round(session.duration_sec / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
     last_timestamp = session.results[-1].get("timestampSec") if session.results else None
+    quality_stats = compute_session_quality_metrics(session.results, session.tracked_player_count)
+
+    performance_stats = {
+        "elapsedSec": round(session.elapsed_sec, 1),
+        "rtf": rtf,
+        "realtimeSpeed": realtime_speed,
+        "analysisFps": analysis_fps,
+        "samplingFps": sampling_fps,
+    }
 
     return {
         "sessionId": session_id,
@@ -774,6 +913,9 @@ def get_session_status(session_id: str):
         "analysisFps": analysis_fps,
         "trackedPlayerCount": session.tracked_player_count,
         "device": session.analyzer.device,
+        "processingConfig": session.processing_config,
+        "performance": performance_stats,
+        "quality": quality_stats,
         "players": session.analyzer.get_live_player_statuses(),
         "error": session.error_message,
     }
@@ -791,6 +933,11 @@ def get_session_results(session_id: str, after: int | None = None):
     else:
         items = session.results
 
+    sampling_fps = round(session.source_fps / session.frame_stride, 2) if session.frame_stride > 0 else 0.0
+    analysis_fps = round(session.analyzed_frames / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+    rtf = round(session.elapsed_sec / session.duration_sec, 2) if session.duration_sec > 0 else 0.0
+    realtime_speed = round(session.duration_sec / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+
     return {
         "sessionId": session_id,
         "status": session.status,
@@ -798,6 +945,15 @@ def get_session_results(session_id: str, after: int | None = None):
         "totalSampleCount": total_count,
         "nextCursor": total_count,
         "trackedPlayerCount": session.tracked_player_count,
+        "processingConfig": session.processing_config,
+        "performance": {
+            "elapsedSec": round(session.elapsed_sec, 1),
+            "rtf": rtf,
+            "realtimeSpeed": realtime_speed,
+            "analysisFps": analysis_fps,
+            "samplingFps": sampling_fps,
+        },
+        "quality": compute_session_quality_metrics(session.results, session.tracked_player_count),
         "telemetry": items,
     }
 

@@ -167,10 +167,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     hudInteractionStyle: 'click',
     hudExperienceMode: 'auto',
     phoneScoutDensity: 'comfortable',
-    controllerV1Enabled: false,
-    aiTrackingEnabled: false,
-    aiTrackingMode: 'browser',
-    aiTrackingServerUrl: 'ws://localhost:8000/ws/telemetry'
+    controllerV1Enabled: false
   });
 
   const [events, setEvents] = useLocalStorage<EventRow[]>('scout_events', []);

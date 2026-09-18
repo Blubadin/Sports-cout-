@@ -11,4 +11,9 @@ describe('pilot feature flags', () => {
     expect(resolveFeatureFlags({ VITE_ENABLE_WORKSTATION: 'true' }).workstation).toBe(true);
     expect(resolveFeatureFlags({ VITE_ENABLE_WORKSTATION: 'false' }).workstation).toBe(false);
   });
+
+  it('handles whitespace resilience in environment flags', () => {
+    expect(resolveFeatureFlags({ VITE_ENABLE_WORKSTATION: 'true ' }).workstation).toBe(true);
+    expect(resolveFeatureFlags({ VITE_ENABLE_WORKSTATION: ' true\n' }).workstation).toBe(true);
+  });
 });

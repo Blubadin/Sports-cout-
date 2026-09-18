@@ -1,4 +1,9 @@
-import type { TrackingTelemetryV1 } from '../../types';
+import type {
+  TrackingTelemetryV1,
+  ProcessingConfig,
+  TrackingPerformanceStats,
+  TrackingQualityStats,
+} from '../../types';
 
 export interface TrackingPlayerMetadata {
   playerId: string;
@@ -28,8 +33,8 @@ export interface PlayerMovementMetrics {
     rightPercent: number;
   };
   basePosition: {
-    avgCourtX: number;
-    avgCourtY: number;
+    avgCourtX: number | null;
+    avgCourtY: number | null;
     dispersion: number;
   };
   lateralMovementMeters: number;
@@ -57,6 +62,12 @@ export interface TrackingAnalysis {
   sampleRateHz: number;
   createdAt: string;
   completedAt?: string;
+  device?: string;
+  analyzedFrames?: number;
+  totalFrames?: number;
+  processingConfig?: ProcessingConfig;
+  performance?: TrackingPerformanceStats;
+  qualityStats?: TrackingQualityStats;
   players: TrackingPlayerMetadata[];
   quality: TrackingQuality;
   summary: TrackingSummary;
@@ -398,10 +409,19 @@ export function getTrackingStorageDriver(): TrackingStorageDriver {
   return activeDriver;
 }
 
+export function getLatestTrackingAnalysis(analyses: TrackingAnalysis[]): TrackingAnalysis | null {
+  if (!analyses || analyses.length === 0) return null;
+  const sorted = [...analyses].sort((a, b) => {
+    const timeA = new Date(a.completedAt || a.createdAt).getTime();
+    const timeB = new Date(b.completedAt || b.createdAt).getTime();
+    return timeB - timeA;
+  });
+  return sorted[0] ?? null;
+}
+
 export async function loadBadmintonTrackingAnalysis(projectId: string): Promise<TrackingAnalysis | null> {
-  const driver = getTrackingStorageDriver();
-  const list = await driver.listAnalyses(projectId);
-  return list[0] ?? null;
+  const list = await listTrackingAnalyses(projectId);
+  return getLatestTrackingAnalysis(list);
 }
 
 // -------------------------------------------------------------
@@ -421,10 +441,10 @@ export function calculateP95(values: number[]): number {
 /**
  * Calculates court distance and movement metrics for a set of samples
  */
-export function computePlayerMovementMetrics(samples: TrackingSample[]): PlayerMovementMetrics {
+export function computePlayerMovementMetrics(samples: TrackingSample[], canonicalTotalDist?: number): PlayerMovementMetrics {
   if (samples.length === 0) {
     return {
-      totalDistanceMeters: 0,
+      totalDistanceMeters: canonicalTotalDist !== undefined ? Number(canonicalTotalDist.toFixed(2)) : 0,
       avgSpeedMps: 0,
       p95SpeedMps: 0,
       maxSpeedMps: 0,
@@ -435,7 +455,7 @@ export function computePlayerMovementMetrics(samples: TrackingSample[]): PlayerM
         leftPercent: 0,
         rightPercent: 0,
       },
-      basePosition: { avgCourtX: 0, avgCourtY: 0, dispersion: 0 },
+      basePosition: { avgCourtX: null, avgCourtY: null, dispersion: 0 },
       lateralMovementMeters: 0,
       frontBackMovementMeters: 0,
     };
@@ -503,12 +523,12 @@ export function computePlayerMovementMetrics(samples: TrackingSample[]): PlayerM
   const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0;
   const p95Speed = calculateP95(speeds);
 
-  const avgX = count > 0 ? sumX / count : 3.05;
-  const avgY = count > 0 ? sumY / count : 6.70;
+  const avgX = count > 0 ? sumX / count : null;
+  const avgY = count > 0 ? sumY / count : null;
 
   // Dispersion: average Euclidean distance from base position
   let totalDispersion = 0;
-  if (count > 0) {
+  if (count > 0 && avgX !== null && avgY !== null) {
     for (const s of samples) {
       if (s.trackingState !== 'tracked') continue;
       const dx = s.courtX - avgX;
@@ -519,8 +539,9 @@ export function computePlayerMovementMetrics(samples: TrackingSample[]): PlayerM
   const dispersion = count > 0 ? totalDispersion / count : 0;
 
   const validCount = Math.max(1, count);
+  const effectiveTotalDist = canonicalTotalDist !== undefined ? canonicalTotalDist : totalDist;
   return {
-    totalDistanceMeters: Number(totalDist.toFixed(2)),
+    totalDistanceMeters: Number(effectiveTotalDist.toFixed(2)),
     avgSpeedMps: Number(avgSpeed.toFixed(2)),
     p95SpeedMps: Number(p95Speed.toFixed(2)),
     maxSpeedMps: Number(maxSpeed.toFixed(2)),
@@ -532,8 +553,8 @@ export function computePlayerMovementMetrics(samples: TrackingSample[]): PlayerM
       rightPercent: Number(((rightCount / validCount) * 100).toFixed(1)),
     },
     basePosition: {
-      avgCourtX: Number(avgX.toFixed(2)),
-      avgCourtY: Number(avgY.toFixed(2)),
+      avgCourtX: avgX !== null ? Number(avgX.toFixed(2)) : null,
+      avgCourtY: avgY !== null ? Number(avgY.toFixed(2)) : null,
       dispersion: Number(dispersion.toFixed(2)),
     },
     lateralMovementMeters: Number(lateralDist.toFixed(2)),
@@ -548,16 +569,23 @@ export function downsampleAndChunkTrackingSamples(
   analysisId: string,
   frames: TrackingTelemetryV1[],
   targetHz = 10,
-  chunkDurationSec = 15
+  chunkDurationSec = 15,
+  canonicalPlayerMetrics?: Record<string, { totalDistanceM?: number }>
 ): {
   chunks: TrackingSampleChunk[];
   summary: TrackingSummary;
   quality: TrackingQuality;
 } {
   if (frames.length === 0) {
+    const emptyPlayerSummaries: Record<string, PlayerMovementMetrics> = {};
+    if (canonicalPlayerMetrics) {
+      for (const [pId, m] of Object.entries(canonicalPlayerMetrics)) {
+        emptyPlayerSummaries[pId] = computePlayerMovementMetrics([], m.totalDistanceM);
+      }
+    }
     return {
       chunks: [],
-      summary: { durationSeconds: 0, sampleCount: 0, players: {} },
+      summary: { durationSeconds: 0, sampleCount: 0, players: emptyPlayerSummaries },
       quality: {
         detectionCoverage: 0,
         lostTimePercent: 100,
@@ -570,6 +598,7 @@ export function downsampleAndChunkTrackingSamples(
 
   // 1. Full-Rate Processing for Canonical Movement Metrics and Quality
   const fullRatePlayerSamples = new Map<string, TrackingSample[]>();
+  const lastTotalDistances = new Map<string, number>();
   let totalConfidence = 0;
   let confidenceCount = 0;
   let inputObservedFrameCount = 0;
@@ -580,6 +609,9 @@ export function downsampleAndChunkTrackingSamples(
     if (hasObserved) inputObservedFrameCount++;
 
     for (const p of frame.players) {
+      if (typeof p.totalDistanceM === 'number') {
+        lastTotalDistances.set(p.playerId, p.totalDistanceM);
+      }
       if (!p.courtPosition) continue;
       if (p.state === 'observed' && typeof p.detectionConfidence === 'number') {
         totalConfidence += p.detectionConfidence;
@@ -651,7 +683,16 @@ export function downsampleAndChunkTrackingSamples(
   // 4. Compute Player Summaries from Full-Rate Telemetry (preserving all high-frequency motion)
   const playerSummaries: Record<string, PlayerMovementMetrics> = {};
   for (const [pId, pSamples] of fullRatePlayerSamples.entries()) {
-    playerSummaries[pId] = computePlayerMovementMetrics(pSamples);
+    const canonicalDist = canonicalPlayerMetrics?.[pId]?.totalDistanceM ?? lastTotalDistances.get(pId);
+    playerSummaries[pId] = computePlayerMovementMetrics(pSamples, canonicalDist);
+  }
+
+  if (canonicalPlayerMetrics) {
+    for (const [pId, m] of Object.entries(canonicalPlayerMetrics)) {
+      if (!playerSummaries[pId]) {
+        playerSummaries[pId] = computePlayerMovementMetrics([], m.totalDistanceM);
+      }
+    }
   }
 
   const summary: TrackingSummary = {
@@ -724,7 +765,12 @@ export async function getTrackingAnalysis(analysisId: string): Promise<TrackingA
 
 export async function listTrackingAnalyses(projectId?: string): Promise<TrackingAnalysis[]> {
   const driver = getTrackingStorageDriver();
-  return driver.listAnalyses(projectId);
+  const list = await driver.listAnalyses(projectId);
+  return list.sort((a, b) => {
+    const timeA = new Date(a.completedAt || a.createdAt).getTime();
+    const timeB = new Date(b.completedAt || b.createdAt).getTime();
+    return timeA - timeB;
+  });
 }
 
 export async function getTrackingSampleChunks(analysisId: string): Promise<TrackingSampleChunk[]> {

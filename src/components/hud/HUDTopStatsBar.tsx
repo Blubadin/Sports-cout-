@@ -11,11 +11,8 @@ import {
   MousePointerClick,
   Clock,
   EyeOff,
-  Bot,
-  Crosshair,
 } from "lucide-react";
 import { formatPreciseTime } from "../../utils";
-import { useAITracking } from "../../hooks/useAITracking";
 
 interface Props {
   videoControls: any;
@@ -44,20 +41,6 @@ export default function HUDTopStatsBar({
     settings,
     setSettings,
   } = useScoutContext();
-
-  const {
-    isConnected: isAIConnected,
-    isConnecting: isAIConnecting,
-    players: aiPlayers,
-    toggleConnect,
-    gameType,
-    toggleGameType,
-    isMarkingMode,
-    markingStep,
-    totalMarkingSteps,
-    startMarkingMode,
-    cancelMarkingMode,
-  } = useAITracking();
 
   const totalEvents = events.length;
   const currentRallyLength = currentActions.length;
@@ -208,96 +191,6 @@ export default function HUDTopStatsBar({
 
       {/* Right: Controls */}
       <div className="flex items-center justify-end gap-1.5 sm:gap-2.5 flex-1 pointer-events-auto">
-        {/* AI Auto-Tracking Buttons (Badminton) */}
-        {matchInfo.sportType === "badminton" && (
-          <>
-            {/* Badminton Game Type: Singles (2P) vs Doubles (4P) Toggle */}
-            <button
-              type="button"
-              onClick={toggleGameType}
-              className={`px-2 sm:px-2.5 py-1.5 rounded-full backdrop-blur transition-all text-[11px] sm:text-xs font-bold tracking-wider flex items-center gap-1 shadow-md active:scale-95 border cursor-pointer ${
-                gameType === "singles"
-                  ? "bg-amber-600/85 hover:bg-amber-500 border-amber-400 text-white shadow-amber-500/20"
-                  : "bg-indigo-600/85 hover:bg-indigo-500 border-indigo-400 text-white shadow-indigo-500/20"
-              }`}
-              title={
-                settings.uiLanguage === "th"
-                  ? `รูปแบบการเล่น: ${gameType === "singles" ? "ประเภทเดี่ยว (Singles 2 คน)" : "ประเภทคู่ (Doubles 4 คน)"} คลิกเพื่อสลับ`
-                  : `Format: ${gameType === "singles" ? "Singles (2 Players)" : "Doubles (4 Players)"}. Click to toggle.`
-              }
-            >
-              <span>{gameType === "singles" ? "🏸 1v1 เดี่ยว" : "🏸 2v2 คู่"}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleConnect}
-              className={`px-2.5 py-1.5 rounded-full backdrop-blur transition-all text-xs font-bold tracking-wider uppercase flex items-center gap-1 shadow-md active:scale-95 border cursor-pointer ${
-                isAIConnected
-                  ? "bg-emerald-600/90 hover:bg-emerald-500 border-emerald-400 text-white shadow-emerald-500/30"
-                  : isAIConnecting
-                  ? "bg-amber-600/90 hover:bg-amber-500 border-amber-400 text-white animate-pulse"
-                  : "bg-black/40 hover:bg-white/20 border-white/20 text-white/70 hover:text-white"
-              }`}
-              title={
-                settings.uiLanguage === "th"
-                  ? isAIConnected
-                    ? `AI Video Tracking: กำลังทำงาน (${aiPlayers.length} คน) คลิกเพื่อปิด`
-                    : isAIConnecting
-                    ? "AI Video Tracking: กำลังเริ่มระบบ..."
-                    : `AI Video Tracking: คลิกเพื่อเปิดแทร็กผู้เล่น ${gameType === "singles" ? "2 คน (เดี่ยว)" : "4 คน (คู่)"} ทับบนวิดีโอทันที`
-                  : isAIConnected
-                  ? `AI Tracking: Active (${aiPlayers.length} players). Click to stop.`
-                  : isAIConnecting
-                  ? "AI Tracking: Starting..."
-                  : `AI Tracking: Click to start ${gameType === "singles" ? "2-player singles" : "4-player doubles"} tracking overlay directly on video`
-              }
-            >
-              <Bot size={12} className={isAIConnected ? "text-emerald-200" : "text-gray-400"} />
-              <span className="hidden xs:inline">
-                {isAIConnected ? `AI (${aiPlayers.length || (gameType === "singles" ? 2 : 4)})` : isAIConnecting ? "AI..." : "AI"}
-              </span>
-            </button>
-
-            {/* Click-to-Mark Players Button */}
-            <button
-              type="button"
-              onClick={() => {
-                if (isMarkingMode) {
-                  cancelMarkingMode();
-                } else {
-                  startMarkingMode();
-                }
-              }}
-              className={`px-2.5 py-1.5 rounded-full backdrop-blur transition-all text-xs font-bold tracking-wider flex items-center gap-1.5 shadow-md active:scale-95 border cursor-pointer ${
-                isMarkingMode
-                  ? "bg-amber-500 hover:bg-amber-400 border-amber-300 text-slate-950 font-black animate-pulse shadow-amber-500/40"
-                  : "bg-black/40 hover:bg-white/20 border-white/20 text-white/80 hover:text-white"
-              }`}
-              title={
-                settings.uiLanguage === "th"
-                  ? isMarkingMode
-                    ? `โหมดมาร์กจุด: กำลังมาร์กผู้เล่นที่ ${markingStep + 1}/${totalMarkingSteps} (คลิกเพื่อยกเลิก)`
-                    : "คลิกเพื่อมาร์กจุดตัวนักกีฬาบนคลิปวิดีโอ (Click to mark player positions on video)"
-                  : isMarkingMode
-                  ? `Marking Mode: Player ${markingStep + 1}/${totalMarkingSteps} (Click to cancel)`
-                  : "Click to mark player positions on video"
-              }
-            >
-              <Crosshair size={13} className={isMarkingMode ? "text-slate-950 animate-spin" : "text-amber-400"} />
-              <span className="hidden xs:inline">
-                {isMarkingMode
-                  ? settings.uiLanguage === "th"
-                    ? `มาร์ก ${markingStep + 1}/${totalMarkingSteps}`
-                    : `Mark ${markingStep + 1}/${totalMarkingSteps}`
-                  : settings.uiLanguage === "th"
-                  ? "มาร์กจุด"
-                  : "Mark"}
-              </span>
-            </button>
-          </>
-        )}
-
         {/* Interaction Mode Button */}
         <button
           onClick={() => {

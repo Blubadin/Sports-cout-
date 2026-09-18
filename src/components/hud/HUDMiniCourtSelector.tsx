@@ -6,7 +6,6 @@ import { useScoutContext } from "../../context/ScoutContext";
 import { getAreaDisplay } from "../../utils/areaHelper";
 import BadmintonTouchCourt from "../badminton/BadmintonTouchCourt";
 import BadmintonTouchPadModal from "../badminton/BadmintonTouchPadModal";
-import { useAITracking } from "../../hooks/useAITracking";
 
 type HUDMiniCourtSelectorProps = {
   sportType: SportType;
@@ -41,7 +40,6 @@ export default function HUDMiniCourtSelector({
   isProPad = false,
 }: HUDMiniCourtSelectorProps) {
   const { settings } = useScoutContext();
-  const { players: aiPlayers, isConnected: isAIConnected, gameType } = useAITracking();
   const selectedAreaCode = currentAction.areaCode;
   const layout = useHUDDeviceLayout();
   const isMobile = layout.device === "phone";
@@ -404,7 +402,7 @@ export default function HUDMiniCourtSelector({
           courtSide={currentAction.courtSide}
           outZone={currentAction.outZone}
           onSelectArea={onSelectArea}
-          isDoubles={gameType !== "singles"}
+          isDoubles={settings.badmintonGameType !== "singles"}
           compact={compact}
           flipCourtSide={flipCourtSide}
           uiLanguage={settings.uiLanguage}
@@ -412,7 +410,6 @@ export default function HUDMiniCourtSelector({
           onExpand={() => setIsBadmintonModalOpen(true)}
           teamAName={team1}
           teamBName={team2}
-          aiPlayers={isAIConnected ? aiPlayers : undefined}
         />
 
         {compact && (
@@ -436,7 +433,7 @@ export default function HUDMiniCourtSelector({
           courtSide={currentAction.courtSide}
           outZone={currentAction.outZone}
           onSelectArea={onSelectArea}
-          isDoubles={gameType !== "singles"}
+          isDoubles={settings.badmintonGameType !== "singles"}
           flipCourtSide={flipCourtSide}
           uiLanguage={settings.uiLanguage}
           teamAName={team1}

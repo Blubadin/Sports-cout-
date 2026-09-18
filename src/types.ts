@@ -318,11 +318,16 @@ export type AppSettings = {
   hudExperienceMode?: 'auto' | 'pro' | 'phone';
   phoneScoutDensity?: 'compact' | 'comfortable';
   controllerV1Enabled?: boolean;
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiTrackingEnabled?: boolean;
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiTrackingMode?: 'browser' | 'server';
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiTrackingServerUrl?: string;
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiShowSkeleton?: boolean;
   badmintonGameType?: 'singles' | 'doubles';
+  /** @deprecated Legacy HUD AI tracking setting — removed in Phase 2 */
   aiShowVideoOverlay?: boolean;
 };
 
@@ -431,39 +436,43 @@ export interface TrackingPoseV1 {
     y: number;
     score: number;
     name?: string;
+    isReused?: boolean;
+    ageFrames?: number;
   }[];
   metrics?: PoseMetrics2D;
   action?: string;
-  confidence?: number;
+  confidence?: number | null;
+  isReused?: boolean;
+  ageFrames?: number;
 }
 
 export interface TrackingPlayerV1 {
   playerId: string;
-  trackId?: number;
+  trackId?: number | null;
   teamCode?: string;
   bboxPct?: {
     x: number;
     y: number;
     width: number;
     height: number;
-  };
+  } | null;
   groundPointPct?: {
     x: number;
     y: number;
-  };
-  courtPosition: {
+  } | null;
+  courtPosition?: {
     xM: number;
     yM: number;
     xPct: number;
     yPct: number;
-  };
-  absoluteZone?: string;
-  playerRelativeZone?: string;
-  speedMps?: number;
+  } | null;
+  absoluteZone?: string | null;
+  playerRelativeZone?: string | null;
+  speedMps?: number | null;
   totalDistanceM?: number;
-  detectionConfidence: number;
+  detectionConfidence?: number | null;
   state: 'observed' | 'predicted' | 'lost';
-  pose?: TrackingPoseV1;
+  pose?: TrackingPoseV1 | null;
 }
 
 export interface TrackingTelemetryV1 {
@@ -528,7 +537,7 @@ export interface TrackingLivePlayerStatus {
   totalDistanceM: number;
   currentSpeedMps: number;
   trackingState: 'observed' | 'predicted' | 'lost';
-  detectionConfidence: number;
+  detectionConfidence?: number | null;
   courtPosition?: {
     xM: number;
     yM: number;
@@ -553,7 +562,36 @@ export interface TrackingSessionStatus {
   analysisFps: number;
   trackedPlayerCount: number;
   device: string;
+  processingConfig?: ProcessingConfig;
+  performance?: TrackingPerformanceStats;
+  quality?: TrackingQualityStats;
   players: TrackingLivePlayerStatus[];
   error: string | null;
+}
+
+export type ProcessingProfile = 'auto' | 'reference' | 'fast' | 'balanced' | 'quality' | 'custom';
+
+export interface ProcessingConfig {
+  profile?: ProcessingProfile;
+  device: 'auto' | 'cpu' | 'cuda' | 'mps';
+  detectorInputSize: number;
+  useCourtRoi: boolean;
+  courtRoiMarginPx: number;
+  frameStride: number;
+  poseStride: number;
+}
+
+export interface TrackingPerformanceStats {
+  elapsedSec: number;
+  rtf: number;
+  realtimeSpeed: number;
+  analysisFps: number;
+  samplingFps: number;
+}
+
+export interface TrackingQualityStats {
+  observedCoveragePct: number;
+  lostFramesPct: number;
+  poseCoveragePct: number;
 }
 

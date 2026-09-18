@@ -1,167 +1,204 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import { trackingSessionApi } from '../../services/trackingSessionApi';
 import { aiTrackingService } from '../../services/aiTrackingService';
-import { AITelemetryFrame } from '../../types';
 
-describe('AI Tracking Service & Telemetry Flow', () => {
-  beforeEach(() => {
-    aiTrackingService.disconnect();
-  });
+describe('Phase 2 — Legacy HUD Tracking Removal & Boundary Isolation', () => {
+  const srcRoot = path.resolve(__dirname, '../../');
 
-  it('initializes with disconnected status', () => {
-    expect(aiTrackingService.getStatus()).toBe('disconnected');
-    expect(aiTrackingService.getLatestFrame()).toBeNull();
-  });
+  describe('1. HUD Component Cleanliness & Decoupling', () => {
+    it('verifies ScoutHUDMode does NOT import or mount AIVideoTrackingOverlay', () => {
+      const hudFile = path.join(srcRoot, 'components/hud/ScoutHUDMode.tsx');
+      const content = fs.readFileSync(hudFile, 'utf-8');
 
-  it('notifies status listeners on status change', () => {
-    const statuses: string[] = [];
-    const unsub = aiTrackingService.onStatus((s) => statuses.push(s));
-
-    expect(statuses).toContain('disconnected');
-    unsub();
-  });
-
-  it('notifies telemetry listeners when telemetry frame arrives', () => {
-    const receivedFrames: AITelemetryFrame[] = [];
-    const unsub = aiTrackingService.onTelemetry((frame) => {
-      receivedFrames.push(frame);
+      expect(content).not.toContain('AIVideoTrackingOverlay');
+      expect(content).not.toContain('<AIVideoTrackingOverlay');
     });
 
-    const mockFrame: AITelemetryFrame = {
-      timestamp: 12.34,
-      frame_idx: 370,
-      players: [
-        {
-          id: 1,
-          team: 1,
-          name: 'Player 1',
-          court_pos_pct: { x: 35.0, y: 22.0 },
-          zone: 'BL',
-          speed_ms: 2.5,
-          total_dist_m: 45.0,
-        },
-        {
-          id: 2,
-          team: 1,
-          name: 'Player 2',
-          court_pos_pct: { x: 70.0, y: 30.0 },
-          zone: 'BR',
-          speed_ms: 1.8,
-          total_dist_m: 38.0,
-        },
-        {
-          id: 3,
-          team: 2,
-          name: 'Player 3',
-          court_pos_pct: { x: 30.0, y: 70.0 },
-          zone: 'FL',
-          speed_ms: 3.2,
-          total_dist_m: 52.0,
-        },
-        {
-          id: 4,
-          team: 2,
-          name: 'Player 4',
-          court_pos_pct: { x: 65.0, y: 85.0 },
-          zone: 'BR',
-          speed_ms: 2.1,
-          total_dist_m: 40.0,
-        },
-      ],
-    };
+    it('verifies AIVideoTrackingOverlay and useAITracking files have been removed from source', () => {
+      const overlayFile = path.join(srcRoot, 'components/hud/AIVideoTrackingOverlay.tsx');
+      const hookFile = path.join(srcRoot, 'hooks/useAITracking.ts');
 
-    // Simulate WebSocket message reception
-    // @ts-ignore - access private handler for testing
-    if (aiTrackingService['telemetryListeners']) {
-      // @ts-ignore
-      aiTrackingService['latestFrame'] = mockFrame;
-      // @ts-ignore
-      aiTrackingService['telemetryListeners'].forEach((cb: any) => cb(mockFrame));
-    }
-
-    expect(receivedFrames.length).toBe(1);
-    expect(receivedFrames[0].players.length).toBe(4);
-    expect(receivedFrames[0].players[0].name).toBe('Player 1');
-    expect(receivedFrames[0].players[2].zone).toBe('FL');
-
-    unsub();
-  });
-
-  it('runs directly in browser without server when mode is browser', () => {
-    vi.useFakeTimers();
-    aiTrackingService.setMode('browser');
-    expect(aiTrackingService.getMode()).toBe('browser');
-
-    let latestFrame: AITelemetryFrame | null = null;
-    const unsub = aiTrackingService.onTelemetry((f) => {
-      latestFrame = f;
+      expect(fs.existsSync(overlayFile)).toBe(false);
+      expect(fs.existsSync(hookFile)).toBe(false);
     });
 
-    aiTrackingService.connect();
-    expect(aiTrackingService.getStatus()).toBe('connected');
+    it('verifies HUDTopStatsBar contains no AI tracking controls or toggles', () => {
+      const statsBarFile = path.join(srcRoot, 'components/hud/HUDTopStatsBar.tsx');
+      const content = fs.readFileSync(statsBarFile, 'utf-8');
 
-    vi.advanceTimersByTime(100);
-    expect(latestFrame).not.toBeNull();
-    expect(latestFrame!.players.length).toBe(4);
-    expect(latestFrame!.source).toBe('in_browser_engine');
-
-    // Test player swap
-    aiTrackingService.swapPlayers(1, 2);
-    vi.advanceTimersByTime(60);
-    expect(latestFrame!.players.length).toBe(4);
-
-    aiTrackingService.disconnect();
-    expect(aiTrackingService.getStatus()).toBe('disconnected');
-    unsub();
-    vi.useRealTimers();
-  });
-
-  it('supports interactive click-to-mark player anchoring in singles', () => {
-    aiTrackingService.setGameType('singles');
-    aiTrackingService.resetAnchors();
-    expect(aiTrackingService.getMarkingState().isMarking).toBe(false);
-
-    let lastState: any = null;
-    const unsub = aiTrackingService.onMarking((state) => {
-      lastState = state;
+      expect(content).not.toContain('useAITracking');
+      expect(content).not.toContain('AI Video Tracking');
+      expect(content).not.toContain('startMarkingMode');
+      expect(content).not.toContain('isMarkingMode');
     });
 
-    aiTrackingService.startMarkingMode();
-    expect(lastState.isMarking).toBe(true);
-    expect(lastState.step).toBe(0);
-    expect(lastState.totalSteps).toBe(2);
-    expect(lastState.targetPlayerId).toBe(1);
-    expect(lastState.targetPlayerName).toContain('แดนบน');
+    it('verifies HUDMiniCourtSelector and ProAreaCommandPad do not use useAITracking or aiPlayers', () => {
+      const miniCourtFile = path.join(srcRoot, 'components/hud/HUDMiniCourtSelector.tsx');
+      const miniCourtContent = fs.readFileSync(miniCourtFile, 'utf-8');
+      expect(miniCourtContent).not.toContain('useAITracking');
+      expect(miniCourtContent).not.toContain('aiPlayers');
 
-    // Step 0: Mark Player 1 (Top Court Naraoka at screen 48%, 32%)
-    aiTrackingService.markPlayerAtScreen(48, 32);
-    expect(lastState.isMarking).toBe(true);
-    expect(lastState.step).toBe(1);
-    expect(lastState.targetPlayerId).toBe(2);
-    expect(lastState.targetPlayerName).toContain('แดนล่าง');
+      const commandPadFile = path.join(srcRoot, 'components/hud/ProAreaCommandPad.tsx');
+      const commandPadContent = fs.readFileSync(commandPadFile, 'utf-8');
+      expect(commandPadContent).not.toContain('useAITracking');
+      expect(commandPadContent).not.toContain('aiPlayers');
+    });
 
-    // Step 1: Mark Player 2 (Bottom Court opponent at screen 52%, 78%)
-    aiTrackingService.markPlayerAtScreen(52, 78);
-    // After step 1 in singles (2 steps total), marking completes and auto-starts tracking!
-    expect(lastState.isMarking).toBe(false);
-    expect(aiTrackingService.getStatus()).toBe('connected');
+    it('verifies BadmintonTouchCourt does not accept or render aiPlayers', () => {
+      const courtFile = path.join(srcRoot, 'components/badminton/BadmintonTouchCourt.tsx');
+      const courtContent = fs.readFileSync(courtFile, 'utf-8');
 
-    const frame = aiTrackingService.getLatestFrame();
-    expect(frame).not.toBeNull();
-    const p1 = frame!.players.find((p) => p.id === 1);
-    const p2 = frame!.players.find((p) => p.id === 2);
-    expect(p1).toBeDefined();
-    expect(p2).toBeDefined();
+      expect(courtContent).not.toContain('aiPlayers?:');
+      expect(courtContent).not.toContain('ai-players-layer');
+    });
 
-    // Verify player 1 bbox is centered around screenX=48, screenY=32
-    expect(p1!.video_bbox_pct).toBeDefined();
-    const p1CenterX = p1!.video_bbox_pct!.x + p1!.video_bbox_pct!.width / 2;
-    expect(Math.abs(p1CenterX - 48)).toBeLessThan(2);
+    it('verifies SettingsModal does not contain legacy AI tracking toggles', () => {
+      const settingsFile = path.join(srcRoot, 'components/SettingsModal.tsx');
+      const settingsContent = fs.readFileSync(settingsFile, 'utf-8');
 
-    // Test Reset Anchors clears custom positions
-    aiTrackingService.resetAnchors();
-    expect(aiTrackingService.getPlayerCustomPosition(1)).toBeNull();
+      expect(settingsContent).not.toContain('aiTrackingEnabled');
+      expect(settingsContent).not.toContain('aiTrackingMode');
+      expect(settingsContent).not.toContain('เปิดใช้งาน AI Auto-Tracking ผู้เล่น');
+    });
+  });
 
-    aiTrackingService.disconnect();
-    unsub();
+  describe('2. Canonical trackingSessionApi Client Contracts', () => {
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+      trackingSessionApi.setBaseUrl('http://127.0.0.1:8000');
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('handles checkBackendHealth correctly', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 'healthy' }),
+      } as any);
+
+      const isHealthy = await trackingSessionApi.checkBackendHealth();
+      expect(isHealthy).toBe(true);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/status',
+        expect.any(Object)
+      );
+    });
+
+    it('creates tracking session through canonical API', async () => {
+      const mockSessionResponse = {
+        sessionId: 'test-session-123',
+        status: 'created',
+        gameType: 'doubles',
+        createdAt: '2026-09-18T04:00:00Z',
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockSessionResponse,
+      } as any);
+
+      const res = await trackingSessionApi.createSession('doubles', 'upload', {
+        projectId: 'project-1',
+        trackedPlayerCount: 4,
+      });
+
+      expect(res.sessionId).toBe('test-session-123');
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/tracking/sessions',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video_source: 'upload',
+            game_type: 'doubles',
+            project_id: 'project-1',
+            video_fingerprint: null,
+            device: 'auto',
+            tracked_player_count: 4,
+            processing_config: null,
+          }),
+        })
+      );
+    });
+
+    it('uploads video to session endpoint', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ width: 1920, height: 1080 }),
+      } as any);
+
+      const fakeFile = new File(['dummy video'], 'match.mp4', { type: 'video/mp4' });
+      const result = await trackingSessionApi.uploadSessionVideo('session-xyz', fakeFile);
+
+      expect(result.width).toBe(1920);
+      expect(result.height).toBe(1080);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/tracking/sessions/session-xyz/video',
+        expect.objectContaining({
+          method: 'POST',
+        })
+      );
+    });
+
+    it('calibrates session court corners', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ ok: true }),
+      } as any);
+
+      const corners = [[0, 0], [100, 0], [100, 200], [0, 200]];
+      await trackingSessionApi.calibrateSession('session-xyz', corners, 'singles');
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/tracking/sessions/session-xyz/calibration',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ corners, game_type: 'singles' }),
+        })
+      );
+    });
+
+    it('fetches session status and results', async () => {
+      const mockStatus = {
+        sessionId: 'session-xyz',
+        status: 'completed',
+        progressPct: 100,
+        currentFrame: 300,
+        totalFrames: 300,
+        fps: 30,
+        error: null,
+      };
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockStatus,
+      } as any);
+
+      const status = await trackingSessionApi.getSessionStatus('session-xyz');
+      expect(status.status).toBe('completed');
+      expect(status.progressPct).toBe(100);
+    });
+  });
+
+  describe('3. Elimination of In-Browser Simulation Engine & Fake Strokes', () => {
+    it('ensures aiTrackingService does not have an active browser timer or simulation loop', () => {
+      expect(aiTrackingService.getStatus()).toBe('disconnected');
+      expect(aiTrackingService.getLatestFrame()).toBeNull();
+      expect(aiTrackingService.getLatestTelemetryV1()).toBeNull();
+    });
+
+    it('ensures no fake stroke recognition classifications are generated', () => {
+      // The legacy service contained hardcoded SMASH / DROP / NET_SHOT / CLEAR keywords.
+      // Verify aiTrackingService does not export fake stroke methods.
+      expect((aiTrackingService as any).simulatePlayersMovement).toBeUndefined();
+      expect((aiTrackingService as any).detectStroke).toBeUndefined();
+      expect((aiTrackingService as any).detectOpticalMotionCentroids).toBeUndefined();
+    });
   });
 });
