@@ -466,14 +466,15 @@ export default function BadmintonTrackingLab() {
       store.clearUploadController(activeProjectId!);
       if (!current()) return;
 
-      update({ status: 'CALIBRATED' });
+      update({ status: 'VIDEO_READY' });
       await aiTrackingService.calibrateSession(id, corners, gameType);
       if (!current()) return;
 
-      update({ status: 'PROCESSING' });
+      update({ status: 'READY_TO_ANALYZE' });
       await aiTrackingService.startSessionAnalysis(id);
       if (!current()) return;
 
+      update({ status: 'PROCESSING' });
       pollSession(id, runId);
     } catch (err) {
       fail(err);

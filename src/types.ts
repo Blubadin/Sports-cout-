@@ -546,9 +546,18 @@ export interface TrackingLivePlayerStatus {
   } | null;
 }
 
+/** Canonical backend session statuses. */
+export type BackendSessionStatus =
+  | 'READY'
+  | 'VIDEO_READY'
+  | 'READY_TO_ANALYZE'
+  | 'PROCESSING'
+  | 'COMPLETED'
+  | 'ERROR';
+
 export interface TrackingSessionStatus {
   sessionId: string;
-  status: string;
+  status: BackendSessionStatus;
   progressPct: number;
   currentFrame: number;
   totalFrames: number;
