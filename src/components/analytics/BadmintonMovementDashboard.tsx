@@ -294,13 +294,24 @@ export default function BadmintonMovementDashboard({
     }
   }, [filteredSamples, heatmapMode, activeMetrics]);
 
-  const quality = analysis?.quality ?? {
-    detectionCoverage: 0.95,
-    lostTimePercent: 5.0,
-    confidence: 0.88,
-    manualCorrections: 0,
-    lowConfidenceWarning: false,
-  };
+  const hasMeasuredSamples = filteredSamples.some((sample) => sample.trackingState === 'tracked');
+  const hasPredictedSamples = filteredSamples.some((sample) => sample.trackingState === 'predicted');
+  const provenance = hasMeasuredSamples
+    ? hasPredictedSamples ? 'Measured + predicted' : 'Measured'
+    : hasPredictedSamples ? 'Predicted' : 'Unavailable';
+
+  if (!analysis) {
+    return (
+      <div
+        data-testid="tracking-analysis-unavailable"
+        className="p-6 text-center bg-[#0c1721] text-slate-300 rounded-xl border border-dashed border-[#263642]"
+      >
+        No tracking analysis available. Run movement tracking to generate measured analytics.
+      </div>
+    );
+  }
+
+  const quality = analysis.quality;
 
   return (
     <div className="flex flex-col gap-4 p-4 bg-[#0c1721] text-slate-100 rounded-xl border border-[#263642] shadow-2xl">
@@ -319,14 +330,21 @@ export default function BadmintonMovementDashboard({
         {/* Data Provenance Badge */}
         <div className="flex items-center gap-2 px-3 py-1.5 bg-[#132332] border border-[#263642] rounded-lg text-xs font-mono">
           <span className="text-slate-400">Provenance:</span>
-          <span className="px-1.5 py-0.5 bg-sky-950 text-sky-300 font-bold rounded">source: tracking</span>
-          <span className="text-emerald-400 font-semibold">conf: {(quality.confidence * 100).toFixed(0)}%</span>
-          <span className="text-slate-400">engine: {analysis?.engineVersion ?? 'tracking-v1'}</span>
+          <span data-testid="tracking-provenance" className="px-1.5 py-0.5 bg-sky-950 text-sky-300 font-bold rounded">
+            {provenance}
+          </span>
+          <span className="text-emerald-400 font-semibold">
+            conf: {quality ? `${(quality.confidence * 100).toFixed(0)}%` : '—'}
+          </span>
+          <span className="text-slate-400">engine: {analysis.engineVersion}</span>
+          {quality && quality.manualCorrections > 0 && (
+            <span className="text-amber-300">manual: {quality.manualCorrections} corrections</span>
+          )}
         </div>
       </div>
 
       {/* Quality Warning if Low Confidence (PDF §70) */}
-      {quality.lowConfidenceWarning && (
+      {quality?.lowConfidenceWarning && (
         <div className="flex items-center gap-3 p-3 bg-amber-950/40 border border-amber-500/50 rounded-lg text-amber-300 text-xs">
           <AlertTriangle className="w-5 h-5 shrink-0 text-amber-400" />
           <div>
@@ -337,7 +355,8 @@ export default function BadmintonMovementDashboard({
       )}
 
       {/* Tracking Quality KPI Banner (PDF §70, §77) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {quality ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
           <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Detection Coverage
@@ -367,10 +386,21 @@ export default function BadmintonMovementDashboard({
             <Users className="w-3.5 h-3.5 text-purple-400" /> Sample Points
           </div>
           <div className="text-lg font-black text-purple-400 mt-1">
-            {filteredSamples.length} <span className="text-xs font-normal text-slate-400">@ 10Hz</span>
+            {filteredSamples.length}{' '}
+            <span className="text-xs font-normal text-slate-400">
+              {analysis.sampleRateHz > 0 ? `@ ${analysis.sampleRateHz}Hz` : 'rate unavailable'}
+            </span>
           </div>
         </div>
-      </div>
+        </div>
+      ) : (
+        <div
+          data-testid="tracking-quality-unavailable"
+          className="p-3 text-sm text-slate-300 bg-[#132332] border border-[#263642] rounded-lg"
+        >
+          Quality unavailable: this analysis has no measured tracking quality record.
+        </div>
+      )}
 
       {/* Filter Bar: Player & Time (PDF §78, §79) */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#132332] border border-[#263642] rounded-lg">
@@ -430,7 +460,15 @@ export default function BadmintonMovementDashboard({
         </div>
       </div>
 
-      {/* Main Grid: Left Court Heatmap Canvas, Right Movement Analytics Cards */}
+      {!hasMeasuredSamples ? (
+        <div
+          data-testid="tracking-movement-unavailable"
+          className="p-6 text-center text-slate-300 bg-[#132332] border border-dashed border-[#263642] rounded-xl"
+        >
+          No measured tracking samples in the selected range. Movement metrics are unavailable.
+        </div>
+      ) : (
+      /* Main Grid: Left Court Heatmap Canvas, Right Movement Analytics Cards */
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left Column: Movement Heatmap (PDF §76, §77) */}
         <div className="lg:col-span-5 flex flex-col gap-2 p-3 bg-[#132332] border border-[#263642] rounded-xl">
@@ -622,6 +660,7 @@ export default function BadmintonMovementDashboard({
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

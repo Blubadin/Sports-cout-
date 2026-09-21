@@ -34,15 +34,15 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
 
   useEffect(() => {
     let active = true;
-    if (activeProjectId) {
-      loadBadmintonTrackingAnalysis(activeProjectId).then((analysis) => {
-        if (active && analysis) {
-          setTrackingAnalysis(analysis);
-        }
-      }).catch((err) => {
-        console.warn('Failed to load tracking analysis for coach report:', err);
-      });
-    }
+    setTrackingAnalysis(null);
+    if (!activeProjectId) return () => { active = false; };
+
+    loadBadmintonTrackingAnalysis(activeProjectId).then((analysis) => {
+      if (active) setTrackingAnalysis(analysis);
+    }).catch((err) => {
+      if (active) setTrackingAnalysis(null);
+      console.warn('Failed to load tracking analysis for coach report:', err);
+    });
     return () => {
       active = false;
     };
@@ -561,7 +561,7 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
       </div>
 
       {/* 5. MOVEMENT ANALYSIS (PDF §59, Phase 13: Displayed only when tracking data exists) */}
-      {trackingAnalysis?.summary && Object.keys(trackingAnalysis.summary.players || {}).length > 0 && (
+      {trackingAnalysis?.status === 'completed' && trackingAnalysis.summary && Object.keys(trackingAnalysis.summary.players || {}).length > 0 && (
         <div className="bg-white dark:bg-[#111c26] rounded-3xl p-6 sm:p-8 border border-gray-200 dark:border-[#263642] shadow-xl space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -625,7 +625,7 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
       )}
 
       {/* 6. TRACKING QUALITY & AUDIT (PDF §59, Phase 13) */}
-      {trackingAnalysis?.quality && (
+      {trackingAnalysis?.status === 'completed' && trackingAnalysis.quality && (
         <div className="bg-white dark:bg-[#111c26] rounded-3xl p-6 sm:p-8 border border-gray-200 dark:border-[#263642] shadow-xl space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
