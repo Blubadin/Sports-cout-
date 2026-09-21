@@ -485,6 +485,9 @@ def create_benchmark_run_from_session_dict(
             "device",
             _first_not_none(session_data.get("effectiveDevice"), session_data.get("device")),
         ),
+        runtime=overrides.get("runtime", _first_not_none(prov.get("runtime"), cfg.get("runtime"))),
+        precision=overrides.get("precision", _first_not_none(prov.get("precision"), cfg.get("precision"))),
+        court_roi_enabled=overrides.get("courtRoiEnabled", _first_not_none(prov.get("useCourtRoi"), cfg.get("useCourtRoi"))),
     )
 
     video_metadata = BenchmarkVideoMetadata(

@@ -18,6 +18,13 @@ from scipy.optimize import linear_sum_assignment
 from court_mapper import CourtMapper, DistanceTracker, COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M, COURT_WIDTH_SINGLES_M
 from court_roi import calculate_court_roi, inverse_transform_bbox
 from device_runtime import resolve_device
+from engine_config import (
+    TrackingEngineConfig,
+    create_baseline_engine_config,
+    resolve_tracker_config,
+)
+from detector_adapter import BaseDetectorAdapter, UltralyticsDetectorAdapter
+from pose_adapter import BasePoseAdapter, UltralyticsPoseAdapter, DisabledPoseAdapter
 
 
 class PlayerProfile:
@@ -74,6 +81,9 @@ class BadmintonAnalyzerV2:
         court_roi_margin_px: int = 60,
         court_roi_margin_m: float = 0.5,
         pose_stride: int = 1,
+        engine_config: TrackingEngineConfig | None = None,
+        detector_adapter: BaseDetectorAdapter | None = None,
+        pose_adapter: BasePoseAdapter | None = None,
     ):
         self.game_type = game_type
         if max_players is None:
@@ -86,14 +96,30 @@ class BadmintonAnalyzerV2:
         self.max_players = resolved_max
 
         self.fps = fps
-        self.conf = conf_threshold
-        self.device = resolve_device(device)
-        self.model_path = model_path
-        self.detector_input_size = int(detector_input_size)
-        self.use_court_roi = bool(use_court_roi)
-        self.court_roi_margin_px = int(court_roi_margin_px)
-        self.court_roi_margin_m = float(court_roi_margin_m)
-        self.pose_stride = max(1, int(pose_stride))
+        self.device = resolve_device(device if device is not None else (engine_config.device if engine_config else "auto"))
+
+        if engine_config is not None:
+            self.engine_config = engine_config
+            self.engine_config.device = self.device
+        else:
+            self.engine_config = create_baseline_engine_config(
+                detector_model=model_path,
+                confidence_threshold=conf_threshold,
+                device=self.device,
+                detector_input_size=detector_input_size,
+                use_court_roi=use_court_roi,
+                court_roi_margin_px=court_roi_margin_px,
+                court_roi_margin_m=court_roi_margin_m,
+                pose_stride=pose_stride,
+            )
+
+        self.conf = self.engine_config.confidence_threshold
+        self.model_path = self.engine_config.detector_model
+        self.detector_input_size = int(self.engine_config.detector_input_size)
+        self.use_court_roi = bool(self.engine_config.use_court_roi)
+        self.court_roi_margin_px = int(self.engine_config.court_roi_margin_px)
+        self.court_roi_margin_m = float(self.engine_config.court_roi_margin_m)
+        self.pose_stride = max(1, int(self.engine_config.pose_stride))
         self.analyzed_frame_count = 0
 
         self.mapper = CourtMapper(game_type=game_type)
@@ -112,32 +138,68 @@ class BadmintonAnalyzerV2:
                 team = 0  # Irregular count (1 or 3): dynamic side inference from first observation
             self.profiles[pid] = PlayerProfile(player_id=pid, team=team)
 
+        self.detector_adapter = detector_adapter
+        self.pose_adapter = pose_adapter
         self._detector = None
         self._pose_detector = None
 
     def _lazy_init_ai(self):
-        """Lazy load the real detector; initialization failures must reach the session."""
-        if self._detector is None:
-            from ultralytics import YOLO
-            self._detector = YOLO(self.model_path)
+        """Lazy load detector adapter and underlying model; load failures must fail explicitly."""
+        if self._detector == "dummy":
+            return
+
+        if self.detector_adapter is None:
+            self.detector_adapter = UltralyticsDetectorAdapter(
+                model_path=self.engine_config.detector_model,
+                device=self.device,
+            )
+
+        if self._detector is not None:
+            if hasattr(self.detector_adapter, "_model"):
+                self.detector_adapter._model = self._detector
+        else:
+            if hasattr(self.detector_adapter, "_init_model"):
+                self.detector_adapter._init_model()
+            if hasattr(self.detector_adapter, "_model"):
+                self._detector = self.detector_adapter._model
 
     def _estimate_pose(self, frame, bbox):
         if self._pose_detector == "dummy":
             return {"keypoints": [], "metrics": {}}
-        if self._pose_detector is None:
-            # If the detector or tracking logic is mocked or in dummy test mode, avoid loading real YOLO pose
-            is_mocked = (
-                self._detector == "dummy"
-                or hasattr(self._detector, "mock_calls")
-                or hasattr(self._detector, "_mock_name")
-                or hasattr(self.detect_and_track, "mock_calls")
-                or getattr(self.detect_and_track, "__func__", None) is not BadmintonAnalyzerV2.detect_and_track
-            )
-            if is_mocked:
-                return {"keypoints": [], "metrics": {}}
-            from pose_detector import YoloPoseDetector
-            self._pose_detector = YoloPoseDetector(device=self.device)
-        return self._pose_detector.estimate_pose_in_roi(frame, bbox)
+
+        if self._pose_detector is not None:
+            return self._pose_detector.estimate_pose_in_roi(frame, bbox)
+
+        if self.pose_adapter is not None:
+            return self.pose_adapter.estimate_pose_in_roi(frame, bbox)
+
+        if (
+            not self.engine_config.pose_model
+            or str(self.engine_config.pose_model).strip().lower() in ("none", "disabled", "")
+        ):
+            self.pose_adapter = DisabledPoseAdapter()
+            return self.pose_adapter.estimate_pose_in_roi(frame, bbox)
+
+        # If the detector or tracking logic is mocked or in dummy test mode, avoid loading real YOLO pose
+        is_mocked = (
+            self._detector == "dummy"
+            or hasattr(self._detector, "mock_calls")
+            or hasattr(self._detector, "_mock_name")
+            or hasattr(self.detect_and_track, "mock_calls")
+            or getattr(self.detect_and_track, "__func__", None) is not BadmintonAnalyzerV2.detect_and_track
+        )
+        if is_mocked:
+            return {"keypoints": [], "metrics": {}}
+
+        self.pose_adapter = UltralyticsPoseAdapter(
+            model_path=self.engine_config.pose_model,
+            conf_threshold=0.4,
+            device=self.device,
+        )
+        res = self.pose_adapter.estimate_pose_in_roi(frame, bbox)
+        if hasattr(self.pose_adapter, "_detector") and self.pose_adapter._detector is not None:
+            self._pose_detector = self.pose_adapter._detector
+        return res
 
     def set_court_corners(self, corners: list[list[float]] | np.ndarray):
         """Set court corners for perspective calibration."""
@@ -173,26 +235,47 @@ class BadmintonAnalyzerV2:
 
     def detect_and_track(self, frame: np.ndarray) -> list[dict]:
         """Detect person bounding boxes and return list of detections in full source coordinates."""
+        if self._detector == "dummy":
+            return []
+
         self._lazy_init_ai()
+        h, w = frame.shape[:2]
+        inference_frame = frame
+        offset_x, offset_y = 0, 0
+
+        if self.use_court_roi and self.court_corners_px is not None:
+            roi_x1, roi_y1, roi_x2, roi_y2 = calculate_court_roi(
+                self.court_corners_px, w, h, self.court_roi_margin_px
+            )
+            if (roi_x2 - roi_x1) >= 50 and (roi_y2 - roi_y1) >= 50:
+                inference_frame = frame[roi_y1:roi_y2, roi_x1:roi_x2]
+                offset_x, offset_y = roi_x1, roi_y1
+
+        if self.detector_adapter is not None:
+            if self._detector is not None and hasattr(self.detector_adapter, "_model"):
+                self.detector_adapter._model = self._detector
+            return self.detector_adapter.detect_and_track(
+                inference_frame,
+                conf=self.conf,
+                imgsz=self.detector_input_size,
+                device=self.device,
+                tracker_name=self.engine_config.tracker_name,
+                tracker_config_path=self.engine_config.tracker_config_path,
+                classes=[0],
+                offset_x=offset_x,
+                offset_y=offset_y,
+            )
+
         detections = []
-
         if self._detector != "dummy" and self._detector is not None:
-            h, w = frame.shape[:2]
-            inference_frame = frame
-            offset_x, offset_y = 0, 0
-
-            if self.use_court_roi and self.court_corners_px is not None:
-                roi_x1, roi_y1, roi_x2, roi_y2 = calculate_court_roi(
-                    self.court_corners_px, w, h, self.court_roi_margin_px
-                )
-                if (roi_x2 - roi_x1) >= 50 and (roi_y2 - roi_y1) >= 50:
-                    inference_frame = frame[roi_y1:roi_y2, roi_x1:roi_x2]
-                    offset_x, offset_y = roi_x1, roi_y1
-
+            tracker_cfg = resolve_tracker_config(
+                self.engine_config.tracker_name,
+                self.engine_config.tracker_config_path,
+            )
             results = self._detector.track(
                 inference_frame,
                 persist=True,
-                tracker="bytetrack.yaml",
+                tracker=tracker_cfg,
                 classes=[0],  # Person class
                 conf=self.conf,
                 device=self.device,
@@ -560,3 +643,28 @@ class BadmintonAnalyzerV2:
             pa.last_pose, pb.last_pose = pb.last_pose, pa.last_pose
             pa.last_pose_age, pb.last_pose_age = pb.last_pose_age, pa.last_pose_age
             print(f"[BadmintonAnalyzerV2] Swapped player identities {pid_a} <-> {pid_b}")
+
+    def get_provenance(self) -> dict[str, Any]:
+        """Return truthful runtime provenance matching the configured vision engine seams."""
+        det_m = self.detector_adapter.model_name if self.detector_adapter is not None else self.engine_config.detector_model
+        pose_m = self.pose_adapter.model_name if self.pose_adapter is not None else self.engine_config.pose_model
+
+        return {
+            "detectorModel": det_m,
+            "detectorFamily": self.engine_config.detector_family,
+            "poseModel": pose_m,
+            "poseFamily": self.engine_config.pose_family,
+            "trackerModel": self.engine_config.tracker_name,
+            "trackerName": self.engine_config.tracker_name,
+            "trackerConfigPath": self.engine_config.tracker_config_path,
+            "runtime": self.engine_config.runtime,
+            "precision": self.engine_config.precision,
+            "detectorInputSize": self.detector_input_size,
+            "confidenceThreshold": self.conf,
+            "frameStride": getattr(self, "frame_stride", 1),
+            "poseStride": self.pose_stride,
+            "useCourtRoi": self.use_court_roi,
+            "courtRoiMarginPx": self.court_roi_margin_px,
+            "courtRoiMarginM": self.court_roi_margin_m,
+            "device": self.device,
+        }

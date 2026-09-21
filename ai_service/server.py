@@ -21,6 +21,13 @@ import cv2
 from analyzer_v2 import BadmintonAnalyzerV2
 from court_mapper import CourtMapper
 from device_runtime import capability_report, resolve_device
+from engine_config import (
+    TrackingEngineConfig,
+    create_baseline_engine_config,
+    validate_engine_config,
+    InvalidEngineConfigError,
+    ModelNotFoundError,
+)
 try:
     from ai_service.video_metadata import extract_video_metadata
 except ImportError:
@@ -133,7 +140,8 @@ def get_capabilities():
     report = capability_report()
     report["selectedDevice"] = analyzer.device
     report["detectorModel"] = analyzer.model_path
-    report["poseModel"] = "yolov8n-pose.pt"
+    pose_m = analyzer.engine_config.pose_model if hasattr(analyzer, "engine_config") and analyzer.engine_config.pose_model else "yolov8n-pose.pt"
+    report["poseModel"] = pose_m
     return report
 
 
@@ -547,6 +555,17 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     if "pose_stride" in cfg or "poseStride" in cfg:
         pose_stride = cfg.get("pose_stride", cfg.get("poseStride"))
 
+    # Vision engine seams (detector, pose, tracker, runtime, precision)
+    detector_model = cfg.get("detector_model") or cfg.get("detectorModel") or "yolov8n.pt"
+    detector_family = cfg.get("detector_family") or cfg.get("detectorFamily") or "yolov8"
+    pose_model = cfg.get("pose_model") if "pose_model" in cfg else cfg.get("poseModel", "yolov8n-pose.pt")
+    pose_family = cfg.get("pose_family") or cfg.get("poseFamily") or "yolov8"
+    tracker_name = cfg.get("tracker_name") or cfg.get("trackerName") or "bytetrack"
+    tracker_config_path = cfg.get("tracker_config_path") or cfg.get("trackerConfigPath")
+    runtime = cfg.get("runtime") or "pytorch"
+    precision = cfg.get("precision") or "fp32"
+    conf_threshold = cfg.get("confidence_threshold") if "confidence_threshold" in cfg else cfg.get("confidenceThreshold", 0.35)
+
     return {
         "profile": requested_profile,
         "requestedProfile": requested_profile,
@@ -560,6 +579,15 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         "courtRoiMarginM": float(court_roi_margin_m),
         "frameStride": max(1, int(frame_stride)),
         "poseStride": max(1, int(pose_stride)),
+        "detectorModel": str(detector_model),
+        "detectorFamily": str(detector_family),
+        "poseModel": str(pose_model) if pose_model is not None else None,
+        "poseFamily": str(pose_family) if pose_family is not None else None,
+        "trackerName": str(tracker_name),
+        "trackerConfigPath": str(tracker_config_path) if tracker_config_path else None,
+        "runtime": str(runtime),
+        "precision": str(precision),
+        "confidenceThreshold": float(conf_threshold),
     }
 
 
@@ -721,15 +749,31 @@ class TrackingSession:
         self.effective_device = resolved_cfg["effectiveDevice"]
         self.device = resolved_cfg["effectiveDevice"]
 
+        engine_cfg = TrackingEngineConfig(
+            detector_model=resolved_cfg.get("detectorModel", "yolov8n.pt"),
+            detector_family=resolved_cfg.get("detectorFamily", "yolov8"),
+            pose_model=resolved_cfg.get("poseModel", "yolov8n-pose.pt"),
+            pose_family=resolved_cfg.get("poseFamily", "yolov8"),
+            tracker_name=resolved_cfg.get("trackerName", "bytetrack"),
+            tracker_config_path=resolved_cfg.get("trackerConfigPath"),
+            runtime=resolved_cfg.get("runtime", "pytorch"),
+            precision=resolved_cfg.get("precision", "fp32"),
+            detector_input_size=resolved_cfg["detectorInputSize"],
+            confidence_threshold=resolved_cfg.get("confidenceThreshold", 0.35),
+            frame_stride=resolved_cfg["frameStride"],
+            pose_stride=resolved_cfg["poseStride"],
+            use_court_roi=resolved_cfg["useCourtRoi"],
+            court_roi_margin_px=resolved_cfg["courtRoiMarginPx"],
+            court_roi_margin_m=resolved_cfg.get("courtRoiMarginM", 2.0),
+            device=self.effective_device,
+        )
+        validate_engine_config(engine_cfg)
+
         self.analyzer = BadmintonAnalyzerV2(
             game_type=game_type,
             max_players=self.tracked_player_count,
             device=self.effective_device,
-            detector_input_size=resolved_cfg["detectorInputSize"],
-            use_court_roi=resolved_cfg["useCourtRoi"],
-            court_roi_margin_px=resolved_cfg["courtRoiMarginPx"],
-            court_roi_margin_m=resolved_cfg.get("courtRoiMarginM", 2.0),
-            pose_stride=resolved_cfg["poseStride"],
+            engine_config=engine_cfg,
         )
         self.analyzer.analysis_id = session_id
         self.status = "READY"  # READY | VIDEO_READY | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
@@ -871,7 +915,7 @@ def create_tracking_session(req: CreateSessionRequest):
             tracked_player_count=req.tracked_player_count,
             processing_config=req.processing_config,
         )
-    except ValueError as error:
+    except (ValueError, InvalidEngineConfigError, ModelNotFoundError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     tracking_sessions[session_id] = session
     return {
@@ -1136,21 +1180,30 @@ def _build_session_metrics(session: TrackingSession):
 
     quality = compute_session_quality_metrics(session.results, session.tracked_player_count)
 
+    analyzer_prov = session.analyzer.get_provenance() if hasattr(session.analyzer, "get_provenance") else {}
+    tracker_name = analyzer_prov.get("trackerName") or analyzer_prov.get("trackerModel") or "bytetrack"
     provenance = {
-        "detectorModel": session.analyzer.model_path,
-        "trackerModel": "bytetrack",
-        "poseModel": "yolov8n-pose.pt",
+        "detectorModel": analyzer_prov.get("detectorModel", session.analyzer.model_path),
+        "detectorFamily": analyzer_prov.get("detectorFamily", "yolov8"),
+        "trackerModel": tracker_name,
+        "trackerName": tracker_name,
+        "trackerConfigPath": analyzer_prov.get("trackerConfigPath"),
+        "poseModel": analyzer_prov.get("poseModel", "yolov8n-pose.pt"),
+        "poseFamily": analyzer_prov.get("poseFamily", "yolov8"),
+        "runtime": analyzer_prov.get("runtime", "pytorch"),
+        "precision": analyzer_prov.get("precision", "fp32"),
+        "confidenceThreshold": analyzer_prov.get("confidenceThreshold", getattr(session.analyzer, "conf", 0.35)),
         "device": session.effective_device,
         "requestedDevice": session.requested_device,
         "effectiveDevice": session.effective_device,
         "requestedProfile": session.requested_profile,
         "effectiveProfile": session.effective_profile,
-        "detectorInputSize": session.analyzer.detector_input_size,
+        "detectorInputSize": analyzer_prov.get("detectorInputSize", session.analyzer.detector_input_size),
         "frameStride": session.frame_stride,
-        "poseStride": session.analyzer.pose_stride,
-        "useCourtRoi": session.analyzer.use_court_roi,
-        "courtRoiMarginPx": session.analyzer.court_roi_margin_px,
-        "courtRoiMarginM": session.analyzer.court_roi_margin_m,
+        "poseStride": analyzer_prov.get("poseStride", session.analyzer.pose_stride),
+        "useCourtRoi": analyzer_prov.get("useCourtRoi", session.analyzer.use_court_roi),
+        "courtRoiMarginPx": analyzer_prov.get("courtRoiMarginPx", session.analyzer.court_roi_margin_px),
+        "courtRoiMarginM": analyzer_prov.get("courtRoiMarginM", session.analyzer.court_roi_margin_m),
     }
 
     return performance, quality, provenance

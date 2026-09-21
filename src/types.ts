@@ -628,6 +628,15 @@ export interface ProcessingConfig {
   courtRoiMarginM?: number;
   frameStride: number;
   poseStride: number;
+  detectorModel?: string;
+  detectorFamily?: string;
+  poseModel?: string | null;
+  poseFamily?: string | null;
+  trackerName?: string;
+  trackerConfigPath?: string | null;
+  runtime?: 'pytorch' | 'onnx' | 'tensorrt' | string;
+  precision?: 'fp32' | 'fp16' | 'int8' | string;
+  confidenceThreshold?: number;
 }
 
 export interface TrackingPerformanceStats {
@@ -678,6 +687,13 @@ export interface TrackingRuntimeProvenance {
   useCourtRoi: boolean;
   courtRoiMarginPx: number;
   courtRoiMarginM?: number;
+  detectorFamily?: string;
+  trackerName?: string;
+  trackerConfigPath?: string | null;
+  poseFamily?: string;
+  runtime?: string;
+  precision?: string;
+  confidenceThreshold?: number;
 }
 
 export * from './types/benchmark';

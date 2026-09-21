@@ -262,6 +262,9 @@ export interface CreateBenchmarkRunOptions {
   poseStride?: number;
   maxPlayers?: number;
   device?: string;
+  runtime?: string | null;
+  precision?: string | null;
+  courtRoiEnabled?: boolean | null;
   sourceWidth?: number | null;
   sourceHeight?: number | null;
   sourceFps?: number | null;
@@ -335,6 +338,10 @@ export function createBenchmarkRun(params: {
       poseStride: positiveOrNull(params.modelConfig.poseStride),
       maxPlayers: positiveOrNull(params.modelConfig.maxPlayers),
       device: params.modelConfig.device,
+      runtime: params.modelConfig.runtime ?? null,
+      precision: params.modelConfig.precision ?? null,
+      courtRoiEnabled:
+        params.modelConfig.courtRoiEnabled !== undefined ? params.modelConfig.courtRoiEnabled : null,
     },
     videoMetadata: {
       sourceWidth: positiveOrNull(params.videoMetadata.sourceWidth),
@@ -504,6 +511,21 @@ export function createBenchmarkRunFromAnalysis(
         analysis.effectiveDevice ??
         analysis.device ??
         null,
+      runtime:
+        overrides?.runtime ??
+        analysis.runtimeProvenance?.runtime ??
+        analysis.processingConfig?.runtime ??
+        null,
+      precision:
+        overrides?.precision ??
+        analysis.runtimeProvenance?.precision ??
+        analysis.processingConfig?.precision ??
+        null,
+      courtRoiEnabled:
+        overrides?.courtRoiEnabled ??
+        analysis.runtimeProvenance?.useCourtRoi ??
+        analysis.processingConfig?.useCourtRoi ??
+        null,
     },
     videoMetadata: {
       sourceWidth: overrides?.sourceWidth ?? analysis.videoMetadata?.width ?? null,
@@ -644,6 +666,21 @@ export function createBenchmarkRunFromSessionStatus(
         overrides?.device ??
         status.effectiveDevice ??
         status.device ??
+        null,
+      runtime:
+        overrides?.runtime ??
+        status.runtimeProvenance?.runtime ??
+        status.processingConfig?.runtime ??
+        null,
+      precision:
+        overrides?.precision ??
+        status.runtimeProvenance?.precision ??
+        status.processingConfig?.precision ??
+        null,
+      courtRoiEnabled:
+        overrides?.courtRoiEnabled ??
+        status.runtimeProvenance?.useCourtRoi ??
+        status.processingConfig?.useCourtRoi ??
         null,
     },
     videoMetadata: {
