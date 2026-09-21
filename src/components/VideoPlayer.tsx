@@ -41,9 +41,10 @@ import type { WorkstationLeftTool } from "./workstation/WorkstationChrome";
 export interface VideoPlayerProps {
   activeTool?: WorkstationLeftTool;
   onSelectTool?: (tool: WorkstationLeftTool) => void;
+  showHudToggle?: boolean;
 }
 
-export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerProps = {}) {
+export default function VideoPlayer({ activeTool, onSelectTool, showHudToggle = true }: VideoPlayerProps = {}) {
   const playerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousProjectIdRef = useRef<string | null | undefined>(undefined);
@@ -1175,7 +1176,7 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
             <br />
             ({t('video.scoutWithoutVideo', settings.uiLanguage)})
           </p>
-          {settings.enableScoutHUDMode !== false && (
+          {showHudToggle && settings.enableScoutHUDMode !== false && (
             <button
               data-hud-toggle
               id="hud-mode-button"
@@ -1273,7 +1274,7 @@ export default function VideoPlayer({ activeTool, onSelectTool }: VideoPlayerPro
               </button>
 
               <div className="absolute right-0 flex items-center gap-1">
-                {settings.enableScoutHUDMode !== false && (
+                {showHudToggle && settings.enableScoutHUDMode !== false && (
                   <button
                     data-hud-toggle
                     id="hud-mode-button"

@@ -23,7 +23,11 @@ const sports = [
   { id: 'basketball', name: 'Basketball', thaiName: 'บาสเกตบอล' }
 ];
 
-export default function InputPanel() {
+interface InputPanelProps {
+  showHudToggle?: boolean;
+}
+
+export default function InputPanel({ showHudToggle = true }: InputPanelProps) {
   const {
     teams, skills, areas, results,
     currentAction, setCurrentAction,
@@ -285,7 +289,7 @@ export default function InputPanel() {
                   ? '(Enter=บันทึก, Esc=ล้าง, Bksp=ย้อนกลับ)' 
                   : '(Enter=Save, Esc=Clear, Bksp=Undo)'}
               </span>
-              {settings.enableScoutHUDMode !== false && (
+              {showHudToggle && settings.enableScoutHUDMode !== false && (
                 <button
                   type="button"
                   onClick={() => window.dispatchEvent(new CustomEvent('toggle-hud-mode'))}

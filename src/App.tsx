@@ -584,9 +584,6 @@ function AppContent() {
                   showToast(settings.uiLanguage === 'th' ? 'ใส่บันทึกแท็กติก' : 'Add Tactical Note');
                 }
               }}
-              onToggleHUD={() => {
-                window.dispatchEvent(new CustomEvent('toggle-hud-mode'));
-              }}
               onToggleFullscreen={() => {
                 if (!document.fullscreenElement) {
                   document.documentElement.requestFullscreen().catch(() => {});
@@ -613,7 +610,11 @@ function AppContent() {
               {/* Top/Left Workspace: Video Player */}
               <section className={`coach-panel ${activeTab === 'report' || activeTab === 'labs' ? 'hidden' : isWorkstation ? 'lg:col-span-7 xl:col-span-6' : 'lg:col-span-5'} flex flex-col gap-4 p-2 sm:p-3 pb-2 lg:h-full lg:overflow-y-auto custom-scrollbar`}>
                 <React.Suspense fallback={<div className="w-full aspect-video bg-gray-800 animate-pulse rounded-lg flex items-center justify-center text-gray-400">Loading Player...</div>}>
-                  <VideoPlayer activeTool={activeLeftTool} onSelectTool={setActiveLeftTool} />
+                  <VideoPlayer
+                    activeTool={activeLeftTool}
+                    onSelectTool={setActiveLeftTool}
+                    showHudToggle={!isWorkstation}
+                  />
                 </React.Suspense>
               </section>
 
@@ -727,7 +728,7 @@ function AppContent() {
                 {activeTab === 'input' && (
                   <div className="flex flex-col gap-4 lg:h-full lg:overflow-y-auto custom-scrollbar p-1">
                     <React.Suspense fallback={<div className="h-64 animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl" />}>
-                      <InputPanel />
+                      <InputPanel showHudToggle={!isWorkstation} />
                     </React.Suspense>
                   </div>
                 )}
