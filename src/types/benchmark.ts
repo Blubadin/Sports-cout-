@@ -23,58 +23,58 @@ export interface TrackingBenchmarkRunIdentity {
   /** Stable file name or URI reference if available */
   videoReference?: string | null;
   /** Match mode (e.g. 'singles', 'doubles') */
-  trackingMode: string;
+  trackingMode: string | null;
   /** Processing profile applied (e.g. 'reference', 'fast', 'balanced', 'quality', 'custom', 'auto') */
-  processingProfile: string;
+  processingProfile: string | null;
 }
 
 export interface TrackingBenchmarkModelConfig {
   /** Name of detection model (e.g. 'yolov8n', 'yolo11n', 'yolo26', etc.) */
-  detectorName: string;
+  detectorName: string | null;
   /** Detector version string if available (optional, e.g. '8.0.0', '11.0.1') */
   detectorVersion?: string | null;
   /** Name of pose estimation model (e.g. 'yolov8n-pose', 'alphapose') */
-  poseModel: string;
+  poseModel: string | null;
   /** Tracker algorithm name (e.g. 'bytetrack', 'norfair', 'ocsort', 'botsort') */
-  trackerName: string;
+  trackerName: string | null;
   /** Tracker version if available (optional) */
   trackerVersion?: string | null;
   /** Square input dimension fed to the detector (e.g. 416, 512, 640) */
-  detectorInputSize: number;
+  detectorInputSize: number | null;
   /** Minimum detection confidence threshold (e.g. 0.25, 0.50) */
-  confidenceThreshold: number;
+  confidenceThreshold: number | null;
   /** Frame stride for object detection (1 = every frame, 2 = alternate frames) */
-  frameStride: number;
+  frameStride: number | null;
   /** Frame stride for pose keypoint estimation */
-  poseStride: number;
+  poseStride: number | null;
   /** Target player count for tracking (1, 2, 3, 4) */
-  maxPlayers: number;
+  maxPlayers: number | null;
   /** Execution device used (e.g. 'cpu', 'cuda', 'mps', 'tensorrt') */
-  device: string;
+  device: string | null;
 }
 
 export interface TrackingBenchmarkVideoMetadata {
   /** Native video pixel width */
-  sourceWidth: number;
+  sourceWidth: number | null;
   /** Native video pixel height */
-  sourceHeight: number;
+  sourceHeight: number | null;
   /** Video frame rate in frames per second */
-  sourceFps: number;
+  sourceFps: number | null;
   /** Video duration in seconds */
-  durationSeconds: number;
+  durationSeconds: number | null;
   /** Total frames present in source video if known */
   totalSourceFrames?: number | null;
 }
 
 export interface TrackingBenchmarkPerformance {
   /** Total frames passed through analyzer */
-  framesAnalyzed: number;
+  framesAnalyzed: number | null;
   /** Average inference/processing rate in frames per second */
-  analysisFps: number;
+  analysisFps: number | null;
   /** Total wall-clock elapsed processing time in seconds */
-  elapsedSeconds: number;
+  elapsedSeconds: number | null;
   /** Effective rate of emitted telemetry points per second (Hz) */
-  effectiveTelemetryHz: number;
+  effectiveTelemetryHz: number | null;
   /**
    * Processing ratio = elapsedSeconds / durationSeconds.
    * Example: 60-minute video (3600s) processed in 30 real minutes (1800s)
@@ -88,20 +88,20 @@ export interface TrackingBenchmarkPlayerQuality {
   /** Target player identifier (e.g. 'P1', 'P2') */
   playerId: string;
   /** Fraction of expected frames where target was observed (0.0..1.0) */
-  observedCoverage: number;
+  observedCoverage: number | null;
   /** Percentage of expected frames estimated via tracker prediction (0.0..100.0) */
-  predictedPercent: number;
+  predictedPercent: number | null;
   /** Percentage of expected frames where target was lost/untracked (0.0..100.0) */
-  lostPercent: number;
+  lostPercent: number | null;
   /** Average detection confidence across observed frames (0.0..1.0) */
-  meanObservedConfidence: number;
+  meanObservedConfidence: number | null;
 }
 
 export interface TrackingBenchmarkQuality {
   /** Mean target coverage across all tracked players (0.0..1.0) */
-  meanTargetCoverage: number;
+  meanTargetCoverage: number | null;
   /** Fraction of frames where all expected players were observed simultaneously (0.0..1.0) */
-  simultaneousTargetCoverage: number;
+  simultaneousTargetCoverage: number | null;
   /** Per-player tracking quality breakdown */
   playerCoverage: Record<string, TrackingBenchmarkPlayerQuality>;
 }

@@ -625,7 +625,13 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
       )}
 
       {/* 6. TRACKING QUALITY & AUDIT (PDF §59, Phase 13) */}
-      {trackingAnalysis?.status === 'completed' && trackingAnalysis.quality && (
+      {trackingAnalysis?.status === 'completed'
+        && trackingAnalysis.quality
+        && [
+          trackingAnalysis.quality.detectionCoverage,
+          trackingAnalysis.quality.confidence,
+          trackingAnalysis.quality.lostTimePercent,
+        ].some((value) => typeof value === 'number' && Number.isFinite(value)) && (
         <div className="bg-white dark:bg-[#111c26] rounded-3xl p-6 sm:p-8 border border-gray-200 dark:border-[#263642] shadow-xl space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -646,26 +652,38 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
                 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
                 : 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300'
             }`}>
-              {trackingAnalysis.quality.lowConfidenceWarning ? 'Warning: Low Confidence' : 'Validated Tracking'}
+              {trackingAnalysis.quality.lowConfidenceWarning ? 'Warning: Low Confidence' : 'Measured Tracking'}
             </span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 text-center">
               <div className="text-[10px] font-black text-gray-400 uppercase">{isThai ? 'ความครอบคลุม' : 'Detection Coverage'}</div>
-              <div className="text-xl font-black text-teal-600 mt-1">{(trackingAnalysis.quality.detectionCoverage * 100).toFixed(1)}%</div>
+              <div className="text-xl font-black text-teal-600 mt-1">
+                {trackingAnalysis.quality.detectionCoverage !== null
+                  ? `${(trackingAnalysis.quality.detectionCoverage * 100).toFixed(1)}%`
+                  : '—'}
+              </div>
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 text-center">
               <div className="text-[10px] font-black text-gray-400 uppercase">{isThai ? 'ความเชื่อมั่นเฉลี่ย' : 'Avg Confidence'}</div>
-              <div className="text-xl font-black text-sky-600 mt-1">{(trackingAnalysis.quality.confidence * 100).toFixed(1)}%</div>
+              <div className="text-xl font-black text-sky-600 mt-1">
+                {trackingAnalysis.quality.confidence !== null
+                  ? `${(trackingAnalysis.quality.confidence * 100).toFixed(1)}%`
+                  : '—'}
+              </div>
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 text-center">
               <div className="text-[10px] font-black text-gray-400 uppercase">{isThai ? 'เวลาที่แทร็กหลุด' : 'Lost Track Time'}</div>
-              <div className="text-xl font-black text-indigo-600 mt-1">{trackingAnalysis.quality.lostTimePercent.toFixed(1)}%</div>
+              <div className="text-xl font-black text-indigo-600 mt-1">
+                {trackingAnalysis.quality.lostTimePercent !== null
+                  ? `${trackingAnalysis.quality.lostTimePercent.toFixed(1)}%`
+                  : '—'}
+              </div>
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 text-center">
               <div className="text-[10px] font-black text-gray-400 uppercase">{isThai ? 'การปรับแก้ด้วยมือ' : 'Manual Edits'}</div>
-              <div className="text-xl font-black text-emerald-600 mt-1">{trackingAnalysis.quality.manualCorrections}</div>
+              <div className="text-xl font-black text-emerald-600 mt-1">{trackingAnalysis.quality.manualCorrections ?? '—'}</div>
             </div>
           </div>
         </div>

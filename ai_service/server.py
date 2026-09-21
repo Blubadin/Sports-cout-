@@ -7,6 +7,7 @@ import os
 import tempfile
 import asyncio
 import json
+import math
 import threading
 import time
 from typing import Set
@@ -38,6 +39,12 @@ DEFAULT_ALLOWED_ORIGINS = [
 ]
 
 DEFAULT_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+
+def _positive_finite(value):
+    if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        return None
+    return float(value)
 
 
 def get_cors_configuration(
@@ -311,7 +318,17 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
         )
         return
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = _positive_finite(cap.get(cv2.CAP_PROP_FPS))
+    if fps is None:
+        cap.release()
+        is_tracking = False
+        tracking_mode = "idle"
+        error_msg = "Source FPS unavailable; tracking cannot produce trustworthy video timestamps"
+        asyncio.run_coroutine_threadsafe(
+            broadcast_telemetry({"type": "error", "error": error_msg, "is_synthetic": False}),
+            loop,
+        )
+        return
     frame_delay = 1.0 / fps
     frame_idx = 0
 
@@ -550,28 +567,13 @@ def compute_session_quality_metrics(results: list[dict], tracked_player_count: i
     count = max(1, min(4, int(tracked_player_count or 2)))
     player_ids = [f"P{i}" for i in range(1, count + 1)]
 
-    empty_player_stats = {
-        pid: {
-            "playerId": pid,
-            "expectedFrames": 0,
-            "observedFrames": 0,
-            "predictedFrames": 0,
-            "lostFrames": 0,
-            "observedCoveragePct": 0.0,
-            "predictedFramesPct": 0.0,
-            "lostFramesPct": 0.0,
-            "lostTimeSec": 0.0,
-        }
-        for pid in player_ids
-    }
-
     if not results:
         return {
-            "observedCoveragePct": 0.0,
-            "lostFramesPct": 0.0,
-            "predictedFramesPct": 0.0,
-            "poseCoveragePct": 0.0,
-            "playerCoverage": empty_player_stats,
+            "observedCoveragePct": None,
+            "lostFramesPct": None,
+            "predictedFramesPct": None,
+            "poseCoveragePct": None,
+            "playerCoverage": {},
         }
 
     total_expected_frames = len(results)
@@ -807,13 +809,19 @@ def _run_session_analysis(session: TrackingSession):
         session.error_message = f"Failed to open video file: {session.video_source}"
         return
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 300
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    raw_total_frames = _positive_finite(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    total_frames = int(raw_total_frames) if raw_total_frames is not None else 0
+    fps = _positive_finite(cap.get(cv2.CAP_PROP_FPS))
+    if fps is None:
+        cap.release()
+        session.status = "ERROR"
+        session.error_message = "Source FPS unavailable; tracking cannot produce trustworthy video timestamps"
+        return
     session.source_fps = fps
     session.analyzer.fps = fps
     session.analyzer.dist_tracker.fps = fps
     session.total_frames = total_frames
-    session.duration_sec = round(total_frames / fps, 2)
+    session.duration_sec = round(total_frames / fps, 2) if total_frames > 0 else 0.0
 
     frame_idx = 0
     try:
@@ -826,7 +834,7 @@ def _run_session_analysis(session: TrackingSession):
             timestamp_sec = (pos_msec / 1000.0) if pos_msec > 0 else (frame_idx / fps)
             if frame_idx % session.frame_stride != 0:
                 session.current_frame = frame_idx
-                session.progress_pct = round((frame_idx / total_frames) * 100.0, 1)
+                session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
                 continue
             telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
             telemetry["source"] = "real_tracking"
@@ -834,7 +842,7 @@ def _run_session_analysis(session: TrackingSession):
             session.results.append(telemetry)
             session.analyzed_frames += 1
             session.current_frame = frame_idx
-            session.progress_pct = round((frame_idx / total_frames) * 100.0, 1)
+            session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
             session.elapsed_sec = round(time.time() - start_time, 1)
         
         if not session._cancel:
@@ -1078,23 +1086,47 @@ def start_session_analysis(session_id: str):
 
 
 def _build_session_metrics(session: TrackingSession):
-    sampling_fps = round(session.source_fps / session.frame_stride, 2) if session.frame_stride > 0 else 0.0
-    analysis_fps = round(session.analyzed_frames / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
-    processed_video_time = round(session.current_frame / session.source_fps, 2) if session.source_fps > 0 else 0.0
+    source_fps = (
+        float(session.source_fps)
+        if isinstance(session.source_fps, (int, float)) and math.isfinite(session.source_fps) and session.source_fps > 0
+        else None
+    )
+    elapsed_sec = (
+        float(session.elapsed_sec)
+        if isinstance(session.elapsed_sec, (int, float)) and math.isfinite(session.elapsed_sec) and session.elapsed_sec >= 0
+        else None
+    )
+    frame_stride = session.frame_stride if session.frame_stride > 0 else None
+    sampling_fps = round(source_fps / frame_stride, 2) if source_fps is not None and frame_stride is not None else None
+    analysis_fps = (
+        round(session.analyzed_frames / session.elapsed_sec, 2)
+        if elapsed_sec is not None and elapsed_sec > 0.05
+        else None
+    )
+    processed_video_time = (
+        round(session.current_frame / source_fps, 2)
+        if source_fps is not None
+        else None
+    )
+    duration_sec = (
+        float(session.duration_sec)
+        if isinstance(session.duration_sec, (int, float)) and math.isfinite(session.duration_sec) and session.duration_sec > 0
+        else None
+    )
 
     if session.status == "COMPLETED":
         # Final performance metrics: computed against total video duration (with zero protection)
-        rtf = round(session.elapsed_sec / session.duration_sec, 2) if session.duration_sec > 0 else 0.0
-        realtime_speed = round(session.duration_sec / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else 0.0
+        rtf = round(elapsed_sec / duration_sec, 2) if duration_sec is not None and elapsed_sec is not None else None
+        realtime_speed = round(duration_sec / elapsed_sec, 2) if duration_sec is not None and elapsed_sec is not None and elapsed_sec > 0.05 else None
     else:
         # Live processing metrics: computed against processed video time, NOT total duration!
-        rtf = round(session.elapsed_sec / processed_video_time, 2) if processed_video_time > 0.05 else None
-        realtime_speed = round(processed_video_time / session.elapsed_sec, 2) if session.elapsed_sec > 0.05 else None
+        rtf = round(elapsed_sec / processed_video_time, 2) if elapsed_sec is not None and processed_video_time is not None and processed_video_time > 0.05 else None
+        realtime_speed = round(processed_video_time / elapsed_sec, 2) if processed_video_time is not None and elapsed_sec is not None and elapsed_sec > 0.05 else None
 
     performance = {
-        "elapsedSec": round(session.elapsed_sec, 1),
+        "elapsedSec": round(elapsed_sec, 1) if elapsed_sec is not None else None,
         "processedVideoTimeSec": processed_video_time,
-        "videoDurationSec": session.duration_sec,
+        "videoDurationSec": duration_sec,
         "rtf": rtf,
         "realtimeSpeed": realtime_speed,
         "analysisFps": analysis_fps,
@@ -1145,7 +1177,7 @@ def get_session_status(session_id: str):
         "videoDurationSec": session.duration_sec,
         "durationSec": session.duration_sec,
         "lastTelemetryTimestampSec": last_timestamp,
-        "sourceFps": round(session.source_fps, 2),
+        "sourceFps": round(session.source_fps, 2) if isinstance(session.source_fps, (int, float)) and math.isfinite(session.source_fps) and session.source_fps > 0 else None,
         "samplingFps": performance_stats["samplingFps"],
         "analysisFps": performance_stats["analysisFps"],
         "trackedPlayerCount": session.tracked_player_count,

@@ -5,6 +5,7 @@ import {
   computeSinglePlayerMovementMetrics,
   computeMultiPlayerMovementMetrics,
   computePlayerMovementMetrics,
+  type TrackingAnalysis,
   type TrackingSample,
 } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../../components/analytics/BadmintonMovementDashboard';
@@ -218,7 +219,30 @@ describe('Multi-Player Movement Analytics (Phase 0.1)', () => {
         { timestamp: 1.0, playerId: 'P2', courtX: 4.0, courtY: 11.0, speed: 1.0, confidence: 0.9, trackingState: 'tracked' },
       ];
 
-      const { rerender } = render(<BadmintonMovementDashboard samples={samples} />);
+      const analysis: TrackingAnalysis = {
+        id: 'movement-ui',
+        projectId: 'project-ui',
+        sportType: 'badminton',
+        gameType: 'singles',
+        status: 'completed',
+        engineVersion: 'tracking-v1',
+        detectorModel: 'yolo',
+        trackerModel: 'bytetrack',
+        sampleRateHz: null,
+        createdAt: '2026-09-21T00:00:00.000Z',
+        players: [
+          { playerId: 'P1', side: 'near' },
+          { playerId: 'P2', side: 'far' },
+        ],
+        quality: {
+          detectionCoverage: 1,
+          lostTimePercent: 0,
+          confidence: 0.9,
+        },
+        summary: { durationSeconds: 1, sampleCount: samples.length, players: {} },
+      };
+
+      render(<BadmintonMovementDashboard analysis={analysis} samples={samples} />);
 
       // Default is ALL players
       expect(screen.getByText('Combined / Team Occupancy Centroid')).toBeInTheDocument();

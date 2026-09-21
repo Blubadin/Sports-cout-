@@ -7,6 +7,9 @@ import {
 describe('Tracking Benchmark Comparability & Speedup Semantics', () => {
   const baseRun = {
     trackedPlayerCount: 2,
+    detectorModel: 'yolov8n',
+    trackerModel: 'bytetrack',
+    poseModel: 'yolov8n-pose',
     processingConfig: {
       detectorInputSize: 640,
       frameStride: 2,
@@ -21,13 +24,9 @@ describe('Tracking Benchmark Comparability & Speedup Semantics', () => {
 
   it('matches runs when all key algorithmic configurations are identical', () => {
     const identicalRun = {
-      trackedPlayerCount: 2,
+      ...baseRun,
       processingConfig: {
-        detectorInputSize: 640,
-        frameStride: 2,
-        poseStride: 1,
-        useCourtRoi: false,
-        courtRoiMarginPx: 60,
+        ...baseRun.processingConfig,
         device: 'cuda' as const,
       },
       analysisFps: 45.0,
@@ -99,8 +98,25 @@ describe('Tracking Benchmark Comparability & Speedup Semantics', () => {
     expect(areBenchmarkConfigsMatching(baseRun, differingRun)).toBe(false);
   });
 
+  it('detects differences in detector and tracker implementations', () => {
+    expect(areBenchmarkConfigsMatching(baseRun, { ...baseRun, detectorModel: 'yolo11n' })).toBe(false);
+    expect(areBenchmarkConfigsMatching(baseRun, { ...baseRun, trackerModel: 'norfair' })).toBe(false);
+  });
+
   it('translates status label to Thai when language is th', () => {
     const comparison = compareBenchmarkRuns(baseRun, baseRun, false, 'th');
     expect(comparison.statusLabel).toBe('การตั้งค่าต่างกัน');
+  });
+
+  it('does not claim configurations match when required comparison metadata is missing', () => {
+    expect(areBenchmarkConfigsMatching({}, {})).toBe(false);
+  });
+
+  it('does not report equal performance when both runs lack measurements', () => {
+    const comparison = compareBenchmarkRuns({}, {}, true, 'en');
+
+    expect(comparison.speedupMultiplier).toBeNull();
+    expect(comparison.speedupPercent).toBeNull();
+    expect(comparison.statusLabel).toBe('Performance unavailable');
   });
 });

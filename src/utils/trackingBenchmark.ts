@@ -23,11 +23,13 @@ export interface BenchmarkComparableTarget {
   trackedPlayerCount?: number;
   processingConfig?: ProcessingConfig;
   runtimeProvenance?: TrackingRuntimeProvenance;
-  analysisFps?: number;
-  elapsedSec?: number;
+  analysisFps?: number | null;
+  elapsedSec?: number | null;
   rtf?: number | null;
   realtimeSpeed?: number | null;
-  detectorModel?: string;
+  detectorModel?: string | null;
+  trackerModel?: string | null;
+  poseModel?: string | null;
 }
 
 /**
@@ -45,29 +47,46 @@ export function areBenchmarkConfigsMatching(
   const provB = b.runtimeProvenance;
 
   // 1. Detector input resolution
-  const inputSizeA = cfgA?.detectorInputSize ?? provA?.detectorInputSize ?? 640;
-  const inputSizeB = cfgB?.detectorInputSize ?? provB?.detectorInputSize ?? 640;
-  if (inputSizeA !== inputSizeB) return false;
+  const inputSizeA = cfgA?.detectorInputSize ?? provA?.detectorInputSize;
+  const inputSizeB = cfgB?.detectorInputSize ?? provB?.detectorInputSize;
 
   // 2. Detection Frame Stride
-  const frameStrideA = cfgA?.frameStride ?? provA?.frameStride ?? 2;
-  const frameStrideB = cfgB?.frameStride ?? provB?.frameStride ?? 2;
-  if (frameStrideA !== frameStrideB) return false;
+  const frameStrideA = cfgA?.frameStride ?? provA?.frameStride;
+  const frameStrideB = cfgB?.frameStride ?? provB?.frameStride;
 
   // 3. Pose Stride
-  const poseStrideA = cfgA?.poseStride ?? provA?.poseStride ?? 1;
-  const poseStrideB = cfgB?.poseStride ?? provB?.poseStride ?? 1;
-  if (poseStrideA !== poseStrideB) return false;
+  const poseStrideA = cfgA?.poseStride ?? provA?.poseStride;
+  const poseStrideB = cfgB?.poseStride ?? provB?.poseStride;
 
   // 4. Court ROI Cropping
-  const roiA = Boolean(cfgA?.useCourtRoi ?? provA?.useCourtRoi ?? false);
-  const roiB = Boolean(cfgB?.useCourtRoi ?? provB?.useCourtRoi ?? false);
-  if (roiA !== roiB) return false;
+  const roiA = cfgA?.useCourtRoi ?? provA?.useCourtRoi;
+  const roiB = cfgB?.useCourtRoi ?? provB?.useCourtRoi;
 
   // 5. Tracked Player Count
-  const countA = a.trackedPlayerCount ?? 2;
-  const countB = b.trackedPlayerCount ?? 2;
-  if (countA !== countB) return false;
+  const countA = a.trackedPlayerCount;
+  const countB = b.trackedPlayerCount;
+
+  const detectorA = a.detectorModel ?? provA?.detectorModel;
+  const detectorB = b.detectorModel ?? provB?.detectorModel;
+  const trackerA = a.trackerModel ?? provA?.trackerModel;
+  const trackerB = b.trackerModel ?? provB?.trackerModel;
+  const poseA = a.poseModel ?? provA?.poseModel;
+  const poseB = b.poseModel ?? provB?.poseModel;
+
+  const pairs: Array<[unknown, unknown]> = [
+    [inputSizeA, inputSizeB],
+    [frameStrideA, frameStrideB],
+    [poseStrideA, poseStrideB],
+    [roiA, roiB],
+    [countA, countB],
+    [detectorA, detectorB],
+    [trackerA, trackerB],
+    [poseA, poseB],
+  ];
+  if (pairs.some(([left, right]) => left === undefined || left === null || right === undefined || right === null)) {
+    return false;
+  }
+  if (pairs.some(([left, right]) => left !== right)) return false;
 
   return true;
 }
@@ -84,8 +103,8 @@ export interface BenchmarkComparisonResult {
  * If key configs differ, strictly forbids claiming hardware speedup.
  */
 export function compareBenchmarkRuns(
-  candidate: { analysisFps?: number; elapsedSec?: number },
-  baseline: { analysisFps?: number; elapsedSec?: number },
+  candidate: { analysisFps?: number | null; elapsedSec?: number | null },
+  baseline: { analysisFps?: number | null; elapsedSec?: number | null },
   configsMatch: boolean,
   language: 'en' | 'th' = 'en'
 ): BenchmarkComparisonResult {
@@ -99,10 +118,11 @@ export function compareBenchmarkRuns(
     };
   }
 
-  const cFps = candidate.analysisFps ?? 0;
-  const bFps = baseline.analysisFps ?? 0;
+  const cFps = candidate.analysisFps;
+  const bFps = baseline.analysisFps;
 
-  if (cFps > 0 && bFps > 0) {
+  if (typeof cFps === 'number' && Number.isFinite(cFps) && cFps > 0
+    && typeof bFps === 'number' && Number.isFinite(bFps) && bFps > 0) {
     const multiplier = Number((cFps / bFps).toFixed(2));
     const percent = Number((((cFps - bFps) / bFps) * 100).toFixed(1));
     const label =
@@ -119,9 +139,10 @@ export function compareBenchmarkRuns(
   }
 
   // Fallback to elapsed time comparison if FPS is zero
-  const cTime = candidate.elapsedSec ?? 0;
-  const bTime = baseline.elapsedSec ?? 0;
-  if (cTime > 0 && bTime > 0) {
+  const cTime = candidate.elapsedSec;
+  const bTime = baseline.elapsedSec;
+  if (typeof cTime === 'number' && Number.isFinite(cTime) && cTime > 0
+    && typeof bTime === 'number' && Number.isFinite(bTime) && bTime > 0) {
     const multiplier = Number((bTime / cTime).toFixed(2));
     const percent = Number((((bTime - cTime) / bTime) * 100).toFixed(1));
     const label =
@@ -139,9 +160,9 @@ export function compareBenchmarkRuns(
 
   return {
     configsMatch: true,
-    speedupMultiplier: 1.0,
-    speedupPercent: 0.0,
-    statusLabel: th ? 'เท่ากัน (Baseline)' : 'Equal (Baseline)',
+    speedupMultiplier: null,
+    speedupPercent: null,
+    statusLabel: th ? 'ไม่มีข้อมูลประสิทธิภาพ' : 'Performance unavailable',
   };
 }
 
@@ -161,6 +182,8 @@ export function normalizeAnalysisToBenchmark(analysis: TrackingAnalysis): Benchm
     rtf: analysis.performance?.rtf,
     realtimeSpeed: analysis.performance?.realtimeSpeed,
     detectorModel: analysis.detectorModel,
+    trackerModel: analysis.trackerModel,
+    poseModel: analysis.poseModel,
   };
 }
 
@@ -180,6 +203,8 @@ export function normalizeStatusToBenchmark(status: TrackingSessionStatus): Bench
     rtf: status.performance?.rtf,
     realtimeSpeed: status.performance?.realtimeSpeed,
     detectorModel: status.runtimeProvenance?.detectorModel,
+    trackerModel: status.runtimeProvenance?.trackerModel,
+    poseModel: status.runtimeProvenance?.poseModel,
   };
 }
 
@@ -236,20 +261,34 @@ export interface CreateBenchmarkRunOptions {
   poseStride?: number;
   maxPlayers?: number;
   device?: string;
-  sourceWidth?: number;
-  sourceHeight?: number;
-  sourceFps?: number;
-  durationSeconds?: number;
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
+  sourceFps?: number | null;
+  durationSeconds?: number | null;
   totalSourceFrames?: number | null;
-  framesAnalyzed?: number;
-  analysisFps?: number;
-  elapsedSeconds?: number;
-  effectiveTelemetryHz?: number;
-  meanTargetCoverage?: number;
-  simultaneousTargetCoverage?: number;
+  framesAnalyzed?: number | null;
+  analysisFps?: number | null;
+  elapsedSeconds?: number | null;
+  effectiveTelemetryHz?: number | null;
+  meanTargetCoverage?: number | null;
+  simultaneousTargetCoverage?: number | null;
   playerCoverage?: Record<string, TrackingBenchmarkPlayerQuality>;
   identityAudit?: TrackingBenchmarkIdentityAudit | null;
   groundTruth?: TrackingBenchmarkGroundTruth | null;
+}
+
+function finiteOrNull(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function positiveOrNull(value: number | null | undefined): number | null {
+  const finite = finiteOrNull(value);
+  return finite !== null && finite > 0 ? finite : null;
+}
+
+function nonNegativeOrNull(value: number | null | undefined): number | null {
+  const finite = finiteOrNull(value);
+  return finite !== null && finite >= 0 ? finite : null;
 }
 
 /**
@@ -267,7 +306,7 @@ export function createBenchmarkRun(params: {
 }): TrackingBenchmarkRun {
   const processingRatio =
     params.performance.processingRatio !== undefined
-      ? params.performance.processingRatio
+      ? nonNegativeOrNull(params.performance.processingRatio)
       : calculateProcessingRatio(
           params.performance.elapsedSeconds,
           params.videoMetadata.durationSeconds
@@ -289,30 +328,30 @@ export function createBenchmarkRun(params: {
       poseModel: params.modelConfig.poseModel,
       trackerName: params.modelConfig.trackerName,
       trackerVersion: params.modelConfig.trackerVersion ?? null,
-      detectorInputSize: params.modelConfig.detectorInputSize,
-      confidenceThreshold: params.modelConfig.confidenceThreshold,
-      frameStride: params.modelConfig.frameStride,
-      poseStride: params.modelConfig.poseStride,
-      maxPlayers: params.modelConfig.maxPlayers,
+      detectorInputSize: positiveOrNull(params.modelConfig.detectorInputSize),
+      confidenceThreshold: nonNegativeOrNull(params.modelConfig.confidenceThreshold),
+      frameStride: positiveOrNull(params.modelConfig.frameStride),
+      poseStride: positiveOrNull(params.modelConfig.poseStride),
+      maxPlayers: positiveOrNull(params.modelConfig.maxPlayers),
       device: params.modelConfig.device,
     },
     videoMetadata: {
-      sourceWidth: params.videoMetadata.sourceWidth,
-      sourceHeight: params.videoMetadata.sourceHeight,
-      sourceFps: params.videoMetadata.sourceFps,
-      durationSeconds: params.videoMetadata.durationSeconds,
+      sourceWidth: positiveOrNull(params.videoMetadata.sourceWidth),
+      sourceHeight: positiveOrNull(params.videoMetadata.sourceHeight),
+      sourceFps: positiveOrNull(params.videoMetadata.sourceFps),
+      durationSeconds: positiveOrNull(params.videoMetadata.durationSeconds),
       totalSourceFrames: params.videoMetadata.totalSourceFrames ?? null,
     },
     performance: {
-      framesAnalyzed: params.performance.framesAnalyzed,
-      analysisFps: params.performance.analysisFps,
-      elapsedSeconds: params.performance.elapsedSeconds,
-      effectiveTelemetryHz: params.performance.effectiveTelemetryHz,
+      framesAnalyzed: nonNegativeOrNull(params.performance.framesAnalyzed),
+      analysisFps: nonNegativeOrNull(params.performance.analysisFps),
+      elapsedSeconds: nonNegativeOrNull(params.performance.elapsedSeconds),
+      effectiveTelemetryHz: positiveOrNull(params.performance.effectiveTelemetryHz),
       processingRatio,
     },
     quality: {
-      meanTargetCoverage: params.quality.meanTargetCoverage,
-      simultaneousTargetCoverage: params.quality.simultaneousTargetCoverage,
+      meanTargetCoverage: nonNegativeOrNull(params.quality.meanTargetCoverage),
+      simultaneousTargetCoverage: nonNegativeOrNull(params.quality.simultaneousTargetCoverage),
       playerCoverage: { ...params.quality.playerCoverage },
     },
   };
@@ -343,28 +382,27 @@ export function createBenchmarkRunFromAnalysis(
     analysis.summary?.durationSeconds ??
     analysis.videoMetadata?.durationSec ??
     analysis.performance?.videoDurationSec ??
-    0;
+    null;
 
   const elapsedSec =
     overrides?.elapsedSeconds ??
     analysis.performance?.elapsedSec ??
-    0;
+    null;
 
   const framesAnalyzed =
     overrides?.framesAnalyzed ??
     analysis.analyzedFrames ??
-    0;
+    null;
 
   const analysisFps =
     overrides?.analysisFps ??
     analysis.performance?.analysisFps ??
-    0;
+    null;
 
   const effectiveTelemetryHz =
     overrides?.effectiveTelemetryHz ??
     analysis.effectiveStoredHz ??
-    analysis.nominalAnalysisHz ??
-    10;
+    null;
 
   // Extract per-player quality breakdown
   const playerCoverage: Record<string, TrackingBenchmarkPlayerQuality> = {};
@@ -372,10 +410,10 @@ export function createBenchmarkRunFromAnalysis(
     for (const [pId, pq] of Object.entries(analysis.quality.playerCoverage)) {
       playerCoverage[pId] = {
         playerId: pId,
-        observedCoverage: pq.detectionCoverage ?? 0,
-        predictedPercent: pq.predictedPercent ?? 0,
-        lostPercent: pq.lostPercent ?? 0,
-        meanObservedConfidence: pq.meanObservedConfidence ?? 0,
+        observedCoverage: pq.detectionCoverage ?? null,
+        predictedPercent: pq.predictedPercent ?? null,
+        lostPercent: pq.lostPercent ?? null,
+        meanObservedConfidence: pq.meanObservedConfidence ?? null,
       };
     }
   }
@@ -384,12 +422,12 @@ export function createBenchmarkRunFromAnalysis(
     overrides?.meanTargetCoverage ??
     analysis.quality?.meanTargetCoverage ??
     analysis.quality?.detectionCoverage ??
-    0;
+    null;
 
   const simultaneousTargetCoverage =
     overrides?.simultaneousTargetCoverage ??
     analysis.quality?.simultaneousTargetCoverage ??
-    0;
+    null;
 
   // Optional Identity Audit: populate only if values were actually observed
   let identityAudit: TrackingBenchmarkIdentityAudit | undefined = undefined;
@@ -420,56 +458,56 @@ export function createBenchmarkRunFromAnalysis(
         overrides?.processingProfile ??
         analysis.runtimeProvenance?.effectiveProfile ??
         analysis.processingConfig?.profile ??
-        'auto',
+        null,
     },
     modelConfig: {
       detectorName:
         overrides?.detectorName ??
         analysis.detectorModel ??
         analysis.runtimeProvenance?.detectorModel ??
-        'yolo',
+        null,
       detectorVersion: overrides?.detectorVersion ?? null,
       poseModel:
         overrides?.poseModel ??
         analysis.poseModel ??
         analysis.runtimeProvenance?.poseModel ??
-        'yolo_pose',
+        null,
       trackerName:
         overrides?.trackerName ??
         analysis.trackerModel ??
         analysis.runtimeProvenance?.trackerModel ??
-        'bytetrack',
+        null,
       trackerVersion: overrides?.trackerVersion ?? null,
       detectorInputSize:
         overrides?.detectorInputSize ??
         analysis.runtimeProvenance?.detectorInputSize ??
         analysis.processingConfig?.detectorInputSize ??
-        640,
-      confidenceThreshold: overrides?.confidenceThreshold ?? 0.25,
+        null,
+      confidenceThreshold: overrides?.confidenceThreshold ?? null,
       frameStride:
         overrides?.frameStride ??
         analysis.runtimeProvenance?.frameStride ??
         analysis.processingConfig?.frameStride ??
-        2,
+        null,
       poseStride:
         overrides?.poseStride ??
         analysis.runtimeProvenance?.poseStride ??
         analysis.processingConfig?.poseStride ??
-        1,
+        null,
       maxPlayers:
         overrides?.maxPlayers ??
         analysis.trackedPlayerCount ??
-        (analysis.gameType === 'doubles' ? 4 : 2),
+        null,
       device:
         overrides?.device ??
         analysis.effectiveDevice ??
         analysis.device ??
-        'cpu',
+        null,
     },
     videoMetadata: {
-      sourceWidth: overrides?.sourceWidth ?? analysis.videoMetadata?.width ?? 0,
-      sourceHeight: overrides?.sourceHeight ?? analysis.videoMetadata?.height ?? 0,
-      sourceFps: overrides?.sourceFps ?? analysis.videoMetadata?.nominalFps ?? 30,
+      sourceWidth: overrides?.sourceWidth ?? analysis.videoMetadata?.width ?? null,
+      sourceHeight: overrides?.sourceHeight ?? analysis.videoMetadata?.height ?? null,
+      sourceFps: overrides?.sourceFps ?? analysis.videoMetadata?.nominalFps ?? null,
       durationSeconds: durationSec,
       totalSourceFrames: overrides?.totalSourceFrames ?? analysis.videoMetadata?.reportedFrameCount ?? null,
     },
@@ -501,53 +539,54 @@ export function createBenchmarkRunFromSessionStatus(
     overrides?.durationSeconds ??
     status.performance?.videoDurationSec ??
     status.videoMetadata?.durationSec ??
-    0;
+    null;
 
   const elapsedSec =
     overrides?.elapsedSeconds ??
     status.elapsedSec ??
     status.performance?.elapsedSec ??
-    0;
+    null;
 
   const framesAnalyzed =
     overrides?.framesAnalyzed ??
     status.analyzedFrames ??
-    0;
+    null;
 
   const analysisFps =
     overrides?.analysisFps ??
     status.analysisFps ??
     status.performance?.analysisFps ??
-    0;
+    null;
 
-  const effectiveTelemetryHz =
-    overrides?.effectiveTelemetryHz ??
-    status.performance?.samplingFps ??
-    status.samplingFps ??
-    10;
+  const effectiveTelemetryHz = overrides?.effectiveTelemetryHz ?? null;
 
   const playerCoverage: Record<string, TrackingBenchmarkPlayerQuality> = {};
   if (status.quality?.playerCoverage) {
     for (const [pId, cov] of Object.entries(status.quality.playerCoverage)) {
       playerCoverage[pId] = {
         playerId: pId,
-        observedCoverage: (cov.observedCoveragePct ?? 0) / 100,
-        predictedPercent: cov.predictedFramesPct ?? 0,
-        lostPercent: cov.lostFramesPct ?? 0,
-        meanObservedConfidence: 0.85,
+        observedCoverage: cov.observedCoveragePct !== null && cov.observedCoveragePct !== undefined
+          ? cov.observedCoveragePct / 100
+          : null,
+        predictedPercent: cov.predictedFramesPct ?? null,
+        lostPercent: cov.lostFramesPct ?? null,
+        meanObservedConfidence: null,
       };
     }
   }
 
-  const meanTargetCoverage =
-    overrides?.meanTargetCoverage ??
-    ((status.quality?.observedCoveragePct ?? 0) / 100);
+  const meanTargetCoverage = overrides?.meanTargetCoverage
+    ?? (status.quality?.meanTargetCoveragePct !== undefined && status.quality.meanTargetCoveragePct !== null
+      ? status.quality.meanTargetCoveragePct / 100
+      : status.quality?.observedCoveragePct !== undefined && status.quality.observedCoveragePct !== null
+      ? status.quality.observedCoveragePct / 100
+      : null);
 
   const simultaneousTargetCoverage =
     overrides?.simultaneousTargetCoverage ??
-    (status.quality?.simultaneousCoveragePct !== undefined
+    (status.quality?.simultaneousCoveragePct !== undefined && status.quality.simultaneousCoveragePct !== null
       ? status.quality.simultaneousCoveragePct / 100
-      : meanTargetCoverage);
+      : null);
 
   return createBenchmarkRun({
     identity: {
@@ -556,55 +595,60 @@ export function createBenchmarkRunFromSessionStatus(
       sport: overrides?.sport ?? 'badminton',
       videoFingerprint: overrides?.videoFingerprint ?? null,
       videoReference: overrides?.videoReference ?? status.videoMetadata?.filename ?? null,
-      trackingMode: overrides?.trackingMode ?? (status.trackedPlayerCount === 4 ? 'doubles' : 'singles'),
+      trackingMode: overrides?.trackingMode
+        ?? (status.trackedPlayerCount === 4
+          ? 'doubles'
+          : status.trackedPlayerCount === 1 || status.trackedPlayerCount === 2
+          ? 'singles'
+          : null),
       processingProfile:
         overrides?.processingProfile ??
         status.runtimeProvenance?.effectiveProfile ??
         status.processingConfig?.profile ??
-        'auto',
+        null,
     },
     modelConfig: {
       detectorName:
         overrides?.detectorName ??
         status.runtimeProvenance?.detectorModel ??
-        'yolo',
+        null,
       detectorVersion: overrides?.detectorVersion ?? null,
       poseModel:
         overrides?.poseModel ??
         status.runtimeProvenance?.poseModel ??
-        'yolo_pose',
+        null,
       trackerName:
         overrides?.trackerName ??
         status.runtimeProvenance?.trackerModel ??
-        'bytetrack',
+        null,
       trackerVersion: overrides?.trackerVersion ?? null,
       detectorInputSize:
         overrides?.detectorInputSize ??
         status.runtimeProvenance?.detectorInputSize ??
         status.processingConfig?.detectorInputSize ??
-        640,
-      confidenceThreshold: overrides?.confidenceThreshold ?? 0.25,
+        null,
+      confidenceThreshold: overrides?.confidenceThreshold ?? null,
       frameStride:
         overrides?.frameStride ??
         status.runtimeProvenance?.frameStride ??
         status.processingConfig?.frameStride ??
-        2,
+        null,
       poseStride:
         overrides?.poseStride ??
         status.runtimeProvenance?.poseStride ??
         status.processingConfig?.poseStride ??
-        1,
-      maxPlayers: overrides?.maxPlayers ?? status.trackedPlayerCount ?? 2,
+        null,
+      maxPlayers: overrides?.maxPlayers ?? status.trackedPlayerCount ?? null,
       device:
         overrides?.device ??
         status.effectiveDevice ??
         status.device ??
-        'cpu',
+        null,
     },
     videoMetadata: {
-      sourceWidth: overrides?.sourceWidth ?? status.videoMetadata?.width ?? 0,
-      sourceHeight: overrides?.sourceHeight ?? status.videoMetadata?.height ?? 0,
-      sourceFps: overrides?.sourceFps ?? status.videoMetadata?.nominalFps ?? status.sourceFps ?? 30,
+      sourceWidth: overrides?.sourceWidth ?? status.videoMetadata?.width ?? null,
+      sourceHeight: overrides?.sourceHeight ?? status.videoMetadata?.height ?? null,
+      sourceFps: overrides?.sourceFps ?? status.videoMetadata?.nominalFps ?? status.sourceFps ?? null,
       durationSeconds: durationSec,
       totalSourceFrames: overrides?.totalSourceFrames ?? status.totalFrames ?? null,
     },

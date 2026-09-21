@@ -104,7 +104,7 @@ describe('Multi-Target Tracking Quality Metrics (Phase 0.2)', () => {
     expect(quality.playerCoverage?.P2.predictedFrameCount).toBe(1);
     // Confidence must be based on real observed data only
     expect(quality.playerCoverage?.P1.meanObservedConfidence).toBe(0.92);
-    expect(quality.playerCoverage?.P2.meanObservedConfidence).toBe(0.0);
+    expect(quality.playerCoverage?.P2.meanObservedConfidence).toBeNull();
     expect(quality.confidence).toBe(0.92);
   });
 
@@ -188,29 +188,42 @@ describe('Multi-Target Tracking Quality Metrics (Phase 0.2)', () => {
     expect(quality.playerCoverage?.P1.lostPercent).toBe(20.0);
   });
 
-  // CASE F: no eligible frames => must not return NaN or Infinity
-  it('CASE F — handles zero frames without returning NaN or Infinity', () => {
+  // CASE F: no eligible frames => all rate/quality metrics are unknown, not measured zero
+  it('CASE F — keeps zero-frame quality unavailable instead of fabricating loss or confidence', () => {
     const quality = computeTrackingQuality([]);
 
-    expect(quality.meanTargetCoverage).toBe(0);
-    expect(quality.simultaneousTargetCoverage).toBe(0);
+    expect(quality.meanTargetCoverage).toBeNull();
+    expect(quality.simultaneousTargetCoverage).toBeNull();
     expect(quality.fullyObservedFrameCount).toBe(0);
     expect(quality.partiallyObservedFrameCount).toBe(0);
     expect(quality.fullyLostFrameCount).toBe(0);
-    expect(quality.predictedPercent).toBe(0);
-    expect(quality.lostPercent).toBe(100);
-    expect(quality.confidence).toBe(0);
-    expect(quality.detectionCoverage).toBe(0);
-    expect(quality.lostTimePercent).toBe(100);
-
-    expect(Number.isNaN(quality.meanTargetCoverage)).toBe(false);
-    expect(Number.isNaN(quality.simultaneousTargetCoverage)).toBe(false);
-    expect(Number.isFinite(quality.confidence)).toBe(true);
+    expect(quality.predictedPercent).toBeNull();
+    expect(quality.lostPercent).toBeNull();
+    expect(quality.confidence).toBeNull();
+    expect(quality.detectionCoverage).toBeNull();
+    expect(quality.lostTimePercent).toBeNull();
 
     // Also via downsampleAndChunkTrackingSamples
-    const res = downsampleAndChunkTrackingSamples('empty_session', []);
-    expect(Number.isNaN(res.quality.meanTargetCoverage ?? 0)).toBe(false);
-    expect(Number.isNaN(res.quality.simultaneousTargetCoverage ?? 0)).toBe(false);
+    const res = downsampleAndChunkTrackingSamples('empty_session', [], 10, 15, {
+      P1: { totalDistanceM: 0 },
+      P2: { totalDistanceM: 0 },
+    });
+    expect(res.quality.meanTargetCoverage).toBeNull();
+    expect(res.quality.simultaneousTargetCoverage).toBeNull();
+    expect(res.summary.players).toEqual({});
+  });
+
+  it('uses the configured target roster when an expected player never appears', () => {
+    const quality = computeTrackingQuality(
+      [makeFrame(0, [{ playerId: 'P1', state: 'observed', confidence: 0.9 }])],
+      ['P1', 'P2'],
+    );
+
+    expect(quality.playerCoverage?.P1.detectionCoverage).toBe(1);
+    expect(quality.playerCoverage?.P2.detectionCoverage).toBe(0);
+    expect(quality.playerCoverage?.P2.lostPercent).toBe(100);
+    expect(quality.meanTargetCoverage).toBe(0.5);
+    expect(quality.simultaneousTargetCoverage).toBe(0);
   });
 
   // FUTURE FIELDS: idSwitchCount and manualCorrectionCount are null when unmeasured

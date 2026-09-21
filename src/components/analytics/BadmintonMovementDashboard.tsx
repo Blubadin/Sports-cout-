@@ -32,6 +32,18 @@ interface BadmintonMovementDashboardProps {
   onSeekTime?: (seconds: number) => void;
 }
 
+function formatFractionPercent(value: number | null | undefined, digits = 1): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${(value * 100).toFixed(digits)}%`
+    : '—';
+}
+
+function formatPercent(value: number | null | undefined, digits = 1): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${value.toFixed(digits)}%`
+    : '—';
+}
+
 export default function BadmintonMovementDashboard({
   analysis,
   chunks = [],
@@ -368,7 +380,7 @@ export default function BadmintonMovementDashboard({
   const quality = analysis.quality;
 
   const isMultiPlayer = playerIds.length > 1;
-  const selectedPlayerQuality = selectedPlayer !== 'ALL' ? quality.playerCoverage?.[selectedPlayer] : null;
+  const selectedPlayerQuality = selectedPlayer !== 'ALL' ? quality?.playerCoverage?.[selectedPlayer] : null;
 
   return (
     <div className="flex flex-col gap-4 p-4 bg-[#0c1721] text-slate-100 rounded-xl border border-[#263642] shadow-2xl">
@@ -391,7 +403,7 @@ export default function BadmintonMovementDashboard({
             {provenance}
           </span>
           <span className="text-emerald-400 font-semibold">
-            conf: {quality ? `${(quality.confidence * 100).toFixed(0)}%` : '—'}
+            conf: {formatFractionPercent(quality?.confidence, 0)}
           </span>
           <span className="text-slate-400">engine: {analysis.engineVersion}</span>
           {quality && quality.manualCorrections > 0 && (
@@ -423,8 +435,8 @@ export default function BadmintonMovementDashboard({
           </div>
           <div className="text-lg font-black text-emerald-400 mt-1">
             {selectedPlayerQuality
-              ? `${(selectedPlayerQuality.detectionCoverage * 100).toFixed(1)}%`
-              : `${((quality.meanTargetCoverage ?? quality.detectionCoverage) * 100).toFixed(1)}%`}
+              ? formatFractionPercent(selectedPlayerQuality.detectionCoverage)
+              : formatFractionPercent(quality.meanTargetCoverage ?? quality.detectionCoverage)}
           </div>
           {selectedPlayer === 'ALL' && isMultiPlayer && (
             <div className="text-[10px] text-slate-400 mt-0.5">
@@ -442,10 +454,10 @@ export default function BadmintonMovementDashboard({
           </div>
           <div className="text-lg font-black text-sky-400 mt-1">
             {selectedPlayer === 'ALL' && isMultiPlayer
-              ? `${((quality.simultaneousTargetCoverage ?? quality.detectionCoverage) * 100).toFixed(1)}%`
+              ? formatFractionPercent(quality.simultaneousTargetCoverage)
               : selectedPlayerQuality
-              ? `${Math.round(selectedPlayerQuality.meanObservedConfidence * 100)}%`
-              : `${Math.round(quality.confidence * 100)}%`}
+              ? formatFractionPercent(selectedPlayerQuality.meanObservedConfidence, 0)
+              : formatFractionPercent(quality.confidence, 0)}
           </div>
           {selectedPlayer === 'ALL' && isMultiPlayer && (
             <div className="text-[10px] text-slate-400 mt-0.5">
@@ -463,16 +475,16 @@ export default function BadmintonMovementDashboard({
           </div>
           <div className="text-lg font-black text-amber-400 mt-1">
             {selectedPlayerQuality
-              ? `Pred: ${selectedPlayerQuality.predictedPercent.toFixed(1)}%`
+              ? `Pred: ${formatPercent(selectedPlayerQuality.predictedPercent)}`
               : quality.predictedPercent !== undefined
-              ? `Pred: ${quality.predictedPercent.toFixed(1)}%`
-              : `${quality.lostTimePercent.toFixed(1)}%`}
+              ? `Pred: ${formatPercent(quality.predictedPercent)}`
+              : formatPercent(quality.lostTimePercent)}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
             Lost:{' '}
             {selectedPlayerQuality
-              ? `${selectedPlayerQuality.lostPercent.toFixed(1)}%`
-              : `${(quality.lostPercent ?? quality.lostTimePercent).toFixed(1)}%`}
+              ? formatPercent(selectedPlayerQuality.lostPercent)
+              : formatPercent(quality.lostPercent ?? quality.lostTimePercent)}
           </div>
         </div>
 
@@ -494,7 +506,7 @@ export default function BadmintonMovementDashboard({
             <div className="text-lg font-black text-purple-400 mt-1 flex items-baseline justify-between">
               <span>
                 {selectedPlayer === 'ALL' && isMultiPlayer
-                  ? `${(quality.confidence * 100).toFixed(0)}%`
+                  ? formatFractionPercent(quality.confidence, 0)
                   : filteredSamples.length}
               </span>
               {selectedPlayer === 'ALL' && isMultiPlayer && (
@@ -524,7 +536,7 @@ export default function BadmintonMovementDashboard({
       )}
 
       {/* Per-Player Quality Inspectable Row */}
-      {quality.playerCoverage && isMultiPlayer && (
+      {quality?.playerCoverage && isMultiPlayer && (
         <div className="flex flex-wrap items-center gap-2 p-2.5 bg-[#132332]/70 border border-[#263642] rounded-lg text-xs">
           <span className="font-semibold text-slate-400 text-[11px] uppercase tracking-wider">Per-Player Quality:</span>
           {playerIds.map((pId) => {
@@ -549,7 +561,7 @@ export default function BadmintonMovementDashboard({
                 <span className="text-slate-600">|</span>
                 <span className="text-rose-400">{pQual.lostPercent.toFixed(1)}% lost</span>
                 <span className="text-slate-600">|</span>
-                <span className="text-sky-300 font-semibold">{Math.round(pQual.meanObservedConfidence * 100)}% conf</span>
+                <span className="text-sky-300 font-semibold">{formatFractionPercent(pQual.meanObservedConfidence, 0)} conf</span>
               </button>
             );
           })}

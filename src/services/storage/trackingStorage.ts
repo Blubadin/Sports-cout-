@@ -23,22 +23,22 @@ export interface PlayerTrackingQuality {
   detectionCoverage: number; // 0..1 (e.g. 0.95)
   predictedPercent: number; // 0..100 (%)
   lostPercent: number; // 0..100 (%)
-  meanObservedConfidence: number; // 0..1
+  meanObservedConfidence: number | null; // 0..1; null when no observation exists
   idSwitchCount?: number | null;
   manualCorrectionCount?: number | null;
 }
 
 export interface TrackingQuality {
   // Session-level multi-target metrics
-  meanTargetCoverage?: number; // 0..1 (mean of individual player coverages)
-  simultaneousTargetCoverage?: number; // 0..1 (frames where all expected targets observed / eligible frames)
+  meanTargetCoverage?: number | null; // 0..1 (mean of individual player coverages)
+  simultaneousTargetCoverage?: number | null; // 0..1 (frames where all expected targets observed / eligible frames)
   fullyObservedFrameCount?: number;
   partiallyObservedFrameCount?: number;
   fullyLostFrameCount?: number;
 
   // Aggregate stats across session
-  predictedPercent?: number; // 0..100 (%)
-  lostPercent?: number; // 0..100 (%)
+  predictedPercent?: number | null; // 0..100 (%)
+  lostPercent?: number | null; // 0..100 (%)
 
   // Per-player quality breakdown
   playerCoverage?: Record<string, PlayerTrackingQuality>;
@@ -49,9 +49,9 @@ export interface TrackingQuality {
   manualCorrections?: number | null;
 
   // Backward compatibility fields
-  detectionCoverage: number; // 0..1 (legacy alias = meanTargetCoverage)
-  lostTimePercent: number; // 0..100 (%) (legacy alias = (1 - meanTargetCoverage) * 100)
-  confidence: number; // 0..1 (mean observed confidence across all players)
+  detectionCoverage: number | null; // 0..1 (legacy alias = meanTargetCoverage)
+  lostTimePercent: number | null; // 0..100 (%) (legacy alias = (1 - meanTargetCoverage) * 100)
+  confidence: number | null; // 0..1 (mean observed confidence across all players)
   lowConfidenceWarning?: boolean;
 }
 
@@ -94,7 +94,8 @@ export interface TrackingAnalysis {
   detectorModel: string;
   trackerModel: string;
   poseModel?: string;
-  sampleRateHz: number;
+  /** @deprecated Legacy alias for measured effectiveStoredHz. Never use for configured targets. */
+  sampleRateHz: number | null;
   nominalAnalysisHz?: number | null;
   effectiveStoredHz?: number | null;
   persistedTargetHz?: number | null;
@@ -112,7 +113,7 @@ export interface TrackingAnalysis {
   performance?: TrackingPerformanceStats;
   qualityStats?: TrackingQualityStats;
   players: TrackingPlayerMetadata[];
-  quality: TrackingQuality;
+  quality?: TrackingQuality | null;
   summary: TrackingSummary;
 }
 
@@ -859,21 +860,20 @@ export function computeTrackingQuality(
 ): TrackingQuality {
   if (frames.length === 0) {
     return {
-      meanTargetCoverage: 0,
-      simultaneousTargetCoverage: 0,
+      meanTargetCoverage: null,
+      simultaneousTargetCoverage: null,
       fullyObservedFrameCount: 0,
       partiallyObservedFrameCount: 0,
       fullyLostFrameCount: 0,
-      predictedPercent: 0,
-      lostPercent: 100,
+      predictedPercent: null,
+      lostPercent: null,
       playerCoverage: {},
       idSwitchCount: null,
       manualCorrectionCount: null,
       manualCorrections: null,
-      detectionCoverage: 0,
-      lostTimePercent: 100,
-      confidence: 0,
-      lowConfidenceWarning: true,
+      detectionCoverage: null,
+      lostTimePercent: null,
+      confidence: null,
     };
   }
 
@@ -888,6 +888,25 @@ export function computeTrackingQuality(
     }
   }
   const expectedPlayerIds = Array.from(expectedSet).sort();
+
+  if (expectedPlayerIds.length === 0) {
+    return {
+      meanTargetCoverage: null,
+      simultaneousTargetCoverage: null,
+      fullyObservedFrameCount: 0,
+      partiallyObservedFrameCount: 0,
+      fullyLostFrameCount: 0,
+      predictedPercent: null,
+      lostPercent: null,
+      playerCoverage: {},
+      idSwitchCount: null,
+      manualCorrectionCount: null,
+      manualCorrections: null,
+      detectionCoverage: null,
+      lostTimePercent: null,
+      confidence: null,
+    };
+  }
 
   // 2. Tally frame counts per player and frame-level simultaneous observation
   interface PlayerTally {
@@ -955,7 +974,9 @@ export function computeTrackingQuality(
     const detectionCoverage = eligibleFrames > 0 ? Number((tally.observed / eligibleFrames).toFixed(2)) : 0;
     const predictedPercent = eligibleFrames > 0 ? Number(((tally.predicted / eligibleFrames) * 100).toFixed(1)) : 0;
     const lostPercent = eligibleFrames > 0 ? Number(((tally.lost / eligibleFrames) * 100).toFixed(1)) : 0;
-    const meanObservedConfidence = tally.confidenceCount > 0 ? Number((tally.confidenceSum / tally.confidenceCount).toFixed(2)) : 0;
+    const meanObservedConfidence = tally.confidenceCount > 0
+      ? Number((tally.confidenceSum / tally.confidenceCount).toFixed(2))
+      : null;
 
     playerCoverage[pId] = {
       playerId: pId,
@@ -978,18 +999,20 @@ export function computeTrackingQuality(
   }
 
   // 4. Session Multi-Target Aggregates
-  const targetCount = Math.max(1, expectedPlayerIds.length);
-  const meanTargetCoverage = expectedPlayerIds.length > 0 ? Number((totalCoverageSum / targetCount).toFixed(2)) : 0;
-  const simultaneousTargetCoverage = totalEligibleSessionFrames > 0 && expectedPlayerIds.length > 0
+  const targetCount = expectedPlayerIds.length;
+  const meanTargetCoverage = Number((totalCoverageSum / targetCount).toFixed(2));
+  const simultaneousTargetCoverage = totalEligibleSessionFrames > 0
     ? Number((fullyObservedFrameCount / totalEligibleSessionFrames).toFixed(2))
-    : 0;
+    : null;
 
   const totalPlayerTargetSlots = targetCount * totalEligibleSessionFrames;
   const sessionPredictedPercent = totalPlayerTargetSlots > 0 ? Number(((totalPredictedCount / totalPlayerTargetSlots) * 100).toFixed(1)) : 0;
   const sessionLostPercent = totalPlayerTargetSlots > 0 ? Number(((totalLostCount / totalPlayerTargetSlots) * 100).toFixed(1)) : 0;
 
-  const meanConfidence = totalObservedConfidenceCount > 0 ? Number((totalObservedConfidenceSum / totalObservedConfidenceCount).toFixed(2)) : 0;
-  const lowConfidenceWarning = meanConfidence < 0.6 || meanTargetCoverage < 0.5;
+  const meanConfidence = totalObservedConfidenceCount > 0
+    ? Number((totalObservedConfidenceSum / totalObservedConfidenceCount).toFixed(2))
+    : null;
+  const lowConfidenceWarning = meanTargetCoverage < 0.5 || (meanConfidence !== null && meanConfidence < 0.6);
 
   return {
     meanTargetCoverage,
@@ -1025,15 +1048,9 @@ export function downsampleAndChunkTrackingSamples(
   quality: TrackingQuality;
 } {
   if (frames.length === 0) {
-    const emptyPlayerSummaries: Record<string, PlayerMovementMetrics> = {};
-    if (canonicalPlayerMetrics) {
-      for (const [pId, m] of Object.entries(canonicalPlayerMetrics)) {
-        emptyPlayerSummaries[pId] = computePlayerMovementMetrics([], m.totalDistanceM);
-      }
-    }
     return {
       chunks: [],
-      summary: { durationSeconds: 0, sampleCount: 0, players: emptyPlayerSummaries },
+      summary: { durationSeconds: 0, sampleCount: 0, players: {} },
       quality: computeTrackingQuality([], canonicalPlayerMetrics ? Object.keys(canonicalPlayerMetrics) : undefined),
     };
   }
@@ -1110,7 +1127,8 @@ export function downsampleAndChunkTrackingSamples(
 
   if (canonicalPlayerMetrics) {
     for (const [pId, m] of Object.entries(canonicalPlayerMetrics)) {
-      if (!playerSummaries[pId]) {
+      const observedFrameCount = quality.playerCoverage?.[pId]?.observedFrameCount ?? 0;
+      if (!playerSummaries[pId] && observedFrameCount > 0 && m.totalDistanceM !== undefined) {
         playerSummaries[pId] = computePlayerMovementMetrics([], m.totalDistanceM);
       }
     }

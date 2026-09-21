@@ -242,6 +242,32 @@ class TestTrackingBenchmarkFoundation(unittest.TestCase):
         run = create_benchmark_run_from_session_dict(session_dict)
         self.assertIsNone(run.ground_truth)
 
+    def test_adapter_keeps_missing_provenance_and_measurements_unknown(self):
+        """Missing detector/tracker/rate/quality values must remain None."""
+        run = create_benchmark_run_from_session_dict({
+            "sessionId": "sess_unknown",
+            "quality": {
+                "playerCoverage": {
+                    "P1": {
+                        "observedCoveragePct": 0.0,
+                        "predictedFramesPct": 0.0,
+                        "lostFramesPct": 100.0,
+                    },
+                },
+            },
+        })
+
+        self.assertIsNone(run.model_config.detector_name)
+        self.assertIsNone(run.model_config.tracker_name)
+        self.assertIsNone(run.model_config.confidence_threshold)
+        self.assertIsNone(run.video_metadata.source_fps)
+        self.assertIsNone(run.video_metadata.duration_seconds)
+        self.assertIsNone(run.performance.analysis_fps)
+        self.assertIsNone(run.performance.effective_telemetry_hz)
+        self.assertIsNone(run.quality.mean_target_coverage)
+        self.assertIsNone(run.quality.simultaneous_target_coverage)
+        self.assertIsNone(run.quality.player_coverage["P1"].mean_observed_confidence)
+
     def test_older_bytetrack_run_populates_schema(self):
         """7. Older ByteTrack run cleanly populates the benchmark schema."""
         session_dict = {
@@ -318,6 +344,8 @@ class TestTrackingBenchmarkFoundation(unittest.TestCase):
         self.assertIsNone(calculate_processing_ratio(1800.0, 0.0))
         self.assertIsNone(calculate_processing_ratio(1800.0, -10.0))
         self.assertIsNone(calculate_processing_ratio(-5.0, 60.0))
+        self.assertIsNone(calculate_processing_ratio(float("nan"), 60.0))
+        self.assertIsNone(calculate_processing_ratio(30.0, float("inf")))
 
 
 if __name__ == "__main__":

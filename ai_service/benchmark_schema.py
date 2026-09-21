@@ -13,8 +13,39 @@ Rules:
 
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 import json
+import math
 from typing import Any, Dict, Optional
+
+
+def _first_not_none(*values: Any) -> Any:
+    return next((value for value in values if value is not None), None)
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _optional_int(value: Any) -> int | None:
+    number = _optional_float(value)
+    return int(number) if number is not None else None
+
+
+def _positive_float(value: Any) -> float | None:
+    number = _optional_float(value)
+    return number if number is not None and number > 0 else None
+
+
+def _positive_int(value: Any) -> int | None:
+    number = _optional_int(value)
+    return number if number is not None and number > 0 else None
 
 
 def calculate_processing_ratio(
@@ -35,6 +66,8 @@ def calculate_processing_ratio(
     if (
         elapsed_seconds is None
         or duration_seconds is None
+        or not math.isfinite(elapsed_seconds)
+        or not math.isfinite(duration_seconds)
         or duration_seconds <= 0
         or elapsed_seconds < 0
     ):
@@ -47,8 +80,8 @@ class BenchmarkRunIdentity:
     run_id: str
     created_at: str
     sport: str
-    tracking_mode: str
-    processing_profile: str
+    tracking_mode: Optional[str]
+    processing_profile: Optional[str]
     video_fingerprint: Optional[str] = None
     video_reference: Optional[str] = None
 
@@ -78,15 +111,15 @@ class BenchmarkRunIdentity:
 
 @dataclass
 class BenchmarkModelConfig:
-    detector_name: str
-    pose_model: str
-    tracker_name: str
-    detector_input_size: int
-    confidence_threshold: float
-    frame_stride: int
-    pose_stride: int
-    max_players: int
-    device: str
+    detector_name: Optional[str]
+    pose_model: Optional[str]
+    tracker_name: Optional[str]
+    detector_input_size: Optional[int]
+    confidence_threshold: Optional[float]
+    frame_stride: Optional[int]
+    pose_stride: Optional[int]
+    max_players: Optional[int]
+    device: Optional[str]
     detector_version: Optional[str] = None
     tracker_version: Optional[str] = None
 
@@ -108,15 +141,15 @@ class BenchmarkModelConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BenchmarkModelConfig:
         return cls(
-            detector_name=data["detectorName"],
-            pose_model=data["poseModel"],
-            tracker_name=data["trackerName"],
-            detector_input_size=int(data["detectorInputSize"]),
-            confidence_threshold=float(data["confidenceThreshold"]),
-            frame_stride=int(data["frameStride"]),
-            pose_stride=int(data["poseStride"]),
-            max_players=int(data["maxPlayers"]),
-            device=str(data["device"]),
+            detector_name=data.get("detectorName"),
+            pose_model=data.get("poseModel"),
+            tracker_name=data.get("trackerName"),
+            detector_input_size=_positive_int(data.get("detectorInputSize")),
+            confidence_threshold=_optional_float(data.get("confidenceThreshold")),
+            frame_stride=_positive_int(data.get("frameStride")),
+            pose_stride=_positive_int(data.get("poseStride")),
+            max_players=_positive_int(data.get("maxPlayers")),
+            device=data.get("device"),
             detector_version=data.get("detectorVersion"),
             tracker_version=data.get("trackerVersion"),
         )
@@ -124,10 +157,10 @@ class BenchmarkModelConfig:
 
 @dataclass
 class BenchmarkVideoMetadata:
-    source_width: int
-    source_height: int
-    source_fps: float
-    duration_seconds: float
+    source_width: Optional[int]
+    source_height: Optional[int]
+    source_fps: Optional[float]
+    duration_seconds: Optional[float]
     total_source_frames: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -142,20 +175,20 @@ class BenchmarkVideoMetadata:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BenchmarkVideoMetadata:
         return cls(
-            source_width=int(data["sourceWidth"]),
-            source_height=int(data["sourceHeight"]),
-            source_fps=float(data["sourceFps"]),
-            duration_seconds=float(data["durationSeconds"]),
+            source_width=_positive_int(data.get("sourceWidth")),
+            source_height=_positive_int(data.get("sourceHeight")),
+            source_fps=_positive_float(data.get("sourceFps")),
+            duration_seconds=_positive_float(data.get("durationSeconds")),
             total_source_frames=data.get("totalSourceFrames"),
         )
 
 
 @dataclass
 class BenchmarkPerformance:
-    frames_analyzed: int
-    analysis_fps: float
-    elapsed_seconds: float
-    effective_telemetry_hz: float
+    frames_analyzed: Optional[int]
+    analysis_fps: Optional[float]
+    elapsed_seconds: Optional[float]
+    effective_telemetry_hz: Optional[float]
     processing_ratio: Optional[float]
 
     def to_dict(self) -> dict[str, Any]:
@@ -170,10 +203,10 @@ class BenchmarkPerformance:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BenchmarkPerformance:
         return cls(
-            frames_analyzed=int(data["framesAnalyzed"]),
-            analysis_fps=float(data["analysisFps"]),
-            elapsed_seconds=float(data["elapsedSeconds"]),
-            effective_telemetry_hz=float(data["effectiveTelemetryHz"]),
+            frames_analyzed=_optional_int(data.get("framesAnalyzed")),
+            analysis_fps=_optional_float(data.get("analysisFps")),
+            elapsed_seconds=_optional_float(data.get("elapsedSeconds")),
+            effective_telemetry_hz=_positive_float(data.get("effectiveTelemetryHz")),
             processing_ratio=data.get("processingRatio"),
         )
 
@@ -181,10 +214,10 @@ class BenchmarkPerformance:
 @dataclass
 class BenchmarkPlayerQuality:
     player_id: str
-    observed_coverage: float
-    predicted_percent: float
-    lost_percent: float
-    mean_observed_confidence: float
+    observed_coverage: Optional[float]
+    predicted_percent: Optional[float]
+    lost_percent: Optional[float]
+    mean_observed_confidence: Optional[float]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -199,17 +232,17 @@ class BenchmarkPlayerQuality:
     def from_dict(cls, data: dict[str, Any]) -> BenchmarkPlayerQuality:
         return cls(
             player_id=data["playerId"],
-            observed_coverage=float(data["observedCoverage"]),
-            predicted_percent=float(data["predictedPercent"]),
-            lost_percent=float(data["lostPercent"]),
-            mean_observed_confidence=float(data["meanObservedConfidence"]),
+            observed_coverage=_optional_float(data.get("observedCoverage")),
+            predicted_percent=_optional_float(data.get("predictedPercent")),
+            lost_percent=_optional_float(data.get("lostPercent")),
+            mean_observed_confidence=_optional_float(data.get("meanObservedConfidence")),
         )
 
 
 @dataclass
 class BenchmarkQuality:
-    mean_target_coverage: float
-    simultaneous_target_coverage: float
+    mean_target_coverage: Optional[float]
+    simultaneous_target_coverage: Optional[float]
     player_coverage: dict[str, BenchmarkPlayerQuality] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -228,8 +261,8 @@ class BenchmarkQuality:
             for k, v in data["playerCoverage"].items():
                 pc[k] = BenchmarkPlayerQuality.from_dict(v)
         return cls(
-            mean_target_coverage=float(data["meanTargetCoverage"]),
-            simultaneous_target_coverage=float(data["simultaneousTargetCoverage"]),
+            mean_target_coverage=_optional_float(data.get("meanTargetCoverage")),
+            simultaneous_target_coverage=_optional_float(data.get("simultaneousTargetCoverage")),
             player_coverage=pc,
         )
 
@@ -364,14 +397,18 @@ def create_benchmark_run_from_session_dict(
     vmeta = session_data.get("videoMetadata") or {}
     cfg = session_data.get("processingConfig") or {}
 
-    duration = overrides.get(
-        "durationSeconds",
-        vmeta.get("durationSec") or perf.get("videoDurationSec") or 0.0,
+    duration = (
+        overrides["durationSeconds"]
+        if "durationSeconds" in overrides
+        else _first_not_none(vmeta.get("durationSec"), perf.get("videoDurationSec"))
     )
-    elapsed = overrides.get(
-        "elapsedSeconds",
-        perf.get("elapsedSec") or session_data.get("elapsedSec") or 0.0,
+    duration = _positive_float(duration)
+    elapsed = (
+        overrides["elapsedSeconds"]
+        if "elapsedSeconds" in overrides
+        else _first_not_none(perf.get("elapsedSec"), session_data.get("elapsedSec"))
     )
+    elapsed = _optional_float(elapsed)
     ratio = calculate_processing_ratio(elapsed, duration)
 
     player_cov = {}
@@ -379,54 +416,108 @@ def create_benchmark_run_from_session_dict(
         for pid, cov in qual["playerCoverage"].items():
             player_cov[pid] = BenchmarkPlayerQuality(
                 player_id=pid,
-                observed_coverage=float(cov.get("observedCoveragePct", 0.0)) / 100.0 if "observedCoveragePct" in cov else float(cov.get("detectionCoverage", 0.0)),
-                predicted_percent=float(cov.get("predictedFramesPct") or cov.get("predictedPercent") or 0.0),
-                lost_percent=float(cov.get("lostFramesPct") or cov.get("lostPercent") or 0.0),
-                mean_observed_confidence=float(cov.get("meanObservedConfidence", 0.85)),
+                observed_coverage=(
+                    _optional_float(cov.get("observedCoveragePct")) / 100.0
+                    if _optional_float(cov.get("observedCoveragePct")) is not None
+                    else _optional_float(cov.get("detectionCoverage"))
+                ),
+                predicted_percent=_optional_float(
+                    _first_not_none(cov.get("predictedFramesPct"), cov.get("predictedPercent"))
+                ),
+                lost_percent=_optional_float(
+                    _first_not_none(cov.get("lostFramesPct"), cov.get("lostPercent"))
+                ),
+                mean_observed_confidence=_optional_float(cov.get("meanObservedConfidence")),
             )
+
+    tracked_player_count = _positive_int(session_data.get("trackedPlayerCount"))
+    tracking_mode = (
+        "doubles"
+        if tracked_player_count == 4
+        else "singles"
+        if tracked_player_count in (1, 2)
+        else None
+    )
 
     identity = BenchmarkRunIdentity(
         run_id=overrides.get("runId", f"benchmark_{session_data.get('sessionId', 'run')}"),
-        created_at=overrides.get("createdAt", "2026-09-21T00:00:00Z"),
+        created_at=overrides.get("createdAt", datetime.now(timezone.utc).isoformat()),
         sport=overrides.get("sport", "badminton"),
-        tracking_mode=overrides.get("trackingMode", "singles" if session_data.get("trackedPlayerCount", 2) == 2 else "doubles"),
-        processing_profile=overrides.get("processingProfile", prov.get("effectiveProfile") or cfg.get("profile") or "auto"),
+        tracking_mode=overrides.get("trackingMode", tracking_mode),
+        processing_profile=overrides.get(
+            "processingProfile",
+            _first_not_none(prov.get("effectiveProfile"), cfg.get("profile")),
+        ),
         video_fingerprint=overrides.get("videoFingerprint", session_data.get("videoFingerprint")),
         video_reference=overrides.get("videoReference", vmeta.get("filename")),
     )
 
     model_config = BenchmarkModelConfig(
-        detector_name=overrides.get("detectorName", prov.get("detectorModel") or "yolo"),
+        detector_name=overrides.get("detectorName", prov.get("detectorModel")),
         detector_version=overrides.get("detectorVersion"),
-        pose_model=overrides.get("poseModel", prov.get("poseModel") or "yolo_pose"),
-        tracker_name=overrides.get("trackerName", prov.get("trackerModel") or "bytetrack"),
+        pose_model=overrides.get("poseModel", prov.get("poseModel")),
+        tracker_name=overrides.get("trackerName", prov.get("trackerModel")),
         tracker_version=overrides.get("trackerVersion"),
-        detector_input_size=int(overrides.get("detectorInputSize", prov.get("detectorInputSize") or cfg.get("detectorInputSize") or 640)),
-        confidence_threshold=float(overrides.get("confidenceThreshold", 0.25)),
-        frame_stride=int(overrides.get("frameStride", prov.get("frameStride") or cfg.get("frameStride") or 2)),
-        pose_stride=int(overrides.get("poseStride", prov.get("poseStride") or cfg.get("poseStride") or 1)),
-        max_players=int(overrides.get("maxPlayers", session_data.get("trackedPlayerCount") or 2)),
-        device=str(overrides.get("device", session_data.get("effectiveDevice") or session_data.get("device") or "cpu")),
+        detector_input_size=_positive_int(overrides.get(
+            "detectorInputSize",
+            _first_not_none(prov.get("detectorInputSize"), cfg.get("detectorInputSize")),
+        )),
+        confidence_threshold=_optional_float(overrides.get("confidenceThreshold")),
+        frame_stride=_positive_int(overrides.get(
+            "frameStride",
+            _first_not_none(prov.get("frameStride"), cfg.get("frameStride")),
+        )),
+        pose_stride=_positive_int(overrides.get(
+            "poseStride",
+            _first_not_none(prov.get("poseStride"), cfg.get("poseStride")),
+        )),
+        max_players=_positive_int(overrides.get("maxPlayers", tracked_player_count)),
+        device=overrides.get(
+            "device",
+            _first_not_none(session_data.get("effectiveDevice"), session_data.get("device")),
+        ),
     )
 
     video_metadata = BenchmarkVideoMetadata(
-        source_width=int(overrides.get("sourceWidth", vmeta.get("width") or 0)),
-        source_height=int(overrides.get("sourceHeight", vmeta.get("height") or 0)),
-        source_fps=float(overrides.get("sourceFps", vmeta.get("nominalFps") or session_data.get("sourceFps") or 30.0)),
-        duration_seconds=float(duration),
-        total_source_frames=overrides.get("totalSourceFrames", vmeta.get("reportedFrameCount") or session_data.get("totalFrames")),
+        source_width=_positive_int(overrides.get("sourceWidth", vmeta.get("width"))),
+        source_height=_positive_int(overrides.get("sourceHeight", vmeta.get("height"))),
+        source_fps=_positive_float(overrides.get(
+            "sourceFps",
+            _first_not_none(vmeta.get("nominalFps"), session_data.get("sourceFps")),
+        )),
+        duration_seconds=duration,
+        total_source_frames=_optional_int(overrides.get(
+            "totalSourceFrames",
+            _first_not_none(vmeta.get("reportedFrameCount"), session_data.get("totalFrames")),
+        )),
     )
 
     performance = BenchmarkPerformance(
-        frames_analyzed=int(overrides.get("framesAnalyzed", session_data.get("analyzedFrames") or 0)),
-        analysis_fps=float(overrides.get("analysisFps", perf.get("analysisFps") or session_data.get("analysisFps") or 0.0)),
-        elapsed_seconds=float(elapsed),
-        effective_telemetry_hz=float(overrides.get("effectiveTelemetryHz", perf.get("samplingFps") or session_data.get("samplingFps") or 10.0)),
+        frames_analyzed=_optional_int(overrides.get("framesAnalyzed", session_data.get("analyzedFrames"))),
+        analysis_fps=_optional_float(overrides.get(
+            "analysisFps",
+            _first_not_none(perf.get("analysisFps"), session_data.get("analysisFps")),
+        )),
+        elapsed_seconds=elapsed,
+        effective_telemetry_hz=_positive_float(overrides.get(
+            "effectiveTelemetryHz",
+            _first_not_none(perf.get("effectiveTelemetryHz"), session_data.get("effectiveTelemetryHz")),
+        )),
         processing_ratio=ratio,
     )
 
-    mean_cov = float(qual.get("observedCoveragePct", 0.0)) / 100.0 if "observedCoveragePct" in qual else float(qual.get("meanTargetCoverage", 0.0))
-    sim_cov = float(qual.get("simultaneousCoveragePct", 0.0)) / 100.0 if "simultaneousCoveragePct" in qual else float(qual.get("simultaneousTargetCoverage", mean_cov))
+    observed_coverage_pct = _optional_float(qual.get("observedCoveragePct"))
+    mean_cov = (
+        observed_coverage_pct / 100.0
+        if observed_coverage_pct is not None
+        else _optional_float(qual.get("meanTargetCoverage"))
+    )
+    simultaneous_coverage_pct = _optional_float(qual.get("simultaneousCoveragePct"))
+    sim_cov = (
+        simultaneous_coverage_pct / 100.0
+        if simultaneous_coverage_pct is not None
+        else _optional_float(qual.get("simultaneousTargetCoverage"))
+    )
 
     quality = BenchmarkQuality(
         mean_target_coverage=mean_cov,

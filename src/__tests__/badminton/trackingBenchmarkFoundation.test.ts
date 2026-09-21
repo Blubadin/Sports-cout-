@@ -210,6 +210,32 @@ describe('Phase 0.6A — Tracking Benchmark Foundation', () => {
     expect(runWithZeroes.identityAudit?.idSwitchCount === runWithUnknown.identityAudit?.idSwitchCount).toBe(false);
   });
 
+  it('normalizes NaN, Infinity, and invalid rate metadata to null', () => {
+    const run = createStandardRun({
+      videoMetadata: {
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        sourceFps: Number.NaN,
+        durationSeconds: Number.POSITIVE_INFINITY,
+        totalSourceFrames: null,
+      },
+      performance: {
+        framesAnalyzed: 0,
+        analysisFps: Number.POSITIVE_INFINITY,
+        elapsedSeconds: Number.NaN,
+        effectiveTelemetryHz: Number.NaN,
+        processingRatio: null,
+      },
+    });
+
+    expect(run.videoMetadata.sourceFps).toBeNull();
+    expect(run.videoMetadata.durationSeconds).toBeNull();
+    expect(run.performance.analysisFps).toBeNull();
+    expect(run.performance.elapsedSeconds).toBeNull();
+    expect(run.performance.effectiveTelemetryHz).toBeNull();
+    expect(run.performance.framesAnalyzed).toBe(0);
+  });
+
   it('4. per-player quality stays separated', () => {
     const run = createStandardRun();
     const p1 = run.quality.playerCoverage['P1'];
@@ -305,6 +331,61 @@ describe('Phase 0.6A — Tracking Benchmark Foundation', () => {
     // Explicit check: no 0.0 error injected
     const serialized = JSON.parse(serializeBenchmarkRun(benchmark));
     expect(serialized.groundTruth).toBeUndefined();
+  });
+
+  it('keeps missing detector, tracker, rate, video, and quality measurements null', () => {
+    const unknownAnalysis = {
+      id: 'analysis_unknown',
+      projectId: 'project_unknown',
+      sportType: 'badminton',
+      gameType: 'singles',
+      status: 'completed',
+      createdAt: '2026-09-21T08:00:00.000Z',
+      players: [],
+      summary: { sampleCount: 0, durationSeconds: 0, players: {} },
+    } as unknown as TrackingAnalysis;
+
+    const benchmark = createBenchmarkRunFromAnalysis(unknownAnalysis);
+
+    expect(benchmark.modelConfig.detectorName).toBeNull();
+    expect(benchmark.modelConfig.trackerName).toBeNull();
+    expect(benchmark.modelConfig.confidenceThreshold).toBeNull();
+    expect(benchmark.videoMetadata.sourceFps).toBeNull();
+    expect(benchmark.videoMetadata.durationSeconds).toBeNull();
+    expect(benchmark.performance.analysisFps).toBeNull();
+    expect(benchmark.performance.effectiveTelemetryHz).toBeNull();
+    expect(benchmark.quality.meanTargetCoverage).toBeNull();
+    expect(benchmark.quality.simultaneousTargetCoverage).toBeNull();
+  });
+
+  it('does not infer simultaneous coverage or confidence from unrelated live metrics', () => {
+    const status = {
+      sessionId: 'status_partial',
+      trackedPlayerCount: 2,
+      quality: {
+        observedCoveragePct: 50,
+        playerCoverage: {
+          P1: {
+            playerId: 'P1',
+            expectedFrames: 2,
+            observedFrames: 1,
+            predictedFrames: 0,
+            lostFrames: 1,
+            observedCoveragePct: 50,
+            predictedFramesPct: 0,
+            lostFramesPct: 50,
+            lostTimeSec: 1,
+          },
+        },
+      },
+    } as unknown as TrackingSessionStatus;
+
+    const benchmark = createBenchmarkRunFromSessionStatus(status);
+
+    expect(benchmark.quality.meanTargetCoverage).toBe(0.5);
+    expect(benchmark.quality.simultaneousTargetCoverage).toBeNull();
+    expect(benchmark.quality.playerCoverage.P1.meanObservedConfidence).toBeNull();
+    expect(benchmark.performance.effectiveTelemetryHz).toBeNull();
   });
 
   it('7. older current ByteTrack run can still populate the schema', () => {
