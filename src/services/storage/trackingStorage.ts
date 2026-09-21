@@ -122,8 +122,8 @@ export interface TrackingSample {
   playerId: string;
   courtX: number; // meters (0..6.10)
   courtY: number; // meters (0..13.40)
-  speed: number; // m/s
-  confidence: number; // 0..1
+  speed: number | null; // m/s
+  confidence: number | null; // 0..1
   trackingState: 'tracked' | 'predicted' | 'lost';
   normalizedX?: number; // 0..1
   normalizedY?: number; // 0..1
@@ -1071,8 +1071,8 @@ export function downsampleAndChunkTrackingSamples(
         playerId: p.playerId,
         courtX: Number(p.courtPosition.xM.toFixed(2)),
         courtY: Number(p.courtPosition.yM.toFixed(2)),
-        speed: Number((p.speedMps ?? 0).toFixed(2)),
-        confidence: Number((p.detectionConfidence ?? 0).toFixed(2)),
+        speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
+        confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
         normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
         normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
@@ -1103,8 +1103,8 @@ export function downsampleAndChunkTrackingSamples(
         playerId: p.playerId,
         courtX: Number(p.courtPosition.xM.toFixed(2)),
         courtY: Number(p.courtPosition.yM.toFixed(2)),
-        speed: Number((p.speedMps ?? 0).toFixed(2)),
-        confidence: Number((p.detectionConfidence ?? 0).toFixed(2)),
+        speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
+        confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
         normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
         normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
@@ -1127,8 +1127,7 @@ export function downsampleAndChunkTrackingSamples(
 
   if (canonicalPlayerMetrics) {
     for (const [pId, m] of Object.entries(canonicalPlayerMetrics)) {
-      const observedFrameCount = quality.playerCoverage?.[pId]?.observedFrameCount ?? 0;
-      if (!playerSummaries[pId] && observedFrameCount > 0 && m.totalDistanceM !== undefined) {
+      if (!playerSummaries[pId] && m.totalDistanceM !== undefined) {
         playerSummaries[pId] = computePlayerMovementMetrics([], m.totalDistanceM);
       }
     }

@@ -216,19 +216,23 @@ export default function TrackingLabInspector({
                 <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'เวลาวิดีโอที่ตรวจถึง' : 'Video Time Reached'}</span>
                   <span className="font-mono font-bold text-slate-200">
-                    {status.lastTelemetryTimestampSec !== null
+                    {status.lastTelemetryTimestampSec !== null && status.lastTelemetryTimestampSec !== undefined
                       ? `${status.lastTelemetryTimestampSec.toFixed(2)}s`
-                      : '0.00s'}
+                      : '—'}
                     <span className="text-[10px] text-slate-500 ml-1">
-                      / {status.videoDurationSec > 0 ? `${status.videoDurationSec.toFixed(1)}s` : '—'}
+                      / {status.videoDurationSec !== null && status.videoDurationSec !== undefined && status.videoDurationSec > 0
+                        ? `${status.videoDurationSec.toFixed(1)}s`
+                        : '—'}
                     </span>
                   </span>
                 </div>
                 <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'เวลาประมวลผลที่ใช้' : 'Elapsed Time'}</span>
                   <span className="font-mono font-bold text-slate-200">
-                    {status.elapsedSec.toFixed(1)}s
-                    {status.analysisFps > 0 && (
+                    {status.elapsedSec !== null && status.elapsedSec !== undefined
+                      ? `${status.elapsedSec.toFixed(1)}s`
+                      : '—'}
+                    {status.analysisFps !== null && status.analysisFps !== undefined && status.analysisFps > 0 && (
                       <span className="text-[10px] text-emerald-400 ml-1">
                         ({status.analysisFps.toFixed(1)} FPS)
                       </span>
@@ -250,13 +254,17 @@ export default function TrackingLabInspector({
                 <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'FPS ต้นฉบับ' : 'Source FPS'}</span>
                   <span className="font-mono font-bold text-slate-200">
-                    {status.sourceFps.toFixed(1)} FPS
+                    {status.sourceFps !== null && status.sourceFps !== undefined
+                      ? `${status.sourceFps.toFixed(1)} FPS`
+                      : '—'}
                   </span>
                 </div>
                 <div className="bg-slate-900/80 p-2 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'อัตราสุ่มตัวอย่าง' : 'Sampling Rate'}</span>
                   <span className="font-mono font-bold text-slate-200">
-                    {status.samplingFps.toFixed(1)} Hz
+                    {status.samplingFps !== null && status.samplingFps !== undefined
+                      ? `${status.samplingFps.toFixed(1)} Hz`
+                      : '—'}
                   </span>
                 </div>
               </div>
@@ -379,7 +387,7 @@ export default function TrackingLabInspector({
                   <span className="font-mono text-slate-200">
                     {status.videoMetadata?.durationSec !== null && status.videoMetadata?.durationSec !== undefined
                       ? `${status.videoMetadata.durationSec.toFixed(2)}s`
-                      : status.videoDurationSec > 0
+                      : status.videoDurationSec !== null && status.videoDurationSec !== undefined && status.videoDurationSec > 0
                       ? `${status.videoDurationSec.toFixed(2)}s`
                       : 'Not available'}
                   </span>
@@ -406,7 +414,7 @@ export default function TrackingLabInspector({
                   <span className="font-mono text-slate-200">
                     {status.videoMetadata?.nominalFps !== null && status.videoMetadata?.nominalFps !== undefined
                       ? `${status.videoMetadata.nominalFps.toFixed(2)} FPS`
-                      : status.sourceFps > 0
+                      : status.sourceFps !== null && status.sourceFps !== undefined && status.sourceFps > 0
                       ? `${status.sourceFps.toFixed(2)} FPS`
                       : 'Not available'}
                   </span>
@@ -431,7 +439,7 @@ export default function TrackingLabInspector({
                   <span className="font-mono text-slate-200">
                     {status.videoMetadata?.frameIntervalMs !== null && status.videoMetadata?.frameIntervalMs !== undefined
                       ? `${status.videoMetadata.frameIntervalMs.toFixed(2)} ms`
-                      : status.sourceFps > 0
+                      : status.sourceFps !== null && status.sourceFps !== undefined && status.sourceFps > 0
                       ? `${(1000.0 / status.sourceFps).toFixed(2)} ms`
                       : 'Not available'}
                   </span>
@@ -514,28 +522,36 @@ export default function TrackingLabInspector({
                 <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'ความเร็ววิเคราะห์ (Throughput)' : 'Analysis FPS'}</span>
                   <span className="font-mono font-bold text-sky-400 text-sm">
-                    {status.analysisFps.toFixed(1)} FPS
+                    {status.analysisFps !== null && status.analysisFps !== undefined
+                      ? `${status.analysisFps.toFixed(1)} FPS`
+                      : '—'}
                   </span>
                   <span className="text-[10px] text-slate-500 block">{th ? 'เฟรม AI ต่อวินาทีจริง' : 'AI frames / wall-clock sec'}</span>
                 </div>
                 <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'ความครอบคลุมที่ตรวจพบ' : 'Observed Coverage'}</span>
                   <span className="font-mono font-bold text-slate-200 text-sm">
-                    {status.quality?.observedCoveragePct !== undefined ? `${status.quality.observedCoveragePct}%` : '—'}
+                    {status.quality?.observedCoveragePct !== null && status.quality?.observedCoveragePct !== undefined
+                      ? `${status.quality.observedCoveragePct}%`
+                      : '—'}
                   </span>
                   <span className="text-[10px] text-slate-500 block">{th ? 'เฉลี่ยต่อผู้เล่น (Mean player)' : 'mean player observed rate'}</span>
                 </div>
                 <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'อัตราสูญหาย (Lost Rate)' : 'Lost Player Rate'}</span>
                   <span className="font-mono font-bold text-rose-400 text-sm">
-                    {status.quality?.lostFramesPct !== undefined ? `${status.quality.lostFramesPct}%` : '—'}
+                    {status.quality?.lostFramesPct !== null && status.quality?.lostFramesPct !== undefined
+                      ? `${status.quality.lostFramesPct}%`
+                      : '—'}
                   </span>
                   <span className="text-[10px] text-slate-500 block">{th ? 'เฟรมที่ไม่พบผู้เล่น' : 'lost tracking state samples'}</span>
                 </div>
                 <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800/80">
                   <span className="text-slate-400 block">{th ? 'สัดส่วนท่าทางที่ตรวจสด' : 'Fresh Pose Ratio'}</span>
                   <span className="font-mono font-bold text-slate-200 text-sm">
-                    {status.quality?.poseCoveragePct !== undefined ? `${status.quality.poseCoveragePct}%` : '—'}
+                    {status.quality?.poseCoveragePct !== null && status.quality?.poseCoveragePct !== undefined
+                      ? `${status.quality.poseCoveragePct}%`
+                      : '—'}
                   </span>
                   <span className="text-[10px] text-slate-500 block">{th ? 'ไม่นับท่าที่ใช้ซ้ำ' : 'non-reused pose samples'}</span>
                 </div>
