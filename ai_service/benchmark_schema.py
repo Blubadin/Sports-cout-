@@ -122,6 +122,9 @@ class BenchmarkModelConfig:
     device: Optional[str]
     detector_version: Optional[str] = None
     tracker_version: Optional[str] = None
+    tracker_config: Optional[str] = None
+    reid_enabled: Optional[bool] = None
+    reid_model: Optional[str] = None
     runtime: Optional[str] = None
     precision: Optional[str] = None
     court_roi_enabled: Optional[bool] = None
@@ -135,6 +138,9 @@ class BenchmarkModelConfig:
             "poseArchitecture": self.pose_architecture,
             "trackerName": self.tracker_name,
             "trackerVersion": self.tracker_version,
+            "trackerConfig": self.tracker_config,
+            "reidEnabled": self.reid_enabled,
+            "reidModel": self.reid_model,
             "detectorInputSize": self.detector_input_size,
             "confidenceThreshold": self.confidence_threshold,
             "frameStride": self.frame_stride,
@@ -161,6 +167,9 @@ class BenchmarkModelConfig:
             device=data.get("device"),
             detector_version=data.get("detectorVersion"),
             tracker_version=data.get("trackerVersion"),
+            tracker_config=data.get("trackerConfig"),
+            reid_enabled=data.get("reidEnabled") if isinstance(data.get("reidEnabled"), bool) else None,
+            reid_model=data.get("reidModel"),
             runtime=data.get("runtime"),
             precision=data.get("precision"),
             court_roi_enabled=data.get("courtRoiEnabled") if isinstance(data.get("courtRoiEnabled"), bool) else None,
@@ -471,6 +480,9 @@ def create_benchmark_run_from_session_dict(
         pose_architecture=overrides.get("poseArchitecture", prov.get("poseArchitecture")),
         tracker_name=overrides.get("trackerName", prov.get("trackerModel")),
         tracker_version=overrides.get("trackerVersion"),
+        tracker_config=overrides.get("trackerConfig", prov.get("trackerConfig")),
+        reid_enabled=overrides.get("reidEnabled", prov.get("reidEnabled")),
+        reid_model=overrides.get("reidModel", prov.get("reidModel")),
         detector_input_size=_positive_int(overrides.get(
             "detectorInputSize",
             _first_not_none(prov.get("detectorInputSize"), cfg.get("detectorInputSize")),
@@ -787,6 +799,9 @@ class VisionBenchmarkExperimentConfig:
     pose_model: Optional[str] = None
     pose_architecture: Optional[str] = None
     tracker_version: Optional[str] = None
+    tracker_config: Optional[str] = None
+    reid_enabled: Optional[bool] = None
+    reid_model: Optional[str] = None
     processing_profile: Optional[str] = None
     notes: Optional[str] = None
 
@@ -800,6 +815,9 @@ class VisionBenchmarkExperimentConfig:
             "poseArchitecture": self.pose_architecture,
             "tracker": self.tracker,
             "trackerVersion": self.tracker_version,
+            "trackerConfig": self.tracker_config,
+            "reidEnabled": self.reid_enabled,
+            "reidModel": self.reid_model,
             "runtime": self.runtime,
             "inputSize": self.input_size,
             "confidenceThreshold": self.confidence_threshold,
@@ -823,6 +841,9 @@ class VisionBenchmarkExperimentConfig:
             pose_architecture=data.get("poseArchitecture"),
             tracker=data["tracker"],
             tracker_version=data.get("trackerVersion"),
+            tracker_config=data.get("trackerConfig"),
+            reid_enabled=data.get("reidEnabled") if isinstance(data.get("reidEnabled"), bool) else None,
+            reid_model=data.get("reidModel"),
             runtime=data.get("runtime", "pytorch"),
             input_size=_positive_int(data.get("inputSize")) or 640,
             confidence_threshold=_optional_float(data.get("confidenceThreshold")) or 0.25,
@@ -843,6 +864,9 @@ class VisionBenchmarkExperimentConfig:
             pose_architecture=self.pose_architecture,
             tracker_name=self.tracker,
             tracker_version=self.tracker_version,
+            tracker_config=self.tracker_config,
+            reid_enabled=self.reid_enabled,
+            reid_model=self.reid_model,
             detector_input_size=self.input_size,
             confidence_threshold=self.confidence_threshold,
             frame_stride=self.frame_stride,

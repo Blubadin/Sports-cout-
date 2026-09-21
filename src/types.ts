@@ -635,6 +635,9 @@ export interface ProcessingConfig {
   poseArchitecture?: 'roi_pose' | 'full_frame_pose';
   trackerName?: string;
   trackerConfigPath?: string | null;
+  trackerConfig?: string | null;
+  reidEnabled?: boolean;
+  reidModel?: string | null;
   runtime?: 'pytorch' | 'onnx' | 'tensorrt' | string;
   precision?: 'fp32' | 'fp16' | 'int8' | string;
   confidenceThreshold?: number;
@@ -692,6 +695,9 @@ export interface TrackingRuntimeProvenance {
   detectorFamily?: string;
   trackerName?: string;
   trackerConfigPath?: string | null;
+  trackerConfig?: string | null;
+  reidEnabled?: boolean;
+  reidModel?: string | null;
   poseFamily?: string;
   runtime?: string;
   precision?: string;

@@ -41,6 +41,9 @@ export interface TrackingBenchmarkModelConfig {
   trackerName: string | null;
   /** Tracker version if available (optional) */
   trackerVersion?: string | null;
+  trackerConfig?: string | null;
+  reidEnabled?: boolean | null;
+  reidModel?: string | null;
   /** Square input dimension fed to the detector (e.g. 416, 512, 640) */
   detectorInputSize: number | null;
   /** Minimum detection confidence threshold (e.g. 0.25, 0.50) */
@@ -266,6 +269,9 @@ export interface VisionBenchmarkExperimentConfig {
   tracker: string;
   /** Optional tracker version */
   trackerVersion?: string | null;
+  trackerConfig?: string | null;
+  reidEnabled?: boolean | null;
+  reidModel?: string | null;
   /** Execution runtime environment (e.g. 'pytorch', 'onnxruntime', 'tensorrt', 'openvino') */
   runtime: string;
   /** Square input dimension fed to the detector (e.g. 416, 512, 640) */

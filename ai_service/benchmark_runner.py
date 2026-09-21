@@ -42,6 +42,9 @@ def _new_run_group_id() -> str:
 @dataclass(frozen=True)
 class BenchmarkCommonConfig:
     tracker: str = "bytetrack"
+    tracker_config: str | None = None
+    reid_enabled: bool = False
+    reid_model: str | None = None
     pose_model: str | None = "yolov8n-pose.pt"
     pose_architecture: str = "roi_pose"
     runtime: str = "pytorch"
@@ -61,6 +64,9 @@ class BenchmarkRunConfig:
     detector_family: str
     input_size: int
     tracker: str
+    tracker_config: str | None
+    reid_enabled: bool
+    reid_model: str | None
     pose_model: str | None
     pose_architecture: str
     runtime: str
@@ -79,6 +85,9 @@ class BenchmarkRunConfig:
             "detectorFamily": self.detector_family,
             "inputSize": self.input_size,
             "tracker": self.tracker,
+            "trackerConfig": self.tracker_config,
+            "reidEnabled": self.reid_enabled,
+            "reidModel": self.reid_model,
             "poseModel": self.pose_model,
             "poseArchitecture": self.pose_architecture,
             "runtime": self.runtime,
@@ -99,6 +108,9 @@ class BenchmarkRunConfig:
             detector_family=data["detectorFamily"],
             input_size=int(data["inputSize"]),
             tracker=data["tracker"],
+            tracker_config=data.get("trackerConfig"),
+            reid_enabled=data.get("reidEnabled") is True,
+            reid_model=data.get("reidModel"),
             pose_model=data.get("poseModel"),
             pose_architecture=data.get("poseArchitecture", "roi_pose"),
             runtime=data["runtime"],
@@ -313,6 +325,9 @@ def build_detector_matrix(common: BenchmarkCommonConfig) -> list[BenchmarkRunCon
             detector_family=candidate.family,
             input_size=input_size,
             tracker=common.tracker,
+            tracker_config=common.tracker_config,
+            reid_enabled=common.reid_enabled,
+            reid_model=common.reid_model,
             pose_model=common.pose_model,
             pose_architecture=common.pose_architecture,
             runtime=common.runtime,
@@ -327,7 +342,8 @@ def build_detector_matrix(common: BenchmarkCommonConfig) -> list[BenchmarkRunCon
 
 
 POSE_PAIR_INVARIANTS = (
-    "candidate_id", "detector", "detector_family", "input_size", "tracker",
+    "candidate_id", "detector", "detector_family", "input_size", "tracker", "tracker_config",
+    "reid_enabled", "reid_model",
     "runtime", "precision", "device", "frame_stride", "pose_stride",
     "confidence_threshold", "court_roi_enabled",
 )
@@ -438,6 +454,9 @@ def _make_attempt(
     full_config_id = "_".join([
         config.config_id,
         config.tracker,
+        config.tracker_config or "default-tracker-config",
+        "reid" if config.reid_enabled else "no-reid",
+        config.reid_model or "default-reid-model",
         config.pose_model or "pose-disabled",
         config.runtime,
         config.precision,
@@ -611,7 +630,7 @@ def run_benchmark_matrix(
 
 COMPARISON_COLUMNS = [
     "runId", "timestamp", "status", "failureStage", "errorSummary", "clipId",
-    "configId", "candidateId", "detector", "inputSize", "tracker", "poseModel", "poseArchitecture",
+    "configId", "candidateId", "detector", "inputSize", "tracker", "trackerConfig", "reidEnabled", "reidModel", "poseModel", "poseArchitecture",
     "runtime", "precision", "device", "frameStride", "poseStride",
     "confidenceThreshold", "courtRoiEnabled", "meanTargetCoverage", "simultaneousTargetCoverage",
     "predictedPercent", "lostPercent", "meanObservedConfidence", "analysisFps",
@@ -637,6 +656,9 @@ def _comparison_row(result: BenchmarkAttempt) -> dict[str, Any]:
         "detector": result.config.detector,
         "inputSize": result.config.input_size,
         "tracker": result.config.tracker,
+        "trackerConfig": result.config.tracker_config,
+        "reidEnabled": result.config.reid_enabled,
+        "reidModel": result.config.reid_model,
         "poseModel": result.config.pose_model,
         "poseArchitecture": result.config.pose_architecture,
         "runtime": result.config.runtime,
@@ -952,6 +974,9 @@ def execute_tracking_run(
         pose_architecture=config.pose_architecture,
         pose_family="yolov8",
         tracker_name=config.tracker,
+        tracker_config=config.tracker_config,
+        reid_enabled=config.reid_enabled,
+        reid_model=config.reid_model,
         runtime=config.runtime,
         precision=config.precision,
         detector_input_size=config.input_size,

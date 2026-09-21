@@ -26,6 +26,7 @@ VALID_POSE_ARCHITECTURES = {"roi_pose", "full_frame_pose"}
 KNOWN_TRACKERS = {
     "bytetrack": "bytetrack.yaml",
     "botsort": "botsort.yaml",
+    "botsort_reid": "botsort.yaml",
 }
 
 
@@ -53,6 +54,9 @@ class TrackingEngineConfig:
     pose_architecture: str = "roi_pose"
     tracker_name: str = "bytetrack"
     tracker_config_path: str | None = None
+    tracker_config: str | None = None
+    reid_enabled: bool = False
+    reid_model: str | None = None
     runtime: str = "pytorch"
     precision: str = "fp32"
     detector_input_size: int = 640
@@ -75,6 +79,9 @@ class TrackingEngineConfig:
             "poseArchitecture": self.pose_architecture,
             "trackerName": self.tracker_name,
             "trackerConfigPath": self.tracker_config_path,
+            "trackerConfig": self.tracker_config,
+            "reidEnabled": self.reid_enabled,
+            "reidModel": self.reid_model,
             "runtime": self.runtime,
             "precision": self.precision,
             "detectorInputSize": self.detector_input_size,
@@ -99,6 +106,9 @@ class TrackingEngineConfig:
             "poseArchitecture", "pose_architecture",
             "trackerName", "tracker_name",
             "trackerConfigPath", "tracker_config_path",
+            "trackerConfig", "tracker_config",
+            "reidEnabled", "reid_enabled",
+            "reidModel", "reid_model",
             "runtime", "precision",
             "detectorInputSize", "detector_input_size",
             "confidenceThreshold", "confidence_threshold",
@@ -121,6 +131,9 @@ class TrackingEngineConfig:
             pose_architecture=data.get("poseArchitecture") or data.get("pose_architecture", "roi_pose"),
             tracker_name=data.get("trackerName") or data.get("tracker_name", "bytetrack"),
             tracker_config_path=data.get("trackerConfigPath") or data.get("tracker_config_path"),
+            tracker_config=data.get("trackerConfig") or data.get("tracker_config"),
+            reid_enabled=bool(data.get("reidEnabled") if "reidEnabled" in data else data.get("reid_enabled", False)),
+            reid_model=data.get("reidModel") if "reidModel" in data else data.get("reid_model"),
             runtime=data.get("runtime", "pytorch"),
             precision=data.get("precision", "fp32"),
             detector_input_size=int(data.get("detectorInputSize") or data.get("detector_input_size", 640)),
@@ -183,6 +196,9 @@ def resolve_tracker_config(tracker_name: str, tracker_config_path: str | None = 
     Raises InvalidEngineConfigError if tracker name is unrecognized.
     """
     if tracker_config_path is not None:
+        configured = str(tracker_config_path).strip().lower()
+        if configured in KNOWN_TRACKERS.values():
+            return configured
         p = Path(tracker_config_path)
         if not p.exists():
             raise ModelNotFoundError(f"Custom tracker config file not found: {tracker_config_path}")
@@ -216,6 +232,9 @@ def create_baseline_engine_config(**overrides: Any) -> TrackingEngineConfig:
         pose_architecture="roi_pose",
         tracker_name="bytetrack",
         tracker_config_path=None,
+        tracker_config=None,
+        reid_enabled=False,
+        reid_model=None,
         runtime="pytorch",
         precision="fp32",
         detector_input_size=640,

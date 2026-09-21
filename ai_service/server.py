@@ -565,6 +565,9 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     pose_architecture = cfg.get("pose_architecture") or cfg.get("poseArchitecture") or "roi_pose"
     tracker_name = cfg.get("tracker_name") or cfg.get("trackerName") or "bytetrack"
     tracker_config_path = cfg.get("tracker_config_path") or cfg.get("trackerConfigPath")
+    tracker_config = cfg.get("tracker_config") or cfg.get("trackerConfig")
+    reid_enabled = bool(cfg.get("reid_enabled") if "reid_enabled" in cfg else cfg.get("reidEnabled", False))
+    reid_model = cfg.get("reid_model") if "reid_model" in cfg else cfg.get("reidModel")
     runtime = cfg.get("runtime") or "pytorch"
     precision = cfg.get("precision") or "fp32"
     conf_threshold = cfg.get("confidence_threshold") if "confidence_threshold" in cfg else cfg.get("confidenceThreshold", 0.35)
@@ -589,6 +592,9 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         "poseArchitecture": str(pose_architecture),
         "trackerName": str(tracker_name),
         "trackerConfigPath": str(tracker_config_path) if tracker_config_path else None,
+        "trackerConfig": str(tracker_config) if tracker_config else None,
+        "reidEnabled": reid_enabled,
+        "reidModel": str(reid_model) if reid_model else None,
         "runtime": str(runtime),
         "precision": str(precision),
         "confidenceThreshold": float(conf_threshold),
@@ -761,6 +767,9 @@ class TrackingSession:
             pose_architecture=resolved_cfg.get("poseArchitecture", "roi_pose"),
             tracker_name=resolved_cfg.get("trackerName", "bytetrack"),
             tracker_config_path=resolved_cfg.get("trackerConfigPath"),
+            tracker_config=resolved_cfg.get("trackerConfig"),
+            reid_enabled=resolved_cfg.get("reidEnabled", False),
+            reid_model=resolved_cfg.get("reidModel"),
             runtime=resolved_cfg.get("runtime", "pytorch"),
             precision=resolved_cfg.get("precision", "fp32"),
             detector_input_size=resolved_cfg["detectorInputSize"],
@@ -1193,6 +1202,9 @@ def _build_session_metrics(session: TrackingSession):
         "trackerModel": tracker_name,
         "trackerName": tracker_name,
         "trackerConfigPath": analyzer_prov.get("trackerConfigPath"),
+        "trackerConfig": analyzer_prov.get("trackerConfig"),
+        "reidEnabled": analyzer_prov.get("reidEnabled", False),
+        "reidModel": analyzer_prov.get("reidModel"),
         "poseModel": analyzer_prov.get("poseModel", "yolov8n-pose.pt"),
         "poseFamily": analyzer_prov.get("poseFamily", "yolov8"),
         "poseArchitecture": analyzer_prov.get("poseArchitecture", "roi_pose"),

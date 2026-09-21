@@ -24,6 +24,7 @@ from engine_config import (
     resolve_tracker_config,
 )
 from detector_adapter import BaseDetectorAdapter, UltralyticsDetectorAdapter
+from tracker_adapter import NormalizedTrackResult, TrackerProvenance
 from pose_adapter import BasePoseAdapter, create_pose_provider, FullFramePoseCandidate
 from pose_association import associate_poses_to_athletes
 
@@ -303,6 +304,9 @@ class BadmintonAnalyzerV2:
                 device=self.device,
                 tracker_name=self.engine_config.tracker_name,
                 tracker_config_path=self.engine_config.tracker_config_path,
+                tracker_config=self.engine_config.tracker_config,
+                reid_enabled=self.engine_config.reid_enabled,
+                reid_model=self.engine_config.reid_model,
                 classes=[0],
                 offset_x=offset_x,
                 offset_y=offset_y,
@@ -312,7 +316,13 @@ class BadmintonAnalyzerV2:
         if self._detector != "dummy" and self._detector is not None:
             tracker_cfg = resolve_tracker_config(
                 self.engine_config.tracker_name,
-                self.engine_config.tracker_config_path,
+                self.engine_config.tracker_config_path or self.engine_config.tracker_config,
+            )
+            tracker_provenance = TrackerProvenance(
+                self.engine_config.tracker_name,
+                self.engine_config.tracker_config or self.engine_config.tracker_config_path,
+                self.engine_config.reid_enabled,
+                self.engine_config.reid_model,
             )
             results = self._detector.track(
                 inference_frame,
@@ -333,14 +343,12 @@ class BadmintonAnalyzerV2:
                     src_x1, src_y1, src_x2, src_y2 = inverse_transform_bbox(
                         [x1, y1, x2, y2], offset_x, offset_y
                     )
-                    cx = (src_x1 + src_x2) / 2.0
-                    cy = src_y2  # Feet level on ground for court position
-                    detections.append({
-                        "bbox": [src_x1, src_y1, src_x2, src_y2],
-                        "center": (cx, cy),
-                        "conf": float(conf),
-                        "track_id": int(track_id) if track_id is not None else None,
-                    })
+                    detections.append(NormalizedTrackResult(
+                        bbox=(src_x1, src_y1, src_x2, src_y2),
+                        confidence=float(conf),
+                        raw_track_id=int(track_id) if track_id is not None else None,
+                        provenance=tracker_provenance,
+                    ).to_detection())
         return detections
 
     def process_frame(self, frame: np.ndarray, timestamp_sec: float | None = None) -> dict:
@@ -744,6 +752,9 @@ class BadmintonAnalyzerV2:
             "trackerModel": self.engine_config.tracker_name,
             "trackerName": self.engine_config.tracker_name,
             "trackerConfigPath": self.engine_config.tracker_config_path,
+            "trackerConfig": self.engine_config.tracker_config,
+            "reidEnabled": self.engine_config.reid_enabled,
+            "reidModel": self.engine_config.reid_model,
             "runtime": self.engine_config.runtime,
             "precision": self.engine_config.precision,
             "detectorInputSize": self.detector_input_size,

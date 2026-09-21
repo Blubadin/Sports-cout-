@@ -18,6 +18,7 @@ import numpy as np
 
 from court_roi import inverse_transform_bbox
 from engine_config import ModelNotFoundError, resolve_tracker_config
+from tracker_adapter import NormalizedTrackResult, TrackerProvenance
 
 
 class BaseDetectorAdapter(ABC):
@@ -38,6 +39,9 @@ class BaseDetectorAdapter(ABC):
         device: str = "cpu",
         tracker_name: str = "bytetrack",
         tracker_config_path: str | None = None,
+        tracker_config: str | None = None,
+        reid_enabled: bool = False,
+        reid_model: str | None = None,
         classes: list[int] | None = None,
         offset_x: int = 0,
         offset_y: int = 0,
@@ -106,12 +110,16 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
         device: str = "cpu",
         tracker_name: str = "bytetrack",
         tracker_config_path: str | None = None,
+        tracker_config: str | None = None,
+        reid_enabled: bool = False,
+        reid_model: str | None = None,
         classes: list[int] | None = None,
         offset_x: int = 0,
         offset_y: int = 0,
     ) -> list[dict[str, Any]]:
         self._init_model()
-        tracker_cfg = resolve_tracker_config(tracker_name, tracker_config_path)
+        tracker_cfg = resolve_tracker_config(tracker_name, tracker_config_path or tracker_config)
+        provenance = TrackerProvenance(tracker_name, tracker_config or tracker_config_path, reid_enabled, reid_model)
         target_classes = classes if classes is not None else [0]  # Person class
 
         try:
@@ -140,12 +148,10 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
                 src_x1, src_y1, src_x2, src_y2 = inverse_transform_bbox(
                     [x1, y1, x2, y2], offset_x, offset_y
                 )
-                cx = (src_x1 + src_x2) / 2.0
-                cy = src_y2  # Feet level on ground for court position
-                detections.append({
-                    "bbox": [src_x1, src_y1, src_x2, src_y2],
-                    "center": (cx, cy),
-                    "conf": float(confidence),
-                    "track_id": int(track_id) if track_id is not None else None,
-                })
+                detections.append(NormalizedTrackResult(
+                    bbox=(src_x1, src_y1, src_x2, src_y2),
+                    confidence=float(confidence),
+                    raw_track_id=int(track_id) if track_id is not None else None,
+                    provenance=provenance,
+                ).to_detection())
         return detections

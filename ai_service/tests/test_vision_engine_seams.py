@@ -33,6 +33,7 @@ from engine_config import (
     ModelNotFoundError,
 )
 from detector_adapter import BaseDetectorAdapter, UltralyticsDetectorAdapter
+from tracker_adapter import NormalizedTrackResult, TrackerProvenance
 from pose_adapter import (
     BasePoseAdapter,
     UltralyticsPoseAdapter,
@@ -54,6 +55,9 @@ class TestVisionEngineSeams(unittest.TestCase):
         self.assertEqual(cfg.pose_family, "yolov8")
         self.assertEqual(cfg.tracker_name, "bytetrack")
         self.assertIsNone(cfg.tracker_config_path)
+        self.assertIsNone(cfg.tracker_config)
+        self.assertFalse(cfg.reid_enabled)
+        self.assertIsNone(cfg.reid_model)
         self.assertEqual(cfg.runtime, "pytorch")
         self.assertEqual(cfg.precision, "fp32")
         self.assertEqual(cfg.detector_input_size, 640)
@@ -109,12 +113,41 @@ class TestVisionEngineSeams(unittest.TestCase):
         """Tracker resolution maps known trackers and validates custom configs."""
         self.assertEqual(resolve_tracker_config("bytetrack"), "bytetrack.yaml")
         self.assertEqual(resolve_tracker_config("botsort"), "botsort.yaml")
+        self.assertEqual(resolve_tracker_config("botsort_reid"), "botsort.yaml")
+        self.assertEqual(resolve_tracker_config("botsort", "botsort.yaml"), "botsort.yaml")
 
         with self.assertRaises(InvalidEngineConfigError):
             resolve_tracker_config("unknown_magic_tracker")
 
         with self.assertRaises(ModelNotFoundError):
             resolve_tracker_config("bytetrack", tracker_config_path="nonexistent_tracker.yaml")
+
+    def test_normalized_raw_track_id_never_becomes_semantic_player_id(self):
+        track = NormalizedTrackResult(
+            bbox=(10.0, 20.0, 30.0, 60.0),
+            confidence=0.91,
+            raw_track_id=17,
+            provenance=TrackerProvenance("botsort", None, False, None),
+        )
+        detection = track.to_detection()
+
+        self.assertEqual(detection["rawTrackId"], 17)
+        self.assertEqual(detection["track_id"], 17)
+        self.assertNotIn("playerId", detection)
+        self.assertEqual(detection["trackerProvenance"]["trackerName"], "botsort")
+
+    def test_tracker_reid_provenance_is_explicit(self):
+        cfg = create_baseline_engine_config(
+            tracker_name="botsort_reid",
+            reid_enabled=False,
+            reid_model=None,
+        )
+        analyzer = BadmintonAnalyzerV2(engine_config=cfg)
+        provenance = analyzer.get_provenance()
+
+        self.assertEqual(provenance["trackerName"], "botsort_reid")
+        self.assertFalse(provenance["reidEnabled"])
+        self.assertIsNone(provenance["reidModel"])
 
     def test_invalid_engine_config_fails_explicitly(self):
         """Invalid runtime, precision, or parameter ranges must raise InvalidEngineConfigError."""
@@ -158,6 +191,9 @@ class TestVisionEngineSeams(unittest.TestCase):
                 "poseModel": "yolo11n-pose_custom.pt",
                 "poseFamily": "yolo11",
                 "trackerName": "botsort",
+                "trackerConfig": "botsort.yaml",
+                "reidEnabled": False,
+                "reidModel": None,
                 "runtime": "pytorch",
                 "precision": "fp16",
                 "detectorInputSize": 512,
@@ -172,6 +208,9 @@ class TestVisionEngineSeams(unittest.TestCase):
         self.assertEqual(prov["poseArchitecture"], "roi_pose")
         self.assertEqual(prov["trackerName"], "botsort")
         self.assertEqual(prov["trackerModel"], "botsort")
+        self.assertEqual(prov["trackerConfig"], "botsort.yaml")
+        self.assertFalse(prov["reidEnabled"])
+        self.assertIsNone(prov["reidModel"])
         self.assertEqual(prov["runtime"], "pytorch")
         self.assertEqual(prov["precision"], "fp16")
         self.assertEqual(prov["detectorInputSize"], 512)
