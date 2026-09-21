@@ -19,6 +19,7 @@ from benchmark_runner import (
     BenchmarkExecutionError,
     BenchmarkRunMetrics,
     build_detector_matrix,
+    build_pose_architecture_pair,
     compute_phase_zero_metrics,
     execute_tracking_run,
     load_benchmark_manifest,
@@ -26,7 +27,9 @@ from benchmark_runner import (
     main,
     resolve_local_model_path,
     run_benchmark_matrix,
+    run_pose_architecture_benchmark,
     save_benchmark_bundle,
+    validate_pose_architecture_pair,
 )
 
 
@@ -82,6 +85,79 @@ def measured_metrics() -> BenchmarkRunMetrics:
 
 
 class TestDetectorBenchmarkRunner(unittest.TestCase):
+    def test_pose_architecture_pair_changes_only_pose_fields(self):
+        baseline = build_detector_matrix(BenchmarkCommonConfig(device="cpu"))[0]
+
+        roi, full_frame = build_pose_architecture_pair(baseline)
+
+        self.assertEqual(roi.pose_architecture, "roi_pose")
+        self.assertEqual(full_frame.pose_architecture, "full_frame_pose")
+        self.assertEqual(roi.pose_model, full_frame.pose_model)
+        self.assertEqual(roi.detector, full_frame.detector)
+        self.assertEqual(roi.input_size, full_frame.input_size)
+        validate_pose_architecture_pair([roi, full_frame])
+
+    def test_pose_architecture_pair_rejects_non_pose_variations(self):
+        baseline = build_detector_matrix(BenchmarkCommonConfig(device="cpu"))[0]
+        roi, full_frame = build_pose_architecture_pair(baseline)
+        invalid_full_frame = type(full_frame)(
+            **{**full_frame.__dict__, "frame_stride": full_frame.frame_stride + 1}
+        )
+
+        with self.assertRaisesRegex(ValueError, "frame_stride"):
+            validate_pose_architecture_pair([roi, invalid_full_frame])
+
+    def test_pose_metrics_keep_missing_distinct_from_measured_zero(self):
+        telemetry = [
+            {
+                "timestampSec": 0.0,
+                "players": [
+                    {"playerId": "P1", "state": "observed", "pose": {"isReused": False}},
+                    {"playerId": "P2", "state": "observed", "pose": {"isReused": True}},
+                ],
+            },
+            {
+                "timestampSec": 0.5,
+                "players": [
+                    {"playerId": "P1", "state": "observed"},
+                    {"playerId": "P2", "state": "lost"},
+                ],
+            },
+        ]
+
+        metrics = compute_phase_zero_metrics(
+            telemetry,
+            expected_player_count=2,
+            elapsed_seconds=1.0,
+            video_duration_seconds=2.0,
+            peak_vram_mb=None,
+            pose_inference_calls=3,
+        )
+
+        self.assertEqual(metrics.fresh_pose_coverage, 0.25)
+        self.assertEqual(metrics.pose_reuse_percent, 50.0)
+        self.assertEqual(metrics.pose_unavailable_percent, 50.0)
+        self.assertEqual(metrics.pose_inference_calls, 3)
+        restored = BenchmarkRunMetrics.from_dict(metrics.to_dict())
+        self.assertEqual(restored.fresh_pose_coverage, 0.25)
+        self.assertEqual(restored.pose_inference_calls, 3)
+        self.assertIsNone(BenchmarkRunMetrics().pose_inference_calls)
+
+    def test_pose_benchmark_dataset_unavailable_keeps_paired_configs(self):
+        baseline = build_detector_matrix(BenchmarkCommonConfig(device="cpu"))[0]
+        bundle = run_pose_architecture_benchmark(
+            make_manifest(),
+            Path(tempfile.mkdtemp()),
+            baseline=baseline,
+            execute_one=lambda *_args: measured_metrics(),
+            availability_checker=lambda _config, _root: (True, "available"),
+            timestamp_factory=lambda: FIXED_TIME,
+        )
+
+        self.assertEqual(bundle.dataset_status, "POSE BENCHMARK DATASET NOT AVAILABLE")
+        self.assertEqual({c.pose_architecture for c in bundle.configurations}, {"roi_pose", "full_frame_pose"})
+        self.assertEqual(bundle.results, [])
+
     def test_builds_exact_deterministic_matrix_with_fair_common_variables(self):
         common = BenchmarkCommonConfig(device="cpu")
         first = build_detector_matrix(common)

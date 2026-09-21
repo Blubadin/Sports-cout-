@@ -122,6 +122,7 @@ class BadmintonAnalyzerV2:
         self.court_roi_margin_m = float(self.engine_config.court_roi_margin_m)
         self.pose_stride = max(1, int(self.engine_config.pose_stride))
         self.pose_architecture = self.engine_config.pose_architecture
+        self.pose_inference_calls = 0
         self.analyzed_frame_count = 0
 
         self.mapper = CourtMapper(game_type=game_type)
@@ -178,9 +179,11 @@ class BadmintonAnalyzerV2:
             return {"keypoints": [], "metrics": {}}
 
         if self._pose_detector is not None:
+            self.pose_inference_calls += 1
             return self._pose_detector.estimate_pose_in_roi(frame, bbox)
 
         if self.pose_adapter is not None:
+            self.pose_inference_calls += 1
             return self.pose_adapter.estimate_pose_in_roi(frame, bbox)
 
         # If the detector or tracking logic is mocked or in dummy test mode, avoid loading real YOLO pose
@@ -200,6 +203,7 @@ class BadmintonAnalyzerV2:
             conf_threshold=0.4,
             device=self.device,
         )
+        self.pose_inference_calls += 1
         res = self.pose_adapter.estimate_pose_in_roi(frame, bbox)
         if hasattr(self.pose_adapter, "_detector") and self.pose_adapter._detector is not None:
             self._pose_detector = self.pose_adapter._detector
@@ -210,9 +214,11 @@ class BadmintonAnalyzerV2:
             return []
 
         if self.pose_adapter is not None:
+            self.pose_inference_calls += 1
             return self.pose_adapter.estimate_full_frame(frame)
 
         if self._pose_detector is not None and hasattr(self._pose_detector, "estimate_full_frame"):
+            self.pose_inference_calls += 1
             return self._pose_detector.estimate_full_frame(frame)
 
         is_mocked = (
@@ -231,6 +237,7 @@ class BadmintonAnalyzerV2:
             conf_threshold=0.4,
             device=self.device,
         )
+        self.pose_inference_calls += 1
         res = self.pose_adapter.estimate_full_frame(frame)
         if hasattr(self.pose_adapter, "_detector") and self.pose_adapter._detector is not None:
             self._pose_detector = self.pose_adapter._detector

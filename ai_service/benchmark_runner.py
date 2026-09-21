@@ -7,7 +7,7 @@ failures. Missing measurements remain ``None`` throughout JSON persistence.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import argparse
 import csv
@@ -131,6 +131,10 @@ class BenchmarkRunMetrics:
     identity_accuracy: float | None = None
     identity_continuity: float | None = None
     id_switch_count: int | None = None
+    fresh_pose_coverage: float | None = None
+    pose_reuse_percent: float | None = None
+    pose_unavailable_percent: float | None = None
+    pose_inference_calls: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -144,6 +148,10 @@ class BenchmarkRunMetrics:
             "elapsedSeconds": self.elapsed_seconds,
             "processingRatio": self.processing_ratio,
             "effectiveTelemetryHz": self.effective_telemetry_hz,
+            "freshPoseCoverage": self.fresh_pose_coverage,
+            "poseReusePercent": self.pose_reuse_percent,
+            "poseUnavailablePercent": self.pose_unavailable_percent,
+            "poseInferenceCalls": self.pose_inference_calls,
             "peakVramMb": self.peak_vram_mb,
             "groundTruth": {
                 "meanCourtPositionError": self.mean_court_position_error,
@@ -171,6 +179,10 @@ class BenchmarkRunMetrics:
             elapsed_seconds=data.get("elapsedSeconds"),
             processing_ratio=data.get("processingRatio"),
             effective_telemetry_hz=data.get("effectiveTelemetryHz"),
+            fresh_pose_coverage=data.get("freshPoseCoverage"),
+            pose_reuse_percent=data.get("poseReusePercent"),
+            pose_unavailable_percent=data.get("poseUnavailablePercent"),
+            pose_inference_calls=data.get("poseInferenceCalls"),
             peak_vram_mb=data.get("peakVramMb"),
             mean_court_position_error=ground_truth.get("meanCourtPositionError"),
             median_court_position_error=ground_truth.get("medianCourtPositionError"),
@@ -312,6 +324,83 @@ def build_detector_matrix(common: BenchmarkCommonConfig) -> list[BenchmarkRunCon
             court_roi_enabled=common.court_roi_enabled,
         ))
     return configs
+
+
+POSE_PAIR_INVARIANTS = (
+    "candidate_id", "detector", "detector_family", "input_size", "tracker",
+    "runtime", "precision", "device", "frame_stride", "pose_stride",
+    "confidence_threshold", "court_roi_enabled",
+)
+
+
+def build_pose_architecture_pair(
+    baseline: BenchmarkRunConfig,
+    *,
+    roi_pose_model: str | None = None,
+    full_frame_pose_model: str | None = None,
+) -> tuple[BenchmarkRunConfig, BenchmarkRunConfig]:
+    """Create a fair ROI/full-frame pair from one fixed tracking configuration."""
+    roi = replace(
+        baseline,
+        config_id=f"{baseline.config_id}__roi_pose",
+        pose_architecture="roi_pose",
+        pose_model=baseline.pose_model if roi_pose_model is None else roi_pose_model,
+    )
+    full_frame = replace(
+        baseline,
+        config_id=f"{baseline.config_id}__full_frame_pose",
+        pose_architecture="full_frame_pose",
+        pose_model=baseline.pose_model if full_frame_pose_model is None else full_frame_pose_model,
+    )
+    validate_pose_architecture_pair([roi, full_frame])
+    return roi, full_frame
+
+
+def validate_pose_architecture_pair(configs: list[BenchmarkRunConfig]) -> None:
+    """Reject a comparison pair when any non-pose pipeline variable differs."""
+    if len(configs) != 2:
+        raise ValueError("Pose architecture comparison requires exactly two configurations")
+    architectures = {config.pose_architecture for config in configs}
+    if architectures != {"roi_pose", "full_frame_pose"}:
+        raise ValueError("Pose architecture comparison requires one roi_pose and one full_frame_pose configuration")
+    first, second = configs
+    for field_name in POSE_PAIR_INVARIANTS:
+        if getattr(first, field_name) != getattr(second, field_name):
+            raise ValueError(f"Pose architecture comparison requires matching {field_name}")
+
+
+def run_pose_architecture_benchmark(
+    manifest: BenchmarkManifest,
+    workspace_root: Path,
+    *,
+    baseline: BenchmarkRunConfig,
+    execute_one: Callable[[BenchmarkClipEntry, BenchmarkRunConfig, Path, Path], BenchmarkRunMetrics],
+    roi_pose_model: str | None = None,
+    full_frame_pose_model: str | None = None,
+    clip_ids: list[str] | None = None,
+    availability_checker: Callable[[BenchmarkRunConfig, Path], tuple[bool, str]] | None = None,
+    timestamp_factory: Callable[[], str] = _utc_now,
+    run_group_id_factory: Callable[[], str] = _new_run_group_id,
+) -> BenchmarkBundle:
+    """Run one fair ROI/full-frame pose pair through the normal result schema."""
+    pair = list(build_pose_architecture_pair(
+        baseline,
+        roi_pose_model=roi_pose_model,
+        full_frame_pose_model=full_frame_pose_model,
+    ))
+    bundle = run_benchmark_matrix(
+        manifest,
+        workspace_root,
+        configs=pair,
+        clip_ids=clip_ids,
+        execute_one=execute_one,
+        availability_checker=availability_checker or _default_availability,
+        timestamp_factory=timestamp_factory,
+        run_group_id_factory=run_group_id_factory,
+    )
+    if not bundle.dataset_available:
+        bundle.dataset_status = "POSE BENCHMARK DATASET NOT AVAILABLE"
+    return bundle
 
 
 def resolve_local_model_path(model_reference: str, workspace_root: Path) -> Path | None:
@@ -527,6 +616,7 @@ COMPARISON_COLUMNS = [
     "confidenceThreshold", "courtRoiEnabled", "meanTargetCoverage", "simultaneousTargetCoverage",
     "predictedPercent", "lostPercent", "meanObservedConfidence", "analysisFps",
     "elapsedSeconds", "processingRatio", "effectiveTelemetryHz", "peakVramMb",
+    "freshPoseCoverage", "poseReusePercent", "poseUnavailablePercent", "poseInferenceCalls",
     "meanCourtPositionError", "medianCourtPositionError", "p95CourtPositionError",
     "distanceError", "identityAccuracy",
     "identityContinuity", "idSwitchCount",
@@ -565,6 +655,10 @@ def _comparison_row(result: BenchmarkAttempt) -> dict[str, Any]:
         "elapsedSeconds": metrics.elapsed_seconds,
         "processingRatio": metrics.processing_ratio,
         "effectiveTelemetryHz": metrics.effective_telemetry_hz,
+        "freshPoseCoverage": metrics.fresh_pose_coverage,
+        "poseReusePercent": metrics.pose_reuse_percent,
+        "poseUnavailablePercent": metrics.pose_unavailable_percent,
+        "poseInferenceCalls": metrics.pose_inference_calls,
         "peakVramMb": metrics.peak_vram_mb,
         "meanCourtPositionError": metrics.mean_court_position_error,
         "medianCourtPositionError": metrics.median_court_position_error,
@@ -645,6 +739,7 @@ def compute_phase_zero_metrics(
     elapsed_seconds: float | None,
     video_duration_seconds: float | None,
     peak_vram_mb: float | None,
+    pose_inference_calls: int | None = None,
 ) -> BenchmarkRunMetrics:
     """Compute Phase 0 metrics without treating unknown values as measured zero."""
     elapsed = _finite_number(elapsed_seconds)
@@ -661,6 +756,9 @@ def compute_phase_zero_metrics(
     predicted = {player_id: 0 for player_id in player_ids}
     lost = {player_id: 0 for player_id in player_ids}
     confidences = {player_id: [] for player_id in player_ids}
+    fresh_pose_samples = 0
+    reused_pose_samples = 0
+    unavailable_pose_samples = 0
     fully_observed_frames = 0
     timestamps: set[float] = set()
 
@@ -693,6 +791,14 @@ def compute_phase_zero_metrics(
             else:
                 lost[player_id] += 1
                 frame_is_fully_observed = False
+            pose = player.get("pose") if player else None
+            if isinstance(pose, dict):
+                if pose.get("isReused") is True:
+                    reused_pose_samples += 1
+                else:
+                    fresh_pose_samples += 1
+            else:
+                unavailable_pose_samples += 1
         if frame_is_fully_observed:
             fully_observed_frames += 1
 
@@ -736,6 +842,16 @@ def compute_phase_zero_metrics(
         processing_ratio=_rounded(processing_ratio),
         effective_telemetry_hz=_rounded(telemetry_hz),
         peak_vram_mb=_rounded(_finite_number(peak_vram_mb), 3),
+        fresh_pose_coverage=_rounded(fresh_pose_samples / target_samples),
+        pose_reuse_percent=(
+            _rounded(reused_pose_samples / (fresh_pose_samples + reused_pose_samples) * 100.0)
+            if fresh_pose_samples + reused_pose_samples > 0 else None
+        ),
+        pose_unavailable_percent=_rounded(unavailable_pose_samples / target_samples * 100.0),
+        pose_inference_calls=(
+            int(pose_inference_calls)
+            if isinstance(pose_inference_calls, int) and pose_inference_calls >= 0 else None
+        ),
     )
 
 
@@ -887,6 +1003,7 @@ def execute_tracking_run(
         elapsed_seconds=elapsed,
         video_duration_seconds=duration,
         peak_vram_mb=peak_vram_mb,
+        pose_inference_calls=getattr(analyzer, "pose_inference_calls", None),
     )
 
 
@@ -897,7 +1014,7 @@ def _parse_csv_option(value: str | None) -> list[str] | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the SportsScout Phase 1.3 detector benchmark matrix")
+    parser = argparse.ArgumentParser(description="Run SportsScout detector or paired pose architecture benchmarks")
     parser.add_argument(
         "--manifest",
         type=Path,
@@ -909,6 +1026,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--detectors", help="Comma-separated registered detector IDs")
     parser.add_argument("--input-sizes", help="Comma-separated sizes selected from the fixed matrix")
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"])
+    parser.add_argument(
+        "--pose-architecture-benchmark",
+        action="store_true",
+        help="Compare one ROI/full-frame pair; defaults to YOLOv8n at 640 when no detector/size is selected",
+    )
+    parser.add_argument("--roi-pose-model", help="Optional local ROI pose model override")
+    parser.add_argument("--full-frame-pose-model", help="Optional local full-frame pose model override")
     args = parser.parse_args(argv)
 
     try:
@@ -931,13 +1055,28 @@ def main(argv: list[str] | None = None) -> int:
             configs = [config for config in configs if config.input_size in selected_sizes]
         if not configs:
             raise ValueError("Configuration selection produced an empty matrix")
-        bundle = run_benchmark_matrix(
-            manifest,
-            args.workspace_root,
-            configs=configs,
-            clip_ids=_parse_csv_option(args.clips),
-            execute_one=execute_tracking_run,
-        )
+        if args.pose_architecture_benchmark:
+            if detector_filter is None and size_filter is None:
+                configs = [config for config in configs if config.candidate_id == "yolov8n" and config.input_size == 640]
+            if len(configs) != 1:
+                raise ValueError("Pose architecture benchmark requires exactly one detector/input-size baseline")
+            bundle = run_pose_architecture_benchmark(
+                manifest,
+                args.workspace_root,
+                baseline=configs[0],
+                roi_pose_model=args.roi_pose_model,
+                full_frame_pose_model=args.full_frame_pose_model,
+                clip_ids=_parse_csv_option(args.clips),
+                execute_one=execute_tracking_run,
+            )
+        else:
+            bundle = run_benchmark_matrix(
+                manifest,
+                args.workspace_root,
+                configs=configs,
+                clip_ids=_parse_csv_option(args.clips),
+                execute_one=execute_tracking_run,
+            )
         json_path, csv_path = save_benchmark_bundle(bundle, args.output_dir)
     except Exception as error:
         print(f"BENCHMARK RUNNER ERROR: {error}")
