@@ -45,6 +45,26 @@ class RuntimeUnavailableError(RuntimeError):
     pass
 
 
+class CUDAIncompatibilityError(RuntimeUnavailableError):
+    """Raised when CUDA is not available or incompatible for TensorRT execution."""
+    pass
+
+
+class TensorRTExportError(RuntimeError):
+    """Raised when export of a model to TensorRT engine fails."""
+    pass
+
+
+class EngineLoadError(RuntimeError):
+    """Raised when loading a TensorRT engine artifact fails."""
+    pass
+
+
+class RuntimeInferenceError(RuntimeError):
+    """Raised when inference on a runtime engine fails."""
+    pass
+
+
 @dataclass
 class TrackingEngineConfig:
     """
@@ -209,10 +229,13 @@ def validate_runtime_and_precision(
     if runtime == "tensorrt":
         available, reason = is_tensorrt_available(device=device)
         if not available:
-            raise RuntimeUnavailableError(
+            msg = (
                 f"Requested TensorRT runtime is unavailable: {reason}. "
                 "Silent fallback to PyTorch is prohibited by SportsScout protocol."
             )
+            if "CUDA" in reason:
+                raise CUDAIncompatibilityError(msg)
+            raise RuntimeUnavailableError(msg)
         if model_artifact_reference is not None:
             artifact_path = Path(model_artifact_reference)
             if not artifact_path.exists():

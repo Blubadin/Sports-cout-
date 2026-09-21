@@ -1366,6 +1366,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Compare 3-way tracker/ReID trio (ByteTrack vs BoT-SORT vs BoT-SORT + ReID); defaults to YOLOv8n at 640",
     )
+    parser.add_argument(
+        "--tensorrt-benchmark",
+        action="store_true",
+        help="Run TensorRT FP16 benchmark on qualified Phase 1.3 detector finalists",
+    )
     parser.add_argument("--roi-pose-model", help="Optional local ROI pose model override")
     parser.add_argument("--full-frame-pose-model", help="Optional local full-frame pose model override")
     args = parser.parse_args(argv)
@@ -1416,6 +1421,26 @@ def main(argv: list[str] | None = None) -> int:
                 clip_ids=_parse_csv_option(args.clips),
                 execute_one=execute_tracking_run,
             )
+        elif args.tensorrt_benchmark:
+            try:
+                from .tensorrt_benchmark import run_tensorrt_fp16_benchmark
+            except ImportError:
+                from tensorrt_benchmark import run_tensorrt_fp16_benchmark
+            if detector_filter is None and size_filter is None:
+                configs = [config for config in configs if config.candidate_id == "yolov8n" and config.input_size == 640]
+            if len(configs) != 1:
+                raise ValueError("TensorRT benchmark requires exactly one detector/input-size baseline")
+            bundle, trt_status = run_tensorrt_fp16_benchmark(
+                manifest,
+                args.workspace_root,
+                baseline=configs[0],
+                benchmark_results_dir=args.output_dir,
+                clip_ids=_parse_csv_option(args.clips),
+                execute_one=execute_tracking_run,
+            )
+            if trt_status == "NO QUALIFIED DETECTOR FINALISTS":
+                print("NO QUALIFIED DETECTOR FINALISTS")
+                return 0
         else:
             bundle = run_benchmark_matrix(
                 manifest,

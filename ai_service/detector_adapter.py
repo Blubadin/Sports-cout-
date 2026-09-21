@@ -22,6 +22,8 @@ from engine_config import (
     resolve_tracker_config,
     validate_runtime_and_precision,
     RuntimeUnavailableError,
+    EngineLoadError,
+    RuntimeInferenceError,
 )
 from tracker_adapter import NormalizedTrackResult, TrackerProvenance
 
@@ -142,6 +144,10 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
             target = resolved_path if resolved_path else target_path
             self._model = YOLO(target)
         except Exception as e:
+            if self._runtime == "tensorrt":
+                raise EngineLoadError(
+                    f"Failed to load TensorRT engine '{target_path}': {e}"
+                ) from e
             raise ModelNotFoundError(
                 f"Failed to load detection model '{target_path}': {e}"
             ) from e
@@ -178,6 +184,10 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
                 verbose=False,
             )
         except Exception as e:
+            if self._runtime == "tensorrt":
+                raise RuntimeInferenceError(
+                    f"TensorRT inference failed for model '{self.actual_model}': {e}"
+                ) from e
             raise RuntimeError(
                 f"Detection/tracking failed with model '{self._model_path}' and tracker '{tracker_cfg}': {e}"
             ) from e
