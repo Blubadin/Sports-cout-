@@ -63,14 +63,15 @@ class TestVisionEngineSeams(unittest.TestCase):
         self.assertEqual(cfg.pose_architecture, "roi_pose")
         self.assertEqual(cfg.to_dict()["poseArchitecture"], "roi_pose")
 
-    def test_full_frame_pose_configuration_is_explicitly_unsupported(self):
-        """A selected but unimplemented architecture must not fall back to ROI pose."""
-        cfg = create_baseline_engine_config(pose_architecture="full_frame_pose")
+    def test_full_frame_pose_configuration_is_supported(self):
+        """Full frame pose architecture can be configured and truthfully recorded."""
+        cfg = create_baseline_engine_config(pose_architecture="full_frame_pose", pose_model=None)
         self.assertEqual(cfg.pose_architecture, "full_frame_pose")
         self.assertEqual(cfg.to_dict()["poseArchitecture"], "full_frame_pose")
 
-        with self.assertRaises(PoseArchitectureNotImplementedError):
-            BadmintonAnalyzerV2(engine_config=cfg)
+        analyzer = BadmintonAnalyzerV2(engine_config=cfg)
+        self.assertEqual(analyzer.pose_architecture, "full_frame_pose")
+        self.assertEqual(analyzer.get_provenance()["poseArchitecture"], "full_frame_pose")
 
     def test_unknown_pose_architecture_is_rejected(self):
         """Only registered pose architectures may be configured."""

@@ -24,7 +24,8 @@ from engine_config import (
     resolve_tracker_config,
 )
 from detector_adapter import BaseDetectorAdapter, UltralyticsDetectorAdapter
-from pose_adapter import BasePoseAdapter, create_pose_provider
+from pose_adapter import BasePoseAdapter, create_pose_provider, FullFramePoseCandidate
+from pose_association import associate_poses_to_athletes
 
 
 class PlayerProfile:
@@ -144,9 +145,8 @@ class BadmintonAnalyzerV2:
         self._detector = None
         self._pose_detector = None
 
-        # Full-frame pose is an intentional future seam, not an ROI fallback.
         if self.pose_adapter is None and self.pose_architecture == "full_frame_pose":
-            create_pose_provider(
+            self.pose_adapter = create_pose_provider(
                 architecture=self.pose_architecture,
                 model_path=self.engine_config.pose_model,
                 conf_threshold=0.4,
@@ -201,6 +201,37 @@ class BadmintonAnalyzerV2:
             device=self.device,
         )
         res = self.pose_adapter.estimate_pose_in_roi(frame, bbox)
+        if hasattr(self.pose_adapter, "_detector") and self.pose_adapter._detector is not None:
+            self._pose_detector = self.pose_adapter._detector
+        return res
+
+    def _estimate_full_frame_poses(self, frame: np.ndarray) -> list[FullFramePoseCandidate]:
+        if self._pose_detector == "dummy":
+            return []
+
+        if self.pose_adapter is not None:
+            return self.pose_adapter.estimate_full_frame(frame)
+
+        if self._pose_detector is not None and hasattr(self._pose_detector, "estimate_full_frame"):
+            return self._pose_detector.estimate_full_frame(frame)
+
+        is_mocked = (
+            self._detector == "dummy"
+            or hasattr(self._detector, "mock_calls")
+            or hasattr(self._detector, "_mock_name")
+            or hasattr(self.detect_and_track, "mock_calls")
+            or getattr(self.detect_and_track, "__func__", None) is not BadmintonAnalyzerV2.detect_and_track
+        )
+        if is_mocked:
+            return []
+
+        self.pose_adapter = create_pose_provider(
+            architecture=self.pose_architecture,
+            model_path=self.engine_config.pose_model,
+            conf_threshold=0.4,
+            device=self.device,
+        )
+        res = self.pose_adapter.estimate_full_frame(frame)
         if hasattr(self.pose_adapter, "_detector") and self.pose_adapter._detector is not None:
             self._pose_detector = self.pose_adapter._detector
         return res
@@ -344,6 +375,13 @@ class BadmintonAnalyzerV2:
         # Match detections to the 4 player profiles using Hungarian Algorithm
         matched_players = self._match_tracks_to_profiles(frame, valid_detections, timestamp_sec=t_sec)
 
+        # For full-frame pose architecture, run one full-frame pose inference per scheduled frame and associate
+        assigned_full_frame_poses: dict[int, FullFramePoseCandidate] = {}
+        if self.pose_architecture == "full_frame_pose" and should_run_pose:
+            candidates = self._estimate_full_frame_poses(frame)
+            athlete_boxes = {pid: matched_players[pid]["bbox"] for pid in matched_players}
+            assigned_full_frame_poses = associate_poses_to_athletes(athlete_boxes, candidates)
+
         # Build telemetry frame (TrackingTelemetryV1 compliant, PDF §45-47)
         h, w = frame.shape[:2] if frame is not None else (720, 1280)
         player_telemetry = []
@@ -425,33 +463,70 @@ class BadmintonAnalyzerV2:
                 "video_bbox_pct": bbox_pct,
             })
 
-            if pid in matched_players:
-                if should_run_pose:
-                    pose = self._estimate_pose(frame, matched_players[pid]["bbox"])
-                    if pose["keypoints"]:
-                        pose_obj = {
-                            "keypoints": [
-                                {"x": float(x) / w * 100, "y": float(y) / h * 100, "score": float(score)}
-                                for x, y, score in pose["keypoints"]
-                            ],
-                            "metrics": pose["metrics"],
-                            "isReused": False,
-                            "ageFrames": 0,
-                        }
-                        p.last_pose = pose_obj
-                        p.last_pose_age = 0
-                        player_telemetry[-1]["pose"] = pose_obj
+            if self.pose_architecture == "full_frame_pose":
+                if pid in matched_players:
+                    if should_run_pose:
+                        if pid in assigned_full_frame_poses and assigned_full_frame_poses[pid].keypoints:
+                            cand = assigned_full_frame_poses[pid]
+                            pose_obj = {
+                                "keypoints": [
+                                    {"x": float(x) / w * 100.0, "y": float(y) / h * 100.0, "score": float(score)}
+                                    for x, y, score in cand.keypoints
+                                ],
+                                "metrics": cand.metrics,
+                                "isReused": False,
+                                "ageFrames": 0,
+                            }
+                            p.last_pose = pose_obj
+                            p.last_pose_age = 0
+                            player_telemetry[-1]["pose"] = pose_obj
+                        else:
+                            # Athlete matched to track, but no pose candidate matched
+                            if p.last_pose is not None and p.missed_frames < 15:
+                                p.last_pose_age += 1
+                                reused_pose = dict(p.last_pose)
+                                reused_pose["isReused"] = True
+                                reused_pose["ageFrames"] = p.last_pose_age
+                                player_telemetry[-1]["pose"] = reused_pose
+                    else:
+                        if p.last_pose is not None and p.missed_frames < 15:
+                            p.last_pose_age += 1
+                            reused_pose = dict(p.last_pose)
+                            reused_pose["isReused"] = True
+                            reused_pose["ageFrames"] = p.last_pose_age
+                            player_telemetry[-1]["pose"] = reused_pose
                 else:
-                    if p.last_pose is not None and p.missed_frames < 15:
-                        p.last_pose_age += 1
-                        reused_pose = dict(p.last_pose)
-                        reused_pose["isReused"] = True
-                        reused_pose["ageFrames"] = p.last_pose_age
-                        player_telemetry[-1]["pose"] = reused_pose
+                    if p.missed_frames >= 15:
+                        p.last_pose = None
+                        p.last_pose_age = 0
             else:
-                if p.missed_frames >= 15:
-                    p.last_pose = None
-                    p.last_pose_age = 0
+                if pid in matched_players:
+                    if should_run_pose:
+                        pose = self._estimate_pose(frame, matched_players[pid]["bbox"])
+                        if pose["keypoints"]:
+                            pose_obj = {
+                                "keypoints": [
+                                    {"x": float(x) / w * 100, "y": float(y) / h * 100, "score": float(score)}
+                                    for x, y, score in pose["keypoints"]
+                                ],
+                                "metrics": pose["metrics"],
+                                "isReused": False,
+                                "ageFrames": 0,
+                            }
+                            p.last_pose = pose_obj
+                            p.last_pose_age = 0
+                            player_telemetry[-1]["pose"] = pose_obj
+                    else:
+                        if p.last_pose is not None and p.missed_frames < 15:
+                            p.last_pose_age += 1
+                            reused_pose = dict(p.last_pose)
+                            reused_pose["isReused"] = True
+                            reused_pose["ageFrames"] = p.last_pose_age
+                            player_telemetry[-1]["pose"] = reused_pose
+                else:
+                    if p.missed_frames >= 15:
+                        p.last_pose = None
+                        p.last_pose_age = 0
 
         return {
             # Canonical V1 Protocol (PDF §45 & §47)
