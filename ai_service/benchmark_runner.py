@@ -21,11 +21,21 @@ from typing import Any, Callable, Literal
 import uuid
 
 try:
-    from .benchmark_schema import BenchmarkClipEntry, BenchmarkManifest, generate_benchmark_run_id
+    from .benchmark_schema import (
+        BenchmarkClipEntry,
+        BenchmarkIdentityFailureExample,
+        BenchmarkManifest,
+        generate_benchmark_run_id,
+    )
     from .model_registry import get_candidate
     from .tracker_candidates import get_baseline_tracker_candidate, get_tracker_candidate
 except ImportError:  # Direct script execution from ai_service/.
-    from benchmark_schema import BenchmarkClipEntry, BenchmarkManifest, generate_benchmark_run_id
+    from benchmark_schema import (
+        BenchmarkClipEntry,
+        BenchmarkIdentityFailureExample,
+        BenchmarkManifest,
+        generate_benchmark_run_id,
+    )
     from model_registry import get_candidate
     from tracker_candidates import get_baseline_tracker_candidate, get_tracker_candidate
 
@@ -149,6 +159,10 @@ class BenchmarkRunMetrics:
     pose_reuse_percent: float | None = None
     pose_unavailable_percent: float | None = None
     pose_inference_calls: int | None = None
+    raw_tracker_id_switches: int | None = None
+    semantic_player_id_switches: int | None = None
+    reacquisition_duration_sec: float | None = None
+    failure_examples: list[BenchmarkIdentityFailureExample] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -167,6 +181,13 @@ class BenchmarkRunMetrics:
             "poseUnavailablePercent": self.pose_unavailable_percent,
             "poseInferenceCalls": self.pose_inference_calls,
             "peakVramMb": self.peak_vram_mb,
+            "rawTrackerIdSwitches": self.raw_tracker_id_switches,
+            "semanticPlayerIdSwitches": self.semantic_player_id_switches,
+            "reacquisitionDurationSec": self.reacquisition_duration_sec,
+            "failureExamples": [
+                ex.to_dict() if hasattr(ex, "to_dict") else ex
+                for ex in self.failure_examples
+            ],
             "groundTruth": {
                 "meanCourtPositionError": self.mean_court_position_error,
                 "medianCourtPositionError": self.median_court_position_error,
@@ -182,6 +203,11 @@ class BenchmarkRunMetrics:
     def from_dict(cls, data: dict[str, Any] | None) -> "BenchmarkRunMetrics":
         data = data or {}
         ground_truth = data.get("groundTruth") or {}
+        raw_examples = data.get("failureExamples") or []
+        examples = [
+            BenchmarkIdentityFailureExample.from_dict(ex) if isinstance(ex, dict) else ex
+            for ex in raw_examples
+        ]
         return cls(
             player_coverage=data.get("playerCoverage") or {},
             mean_target_coverage=data.get("meanTargetCoverage"),
@@ -198,6 +224,10 @@ class BenchmarkRunMetrics:
             pose_unavailable_percent=data.get("poseUnavailablePercent"),
             pose_inference_calls=data.get("poseInferenceCalls"),
             peak_vram_mb=data.get("peakVramMb"),
+            raw_tracker_id_switches=data.get("rawTrackerIdSwitches"),
+            semantic_player_id_switches=data.get("semanticPlayerIdSwitches"),
+            reacquisition_duration_sec=data.get("reacquisitionDurationSec"),
+            failure_examples=examples,
             mean_court_position_error=ground_truth.get("meanCourtPositionError"),
             median_court_position_error=ground_truth.get("medianCourtPositionError"),
             p95_court_position_error=ground_truth.get("p95CourtPositionError"),
@@ -403,6 +433,100 @@ def validate_tracker_comparison_pair(configs: list[BenchmarkRunConfig]) -> None:
         raise ValueError("Tracker comparison baseline must use bytetrack")
     if second_candidate.id == "bytetrack":
         raise ValueError("Tracker comparison requires a non-baseline tracker candidate")
+
+
+def build_tracker_reid_trio(
+    baseline: BenchmarkRunConfig,
+) -> tuple[BenchmarkRunConfig, BenchmarkRunConfig, BenchmarkRunConfig]:
+    """Create a fair 3-way tracker/ReID comparison trio from one fixed configuration.
+
+    Varies ONLY tracker, tracker_config, reid_enabled, and reid_model:
+      A: ByteTrack + SportsScout identity (reid_enabled=False)
+      B: BoT-SORT + SportsScout identity (reid_enabled=False)
+      C: BoT-SORT + ReID + SportsScout identity (reid_enabled=True, spatial_multi_zone_v1)
+    """
+    cand_a = get_tracker_candidate("bytetrack")
+    cand_b = get_tracker_candidate("botsort")
+    cand_c = get_tracker_candidate("botsort_reid")
+
+    config_a = replace(
+        baseline,
+        config_id=f"{baseline.config_id}__{cand_a.id}",
+        tracker=cand_a.tracker_name,
+        tracker_config=cand_a.tracker_config,
+        reid_enabled=cand_a.reid_enabled,
+        reid_model=cand_a.reid_model,
+    )
+    config_b = replace(
+        baseline,
+        config_id=f"{baseline.config_id}__{cand_b.id}",
+        tracker=cand_b.tracker_name,
+        tracker_config=cand_b.tracker_config,
+        reid_enabled=cand_b.reid_enabled,
+        reid_model=cand_b.reid_model,
+    )
+    config_c = replace(
+        baseline,
+        config_id=f"{baseline.config_id}__{cand_c.id}",
+        tracker=cand_c.tracker_name,
+        tracker_config=cand_c.tracker_config,
+        reid_enabled=cand_c.reid_enabled,
+        reid_model=cand_c.reid_model,
+    )
+    validate_tracker_reid_trio([config_a, config_b, config_c])
+    return config_a, config_b, config_c
+
+
+def validate_tracker_reid_trio(configs: list[BenchmarkRunConfig]) -> None:
+    """Reject a comparison trio when any non-tracker/ReID pipeline variable differs."""
+    if len(configs) != 3:
+        raise ValueError("Tracker ReID comparison requires exactly three configurations")
+
+    first = configs[0]
+    for other in configs[1:]:
+        for field_name in TRACKER_PAIR_INVARIANTS:
+            if getattr(first, field_name) != getattr(other, field_name):
+                raise ValueError(f"Tracker ReID comparison requires matching {field_name}")
+
+    signatures = [(c.tracker, c.reid_enabled, c.reid_model) for c in configs]
+    expected_signatures = {
+        ("bytetrack", False, None),
+        ("botsort", False, None),
+        ("botsort", True, "spatial_multi_zone_v1"),
+    }
+    if set(signatures) != expected_signatures:
+        raise ValueError(
+            "Tracker ReID trio requires one ByteTrack (no ReID), "
+            "one BoT-SORT (no ReID), and one BoT-SORT (with ReID) configuration"
+        )
+
+
+def run_tracker_reid_stability_benchmark(
+    manifest: BenchmarkManifest,
+    workspace_root: Path,
+    *,
+    baseline: BenchmarkRunConfig,
+    execute_one: Callable[[BenchmarkClipEntry, BenchmarkRunConfig, Path, Path], BenchmarkRunMetrics],
+    clip_ids: list[str] | None = None,
+    availability_checker: Callable[[BenchmarkRunConfig, Path], tuple[bool, str]] | None = None,
+    timestamp_factory: Callable[[], str] = _utc_now,
+    run_group_id_factory: Callable[[], str] = _new_run_group_id,
+) -> BenchmarkBundle:
+    """Run one fair 3-way tracker/ReID comparison through the normal result schema."""
+    trio = list(build_tracker_reid_trio(baseline))
+    bundle = run_benchmark_matrix(
+        manifest,
+        workspace_root,
+        configs=trio,
+        clip_ids=clip_ids,
+        execute_one=execute_one,
+        availability_checker=availability_checker or _default_availability,
+        timestamp_factory=timestamp_factory,
+        run_group_id_factory=run_group_id_factory,
+    )
+    if not bundle.dataset_available:
+        bundle.dataset_status = "TRACKER BENCHMARK DATASET NOT AVAILABLE"
+    return bundle
 
 
 def build_pose_architecture_pair(
@@ -692,6 +816,7 @@ COMPARISON_COLUMNS = [
     "predictedPercent", "lostPercent", "meanObservedConfidence", "analysisFps",
     "elapsedSeconds", "processingRatio", "effectiveTelemetryHz", "peakVramMb",
     "freshPoseCoverage", "poseReusePercent", "poseUnavailablePercent", "poseInferenceCalls",
+    "rawTrackerIdSwitches", "semanticPlayerIdSwitches", "reacquisitionDurationSec",
     "meanCourtPositionError", "medianCourtPositionError", "p95CourtPositionError",
     "distanceError", "identityAccuracy",
     "identityContinuity", "idSwitchCount",
@@ -738,6 +863,9 @@ def _comparison_row(result: BenchmarkAttempt) -> dict[str, Any]:
         "poseUnavailablePercent": metrics.pose_unavailable_percent,
         "poseInferenceCalls": metrics.pose_inference_calls,
         "peakVramMb": metrics.peak_vram_mb,
+        "rawTrackerIdSwitches": metrics.raw_tracker_id_switches,
+        "semanticPlayerIdSwitches": metrics.semantic_player_id_switches,
+        "reacquisitionDurationSec": metrics.reacquisition_duration_sec,
         "meanCourtPositionError": metrics.mean_court_position_error,
         "medianCourtPositionError": metrics.median_court_position_error,
         "p95CourtPositionError": metrics.p95_court_position_error,
@@ -818,14 +946,18 @@ def compute_phase_zero_metrics(
     video_duration_seconds: float | None,
     peak_vram_mb: float | None,
     pose_inference_calls: int | None = None,
+    raw_tracker_id_switches: int | None = None,
+    semantic_player_id_switches: int | None = None,
 ) -> BenchmarkRunMetrics:
-    """Compute Phase 0 metrics without treating unknown values as measured zero."""
+    """Compute Phase 0 & 1.5 metrics without treating unknown values as measured zero."""
     elapsed = _finite_number(elapsed_seconds)
     duration = _finite_number(video_duration_seconds)
     if not telemetry:
         return BenchmarkRunMetrics(
             peak_vram_mb=_rounded(_finite_number(peak_vram_mb), 3),
             elapsed_seconds=_rounded(elapsed, 6) if elapsed is not None and elapsed >= 0 else None,
+            raw_tracker_id_switches=raw_tracker_id_switches,
+            semantic_player_id_switches=semantic_player_id_switches,
         )
 
     player_ids = [f"P{i}" for i in range(1, max(1, int(expected_player_count)) + 1)]
@@ -840,10 +972,21 @@ def compute_phase_zero_metrics(
     fully_observed_frames = 0
     timestamps: set[float] = set()
 
-    for frame in telemetry:
+    detected_raw_switches = 0
+    detected_sem_switches = 0
+    prev_player_track: dict[str, int] = {}
+    track_ownership: dict[int, tuple[str, int]] = {}
+    lost_start_time: dict[str, float] = {}
+    lost_start_frame: dict[str, int] = {}
+    reacquisition_durations: list[float] = []
+    failure_examples: list[BenchmarkIdentityFailureExample] = []
+    reacq_failure_logged: set[str] = set()
+
+    for frame_idx, frame in enumerate(telemetry):
         timestamp = _finite_number(frame.get("timestampSec", frame.get("timestamp_sec")))
         if timestamp is not None:
             timestamps.add(timestamp)
+        ts = timestamp if timestamp is not None else float(frame_idx)
         states: dict[str, dict[str, Any]] = {}
         for index, player in enumerate(frame.get("players") or []):
             player_id = player.get("playerId")
@@ -863,12 +1006,86 @@ def compute_phase_zero_metrics(
                 confidence = _finite_number(player.get("detectionConfidence"))
                 if confidence is not None:
                     confidences[player_id].append(confidence)
+
+                # Track reacquisition
+                if player_id in lost_start_time:
+                    reacq_duration = ts - lost_start_time[player_id]
+                    if reacq_duration >= 0:
+                        reacquisition_durations.append(reacq_duration)
+                    del lost_start_time[player_id]
+                    del lost_start_frame[player_id]
+                    reacq_failure_logged.discard(player_id)
+
+                # Check raw track id and semantic switches
+                tid_raw = player.get("trackId") if player else None
+                tid = int(tid_raw) if tid_raw is not None else None
+                if tid is not None:
+                    if player_id in prev_player_track and prev_player_track[player_id] != tid:
+                        detected_raw_switches += 1
+                        failure_examples.append(BenchmarkIdentityFailureExample(
+                            failure_type="raw_id_reset",
+                            timestamp_sec=ts,
+                            player_id=player_id,
+                            track_id=tid,
+                            description=f"{player_id} raw MOT track ID reset from {prev_player_track[player_id]} to {tid}",
+                        ))
+                    if tid in track_ownership:
+                        prior_pid, prior_fidx = track_ownership[tid]
+                        if prior_pid != player_id and (frame_idx - prior_fidx) < 30:
+                            detected_sem_switches += 1
+                            failure_examples.append(BenchmarkIdentityFailureExample(
+                                failure_type="semantic_id_switch",
+                                timestamp_sec=ts,
+                                player_id=player_id,
+                                track_id=tid,
+                                description=f"Semantic swap: track ID {tid} reassigned from {prior_pid} to {player_id}",
+                            ))
+                    prev_player_track[player_id] = tid
+                    track_ownership[tid] = (player_id, frame_idx)
+
+                # Check for ambiguity and cross-boundary in costs
+                if player and isinstance(player.get("identityCosts"), dict):
+                    costs = player["identityCosts"]
+                    if costs.get("isAmbiguous") is True:
+                        failure_examples.append(BenchmarkIdentityFailureExample(
+                            failure_type="ambiguous_identity",
+                            timestamp_sec=ts,
+                            player_id=player_id,
+                            track_id=tid,
+                            description=f"{player_id} ReID ambiguity guard triggered",
+                        ))
+                    if costs.get("courtSidePenalty", 0) > 0:
+                        failure_examples.append(BenchmarkIdentityFailureExample(
+                            failure_type="cross_player_assignment",
+                            timestamp_sec=ts,
+                            player_id=player_id,
+                            track_id=tid,
+                            description=f"{player_id} court side penalty triggered ({costs['courtSidePenalty']})",
+                        ))
             elif state == "predicted":
                 predicted[player_id] += 1
                 frame_is_fully_observed = False
+                if player_id not in lost_start_time:
+                    lost_start_time[player_id] = ts
+                    lost_start_frame[player_id] = frame_idx
             else:
                 lost[player_id] += 1
                 frame_is_fully_observed = False
+                if player_id not in lost_start_time:
+                    lost_start_time[player_id] = ts
+                    lost_start_frame[player_id] = frame_idx
+
+            if player_id in lost_start_frame and player_id not in reacq_failure_logged:
+                if (frame_idx - lost_start_frame[player_id]) >= 30:
+                    reacq_failure_logged.add(player_id)
+                    failure_examples.append(BenchmarkIdentityFailureExample(
+                        failure_type="reacquisition_failure",
+                        timestamp_sec=lost_start_time[player_id],
+                        player_id=player_id,
+                        track_id=None,
+                        description=f"{player_id} unrecovered after 30+ frames",
+                    ))
+
             pose = player.get("pose") if player else None
             if isinstance(pose, dict):
                 if pose.get("isReused") is True:
@@ -905,6 +1122,15 @@ def compute_phase_zero_metrics(
 
     analysis_fps = frame_count / elapsed if elapsed is not None and elapsed > 0 else None
     processing_ratio = elapsed / duration if elapsed is not None and elapsed >= 0 and duration is not None and duration > 0 else None
+
+    final_raw_switches = raw_tracker_id_switches if raw_tracker_id_switches is not None else detected_raw_switches
+    final_sem_switches = semantic_player_id_switches if semantic_player_id_switches is not None else detected_sem_switches
+
+    mean_reacq_duration = (
+        _rounded(sum(reacquisition_durations) / len(reacquisition_durations), 4)
+        if reacquisition_durations else None
+    )
+
     return BenchmarkRunMetrics(
         player_coverage=player_coverage,
         mean_target_coverage=_rounded(sum(observed.values()) / target_samples),
@@ -930,6 +1156,11 @@ def compute_phase_zero_metrics(
             int(pose_inference_calls)
             if isinstance(pose_inference_calls, int) and pose_inference_calls >= 0 else None
         ),
+        raw_tracker_id_switches=final_raw_switches,
+        semantic_player_id_switches=final_sem_switches,
+        reacquisition_duration_sec=mean_reacq_duration,
+        failure_examples=failure_examples,
+        id_switch_count=final_sem_switches,
     )
 
 
@@ -1085,6 +1316,8 @@ def execute_tracking_run(
         video_duration_seconds=duration,
         peak_vram_mb=peak_vram_mb,
         pose_inference_calls=getattr(analyzer, "pose_inference_calls", None),
+        raw_tracker_id_switches=getattr(analyzer, "raw_tracker_id_switches", None),
+        semantic_player_id_switches=getattr(analyzer, "semantic_player_id_switches", None),
     )
 
 
@@ -1095,7 +1328,7 @@ def _parse_csv_option(value: str | None) -> list[str] | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run SportsScout detector or paired pose architecture benchmarks")
+    parser = argparse.ArgumentParser(description="Run SportsScout detector, tracker, or pose architecture benchmarks")
     parser.add_argument(
         "--manifest",
         type=Path,
@@ -1111,6 +1344,11 @@ def main(argv: list[str] | None = None) -> int:
         "--pose-architecture-benchmark",
         action="store_true",
         help="Compare one ROI/full-frame pair; defaults to YOLOv8n at 640 when no detector/size is selected",
+    )
+    parser.add_argument(
+        "--tracker-benchmark",
+        action="store_true",
+        help="Compare 3-way tracker/ReID trio (ByteTrack vs BoT-SORT vs BoT-SORT + ReID); defaults to YOLOv8n at 640",
     )
     parser.add_argument("--roi-pose-model", help="Optional local ROI pose model override")
     parser.add_argument("--full-frame-pose-model", help="Optional local full-frame pose model override")
@@ -1147,6 +1385,18 @@ def main(argv: list[str] | None = None) -> int:
                 baseline=configs[0],
                 roi_pose_model=args.roi_pose_model,
                 full_frame_pose_model=args.full_frame_pose_model,
+                clip_ids=_parse_csv_option(args.clips),
+                execute_one=execute_tracking_run,
+            )
+        elif args.tracker_benchmark:
+            if detector_filter is None and size_filter is None:
+                configs = [config for config in configs if config.candidate_id == "yolov8n" and config.input_size == 640]
+            if len(configs) != 1:
+                raise ValueError("Tracker benchmark requires exactly one detector/input-size baseline")
+            bundle = run_tracker_reid_stability_benchmark(
+                manifest,
+                args.workspace_root,
+                baseline=configs[0],
                 clip_ids=_parse_csv_option(args.clips),
                 execute_one=execute_tracking_run,
             )

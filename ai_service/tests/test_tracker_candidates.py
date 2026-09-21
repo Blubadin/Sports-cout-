@@ -37,7 +37,16 @@ class TestTrackerCandidates(unittest.TestCase):
         self.assertFalse(candidate.reid_enabled)
         self.assertIsNone(candidate.reid_model)
         self.assertEqual(resolve_tracker_config(candidate.tracker_name, candidate.tracker_config), "botsort.yaml")
-        self.assertEqual([item.id for item in list_tracker_candidates()], ["bytetrack", "botsort"])
+        self.assertEqual([item.id for item in list_tracker_candidates()], ["bytetrack", "botsort", "botsort_reid"])
+
+    def test_botsort_reid_is_an_explicit_reid_candidate(self):
+        candidate = get_tracker_candidate("botsort_reid")
+
+        self.assertEqual(candidate.id, "botsort_reid")
+        self.assertFalse(candidate.baseline)
+        self.assertTrue(candidate.reid_enabled)
+        self.assertEqual(candidate.reid_model, "spatial_multi_zone_v1")
+        self.assertEqual(resolve_tracker_config(candidate.tracker_name, candidate.tracker_config), "botsort.yaml")
 
     def test_paired_tracker_config_changes_only_tracker_provenance(self):
         baseline = build_detector_matrix(BenchmarkCommonConfig(device="cpu"))[0]

@@ -118,6 +118,22 @@ export interface TrackingBenchmarkQuality {
 }
 
 /**
+ * Recorded identity or tracking failure instance for root-cause audit.
+ */
+export interface TrackingBenchmarkFailureExample {
+  /** Specific failure category */
+  failureType: 'raw_id_reset' | 'semantic_id_switch' | 'cross_player_assignment' | 'reacquisition_failure' | 'ambiguous_identity';
+  /** Timestamp in clip when failure event occurred */
+  timestampSec: number;
+  /** Associated semantic athlete ID (e.g. P1) if identifiable */
+  playerId?: string | null;
+  /** Associated raw MOT track ID if applicable */
+  trackId?: number | null;
+  /** Human-readable explanation of the failure mode */
+  description: string;
+}
+
+/**
  * Future identity stability and manual audit metrics.
  * Optional: unavailable values must remain undefined or null (never default to zero).
  */
@@ -128,6 +144,10 @@ export interface TrackingBenchmarkIdentityAudit {
   rawTrackerIdSwitchCount?: number | null;
   /** Number of semantic athlete identity swaps (P1 <-> P2) */
   semanticPlayerIdSwitchCount?: number | null;
+  /** Average duration in seconds to reacquire a lost/predicted athlete (null if never lost/reacquired) */
+  reacquisitionDurationSec?: number | null;
+  /** Recorded concrete failure instances during tracking */
+  failureExamples?: TrackingBenchmarkFailureExample[];
   /** Number of manual analyst keypoint/box corrections applied */
   manualCorrectionCount?: number | null;
   /** Metric representing identity continuity over time (0.0..1.0) */

@@ -42,16 +42,28 @@ PHASE_1_TRACKER_CANDIDATES: dict[str, TrackerCandidate] = {
         reid_enabled=False,
         reid_model=None,
     ),
+    "botsort_reid": TrackerCandidate(
+        id="botsort_reid",
+        display_name="BoT-SORT + ReID",
+        tracker_name="botsort",
+        tracker_config="botsort.yaml",
+        reid_enabled=True,
+        reid_model="spatial_multi_zone_v1",
+    ),
 }
 
 
 def get_tracker_candidate(candidate_id: str) -> TrackerCandidate:
     """Resolve a registered raw tracker candidate without any fallback."""
-    normalized = candidate_id.strip().lower().replace("-", "").replace("_", "")
+    raw = candidate_id.strip().lower()
+    if raw in PHASE_1_TRACKER_CANDIDATES:
+        return PHASE_1_TRACKER_CANDIDATES[raw]
+    normalized = raw.replace("-", "").replace("_", "")
     for candidate in PHASE_1_TRACKER_CANDIDATES.values():
-        candidate_normalized = candidate.id.replace("_", "")
-        name_normalized = candidate.tracker_name.replace("_", "")
-        if normalized in {candidate_normalized, name_normalized}:
+        if normalized == candidate.id.replace("-", "").replace("_", ""):
+            return candidate
+    for candidate in PHASE_1_TRACKER_CANDIDATES.values():
+        if normalized == candidate.tracker_name.replace("-", "").replace("_", "") and not candidate.reid_enabled:
             return candidate
 
     raise InvalidEngineConfigError(

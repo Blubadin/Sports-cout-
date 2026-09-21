@@ -289,12 +289,42 @@ class BenchmarkQuality:
 
 
 @dataclass
+class BenchmarkIdentityFailureExample:
+    failure_type: str  # 'raw_id_reset' | 'semantic_id_switch' | 'cross_player_assignment' | 'reacquisition_failure' | 'ambiguous_identity'
+    timestamp_sec: float
+    player_id: Optional[str] = None
+    track_id: Optional[int] = None
+    description: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "failureType": self.failure_type,
+            "timestampSec": round(self.timestamp_sec, 3),
+            "playerId": self.player_id,
+            "trackId": self.track_id,
+            "description": self.description,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "BenchmarkIdentityFailureExample":
+        return cls(
+            failure_type=data.get("failureType", "unknown"),
+            timestamp_sec=float(data.get("timestampSec", 0.0)),
+            player_id=data.get("playerId"),
+            track_id=data.get("trackId"),
+            description=data.get("description", ""),
+        )
+
+
+@dataclass
 class BenchmarkIdentityAudit:
     id_switch_count: Optional[int] = None
     manual_correction_count: Optional[int] = None
     identity_continuity: Optional[float] = None
     raw_tracker_id_switch_count: Optional[int] = None
     semantic_player_id_switch_count: Optional[int] = None
+    reacquisition_duration_sec: Optional[float] = None
+    failure_examples: list[BenchmarkIdentityFailureExample] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -303,16 +333,25 @@ class BenchmarkIdentityAudit:
             "identityContinuity": self.identity_continuity,
             "rawTrackerIdSwitchCount": self.raw_tracker_id_switch_count,
             "semanticPlayerIdSwitchCount": self.semantic_player_id_switch_count,
+            "reacquisitionDurationSec": self.reacquisition_duration_sec,
+            "failureExamples": [ex.to_dict() for ex in self.failure_examples],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BenchmarkIdentityAudit:
+        examples = [
+            BenchmarkIdentityFailureExample.from_dict(ex)
+            for ex in data.get("failureExamples", [])
+            if isinstance(ex, dict)
+        ]
         return cls(
             id_switch_count=data.get("idSwitchCount"),
             manual_correction_count=data.get("manualCorrectionCount"),
             identity_continuity=data.get("identityContinuity"),
             raw_tracker_id_switch_count=data.get("rawTrackerIdSwitchCount"),
             semantic_player_id_switch_count=data.get("semanticPlayerIdSwitchCount"),
+            reacquisition_duration_sec=data.get("reacquisitionDurationSec"),
+            failure_examples=examples,
         )
 
 
