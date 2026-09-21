@@ -15,11 +15,43 @@ export interface TrackingPlayerMetadata {
   color?: string;
 }
 
-export interface TrackingQuality {
+export interface PlayerTrackingQuality {
+  playerId: string;
+  observedFrameCount: number;
+  predictedFrameCount: number;
+  lostFrameCount: number;
   detectionCoverage: number; // 0..1 (e.g. 0.95)
-  lostTimePercent: number; // 0..100 (%)
-  confidence: number; // 0..1
-  manualCorrections: number;
+  predictedPercent: number; // 0..100 (%)
+  lostPercent: number; // 0..100 (%)
+  meanObservedConfidence: number; // 0..1
+  idSwitchCount?: number | null;
+  manualCorrectionCount?: number | null;
+}
+
+export interface TrackingQuality {
+  // Session-level multi-target metrics
+  meanTargetCoverage?: number; // 0..1 (mean of individual player coverages)
+  simultaneousTargetCoverage?: number; // 0..1 (frames where all expected targets observed / eligible frames)
+  fullyObservedFrameCount?: number;
+  partiallyObservedFrameCount?: number;
+  fullyLostFrameCount?: number;
+
+  // Aggregate stats across session
+  predictedPercent?: number; // 0..100 (%)
+  lostPercent?: number; // 0..100 (%)
+
+  // Per-player quality breakdown
+  playerCoverage?: Record<string, PlayerTrackingQuality>;
+
+  // Future audit fields: null when not measured (do NOT invent fake 0)
+  idSwitchCount?: number | null;
+  manualCorrectionCount?: number | null;
+  manualCorrections?: number | null;
+
+  // Backward compatibility fields
+  detectionCoverage: number; // 0..1 (legacy alias = meanTargetCoverage)
+  lostTimePercent: number; // 0..100 (%) (legacy alias = (1 - meanTargetCoverage) * 100)
+  confidence: number; // 0..1 (mean observed confidence across all players)
   lowConfidenceWarning?: boolean;
 }
 
@@ -754,6 +786,170 @@ export function computePlayerMovementMetrics(samples: TrackingSample[], canonica
 }
 
 /**
+ * Computes multi-target tracking quality metrics.
+ * Separates per-athlete quality from session-level multi-target quality.
+ * OBSERVED: fresh measurement exists.
+ * PREDICTED: estimated without fresh observation (not observed).
+ * LOST: no reliable state (not observed).
+ */
+export function computeTrackingQuality(
+  frames: TrackingTelemetryV1[],
+  canonicalPlayerIds?: string[]
+): TrackingQuality {
+  if (frames.length === 0) {
+    return {
+      meanTargetCoverage: 0,
+      simultaneousTargetCoverage: 0,
+      fullyObservedFrameCount: 0,
+      partiallyObservedFrameCount: 0,
+      fullyLostFrameCount: 0,
+      predictedPercent: 0,
+      lostPercent: 100,
+      playerCoverage: {},
+      idSwitchCount: null,
+      manualCorrectionCount: null,
+      manualCorrections: null,
+      detectionCoverage: 0,
+      lostTimePercent: 100,
+      confidence: 0,
+      lowConfidenceWarning: true,
+    };
+  }
+
+  // 1. Identify all expected player targets
+  const expectedSet = new Set<string>();
+  if (canonicalPlayerIds) {
+    for (const pId of canonicalPlayerIds) expectedSet.add(pId);
+  }
+  for (const f of frames) {
+    for (const p of f.players) {
+      if (p.playerId) expectedSet.add(p.playerId);
+    }
+  }
+  const expectedPlayerIds = Array.from(expectedSet).sort();
+
+  // 2. Tally frame counts per player and frame-level simultaneous observation
+  interface PlayerTally {
+    observed: number;
+    predicted: number;
+    lost: number;
+    confidenceSum: number;
+    confidenceCount: number;
+  }
+  const tallies = new Map<string, PlayerTally>();
+  for (const pId of expectedPlayerIds) {
+    tallies.set(pId, { observed: 0, predicted: 0, lost: 0, confidenceSum: 0, confidenceCount: 0 });
+  }
+
+  let fullyObservedFrameCount = 0;
+  let partiallyObservedFrameCount = 0;
+  let fullyLostFrameCount = 0;
+
+  for (const f of frames) {
+    let observedInFrame = 0;
+
+    for (const pId of expectedPlayerIds) {
+      const tally = tallies.get(pId)!;
+      const p = f.players.find((x) => x.playerId === pId);
+      if (!p || p.state === 'lost') {
+        tally.lost++;
+      } else if (p.state === 'predicted') {
+        tally.predicted++;
+      } else if (p.state === 'observed') {
+        tally.observed++;
+        observedInFrame++;
+        if (typeof p.detectionConfidence === 'number') {
+          tally.confidenceSum += p.detectionConfidence;
+          tally.confidenceCount++;
+        }
+      } else {
+        tally.lost++;
+      }
+    }
+
+    if (expectedPlayerIds.length > 0) {
+      if (observedInFrame === expectedPlayerIds.length) {
+        fullyObservedFrameCount++;
+      } else if (observedInFrame > 0) {
+        partiallyObservedFrameCount++;
+      } else {
+        fullyLostFrameCount++;
+      }
+    }
+  }
+
+  // 3. Compute per-player metrics
+  const playerCoverage: Record<string, PlayerTrackingQuality> = {};
+  let totalObservedConfidenceSum = 0;
+  let totalObservedConfidenceCount = 0;
+  let totalCoverageSum = 0;
+  let totalPredictedCount = 0;
+  let totalLostCount = 0;
+
+  const totalEligibleSessionFrames = frames.length;
+
+  for (const pId of expectedPlayerIds) {
+    const tally = tallies.get(pId)!;
+    const eligibleFrames = totalEligibleSessionFrames;
+    const detectionCoverage = eligibleFrames > 0 ? Number((tally.observed / eligibleFrames).toFixed(2)) : 0;
+    const predictedPercent = eligibleFrames > 0 ? Number(((tally.predicted / eligibleFrames) * 100).toFixed(1)) : 0;
+    const lostPercent = eligibleFrames > 0 ? Number(((tally.lost / eligibleFrames) * 100).toFixed(1)) : 0;
+    const meanObservedConfidence = tally.confidenceCount > 0 ? Number((tally.confidenceSum / tally.confidenceCount).toFixed(2)) : 0;
+
+    playerCoverage[pId] = {
+      playerId: pId,
+      observedFrameCount: tally.observed,
+      predictedFrameCount: tally.predicted,
+      lostFrameCount: tally.lost,
+      detectionCoverage,
+      predictedPercent,
+      lostPercent,
+      meanObservedConfidence,
+      idSwitchCount: null,
+      manualCorrectionCount: null,
+    };
+
+    totalCoverageSum += detectionCoverage;
+    totalObservedConfidenceSum += tally.confidenceSum;
+    totalObservedConfidenceCount += tally.confidenceCount;
+    totalPredictedCount += tally.predicted;
+    totalLostCount += tally.lost;
+  }
+
+  // 4. Session Multi-Target Aggregates
+  const targetCount = Math.max(1, expectedPlayerIds.length);
+  const meanTargetCoverage = expectedPlayerIds.length > 0 ? Number((totalCoverageSum / targetCount).toFixed(2)) : 0;
+  const simultaneousTargetCoverage = totalEligibleSessionFrames > 0 && expectedPlayerIds.length > 0
+    ? Number((fullyObservedFrameCount / totalEligibleSessionFrames).toFixed(2))
+    : 0;
+
+  const totalPlayerTargetSlots = targetCount * totalEligibleSessionFrames;
+  const sessionPredictedPercent = totalPlayerTargetSlots > 0 ? Number(((totalPredictedCount / totalPlayerTargetSlots) * 100).toFixed(1)) : 0;
+  const sessionLostPercent = totalPlayerTargetSlots > 0 ? Number(((totalLostCount / totalPlayerTargetSlots) * 100).toFixed(1)) : 0;
+
+  const meanConfidence = totalObservedConfidenceCount > 0 ? Number((totalObservedConfidenceSum / totalObservedConfidenceCount).toFixed(2)) : 0;
+  const lowConfidenceWarning = meanConfidence < 0.6 || meanTargetCoverage < 0.5;
+
+  return {
+    meanTargetCoverage,
+    simultaneousTargetCoverage,
+    fullyObservedFrameCount,
+    partiallyObservedFrameCount,
+    fullyLostFrameCount,
+    predictedPercent: sessionPredictedPercent,
+    lostPercent: sessionLostPercent,
+    playerCoverage,
+    idSwitchCount: null,
+    manualCorrectionCount: null,
+    manualCorrections: null,
+    detectionCoverage: meanTargetCoverage,
+    lostTimePercent: Number(Math.max(0, (1 - meanTargetCoverage) * 100).toFixed(1)),
+    confidence: meanConfidence,
+    lowConfidenceWarning,
+  };
+}
+
+/**
  * Downsamples frames to targetHz (e.g. 10 Hz) and partitions them into chunks (e.g. 15 seconds each)
  */
 export function downsampleAndChunkTrackingSamples(
@@ -777,37 +973,20 @@ export function downsampleAndChunkTrackingSamples(
     return {
       chunks: [],
       summary: { durationSeconds: 0, sampleCount: 0, players: emptyPlayerSummaries },
-      quality: {
-        detectionCoverage: 0,
-        lostTimePercent: 100,
-        confidence: 0,
-        manualCorrections: 0,
-        lowConfidenceWarning: true,
-      },
+      quality: computeTrackingQuality([], canonicalPlayerMetrics ? Object.keys(canonicalPlayerMetrics) : undefined),
     };
   }
 
-  // 1. Full-Rate Processing for Canonical Movement Metrics and Quality
+  // 1. Full-Rate Processing for Canonical Movement Metrics
   const fullRatePlayerSamples = new Map<string, TrackingSample[]>();
   const lastTotalDistances = new Map<string, number>();
-  let totalConfidence = 0;
-  let confidenceCount = 0;
-  let inputObservedFrameCount = 0;
 
   for (const frame of frames) {
-    // Quality honesty: ONLY count fresh observed detections, NEVER stale predicted/lost states
-    const hasObserved = frame.players.some((p) => p.state === 'observed');
-    if (hasObserved) inputObservedFrameCount++;
-
     for (const p of frame.players) {
       if (typeof p.totalDistanceM === 'number') {
         lastTotalDistances.set(p.playerId, p.totalDistanceM);
       }
       if (!p.courtPosition) continue;
-      if (p.state === 'observed' && typeof p.detectionConfidence === 'number') {
-        totalConfidence += p.detectionConfidence;
-        confidenceCount++;
-      }
 
       const sample: TrackingSample = {
         timestamp: frame.timestampSec,
@@ -856,20 +1035,10 @@ export function downsampleAndChunkTrackingSamples(
     }
   }
 
-  // 3. Compute Quality (Honest metrics: only fresh observed frames count towards coverage)
+  // 3. Compute Quality (Separates per-athlete quality from session-level multi-target quality)
   const durationSec = frames.length > 1 ? frames[frames.length - 1].timestampSec - frames[0].timestampSec : 0;
-  const detectionCoverage = frames.length > 0 ? inputObservedFrameCount / frames.length : 0;
-  const lostTimePercent = Math.max(0, (1 - detectionCoverage) * 100);
-  const avgConfidence = confidenceCount > 0 ? totalConfidence / confidenceCount : 0;
-  const lowConfidenceWarning = avgConfidence < 0.6 || detectionCoverage < 0.5;
-
-  const quality: TrackingQuality = {
-    detectionCoverage: Number(detectionCoverage.toFixed(2)),
-    lostTimePercent: Number(lostTimePercent.toFixed(1)),
-    confidence: Number(avgConfidence.toFixed(2)),
-    manualCorrections: 0,
-    lowConfidenceWarning,
-  };
+  const canonicalPlayerIds = canonicalPlayerMetrics ? Object.keys(canonicalPlayerMetrics) : undefined;
+  const quality = computeTrackingQuality(frames, canonicalPlayerIds);
 
   // 4. Compute Player Summaries from Full-Rate Telemetry (preserving all high-frequency motion)
   const playerSummaries: Record<string, PlayerMovementMetrics> = {};

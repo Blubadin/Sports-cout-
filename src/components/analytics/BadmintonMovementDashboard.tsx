@@ -325,6 +325,9 @@ export default function BadmintonMovementDashboard({
     lowConfidenceWarning: false,
   };
 
+  const isMultiPlayer = playerIds.length > 1;
+  const selectedPlayerQuality = selectedPlayer !== 'ALL' ? quality.playerCoverage?.[selectedPlayer] : null;
+
   return (
     <div className="flex flex-col gap-4 p-4 bg-[#0c1721] text-slate-100 rounded-xl border border-[#263642] shadow-2xl">
       {/* Header & Data Provenance (PDF §75) */}
@@ -363,37 +366,123 @@ export default function BadmintonMovementDashboard({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
           <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Detection Coverage
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            {selectedPlayer === 'ALL' && isMultiPlayer
+              ? 'Mean Target Coverage'
+              : 'Detection Coverage'}
           </div>
           <div className="text-lg font-black text-emerald-400 mt-1">
-            {(quality.detectionCoverage * 100).toFixed(1)}%
+            {selectedPlayerQuality
+              ? `${(selectedPlayerQuality.detectionCoverage * 100).toFixed(1)}%`
+              : `${((quality.meanTargetCoverage ?? quality.detectionCoverage) * 100).toFixed(1)}%`}
           </div>
+          {selectedPlayer === 'ALL' && isMultiPlayer && (
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              Mean of athlete coverages
+            </div>
+          )}
         </div>
+
         <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
           <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-            <Gauge className="w-3.5 h-3.5 text-sky-400" /> Mean Confidence
+            <Users className="w-3.5 h-3.5 text-sky-400" />
+            {selectedPlayer === 'ALL' && isMultiPlayer
+              ? 'All Targets Visible'
+              : 'Mean Confidence'}
           </div>
           <div className="text-lg font-black text-sky-400 mt-1">
-            {(quality.confidence * 100).toFixed(1)}%
+            {selectedPlayer === 'ALL' && isMultiPlayer
+              ? `${((quality.simultaneousTargetCoverage ?? quality.detectionCoverage) * 100).toFixed(1)}%`
+              : selectedPlayerQuality
+              ? `${Math.round(selectedPlayerQuality.meanObservedConfidence * 100)}%`
+              : `${Math.round(quality.confidence * 100)}%`}
           </div>
+          {selectedPlayer === 'ALL' && isMultiPlayer && (
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              Simultaneous coverage
+            </div>
+          )}
         </div>
+
         <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
           <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Lost Frames Time
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            {quality.predictedPercent !== undefined || selectedPlayerQuality?.predictedPercent !== undefined
+              ? 'Tracking State'
+              : 'Lost Frames Time'}
           </div>
           <div className="text-lg font-black text-amber-400 mt-1">
-            {quality.lostTimePercent.toFixed(1)}%
+            {selectedPlayerQuality
+              ? `Pred: ${selectedPlayerQuality.predictedPercent.toFixed(1)}%`
+              : quality.predictedPercent !== undefined
+              ? `Pred: ${quality.predictedPercent.toFixed(1)}%`
+              : `${quality.lostTimePercent.toFixed(1)}%`}
+          </div>
+          <div className="text-[10px] text-slate-400 mt-0.5">
+            Lost:{' '}
+            {selectedPlayerQuality
+              ? `${selectedPlayerQuality.lostPercent.toFixed(1)}%`
+              : `${(quality.lostPercent ?? quality.lostTimePercent).toFixed(1)}%`}
           </div>
         </div>
+
         <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
           <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5 text-purple-400" /> Sample Points
+            {selectedPlayer === 'ALL' && isMultiPlayer ? (
+              <Gauge className="w-3.5 h-3.5 text-purple-400" />
+            ) : (
+              <Users className="w-3.5 h-3.5 text-purple-400" />
+            )}
+            {selectedPlayer === 'ALL' && isMultiPlayer ? 'Mean Confidence' : 'Sample Points'}
           </div>
           <div className="text-lg font-black text-purple-400 mt-1">
-            {filteredSamples.length} <span className="text-xs font-normal text-slate-400">@ 10Hz</span>
+            {selectedPlayer === 'ALL' && isMultiPlayer
+              ? `${(quality.confidence * 100).toFixed(0)}%`
+              : filteredSamples.length}
+            {!(selectedPlayer === 'ALL' && isMultiPlayer) && (
+              <span className="text-xs font-normal text-slate-400 ml-1">@ 10Hz</span>
+            )}
           </div>
+          {selectedPlayer === 'ALL' && isMultiPlayer && (
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              {filteredSamples.length} samples @ 10Hz
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Per-Player Quality Inspectable Row */}
+      {quality.playerCoverage && isMultiPlayer && (
+        <div className="flex flex-wrap items-center gap-2 p-2.5 bg-[#132332]/70 border border-[#263642] rounded-lg text-xs">
+          <span className="font-semibold text-slate-400 text-[11px] uppercase tracking-wider">Per-Player Quality:</span>
+          {playerIds.map((pId) => {
+            const pQual = quality.playerCoverage?.[pId];
+            if (!pQual) return null;
+            return (
+              <button
+                key={pId}
+                type="button"
+                onClick={() => setSelectedPlayer(pId)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border transition-colors ${
+                  selectedPlayer === pId
+                    ? 'bg-sky-950 border-sky-600 text-sky-200 shadow-sm'
+                    : 'bg-[#09141d] border-slate-800 text-slate-300 hover:border-slate-700'
+                }`}
+                data-testid={`player-quality-pill-${pId}`}
+              >
+                <span className="font-bold text-sky-400">{pId}:</span>
+                <span className="text-emerald-400 font-semibold">{(pQual.detectionCoverage * 100).toFixed(1)}% obs</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-amber-400">{pQual.predictedPercent.toFixed(1)}% pred</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-rose-400">{pQual.lostPercent.toFixed(1)}% lost</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-sky-300 font-semibold">{Math.round(pQual.meanObservedConfidence * 100)}% conf</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Filter Bar: Player & Time (PDF §78, §79) */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#132332] border border-[#263642] rounded-lg">
