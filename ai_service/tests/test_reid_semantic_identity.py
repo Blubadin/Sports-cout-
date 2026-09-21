@@ -383,6 +383,75 @@ class TestReIDSemanticIdentity(unittest.TestCase):
         np.testing.assert_array_equal(analyzer.profiles[1].reid_embedding, emb_p2)
         np.testing.assert_array_equal(analyzer.profiles[2].reid_embedding, emb_p1)
 
+    def test_12_fewer_detections_than_players_no_double_assignment(self):
+        """Scenario 12: Hungarian matching never maps one detection to multiple players."""
+        analyzer = BadmintonAnalyzerV2(game_type="doubles", max_players=4)
+        mock_reid = MockReIDAdapter()
+        analyzer.reid_adapter = mock_reid
+
+        init_positions = [(2.0, 2.5), (4.0, 2.5), (2.0, 10.5), (4.0, 10.5)]
+        for pid in range(1, 5):
+            p = analyzer.profiles[pid]
+            p.last_real_pos = init_positions[pid - 1]
+            p.team = 1 if pid <= 2 else 2
+            p.track_id = pid
+            p.reid_embedding = make_embedding(pid)
+
+        # Only 2 detections present (P3 and P4 are occluded/missing)
+        dets = [
+            {"track_id": 1, "real_pos": (2.1, 2.5), "bbox": [100, 100, 150, 250], "center": (125, 250), "conf": 0.9, "reid_embedding": make_embedding(1)},
+            {"track_id": 2, "real_pos": (4.1, 2.5), "bbox": [300, 100, 350, 250], "center": (325, 250), "conf": 0.9, "reid_embedding": make_embedding(2)},
+        ]
+
+        matched = analyzer._match_tracks_to_profiles(self.frame, dets)
+        self.assertEqual(len(matched), 2)
+        # Exactly P1 and P2 are matched
+        self.assertIn(1, matched)
+        self.assertIn(2, matched)
+        self.assertNotIn(3, matched)
+        self.assertNotIn(4, matched)
+        # Unmatched players increment missed frames
+        self.assertEqual(analyzer.profiles[3].missed_frames, 1)
+        self.assertEqual(analyzer.profiles[4].missed_frames, 1)
+        # Detection IDs are distinct (no duplicate assignment)
+        assigned_track_ids = [d["track_id"] for d in matched.values()]
+        self.assertEqual(len(assigned_track_ids), len(set(assigned_track_ids)))
+
+    def test_13_doubles_teammates_identical_appearance_spatial_isolation(self):
+        """Scenario 13: Identical jerseys and embeddings do not collapse identities due to spatial isolation."""
+        analyzer = BadmintonAnalyzerV2(game_type="doubles", max_players=2)
+        mock_reid = MockReIDAdapter()
+        analyzer.reid_adapter = mock_reid
+
+        # Identical appearance (same jersey color hist and same ReID embedding)
+        shared_hist = np.ones((16, 16), dtype=np.float32)
+        shared_hist /= np.sum(shared_hist)
+        shared_emb = make_embedding(999)
+
+        analyzer.profiles[1].last_real_pos = (2.0, 3.0)
+        analyzer.profiles[1].team = 1
+        analyzer.profiles[1].track_id = 1
+        analyzer.profiles[1].color_hist = shared_hist.copy()
+        analyzer.profiles[1].reid_embedding = shared_emb.copy()
+
+        analyzer.profiles[2].last_real_pos = (4.5, 3.0)
+        analyzer.profiles[2].team = 1
+        analyzer.profiles[2].track_id = 2
+        analyzer.profiles[2].color_hist = shared_hist.copy()
+        analyzer.profiles[2].reid_embedding = shared_emb.copy()
+
+        # Detections for each player at their respective spatial positions
+        dets = [
+            {"track_id": 1, "real_pos": (2.1, 3.05), "bbox": [100, 100, 150, 250], "center": (125, 250), "conf": 0.9, "reid_embedding": shared_emb.copy()},
+            {"track_id": 2, "real_pos": (4.45, 3.02), "bbox": [350, 100, 400, 250], "center": (375, 250), "conf": 0.9, "reid_embedding": shared_emb.copy()},
+        ]
+
+        matched = analyzer._match_tracks_to_profiles(self.frame, dets)
+        self.assertEqual(len(matched), 2)
+        self.assertEqual(matched[1]["track_id"], 1)
+        self.assertEqual(matched[2]["track_id"], 2)
+        self.assertEqual(analyzer.semantic_player_id_switches, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
