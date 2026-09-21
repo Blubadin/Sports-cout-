@@ -658,6 +658,8 @@ export interface TrackingQualityStats {
   lostFramesPct: number;
   predictedFramesPct?: number;
   poseCoveragePct: number;
+  meanTargetCoveragePct?: number;
+  simultaneousCoveragePct?: number;
   playerCoverage?: Record<string, PlayerTrackingCoverage>;
 }
 
@@ -678,3 +680,4 @@ export interface TrackingRuntimeProvenance {
   courtRoiMarginM?: number;
 }
 
+export * from './types/benchmark';

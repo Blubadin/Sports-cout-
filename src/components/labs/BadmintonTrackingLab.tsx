@@ -286,6 +286,18 @@ export default function BadmintonTrackingLab() {
         state.sessionId &&
         ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'UPLOADING', 'COMPLETED', 'ERROR'].includes(state.status)
       ) {
+        // Enforce fingerprint match if file is loaded
+        if (file && state.videoFingerprint) {
+          if (state.videoFingerprint !== computeVideoFingerprint(file)) {
+            // Mismatch: clear old non-processing session to force recreation
+            if (['VIDEO_READY', 'READY_TO_ANALYZE', 'ERROR'].includes(state.status)) {
+              void aiTrackingService.deleteSession(state.sessionId).catch(() => {});
+              update({ sessionId: null, status: 'IDLE', sessionStatus: null });
+            }
+            return;
+          }
+        }
+
         try {
           const currentStatus = await aiTrackingService.getSessionStatus(state.sessionId);
           if (!alive) return;
@@ -331,7 +343,8 @@ export default function BadmintonTrackingLab() {
         const candidate = sessions.find(
           (item) =>
             item.projectId === activeProjectId &&
-            ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'COMPLETED'].includes(item.status)
+            ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'COMPLETED'].includes(item.status) &&
+            (!file || item.videoFingerprint === computeVideoFingerprint(file))
         );
         if (candidate) {
           update({
@@ -366,7 +379,7 @@ export default function BadmintonTrackingLab() {
       // Note: We intentionally do NOT abort or delete session here!
       // Navigation is NOT cancellation!
     };
-  }, [activeProjectId, online]);
+  }, [activeProjectId, online, file]);
 
   // 8. Explicit User Actions
   const cancel = async () => {
@@ -420,7 +433,8 @@ export default function BadmintonTrackingLab() {
     const currentBackendStatus = state.status;
     const isResumable =
       id &&
-      ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING'].includes(currentBackendStatus);
+      ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING'].includes(currentBackendStatus) &&
+      (!file || !state.videoFingerprint || state.videoFingerprint === computeVideoFingerprint(file));
 
     const fail = (err: unknown) => {
       if (current()) {
@@ -446,6 +460,9 @@ export default function BadmintonTrackingLab() {
       };
 
       if (!isResumable) {
+        if (id && ['VIDEO_READY', 'READY_TO_ANALYZE', 'ERROR'].includes(currentBackendStatus)) {
+          void aiTrackingService.deleteSession(id).catch(() => {});
+        }
         update({
           status: 'UPLOADING',
           error: null,
