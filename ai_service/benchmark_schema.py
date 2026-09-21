@@ -125,12 +125,14 @@ class BenchmarkModelConfig:
     runtime: Optional[str] = None
     precision: Optional[str] = None
     court_roi_enabled: Optional[bool] = None
+    pose_architecture: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "detectorName": self.detector_name,
             "detectorVersion": self.detector_version,
             "poseModel": self.pose_model,
+            "poseArchitecture": self.pose_architecture,
             "trackerName": self.tracker_name,
             "trackerVersion": self.tracker_version,
             "detectorInputSize": self.detector_input_size,
@@ -149,6 +151,7 @@ class BenchmarkModelConfig:
         return cls(
             detector_name=data.get("detectorName"),
             pose_model=data.get("poseModel"),
+            pose_architecture=data.get("poseArchitecture"),
             tracker_name=data.get("trackerName"),
             detector_input_size=_positive_int(data.get("detectorInputSize")),
             confidence_threshold=_optional_float(data.get("confidenceThreshold")),
@@ -465,6 +468,7 @@ def create_benchmark_run_from_session_dict(
         detector_name=overrides.get("detectorName", prov.get("detectorModel")),
         detector_version=overrides.get("detectorVersion"),
         pose_model=overrides.get("poseModel", prov.get("poseModel")),
+        pose_architecture=overrides.get("poseArchitecture", prov.get("poseArchitecture")),
         tracker_name=overrides.get("trackerName", prov.get("trackerModel")),
         tracker_version=overrides.get("trackerVersion"),
         detector_input_size=_positive_int(overrides.get(
@@ -781,6 +785,7 @@ class VisionBenchmarkExperimentConfig:
     precision: str
     detector_version: Optional[str] = None
     pose_model: Optional[str] = None
+    pose_architecture: Optional[str] = None
     tracker_version: Optional[str] = None
     processing_profile: Optional[str] = None
     notes: Optional[str] = None
@@ -792,6 +797,7 @@ class VisionBenchmarkExperimentConfig:
             "detector": self.detector,
             "detectorVersion": self.detector_version,
             "poseModel": self.pose_model,
+            "poseArchitecture": self.pose_architecture,
             "tracker": self.tracker,
             "trackerVersion": self.tracker_version,
             "runtime": self.runtime,
@@ -814,6 +820,7 @@ class VisionBenchmarkExperimentConfig:
             detector=data["detector"],
             detector_version=data.get("detectorVersion"),
             pose_model=data.get("poseModel"),
+            pose_architecture=data.get("poseArchitecture"),
             tracker=data["tracker"],
             tracker_version=data.get("trackerVersion"),
             runtime=data.get("runtime", "pytorch"),
@@ -833,6 +840,7 @@ class VisionBenchmarkExperimentConfig:
             detector_name=self.detector,
             detector_version=self.detector_version,
             pose_model=self.pose_model,
+            pose_architecture=self.pose_architecture,
             tracker_name=self.tracker,
             tracker_version=self.tracker_version,
             detector_input_size=self.input_size,

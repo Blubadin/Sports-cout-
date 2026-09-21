@@ -19,6 +19,7 @@ from pydantic import BaseModel
 import cv2
 
 from analyzer_v2 import BadmintonAnalyzerV2
+from pose_adapter import PoseArchitectureNotImplementedError
 from court_mapper import CourtMapper
 from device_runtime import capability_report, resolve_device
 from engine_config import (
@@ -561,6 +562,7 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     detector_family = cfg.get("detector_family") or cfg.get("detectorFamily") or "yolov8"
     pose_model = cfg.get("pose_model") if "pose_model" in cfg else cfg.get("poseModel", "yolov8n-pose.pt")
     pose_family = cfg.get("pose_family") or cfg.get("poseFamily") or "yolov8"
+    pose_architecture = cfg.get("pose_architecture") or cfg.get("poseArchitecture") or "roi_pose"
     tracker_name = cfg.get("tracker_name") or cfg.get("trackerName") or "bytetrack"
     tracker_config_path = cfg.get("tracker_config_path") or cfg.get("trackerConfigPath")
     runtime = cfg.get("runtime") or "pytorch"
@@ -584,6 +586,7 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         "detectorFamily": str(detector_family),
         "poseModel": str(pose_model) if pose_model is not None else None,
         "poseFamily": str(pose_family) if pose_family is not None else None,
+        "poseArchitecture": str(pose_architecture),
         "trackerName": str(tracker_name),
         "trackerConfigPath": str(tracker_config_path) if tracker_config_path else None,
         "runtime": str(runtime),
@@ -755,6 +758,7 @@ class TrackingSession:
             detector_family=resolved_cfg.get("detectorFamily", "yolov8"),
             pose_model=resolved_cfg.get("poseModel", "yolov8n-pose.pt"),
             pose_family=resolved_cfg.get("poseFamily", "yolov8"),
+            pose_architecture=resolved_cfg.get("poseArchitecture", "roi_pose"),
             tracker_name=resolved_cfg.get("trackerName", "bytetrack"),
             tracker_config_path=resolved_cfg.get("trackerConfigPath"),
             runtime=resolved_cfg.get("runtime", "pytorch"),
@@ -916,7 +920,7 @@ def create_tracking_session(req: CreateSessionRequest):
             tracked_player_count=req.tracked_player_count,
             processing_config=req.processing_config,
         )
-    except (ValueError, InvalidEngineConfigError, ModelNotFoundError) as error:
+    except (ValueError, InvalidEngineConfigError, ModelNotFoundError, PoseArchitectureNotImplementedError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     tracking_sessions[session_id] = session
     return {
@@ -1191,6 +1195,7 @@ def _build_session_metrics(session: TrackingSession):
         "trackerConfigPath": analyzer_prov.get("trackerConfigPath"),
         "poseModel": analyzer_prov.get("poseModel", "yolov8n-pose.pt"),
         "poseFamily": analyzer_prov.get("poseFamily", "yolov8"),
+        "poseArchitecture": analyzer_prov.get("poseArchitecture", "roi_pose"),
         "runtime": analyzer_prov.get("runtime", "pytorch"),
         "precision": analyzer_prov.get("precision", "fp32"),
         "confidenceThreshold": analyzer_prov.get("confidenceThreshold", getattr(session.analyzer, "conf", 0.35)),

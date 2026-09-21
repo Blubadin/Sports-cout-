@@ -632,6 +632,7 @@ export interface ProcessingConfig {
   detectorFamily?: string;
   poseModel?: string | null;
   poseFamily?: string | null;
+  poseArchitecture?: 'roi_pose' | 'full_frame_pose';
   trackerName?: string;
   trackerConfigPath?: string | null;
   runtime?: 'pytorch' | 'onnx' | 'tensorrt' | string;
@@ -684,6 +685,7 @@ export interface TrackingRuntimeProvenance {
   detectorInputSize: number;
   frameStride: number;
   poseStride: number;
+  poseArchitecture?: 'roi_pose' | 'full_frame_pose';
   useCourtRoi: boolean;
   courtRoiMarginPx: number;
   courtRoiMarginM?: number;

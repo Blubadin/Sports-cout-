@@ -35,6 +35,8 @@ export interface TrackingBenchmarkModelConfig {
   detectorVersion?: string | null;
   /** Name of pose estimation model (e.g. 'yolov8n-pose', 'alphapose') */
   poseModel: string | null;
+  /** Pose pipeline architecture; omitted by sessions saved before Phase 1.4B. */
+  poseArchitecture?: 'roi_pose' | 'full_frame_pose' | null;
   /** Tracker algorithm name (e.g. 'bytetrack', 'norfair', 'ocsort', 'botsort') */
   trackerName: string | null;
   /** Tracker version if available (optional) */
@@ -258,6 +260,8 @@ export interface VisionBenchmarkExperimentConfig {
   detectorVersion?: string | null;
   /** Pose estimation model identifier (e.g. 'yolov8n-pose', null if disabled) */
   poseModel: string | null;
+  /** Pose pipeline architecture; omitted by legacy benchmark experiments. */
+  poseArchitecture?: 'roi_pose' | 'full_frame_pose' | null;
   /** Tracking algorithm identifier (e.g. 'bytetrack', 'norfair', 'ocsort') */
   tracker: string;
   /** Optional tracker version */

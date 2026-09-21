@@ -22,6 +22,7 @@ from typing import Any
 
 VALID_RUNTIMES = {"pytorch", "onnx", "tensorrt"}
 VALID_PRECISIONS = {"fp32", "fp16", "int8"}
+VALID_POSE_ARCHITECTURES = {"roi_pose", "full_frame_pose"}
 KNOWN_TRACKERS = {
     "bytetrack": "bytetrack.yaml",
     "botsort": "botsort.yaml",
@@ -49,6 +50,7 @@ class TrackingEngineConfig:
     detector_family: str = "yolov8"
     pose_model: str | None = "yolov8n-pose.pt"
     pose_family: str = "yolov8"
+    pose_architecture: str = "roi_pose"
     tracker_name: str = "bytetrack"
     tracker_config_path: str | None = None
     runtime: str = "pytorch"
@@ -70,6 +72,7 @@ class TrackingEngineConfig:
             "detectorFamily": self.detector_family,
             "poseModel": self.pose_model,
             "poseFamily": self.pose_family,
+            "poseArchitecture": self.pose_architecture,
             "trackerName": self.tracker_name,
             "trackerConfigPath": self.tracker_config_path,
             "runtime": self.runtime,
@@ -93,6 +96,7 @@ class TrackingEngineConfig:
             "detectorFamily", "detector_family",
             "poseModel", "pose_model",
             "poseFamily", "pose_family",
+            "poseArchitecture", "pose_architecture",
             "trackerName", "tracker_name",
             "trackerConfigPath", "tracker_config_path",
             "runtime", "precision",
@@ -114,6 +118,7 @@ class TrackingEngineConfig:
             detector_family=data.get("detectorFamily") or data.get("detector_family", "yolov8"),
             pose_model=pose_val,
             pose_family=data.get("poseFamily") or data.get("pose_family", "yolov8"),
+            pose_architecture=data.get("poseArchitecture") or data.get("pose_architecture", "roi_pose"),
             tracker_name=data.get("trackerName") or data.get("tracker_name", "bytetrack"),
             tracker_config_path=data.get("trackerConfigPath") or data.get("tracker_config_path"),
             runtime=data.get("runtime", "pytorch"),
@@ -164,6 +169,12 @@ def validate_engine_config(config: TrackingEngineConfig) -> None:
     if config.pose_stride < 1:
         raise InvalidEngineConfigError(f"pose_stride must be >= 1, got {config.pose_stride}")
 
+    if config.pose_architecture not in VALID_POSE_ARCHITECTURES:
+        raise InvalidEngineConfigError(
+            f"Unsupported pose architecture: '{config.pose_architecture}'. "
+            f"Supported architectures: {sorted(VALID_POSE_ARCHITECTURES)}"
+        )
+
 
 def resolve_tracker_config(tracker_name: str, tracker_config_path: str | None = None) -> str:
     """
@@ -202,6 +213,7 @@ def create_baseline_engine_config(**overrides: Any) -> TrackingEngineConfig:
         detector_family="yolov8",
         pose_model="yolov8n-pose.pt",
         pose_family="yolov8",
+        pose_architecture="roi_pose",
         tracker_name="bytetrack",
         tracker_config_path=None,
         runtime="pytorch",

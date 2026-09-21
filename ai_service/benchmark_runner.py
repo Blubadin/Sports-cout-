@@ -43,6 +43,7 @@ def _new_run_group_id() -> str:
 class BenchmarkCommonConfig:
     tracker: str = "bytetrack"
     pose_model: str | None = "yolov8n-pose.pt"
+    pose_architecture: str = "roi_pose"
     runtime: str = "pytorch"
     precision: str = "fp32"
     device: str = "cpu"
@@ -61,6 +62,7 @@ class BenchmarkRunConfig:
     input_size: int
     tracker: str
     pose_model: str | None
+    pose_architecture: str
     runtime: str
     precision: str
     device: str
@@ -78,6 +80,7 @@ class BenchmarkRunConfig:
             "inputSize": self.input_size,
             "tracker": self.tracker,
             "poseModel": self.pose_model,
+            "poseArchitecture": self.pose_architecture,
             "runtime": self.runtime,
             "precision": self.precision,
             "device": self.device,
@@ -97,6 +100,7 @@ class BenchmarkRunConfig:
             input_size=int(data["inputSize"]),
             tracker=data["tracker"],
             pose_model=data.get("poseModel"),
+            pose_architecture=data.get("poseArchitecture", "roi_pose"),
             runtime=data["runtime"],
             precision=data["precision"],
             device=data["device"],
@@ -298,6 +302,7 @@ def build_detector_matrix(common: BenchmarkCommonConfig) -> list[BenchmarkRunCon
             input_size=input_size,
             tracker=common.tracker,
             pose_model=common.pose_model,
+            pose_architecture=common.pose_architecture,
             runtime=common.runtime,
             precision=common.precision,
             device=common.device,
@@ -517,7 +522,7 @@ def run_benchmark_matrix(
 
 COMPARISON_COLUMNS = [
     "runId", "timestamp", "status", "failureStage", "errorSummary", "clipId",
-    "configId", "candidateId", "detector", "inputSize", "tracker", "poseModel",
+    "configId", "candidateId", "detector", "inputSize", "tracker", "poseModel", "poseArchitecture",
     "runtime", "precision", "device", "frameStride", "poseStride",
     "confidenceThreshold", "courtRoiEnabled", "meanTargetCoverage", "simultaneousTargetCoverage",
     "predictedPercent", "lostPercent", "meanObservedConfidence", "analysisFps",
@@ -543,6 +548,7 @@ def _comparison_row(result: BenchmarkAttempt) -> dict[str, Any]:
         "inputSize": result.config.input_size,
         "tracker": result.config.tracker,
         "poseModel": result.config.pose_model,
+        "poseArchitecture": result.config.pose_architecture,
         "runtime": result.config.runtime,
         "precision": result.config.precision,
         "device": result.config.device,
@@ -827,6 +833,7 @@ def execute_tracking_run(
         detector_model=str(detector_path),
         detector_family=config.detector_family,
         pose_model=str(pose_path) if pose_path is not None else None,
+        pose_architecture=config.pose_architecture,
         pose_family="yolov8",
         tracker_name=config.tracker,
         runtime=config.runtime,

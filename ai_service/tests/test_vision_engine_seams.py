@@ -33,7 +33,12 @@ from engine_config import (
     ModelNotFoundError,
 )
 from detector_adapter import BaseDetectorAdapter, UltralyticsDetectorAdapter
-from pose_adapter import BasePoseAdapter, UltralyticsPoseAdapter, DisabledPoseAdapter
+from pose_adapter import (
+    BasePoseAdapter,
+    UltralyticsPoseAdapter,
+    DisabledPoseAdapter,
+    PoseArchitectureNotImplementedError,
+)
 from analyzer_v2 import BadmintonAnalyzerV2
 from server import TrackingSession, _build_session_metrics, resolve_processing_config
 
@@ -55,6 +60,22 @@ class TestVisionEngineSeams(unittest.TestCase):
         self.assertEqual(cfg.confidence_threshold, 0.35)
         self.assertEqual(cfg.frame_stride, 1)
         self.assertEqual(cfg.pose_stride, 1)
+        self.assertEqual(cfg.pose_architecture, "roi_pose")
+        self.assertEqual(cfg.to_dict()["poseArchitecture"], "roi_pose")
+
+    def test_full_frame_pose_configuration_is_explicitly_unsupported(self):
+        """A selected but unimplemented architecture must not fall back to ROI pose."""
+        cfg = create_baseline_engine_config(pose_architecture="full_frame_pose")
+        self.assertEqual(cfg.pose_architecture, "full_frame_pose")
+        self.assertEqual(cfg.to_dict()["poseArchitecture"], "full_frame_pose")
+
+        with self.assertRaises(PoseArchitectureNotImplementedError):
+            BadmintonAnalyzerV2(engine_config=cfg)
+
+    def test_unknown_pose_architecture_is_rejected(self):
+        """Only registered pose architectures may be configured."""
+        with self.assertRaises(InvalidEngineConfigError):
+            create_baseline_engine_config(pose_architecture="unknown_pose")
 
     def test_detector_model_configurable(self):
         """Detector model name must be configurable and reflected in analyzer and provenance."""
@@ -147,6 +168,7 @@ class TestVisionEngineSeams(unittest.TestCase):
         self.assertEqual(prov["detectorFamily"], "yolo11")
         self.assertEqual(prov["poseModel"], "yolo11n-pose_custom.pt")
         self.assertEqual(prov["poseFamily"], "yolo11")
+        self.assertEqual(prov["poseArchitecture"], "roi_pose")
         self.assertEqual(prov["trackerName"], "botsort")
         self.assertEqual(prov["trackerModel"], "botsort")
         self.assertEqual(prov["runtime"], "pytorch")

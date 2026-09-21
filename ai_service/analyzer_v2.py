@@ -24,7 +24,7 @@ from engine_config import (
     resolve_tracker_config,
 )
 from detector_adapter import BaseDetectorAdapter, UltralyticsDetectorAdapter
-from pose_adapter import BasePoseAdapter, UltralyticsPoseAdapter, DisabledPoseAdapter
+from pose_adapter import BasePoseAdapter, create_pose_provider
 
 
 class PlayerProfile:
@@ -120,6 +120,7 @@ class BadmintonAnalyzerV2:
         self.court_roi_margin_px = int(self.engine_config.court_roi_margin_px)
         self.court_roi_margin_m = float(self.engine_config.court_roi_margin_m)
         self.pose_stride = max(1, int(self.engine_config.pose_stride))
+        self.pose_architecture = self.engine_config.pose_architecture
         self.analyzed_frame_count = 0
 
         self.mapper = CourtMapper(game_type=game_type)
@@ -142,6 +143,15 @@ class BadmintonAnalyzerV2:
         self.pose_adapter = pose_adapter
         self._detector = None
         self._pose_detector = None
+
+        # Full-frame pose is an intentional future seam, not an ROI fallback.
+        if self.pose_adapter is None and self.pose_architecture == "full_frame_pose":
+            create_pose_provider(
+                architecture=self.pose_architecture,
+                model_path=self.engine_config.pose_model,
+                conf_threshold=0.4,
+                device=self.device,
+            )
 
     def _lazy_init_ai(self):
         """Lazy load detector adapter and underlying model; load failures must fail explicitly."""
@@ -173,13 +183,6 @@ class BadmintonAnalyzerV2:
         if self.pose_adapter is not None:
             return self.pose_adapter.estimate_pose_in_roi(frame, bbox)
 
-        if (
-            not self.engine_config.pose_model
-            or str(self.engine_config.pose_model).strip().lower() in ("none", "disabled", "")
-        ):
-            self.pose_adapter = DisabledPoseAdapter()
-            return self.pose_adapter.estimate_pose_in_roi(frame, bbox)
-
         # If the detector or tracking logic is mocked or in dummy test mode, avoid loading real YOLO pose
         is_mocked = (
             self._detector == "dummy"
@@ -191,7 +194,8 @@ class BadmintonAnalyzerV2:
         if is_mocked:
             return {"keypoints": [], "metrics": {}}
 
-        self.pose_adapter = UltralyticsPoseAdapter(
+        self.pose_adapter = create_pose_provider(
+            architecture=self.pose_architecture,
             model_path=self.engine_config.pose_model,
             conf_threshold=0.4,
             device=self.device,
@@ -654,6 +658,7 @@ class BadmintonAnalyzerV2:
             "detectorFamily": self.engine_config.detector_family,
             "poseModel": pose_m,
             "poseFamily": self.engine_config.pose_family,
+            "poseArchitecture": self.pose_architecture,
             "trackerModel": self.engine_config.tracker_name,
             "trackerName": self.engine_config.tracker_name,
             "trackerConfigPath": self.engine_config.tracker_config_path,

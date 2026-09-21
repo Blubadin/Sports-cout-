@@ -14,11 +14,25 @@ Rules:
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any
 import numpy as np
 
 from engine_config import ModelNotFoundError
 from pose_detector import YoloPoseDetector
+
+
+class PoseArchitectureNotImplementedError(RuntimeError):
+    """Raised when a configured pose architecture has no production provider."""
+
+
+@dataclass(frozen=True)
+class FullFramePoseCandidate:
+    """Future full-frame pose result, expressed in source-frame coordinates."""
+
+    bbox: tuple[float, float, float, float]
+    keypoints: list[list[float]]
+    metrics: dict[str, Any]
 
 
 class BasePoseAdapter(ABC):
@@ -28,6 +42,12 @@ class BasePoseAdapter(ABC):
     @abstractmethod
     def model_name(self) -> str | None:
         """Return the pose model name/path, or None if disabled."""
+        pass
+
+    @property
+    @abstractmethod
+    def architecture(self) -> str:
+        """Return the configured pose architecture identifier."""
         pass
 
     @abstractmethod
@@ -41,6 +61,12 @@ class BasePoseAdapter(ABC):
         Must return: {"keypoints": [...], "metrics": {...}}
         """
         pass
+
+    def estimate_full_frame(self, frame: np.ndarray) -> list[FullFramePoseCandidate]:
+        """Future full-frame interface; ROI providers must not emulate it."""
+        raise PoseArchitectureNotImplementedError(
+            f"Pose architecture '{self.architecture}' does not provide full-frame candidates"
+        )
 
 
 class UltralyticsPoseAdapter(BasePoseAdapter):
@@ -62,6 +88,10 @@ class UltralyticsPoseAdapter(BasePoseAdapter):
     @property
     def model_name(self) -> str:
         return self._model_path
+
+    @property
+    def architecture(self) -> str:
+        return "roi_pose"
 
     def _init_detector(self):
         """
@@ -125,9 +155,35 @@ class DisabledPoseAdapter(BasePoseAdapter):
     def model_name(self) -> str | None:
         return None
 
+    @property
+    def architecture(self) -> str:
+        return "roi_pose"
+
     def estimate_pose_in_roi(
         self,
         frame: np.ndarray,
         player_bbox: list[float] | tuple[float, float, float, float],
     ) -> dict[str, Any]:
         return {"keypoints": [], "metrics": {}}
+
+
+def create_pose_provider(
+    architecture: str,
+    model_path: str | None,
+    conf_threshold: float,
+    device: str,
+) -> BasePoseAdapter:
+    """Create the selected provider without silently changing architecture."""
+    if architecture == "roi_pose":
+        if not model_path or str(model_path).strip().lower() in ("none", "disabled", ""):
+            return DisabledPoseAdapter()
+        return UltralyticsPoseAdapter(
+            model_path=str(model_path),
+            conf_threshold=conf_threshold,
+            device=device,
+        )
+    if architecture == "full_frame_pose":
+        raise PoseArchitectureNotImplementedError(
+            "poseArchitecture 'full_frame_pose' is configured but has no provider implementation"
+        )
+    raise ValueError(f"Unsupported pose architecture: {architecture}")
