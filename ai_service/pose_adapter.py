@@ -66,13 +66,33 @@ class UltralyticsPoseAdapter(BasePoseAdapter):
     def _init_detector(self):
         """
         Initialize the underlying YoloPoseDetector.
-        Fails explicitly if model loading raises an exception.
+        Fails explicitly if model loading raises an exception or file is not found locally.
         """
         if self._detector is not None:
             return
+
+        from pathlib import Path
+        p = Path(self._model_path)
+        cache_locations = [
+            p,
+            Path.home() / "AppData" / "Roaming" / "Ultralytics" / self._model_path,
+            Path.home() / ".cache" / "ultralytics" / self._model_path,
+        ]
+        resolved_path = None
+        for loc in cache_locations:
+            if loc.exists():
+                resolved_path = str(loc)
+                break
+
+        if resolved_path is None and not p.is_absolute():
+            raise ModelNotFoundError(
+                f"Pose model '{self._model_path}' not found in local filesystem or cache. Remote downloads are prohibited in benchmark protocol."
+            )
+
         try:
+            target = resolved_path if resolved_path else self._model_path
             self._detector = YoloPoseDetector(
-                model_path=self._model_path,
+                model_path=target,
                 conf_threshold=self._conf_threshold,
                 device=self._device,
             )

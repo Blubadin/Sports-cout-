@@ -66,13 +66,33 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
     def _init_model(self):
         """
         Initialize the underlying YOLO model.
-        Fails explicitly if the model file is not found or fails to load.
+        Fails explicitly if the model file is not found locally or fails to load.
         """
         if self._model is not None:
             return
+
+        from pathlib import Path
+        p = Path(self._model_path)
+        cache_locations = [
+            p,
+            Path.home() / "AppData" / "Roaming" / "Ultralytics" / self._model_path,
+            Path.home() / ".cache" / "ultralytics" / self._model_path,
+        ]
+        resolved_path = None
+        for loc in cache_locations:
+            if loc.exists():
+                resolved_path = str(loc)
+                break
+
+        if resolved_path is None and not p.is_absolute():
+            raise ModelNotFoundError(
+                f"Detection model '{self._model_path}' not found in local filesystem or cache. Remote downloads are prohibited in benchmark protocol."
+            )
+
         from ultralytics import YOLO
         try:
-            self._model = YOLO(self._model_path)
+            target = resolved_path if resolved_path else self._model_path
+            self._model = YOLO(target)
         except Exception as e:
             raise ModelNotFoundError(
                 f"Failed to load detection model '{self._model_path}': {e}"

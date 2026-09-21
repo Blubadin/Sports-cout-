@@ -284,3 +284,24 @@ export interface VisionBenchmarkExperimentConfig {
   notes?: string | null;
 }
 
+export type ModelAvailabilityStatus = 'AVAILABLE' | 'UNAVAILABLE / RUNTIME INCOMPATIBLE';
+
+/**
+ * Metadata representation of a candidate object detector in the benchmark suite (Phase 1.2).
+ */
+export interface DetectorCandidate {
+  id: string;
+  displayName: string;
+  family: string;
+  modelFile: string;
+  task: string;
+  supportedInputSizes: number[];
+  baseline: boolean;
+  confidenceThreshold: number;
+  runtime: string;
+  precision: string;
+  availability?: ModelAvailabilityStatus;
+  availabilityReason?: string;
+  description?: string;
+}
+
