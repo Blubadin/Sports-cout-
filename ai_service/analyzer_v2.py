@@ -27,6 +27,8 @@ from detector_adapter import BaseDetectorAdapter, UltralyticsDetectorAdapter
 from tracker_adapter import NormalizedTrackResult, TrackerProvenance
 from pose_adapter import BasePoseAdapter, create_pose_provider, FullFramePoseCandidate
 from pose_association import associate_poses_to_athletes
+from reid_adapter import BaseReIDAdapter, create_reid_provider
+from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts
 
 
 class PlayerProfile:
@@ -42,6 +44,19 @@ class PlayerProfile:
         self.detection_confidence: float | None = None
         self.last_pose: dict | None = None
         self.last_pose_age = 0
+        self.reid_embedding: np.ndarray | None = None
+
+    def update_reid_embedding(self, embedding: np.ndarray | None, alpha: float = 0.2):
+        """Update ReID appearance embedding using exponential moving average."""
+        if embedding is None:
+            return
+        if self.reid_embedding is None:
+            self.reid_embedding = embedding
+        else:
+            updated = (1.0 - alpha) * self.reid_embedding + alpha * embedding
+            norm = float(np.linalg.norm(updated))
+            if norm > 1e-6:
+                self.reid_embedding = updated / norm
 
     def update_appearance(self, frame: np.ndarray, bbox: list[int]):
         """Extract HSV color histogram from upper 60% of bbox (shirt / jersey)."""
@@ -86,6 +101,7 @@ class BadmintonAnalyzerV2:
         engine_config: TrackingEngineConfig | None = None,
         detector_adapter: BaseDetectorAdapter | None = None,
         pose_adapter: BasePoseAdapter | None = None,
+        reid_adapter: BaseReIDAdapter | None = None,
     ):
         self.game_type = game_type
         if max_players is None:
@@ -144,6 +160,17 @@ class BadmintonAnalyzerV2:
 
         self.detector_adapter = detector_adapter
         self.pose_adapter = pose_adapter
+        self.reid_adapter = reid_adapter
+        if self.reid_adapter is None:
+            self.reid_adapter = create_reid_provider(
+                enabled=self.engine_config.reid_enabled,
+                model_name=self.engine_config.reid_model,
+                device=self.device,
+            )
+        self.raw_tracker_id_switches = 0
+        self.semantic_player_id_switches = 0
+        self.last_known_track_owners: dict[int, int] = {}
+        self._last_cost_breakdowns: dict[int, SemanticIdentityCosts] = {}
         self._detector = None
         self._pose_detector = None
 
@@ -266,6 +293,10 @@ class BadmintonAnalyzerV2:
                     p.name = a["name"]
                 bbox = a["bbox"]
                 p.update_appearance(frame, bbox)
+                if self.reid_adapter is not None and self.reid_adapter.is_enabled and frame is not None and frame.size > 0:
+                    emb = self.reid_adapter.extract(frame, bbox)
+                    if emb is not None:
+                        p.reid_embedding = emb
                 cx = (bbox[0] + bbox[2]) / 2.0
                 cy = float(bbox[3])  # Feet level on ground plane
                 real = self.mapper.pixel_to_real((cx, cy))
@@ -463,6 +494,7 @@ class BadmintonAnalyzerV2:
                 "totalDistanceM": stats.get("total_dist_m", 0.0),
                 "detectionConfidence": confidence,
                 "state": tracking_state,
+                "identityCosts": self._last_cost_breakdowns.get(pid).to_dict() if (hasattr(self, "_last_cost_breakdowns") and pid in self._last_cost_breakdowns) else None,
 
                 # Backward compatibility aliases
                 "id": pid,
@@ -553,6 +585,10 @@ class BadmintonAnalyzerV2:
             "modelVersion": getattr(self, "model_path", "yolov8n.pt"),
             "isSynthetic": False,
             "source": "real_tracking",
+            "rawTrackerIdSwitches": getattr(self, "raw_tracker_id_switches", 0),
+            "semanticPlayerIdSwitches": getattr(self, "semantic_player_id_switches", 0),
+            "reidEnabled": self.reid_adapter.is_enabled if getattr(self, "reid_adapter", None) is not None else False,
+            "reidModel": self.reid_adapter.model_name if getattr(self, "reid_adapter", None) is not None else None,
             "players": player_telemetry,
 
             # Backward compatibility aliases
@@ -607,121 +643,20 @@ class BadmintonAnalyzerV2:
     def _match_tracks_to_profiles(self, frame: np.ndarray, detections: list[dict], timestamp_sec: float | None = None) -> dict:
         """
         Global Hungarian (Bipartite) matching between active PlayerProfiles and Detections.
-        Prevents ID collisions and resolves partner swaps using spatial + appearance costs.
+        Uses explicit 5-component cost model with ReID assistance, tracking raw vs semantic identity switches.
         """
-        if not detections:
-            for p in self.profiles.values():
-                p.missed_frames += 1
-            return {}
-
-        active_pids = list(self.profiles.keys())
-
-        # Check if all active profiles are unassigned (first-frame auto-seeding)
-        if all(p.last_real_pos is None for p in self.profiles.values()):
-            net_y = COURT_LENGTH_M / 2.0
-            # Deterministic sorting: top/far court (y < 6.70m) first, then bottom/near court (y >= 6.70m), then X left-to-right
-            sorted_detections = sorted(
-                detections,
-                key=lambda det: (0 if det["real_pos"][1] < net_y else 1, det["real_pos"][0])
-            )
-            matched = {}
-            matched_pids = set()
-            for idx, pid in enumerate(active_pids):
-                if idx < len(sorted_detections):
-                    d = sorted_detections[idx]
-                    profile = self.profiles[pid]
-                    profile.track_id = d.get("track_id")
-                    profile.detection_confidence = d["conf"]
-                    profile.last_real_pos = d["real_pos"]
-                    profile.last_bbox = d["bbox"]
-                    profile.missed_frames = 0
-                    if profile.team == 0:
-                        profile.team = 1 if d["real_pos"][1] < net_y else 2
-                    profile.update_appearance(frame, d["bbox"])
-
-                    cx, cy = d["center"]
-                    self.dist_tracker.update(pid, (cx, cy), timestamp_sec=timestamp_sec)
-                    matched[pid] = d
-                    matched_pids.add(pid)
-                else:
-                    self.profiles[pid].missed_frames += 1
-            return matched
-
-        N = len(active_pids)
-        M = len(detections)
-
-        cost_matrix = np.zeros((N, M), dtype=np.float32)
-
-        for i, pid in enumerate(active_pids):
-            profile = self.profiles[pid]
-            for j, d in enumerate(detections):
-                d_real = d["real_pos"]
-                
-                # 1. Spatial Distance Cost (meters)
-                if profile.last_real_pos is not None:
-                    spatial_dist = CourtMapper.euclidean_distance(profile.last_real_pos, d_real)
-                else:
-                    # Initial default expected position based on team & player
-                    net_y = COURT_LENGTH_M / 2.0
-                    expected_y = 3.0 if profile.team == 1 else (10.0 if profile.team == 2 else net_y)
-                    spatial_dist = abs(d_real[1] - expected_y)
-
-                # 2. Side Penalty: penalize jumping across net drastically once side is known
-                net_y = COURT_LENGTH_M / 2.0
-                d_team = 1 if d_real[1] < net_y else 2
-                side_penalty = 15.0 if (profile.team in (1, 2) and d_team != profile.team) else 0.0
-
-                # 3. Appearance Cost (HSV Histogram Bhattacharyya Distance)
-                color_cost = 0.0
-                if profile.color_hist is not None:
-                    temp_p = PlayerProfile(0, 0)
-                    temp_p.update_appearance(frame, d["bbox"])
-                    if temp_p.color_hist is not None:
-                        # cv2.HISTCMP_BHATTACHARYYA: 0 (identical) to 1 (disjoint)
-                        color_dist = cv2.compareHist(profile.color_hist, temp_p.color_hist, cv2.HISTCMP_BHATTACHARYYA)
-                        color_cost = color_dist * 8.0
-
-                identity_bonus = -10.0 if profile.track_id is not None and profile.track_id == d.get("track_id") else 0.0
-                total_cost = spatial_dist + side_penalty + color_cost + identity_bonus
-                cost_matrix[i, j] = total_cost
-
-        # Hungarian Assignment: Optimal 1-to-1 match
-        row_ind, col_ind = linear_sum_assignment(cost_matrix)
-
-        matched = {}
-        matched_pids = set()
-
-        for r, c in zip(row_ind, col_ind):
-            pid = active_pids[r]
-            cost = cost_matrix[r, c]
-            profile = self.profiles[pid]
-            
-            # Gating threshold (if cost is too absurdly high, don't match)
-            # The first frame has no appearance/position history yet. Allow a
-            # wider gate so an empty player assignment can seed tracks from
-            # the detector; subsequent frames use the strict teleport gate.
-            gate = 100.0 if profile.last_real_pos is None else 25.0
-            if cost < gate:
-                d = detections[c]
-                profile.track_id = d.get("track_id")
-                profile.detection_confidence = d["conf"]
-                profile.last_real_pos = d["real_pos"]
-                profile.last_bbox = d["bbox"]
-                profile.missed_frames = 0
-                if profile.team == 0:
-                    profile.team = 1 if d["real_pos"][1] < (COURT_LENGTH_M / 2.0) else 2
-                profile.update_appearance(frame, d["bbox"])
-
-                cx, cy = d["center"]
-                self.dist_tracker.update(pid, (cx, cy), timestamp_sec=timestamp_sec)
-                matched[pid] = d
-                matched_pids.add(pid)
-
-        # Increase missed frame counter for unmatched players
-        for pid, p in self.profiles.items():
-            if pid not in matched_pids:
-                p.missed_frames += 1
-
+        matched, cost_breakdowns, raw_switches, sem_switches = match_tracks_to_profiles_with_reid(
+            profiles=self.profiles,
+            detections=detections,
+            frame=frame,
+            dist_tracker=self.dist_tracker,
+            reid_adapter=self.reid_adapter,
+            timestamp_sec=timestamp_sec,
+            last_known_track_owners=self.last_known_track_owners,
+        )
+        self.raw_tracker_id_switches += raw_switches
+        self.semantic_player_id_switches += sem_switches
+        self._last_cost_breakdowns = cost_breakdowns
         return matched
 
     def swap_players(self, pid_a: int, pid_b: int):
@@ -732,16 +667,24 @@ class BadmintonAnalyzerV2:
             pa.track_id, pb.track_id = pb.track_id, pa.track_id
             pa.detection_confidence, pb.detection_confidence = pb.detection_confidence, pa.detection_confidence
             pa.color_hist, pb.color_hist = pb.color_hist, pa.color_hist
+            pa.reid_embedding, pb.reid_embedding = pb.reid_embedding, pa.reid_embedding
             pa.last_real_pos, pb.last_real_pos = pb.last_real_pos, pa.last_real_pos
             pa.last_bbox, pb.last_bbox = pb.last_bbox, pa.last_bbox
             pa.last_pose, pb.last_pose = pb.last_pose, pa.last_pose
             pa.last_pose_age, pb.last_pose_age = pb.last_pose_age, pa.last_pose_age
+            if pa.track_id is not None:
+                self.last_known_track_owners[pa.track_id] = pid_a
+            if pb.track_id is not None:
+                self.last_known_track_owners[pb.track_id] = pid_b
+            self.semantic_player_id_switches += 1
             print(f"[BadmintonAnalyzerV2] Swapped player identities {pid_a} <-> {pid_b}")
 
     def get_provenance(self) -> dict[str, Any]:
         """Return truthful runtime provenance matching the configured vision engine seams."""
         det_m = self.detector_adapter.model_name if self.detector_adapter is not None else self.engine_config.detector_model
         pose_m = self.pose_adapter.model_name if self.pose_adapter is not None else self.engine_config.pose_model
+        reid_m = self.reid_adapter.model_name if getattr(self, "reid_adapter", None) is not None else self.engine_config.reid_model
+        reid_en = self.reid_adapter.is_enabled if getattr(self, "reid_adapter", None) is not None else self.engine_config.reid_enabled
 
         return {
             "detectorModel": det_m,
@@ -753,8 +696,10 @@ class BadmintonAnalyzerV2:
             "trackerName": self.engine_config.tracker_name,
             "trackerConfigPath": self.engine_config.tracker_config_path,
             "trackerConfig": self.engine_config.tracker_config,
-            "reidEnabled": self.engine_config.reid_enabled,
-            "reidModel": self.engine_config.reid_model,
+            "reidEnabled": reid_en,
+            "reidModel": reid_m,
+            "rawTrackerIdSwitches": getattr(self, "raw_tracker_id_switches", 0),
+            "semanticPlayerIdSwitches": getattr(self, "semantic_player_id_switches", 0),
             "runtime": self.engine_config.runtime,
             "precision": self.engine_config.precision,
             "detectorInputSize": self.detector_input_size,

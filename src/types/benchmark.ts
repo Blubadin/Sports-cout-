@@ -124,6 +124,10 @@ export interface TrackingBenchmarkQuality {
 export interface TrackingBenchmarkIdentityAudit {
   /** Number of identity swap occurrences during tracking session */
   idSwitchCount?: number | null;
+  /** Number of raw MOT tracker ID reassignments (e.g. ByteTrack ID 7 -> 19) */
+  rawTrackerIdSwitchCount?: number | null;
+  /** Number of semantic athlete identity swaps (P1 <-> P2) */
+  semanticPlayerIdSwitchCount?: number | null;
   /** Number of manual analyst keypoint/box corrections applied */
   manualCorrectionCount?: number | null;
   /** Metric representing identity continuity over time (0.0..1.0) */

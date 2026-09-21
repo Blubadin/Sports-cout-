@@ -293,12 +293,16 @@ class BenchmarkIdentityAudit:
     id_switch_count: Optional[int] = None
     manual_correction_count: Optional[int] = None
     identity_continuity: Optional[float] = None
+    raw_tracker_id_switch_count: Optional[int] = None
+    semantic_player_id_switch_count: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "idSwitchCount": self.id_switch_count,
             "manualCorrectionCount": self.manual_correction_count,
             "identityContinuity": self.identity_continuity,
+            "rawTrackerIdSwitchCount": self.raw_tracker_id_switch_count,
+            "semanticPlayerIdSwitchCount": self.semantic_player_id_switch_count,
         }
 
     @classmethod
@@ -307,6 +311,8 @@ class BenchmarkIdentityAudit:
             id_switch_count=data.get("idSwitchCount"),
             manual_correction_count=data.get("manualCorrectionCount"),
             identity_continuity=data.get("identityContinuity"),
+            raw_tracker_id_switch_count=data.get("rawTrackerIdSwitchCount"),
+            semantic_player_id_switch_count=data.get("semanticPlayerIdSwitchCount"),
         )
 
 
