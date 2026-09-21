@@ -18,8 +18,10 @@ from benchmark_runner import (
     BenchmarkCommonConfig,
     BenchmarkExecutionError,
     BenchmarkRunMetrics,
+    RUNTIME_PAIR_INVARIANTS,
     build_detector_matrix,
     build_pose_architecture_pair,
+    build_runtime_comparison_pair,
     compute_phase_zero_metrics,
     execute_tracking_run,
     load_benchmark_manifest,
@@ -30,6 +32,7 @@ from benchmark_runner import (
     run_pose_architecture_benchmark,
     save_benchmark_bundle,
     validate_pose_architecture_pair,
+    validate_runtime_comparison_pair,
 )
 
 
@@ -590,6 +593,32 @@ class TestDetectorBenchmarkRunner(unittest.TestCase):
                 timestamp_factory=lambda: FIXED_TIME,
             )
             self.assertEqual(no_960_bundle.follow_up_1280, "Cannot determine")
+
+    def test_runtime_comparison_pair_invariants(self):
+        baseline = build_detector_matrix(BenchmarkCommonConfig(device="cpu"))[0]
+        pt_cfg, trt_cfg = build_runtime_comparison_pair(baseline)
+        self.assertEqual(pt_cfg.runtime, "pytorch")
+        self.assertEqual(trt_cfg.runtime, "tensorrt")
+        self.assertEqual(trt_cfg.precision, "fp16")
+        for field_name in RUNTIME_PAIR_INVARIANTS:
+            self.assertEqual(getattr(pt_cfg, field_name), getattr(trt_cfg, field_name))
+
+    def test_main_cli_runtime_benchmark_no_finalists(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tmp_root = Path(temp_dir)
+            manifest = make_manifest()
+            manifest_path = tmp_root / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest.to_dict()), encoding="utf-8")
+            empty_results = tmp_root / "empty_results"
+            empty_results.mkdir()
+
+            exit_code = main([
+                "--manifest", str(manifest_path),
+                "--workspace-root", str(tmp_root),
+                "--output-dir", str(empty_results),
+                "--runtime-benchmark",
+            ])
+            self.assertEqual(exit_code, 0)
 
 
 if __name__ == "__main__":

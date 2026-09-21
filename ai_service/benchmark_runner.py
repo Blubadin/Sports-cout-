@@ -391,6 +391,13 @@ TRACKER_PAIR_INVARIANTS = (
     "frame_stride", "pose_stride", "confidence_threshold", "court_roi_enabled",
 )
 
+RUNTIME_PAIR_INVARIANTS = (
+    "candidate_id", "detector", "detector_family", "input_size",
+    "pose_model", "pose_architecture", "tracker", "tracker_config",
+    "reid_enabled", "reid_model", "device", "frame_stride", "pose_stride",
+    "confidence_threshold", "court_roi_enabled",
+)
+
 
 def build_tracker_benchmark_config(
     baseline: BenchmarkRunConfig,
@@ -602,6 +609,52 @@ def run_pose_architecture_benchmark(
     if not bundle.dataset_available:
         bundle.dataset_status = "POSE BENCHMARK DATASET NOT AVAILABLE"
     return bundle
+
+
+def build_runtime_comparison_pair(
+    baseline: BenchmarkRunConfig,
+    engine_artifact_path: str | Path | None = None,
+) -> tuple[BenchmarkRunConfig, BenchmarkRunConfig]:
+    """Create a fair PyTorch vs TensorRT FP16 comparison pair from one fixed configuration.
+
+    Varies ONLY runtime, precision, and model_artifact_reference:
+      - PyTorch baseline: runtime='pytorch', precision='fp32'
+      - TensorRT candidate: runtime='tensorrt', precision='fp16'
+    """
+    pytorch_cfg = replace(
+        baseline,
+        config_id=f"{baseline.config_id}__pytorch",
+        runtime="pytorch",
+        precision="fp32",
+        model_artifact_reference=None,
+    )
+    tensorrt_cfg = replace(
+        baseline,
+        config_id=f"{baseline.config_id}__tensorrt_fp16",
+        runtime="tensorrt",
+        precision="fp16",
+        model_artifact_reference=str(engine_artifact_path) if engine_artifact_path else None,
+    )
+    validate_runtime_comparison_pair([pytorch_cfg, tensorrt_cfg])
+    return pytorch_cfg, tensorrt_cfg
+
+
+def validate_runtime_comparison_pair(configs: list[BenchmarkRunConfig]) -> None:
+    """Reject a runtime comparison pair when any non-runtime pipeline variable differs."""
+    if len(configs) != 2:
+        raise ValueError("Runtime comparison requires exactly two configurations")
+    runtimes = {config.runtime for config in configs}
+    if runtimes != {"pytorch", "tensorrt"}:
+        raise ValueError("Runtime comparison requires one pytorch and one tensorrt configuration")
+    first, second = configs
+    for field_name in RUNTIME_PAIR_INVARIANTS:
+        if getattr(first, field_name) != getattr(second, field_name):
+            raise ValueError(f"Runtime comparison requires matching {field_name}")
+    trt_config = first if first.runtime == "tensorrt" else second
+    if trt_config.precision != "fp16":
+        raise ValueError(
+            f"TensorRT configuration must use fp16 precision, got '{trt_config.precision}'"
+        )
 
 
 def resolve_local_model_path(model_reference: str, workspace_root: Path) -> Path | None:
@@ -1371,6 +1424,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Run TensorRT FP16 benchmark on qualified Phase 1.3 detector finalists",
     )
+    parser.add_argument(
+        "--runtime-benchmark",
+        action="store_true",
+        help="Compare PyTorch vs TensorRT FP16 runtime on qualified Phase 1.3 detector finalists",
+    )
     parser.add_argument("--roi-pose-model", help="Optional local ROI pose model override")
     parser.add_argument("--full-frame-pose-model", help="Optional local full-frame pose model override")
     args = parser.parse_args(argv)
@@ -1441,6 +1499,34 @@ def main(argv: list[str] | None = None) -> int:
             if trt_status == "NO QUALIFIED DETECTOR FINALISTS":
                 print("NO QUALIFIED DETECTOR FINALISTS")
                 return 0
+        elif args.runtime_benchmark:
+            try:
+                from .tensorrt_benchmark import (
+                    run_runtime_comparison_benchmark,
+                    format_runtime_comparison_output,
+                )
+            except ImportError:
+                from tensorrt_benchmark import (
+                    run_runtime_comparison_benchmark,
+                    format_runtime_comparison_output,
+                )
+            if detector_filter is None and size_filter is None:
+                configs = [config for config in configs if config.candidate_id == "yolov8n" and config.input_size == 640]
+            if len(configs) != 1:
+                raise ValueError("Runtime benchmark requires exactly one detector/input-size baseline")
+            bundle, summaries, status_msg = run_runtime_comparison_benchmark(
+                manifest,
+                args.workspace_root,
+                baseline=configs[0],
+                benchmark_results_dir=args.output_dir,
+                clip_ids=_parse_csv_option(args.clips),
+                execute_one=execute_tracking_run,
+            )
+            if status_msg == "NO QUALIFIED DETECTOR FINALISTS":
+                print("NO QUALIFIED DETECTOR FINALISTS")
+                return 0
+            for summary in summaries:
+                print(format_runtime_comparison_output(summary))
         else:
             bundle = run_benchmark_matrix(
                 manifest,
