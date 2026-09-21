@@ -17,7 +17,10 @@ import type {
   TrackingSampleChunk,
   PlayerMovementMetrics,
 } from '../../services/storage/trackingStorage';
-import { computePlayerMovementMetrics } from '../../services/storage/trackingStorage';
+import {
+  computePlayerMovementMetrics,
+  computeMultiPlayerMovementMetrics,
+} from '../../services/storage/trackingStorage';
 
 interface BadmintonMovementDashboardProps {
   analysis?: TrackingAnalysis | null;
@@ -91,8 +94,8 @@ export default function BadmintonMovementDashboard({
     if (selectedPlayer !== 'ALL') {
       return computePlayerMovementMetrics(filteredSamples);
     }
-    // When 'ALL', aggregate or use summary
-    return computePlayerMovementMetrics(filteredSamples);
+    // When 'ALL', aggregate valid metrics across all players independently
+    return computeMultiPlayerMovementMetrics(filteredSamples);
   }, [filteredSamples, selectedPlayer]);
 
   // Canvas Heatmap & Trajectory rendering
@@ -245,19 +248,38 @@ export default function BadmintonMovementDashboard({
         }
       }
     } else if (heatmapMode === 'trail') {
-      // Trajectory Lines
+      // Trajectory Lines: group by player so only same-player samples are connected
       ctx.lineWidth = 2;
-      for (let i = 1; i < filteredSamples.length; i++) {
-        const prev = filteredSamples[i - 1];
-        const curr = filteredSamples[i];
-        if (prev.playerId !== curr.playerId) continue;
-        if (curr.trackingState !== 'tracked') continue;
+      const playerSamplesMap = new Map<string, TrackingSample[]>();
+      for (const s of filteredSamples) {
+        let list = playerSamplesMap.get(s.playerId);
+        if (!list) {
+          list = [];
+          playerSamplesMap.set(s.playerId, list);
+        }
+        list.push(s);
+      }
 
-        ctx.strokeStyle = playerColors[curr.playerId] || playerColors.default;
-        ctx.beginPath();
-        ctx.moveTo(toCanvasX(prev.courtX), toCanvasY(prev.courtY));
-        ctx.lineTo(toCanvasX(curr.courtX), toCanvasY(curr.courtY));
-        ctx.stroke();
+      for (const [pId, pSamples] of playerSamplesMap.entries()) {
+        const sorted = [...pSamples].sort((a, b) => a.timestamp - b.timestamp);
+        ctx.strokeStyle = playerColors[pId] || playerColors.default;
+        for (let i = 1; i < sorted.length; i++) {
+          const prev = sorted[i - 1];
+          const curr = sorted[i];
+          if (prev.trackingState !== 'tracked' || curr.trackingState !== 'tracked') continue;
+
+          // Teleport filter: badminton players can't move > 12 m/s
+          const dx = curr.courtX - prev.courtX;
+          const dy = curr.courtY - prev.courtY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const dt = Math.max(0.001, curr.timestamp - prev.timestamp);
+          if (dist / dt > 12.0) continue;
+
+          ctx.beginPath();
+          ctx.moveTo(toCanvasX(prev.courtX), toCanvasY(prev.courtY));
+          ctx.lineTo(toCanvasX(curr.courtX), toCanvasY(curr.courtY));
+          ctx.stroke();
+        }
       }
     } else if (heatmapMode === 'base') {
       // Base Position & Dispersion Circle
@@ -289,7 +311,8 @@ export default function BadmintonMovementDashboard({
 
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 12px sans-serif';
-        ctx.fillText(`Base (${avgX}m, ${avgY}m)`, cx + 10, cy - 8);
+        const baseLabel = selectedPlayer === 'ALL' ? 'Combined Centroid' : 'Base';
+        ctx.fillText(`${baseLabel} (${avgX}m, ${avgY}m)`, cx + 10, cy - 8);
       }
     }
   }, [filteredSamples, heatmapMode, activeMetrics]);
@@ -518,7 +541,8 @@ export default function BadmintonMovementDashboard({
 
             <div className="p-3 bg-[#132332] border border-[#263642] rounded-xl col-span-2 sm:col-span-1">
               <div className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-purple-400" /> Base Position
+                <MapPin className="w-4 h-4 text-purple-400" />{' '}
+                {selectedPlayer === 'ALL' ? 'Combined / Team Occupancy Centroid' : 'Base Position'}
               </div>
               <div className="text-lg font-black text-white mt-1">
                 {activeMetrics.basePosition.avgCourtX !== null && activeMetrics.basePosition.avgCourtY !== null
