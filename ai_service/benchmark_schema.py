@@ -122,6 +122,9 @@ class BenchmarkModelConfig:
     device: Optional[str]
     detector_version: Optional[str] = None
     tracker_version: Optional[str] = None
+    runtime: Optional[str] = None
+    precision: Optional[str] = None
+    court_roi_enabled: Optional[bool] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -136,6 +139,9 @@ class BenchmarkModelConfig:
             "poseStride": self.pose_stride,
             "maxPlayers": self.max_players,
             "device": self.device,
+            "runtime": self.runtime,
+            "precision": self.precision,
+            "courtRoiEnabled": self.court_roi_enabled,
         }
 
     @classmethod
@@ -152,6 +158,9 @@ class BenchmarkModelConfig:
             device=data.get("device"),
             detector_version=data.get("detectorVersion"),
             tracker_version=data.get("trackerVersion"),
+            runtime=data.get("runtime"),
+            precision=data.get("precision"),
+            court_roi_enabled=data.get("courtRoiEnabled") if isinstance(data.get("courtRoiEnabled"), bool) else None,
         )
 
 
@@ -546,3 +555,291 @@ def create_benchmark_run_from_session_dict(
         identity_audit=identity_audit,
         ground_truth=ground_truth,
     )
+
+
+# ============================================================================
+# Phase 1.0 — Vision Benchmark Protocol Classes & Helpers
+# ============================================================================
+
+import re
+
+
+def _sanitize_slug(val: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", val).lower()
+
+
+def generate_benchmark_run_id(
+    clip_id: str,
+    experiment_id: Optional[str] = None,
+    detector: Optional[str] = None,
+    tracker: Optional[str] = None,
+    input_size: Optional[int] = None,
+    device: Optional[str] = None,
+    runtime: Optional[str] = None,
+    precision: Optional[str] = None,
+    timestamp: Optional[str] = None,
+) -> str:
+    """
+    Generates a deterministic, structured benchmark run identifier.
+    Ensures every result is unambiguously traceable to:
+    video ID + experiment configuration + model configuration + runtime/device.
+
+    Forbids unstructured names like 'test1', 'test2', 'best', 'final2'.
+    """
+    clip = _sanitize_slug(clip_id or "unknown_clip")
+
+    if experiment_id and experiment_id.strip():
+        config_slug = _sanitize_slug(experiment_id.strip())
+    else:
+        parts = [
+            _sanitize_slug(detector) if detector else "det",
+            _sanitize_slug(tracker) if tracker else "trk",
+            f"{input_size}px" if input_size else "defsize",
+            _sanitize_slug(device) if device else "cpu",
+        ]
+        if runtime:
+            parts.append(_sanitize_slug(runtime))
+        if precision:
+            parts.append(_sanitize_slug(precision))
+        config_slug = "_".join(parts)
+
+    if timestamp:
+        cleaned_time = re.sub(r"[-:]", "", timestamp)
+        cleaned_time = re.sub(r"\..+", "Z", cleaned_time)
+        if not cleaned_time.endswith("Z"):
+            cleaned_time += "Z"
+        time_str = cleaned_time
+    else:
+        time_str = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    return f"RUN__{clip}__{config_slug}__{time_str}"
+
+
+@dataclass
+class BenchmarkDifficultSegment:
+    start_sec: float
+    end_sec: float
+    tags: list[str] = field(default_factory=list)
+    description: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "startSec": self.start_sec,
+            "endSec": self.end_sec,
+            "tags": list(self.tags),
+            "description": self.description,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> BenchmarkDifficultSegment:
+        start = _optional_float(data.get("startSec")) or 0.0
+        end = _optional_float(data.get("endSec")) or start
+        tags = data.get("tags") if isinstance(data.get("tags"), list) else []
+        return cls(
+            start_sec=start,
+            end_sec=end,
+            tags=[str(t) for t in tags],
+            description=data.get("description"),
+        )
+
+
+@dataclass
+class BenchmarkClipEntry:
+    id: str
+    name: str
+    sport: str
+    game_type: str
+    player_count: int
+    camera_type: str
+    camera_motion: str
+    difficulty_tags: list[str] = field(default_factory=list)
+    ground_truth_available: bool = False
+    video_reference: Optional[str] = None
+    duration_sec: Optional[float] = None
+    source_width: Optional[int] = None
+    source_height: Optional[int] = None
+    source_fps: Optional[float] = None
+    court_calibration_reference: Optional[str] = None
+    notes: Optional[str] = None
+    known_difficult_segments: list[BenchmarkDifficultSegment] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "sport": self.sport,
+            "gameType": self.game_type,
+            "playerCount": self.player_count,
+            "videoReference": self.video_reference,
+            "durationSec": self.duration_sec,
+            "sourceWidth": self.source_width,
+            "sourceHeight": self.source_height,
+            "sourceFps": self.source_fps,
+            "cameraType": self.camera_type,
+            "cameraMotion": self.camera_motion,
+            "difficultyTags": list(self.difficulty_tags),
+            "courtCalibrationReference": self.court_calibration_reference,
+            "groundTruthAvailable": self.ground_truth_available,
+            "notes": self.notes,
+            "knownDifficultSegments": [s.to_dict() for s in self.known_difficult_segments],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> BenchmarkClipEntry:
+        segments_raw = data.get("knownDifficultSegments") or []
+        segments = [
+            BenchmarkDifficultSegment.from_dict(s)
+            for s in segments_raw
+            if isinstance(s, dict)
+        ]
+        tags = data.get("difficultyTags") if isinstance(data.get("difficultyTags"), list) else []
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            sport=data.get("sport", "badminton"),
+            game_type=data.get("gameType", "singles"),
+            player_count=_positive_int(data.get("playerCount")) or 2,
+            video_reference=data.get("videoReference"),
+            duration_sec=_positive_float(data.get("durationSec")),
+            source_width=_positive_int(data.get("sourceWidth")),
+            source_height=_positive_int(data.get("sourceHeight")),
+            source_fps=_positive_float(data.get("sourceFps")),
+            camera_type=data.get("cameraType", "static_rear"),
+            camera_motion=data.get("cameraMotion", "static"),
+            difficulty_tags=[str(t) for t in tags],
+            court_calibration_reference=data.get("courtCalibrationReference"),
+            ground_truth_available=data.get("groundTruthAvailable") is True,
+            notes=data.get("notes"),
+            known_difficult_segments=segments,
+        )
+
+
+@dataclass
+class BenchmarkManifest:
+    schema_version: int
+    manifest_id: str
+    updated_at: str
+    clips: list[BenchmarkClipEntry] = field(default_factory=list)
+    description: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schemaVersion": self.schema_version,
+            "manifestId": self.manifest_id,
+            "updatedAt": self.updated_at,
+            "description": self.description,
+            "clips": [c.to_dict() for c in self.clips],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> BenchmarkManifest:
+        clips_raw = data.get("clips") or []
+        clips = [
+            BenchmarkClipEntry.from_dict(c)
+            for c in clips_raw
+            if isinstance(c, dict)
+        ]
+        return cls(
+            schema_version=_positive_int(data.get("schemaVersion")) or 1,
+            manifest_id=data.get("manifestId", "unknown_manifest"),
+            updated_at=data.get("updatedAt", datetime.now(timezone.utc).isoformat()),
+            description=data.get("description"),
+            clips=clips,
+        )
+
+    def get_clip(self, clip_id: str) -> Optional[BenchmarkClipEntry]:
+        for c in self.clips:
+            if c.id == clip_id:
+                return c
+        return None
+
+    def filter_by_difficulty(self, tag: str) -> list[BenchmarkClipEntry]:
+        lower_tag = tag.lower()
+        return [c for c in self.clips if any(t.lower() == lower_tag for t in c.difficulty_tags)]
+
+    def filter_by_game_type(self, game_type: str) -> list[BenchmarkClipEntry]:
+        lower_type = game_type.lower()
+        return [c for c in self.clips if c.game_type.lower() == lower_type]
+
+
+@dataclass
+class VisionBenchmarkExperimentConfig:
+    experiment_id: str
+    name: str
+    detector: str
+    tracker: str
+    runtime: str
+    input_size: int
+    confidence_threshold: float
+    frame_stride: int
+    pose_stride: int
+    court_roi_enabled: bool
+    device: str
+    precision: str
+    detector_version: Optional[str] = None
+    pose_model: Optional[str] = None
+    tracker_version: Optional[str] = None
+    processing_profile: Optional[str] = None
+    notes: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "experimentId": self.experiment_id,
+            "name": self.name,
+            "detector": self.detector,
+            "detectorVersion": self.detector_version,
+            "poseModel": self.pose_model,
+            "tracker": self.tracker,
+            "trackerVersion": self.tracker_version,
+            "runtime": self.runtime,
+            "inputSize": self.input_size,
+            "confidenceThreshold": self.confidence_threshold,
+            "frameStride": self.frame_stride,
+            "poseStride": self.pose_stride,
+            "courtRoiEnabled": self.court_roi_enabled,
+            "device": self.device,
+            "precision": self.precision,
+            "processingProfile": self.processing_profile,
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> VisionBenchmarkExperimentConfig:
+        return cls(
+            experiment_id=data["experimentId"],
+            name=data.get("name", data["experimentId"]),
+            detector=data["detector"],
+            detector_version=data.get("detectorVersion"),
+            pose_model=data.get("poseModel"),
+            tracker=data["tracker"],
+            tracker_version=data.get("trackerVersion"),
+            runtime=data.get("runtime", "pytorch"),
+            input_size=_positive_int(data.get("inputSize")) or 640,
+            confidence_threshold=_optional_float(data.get("confidenceThreshold")) or 0.25,
+            frame_stride=_positive_int(data.get("frameStride")) or 2,
+            pose_stride=_positive_int(data.get("poseStride")) or 1,
+            court_roi_enabled=data.get("courtRoiEnabled") is True,
+            device=data.get("device", "cpu"),
+            precision=data.get("precision", "fp32"),
+            processing_profile=data.get("processingProfile"),
+            notes=data.get("notes"),
+        )
+
+    def to_model_config(self) -> BenchmarkModelConfig:
+        return BenchmarkModelConfig(
+            detector_name=self.detector,
+            detector_version=self.detector_version,
+            pose_model=self.pose_model,
+            tracker_name=self.tracker,
+            tracker_version=self.tracker_version,
+            detector_input_size=self.input_size,
+            confidence_threshold=self.confidence_threshold,
+            frame_stride=self.frame_stride,
+            pose_stride=self.pose_stride,
+            max_players=None,
+            device=self.device,
+            runtime=self.runtime,
+            precision=self.precision,
+            court_roi_enabled=self.court_roi_enabled,
+        )
+
