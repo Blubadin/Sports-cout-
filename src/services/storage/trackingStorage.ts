@@ -15,11 +15,43 @@ export interface TrackingPlayerMetadata {
   color?: string;
 }
 
-export interface TrackingQuality {
+export interface PlayerTrackingQuality {
+  playerId: string;
+  observedFrameCount: number;
+  predictedFrameCount: number;
+  lostFrameCount: number;
   detectionCoverage: number; // 0..1 (e.g. 0.95)
-  lostTimePercent: number; // 0..100 (%)
-  confidence: number; // 0..1
-  manualCorrections: number;
+  predictedPercent: number; // 0..100 (%)
+  lostPercent: number; // 0..100 (%)
+  meanObservedConfidence: number; // 0..1
+  idSwitchCount?: number | null;
+  manualCorrectionCount?: number | null;
+}
+
+export interface TrackingQuality {
+  // Session-level multi-target metrics
+  meanTargetCoverage?: number; // 0..1 (mean of individual player coverages)
+  simultaneousTargetCoverage?: number; // 0..1 (frames where all expected targets observed / eligible frames)
+  fullyObservedFrameCount?: number;
+  partiallyObservedFrameCount?: number;
+  fullyLostFrameCount?: number;
+
+  // Aggregate stats across session
+  predictedPercent?: number; // 0..100 (%)
+  lostPercent?: number; // 0..100 (%)
+
+  // Per-player quality breakdown
+  playerCoverage?: Record<string, PlayerTrackingQuality>;
+
+  // Future audit fields: null when not measured (do NOT invent fake 0)
+  idSwitchCount?: number | null;
+  manualCorrectionCount?: number | null;
+  manualCorrections?: number | null;
+
+  // Backward compatibility fields
+  detectionCoverage: number; // 0..1 (legacy alias = meanTargetCoverage)
+  lostTimePercent: number; // 0..100 (%) (legacy alias = (1 - meanTargetCoverage) * 100)
+  confidence: number; // 0..1 (mean observed confidence across all players)
   lowConfidenceWarning?: boolean;
 }
 
@@ -63,6 +95,9 @@ export interface TrackingAnalysis {
   trackerModel: string;
   poseModel?: string;
   sampleRateHz: number;
+  nominalAnalysisHz?: number | null;
+  effectiveStoredHz?: number | null;
+  persistedTargetHz?: number | null;
   createdAt: string;
   completedAt?: string;
   device?: string;
@@ -447,35 +482,124 @@ export function calculateP95(values: number[]): number {
 }
 
 /**
- * Calculates court distance and movement metrics for a set of samples
+ * Calculates nominal video-domain analysis cadence (Hz) from source FPS and frame stride.
+ * Formula: sourceFps / frameStride.
+ * Returns null if sourceFps or frameStride is missing, <= 0, or not finite.
  */
-export function computePlayerMovementMetrics(samples: TrackingSample[], canonicalTotalDist?: number): PlayerMovementMetrics {
+export function calculateNominalAnalysisHz(
+  sourceFps: number | null | undefined,
+  frameStride: number | null | undefined
+): number | null {
+  if (
+    sourceFps === null ||
+    sourceFps === undefined ||
+    !Number.isFinite(sourceFps) ||
+    sourceFps <= 0
+  ) {
+    return null;
+  }
+  if (
+    frameStride === null ||
+    frameStride === undefined ||
+    !Number.isFinite(frameStride) ||
+    frameStride <= 0
+  ) {
+    return null;
+  }
+  const hz = sourceFps / frameStride;
+  return Number.isFinite(hz) && hz > 0 ? Number(hz.toFixed(2)) : null;
+}
+
+/**
+ * Calculates effective stored cadence (Hz) from sample count and video duration.
+ * Formula: sampleCount / durationSec.
+ * Returns null if durationSec is missing, <= 0, or sampleCount <= 0.
+ */
+export function calculateEffectiveStoredHz(
+  sampleCount: number | null | undefined,
+  durationSec: number | null | undefined
+): number | null {
+  if (
+    sampleCount === null ||
+    sampleCount === undefined ||
+    !Number.isFinite(sampleCount) ||
+    sampleCount <= 0
+  ) {
+    return null;
+  }
+  if (
+    durationSec === null ||
+    durationSec === undefined ||
+    !Number.isFinite(durationSec) ||
+    durationSec <= 0
+  ) {
+    return null;
+  }
+  const hz = sampleCount / durationSec;
+  return Number.isFinite(hz) && hz > 0 ? Number(hz.toFixed(1)) : null;
+}
+
+export interface SinglePlayerMetricsResult {
+  metrics: PlayerMovementMetrics;
+  validSpeeds: number[];
+  trackedCount: number;
+  sumX: number;
+  sumY: number;
+  frontCount: number;
+  midCount: number;
+  rearCount: number;
+  leftCount: number;
+  rightCount: number;
+}
+
+/**
+ * Calculates movement metrics for a single player's samples.
+ * Only connects consecutive tracked samples of the same player in chronological order.
+ */
+export function computeSinglePlayerMovementMetrics(
+  samples: TrackingSample[],
+  canonicalTotalDist?: number
+): SinglePlayerMetricsResult {
   if (samples.length === 0) {
     return {
-      totalDistanceMeters: canonicalTotalDist !== undefined ? Number(canonicalTotalDist.toFixed(2)) : 0,
-      avgSpeedMps: 0,
-      p95SpeedMps: 0,
-      maxSpeedMps: 0,
-      courtCoverage: {
-        frontPercent: 0,
-        midPercent: 0,
-        rearPercent: 0,
-        leftPercent: 0,
-        rightPercent: 0,
+      metrics: {
+        totalDistanceMeters: canonicalTotalDist !== undefined ? Number(canonicalTotalDist.toFixed(2)) : 0,
+        avgSpeedMps: 0,
+        p95SpeedMps: 0,
+        maxSpeedMps: 0,
+        courtCoverage: {
+          frontPercent: 0,
+          midPercent: 0,
+          rearPercent: 0,
+          leftPercent: 0,
+          rightPercent: 0,
+        },
+        basePosition: { avgCourtX: null, avgCourtY: null, dispersion: 0 },
+        lateralMovementMeters: 0,
+        frontBackMovementMeters: 0,
       },
-      basePosition: { avgCourtX: null, avgCourtY: null, dispersion: 0 },
-      lateralMovementMeters: 0,
-      frontBackMovementMeters: 0,
+      validSpeeds: [],
+      trackedCount: 0,
+      sumX: 0,
+      sumY: 0,
+      frontCount: 0,
+      midCount: 0,
+      rearCount: 0,
+      leftCount: 0,
+      rightCount: 0,
     };
   }
+
+  // Ensure chronological order
+  const sorted = [...samples].sort((a, b) => a.timestamp - b.timestamp);
 
   let totalDist = 0;
   let lateralDist = 0;
   let frontBackDist = 0;
-  const speeds: number[] = [];
+  const validSpeeds: number[] = [];
   let sumX = 0;
   let sumY = 0;
-  let count = 0;
+  let trackedCount = 0;
 
   let frontCount = 0;
   let midCount = 0;
@@ -483,16 +607,15 @@ export function computePlayerMovementMetrics(samples: TrackingSample[], canonica
   let leftCount = 0;
   let rightCount = 0;
 
-  for (let i = 0; i < samples.length; i++) {
-    const s = samples[i];
+  for (let i = 0; i < sorted.length; i++) {
+    const s = sorted[i];
     if (s.trackingState !== 'tracked') continue;
 
-    count++;
+    trackedCount++;
     sumX += s.courtX;
     sumY += s.courtY;
 
     // Badminton court: length 13.40m, width 6.10m. Net is at Y = 6.70m.
-    // Distance to net = |6.70 - Y|
     const distToNet = Math.abs(6.70 - s.courtY);
     if (distToNet <= 2.2) {
       frontCount++;
@@ -509,7 +632,7 @@ export function computePlayerMovementMetrics(samples: TrackingSample[], canonica
     }
 
     if (i > 0) {
-      const prev = samples[i - 1];
+      const prev = sorted[i - 1];
       if (prev.trackingState === 'tracked') {
         const dx = s.courtX - prev.courtX;
         const dy = s.courtY - prev.courtY;
@@ -521,44 +644,45 @@ export function computePlayerMovementMetrics(samples: TrackingSample[], canonica
           totalDist += dist;
           lateralDist += Math.abs(dx);
           frontBackDist += Math.abs(dy);
-          speeds.push(instantSpeed);
+          validSpeeds.push(instantSpeed);
         }
       }
     }
   }
 
-  const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
-  const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0;
-  const p95Speed = calculateP95(speeds);
+  const avgSpeed = validSpeeds.length > 0 ? validSpeeds.reduce((a, b) => a + b, 0) / validSpeeds.length : 0;
+  const maxSpeed = validSpeeds.length > 0 ? Math.max(...validSpeeds) : 0;
+  const p95Speed = calculateP95(validSpeeds);
 
-  const avgX = count > 0 ? sumX / count : null;
-  const avgY = count > 0 ? sumY / count : null;
+  const avgX = trackedCount > 0 ? sumX / trackedCount : null;
+  const avgY = trackedCount > 0 ? sumY / trackedCount : null;
 
   // Dispersion: average Euclidean distance from base position
   let totalDispersion = 0;
-  if (count > 0 && avgX !== null && avgY !== null) {
-    for (const s of samples) {
+  if (trackedCount > 0 && avgX !== null && avgY !== null) {
+    for (const s of sorted) {
       if (s.trackingState !== 'tracked') continue;
       const dx = s.courtX - avgX;
       const dy = s.courtY - avgY;
       totalDispersion += Math.sqrt(dx * dx + dy * dy);
     }
   }
-  const dispersion = count > 0 ? totalDispersion / count : 0;
+  const dispersion = trackedCount > 0 ? totalDispersion / trackedCount : 0;
 
-  const validCount = Math.max(1, count);
+  const validCount = Math.max(1, trackedCount);
   const effectiveTotalDist = canonicalTotalDist !== undefined ? canonicalTotalDist : totalDist;
-  return {
+
+  const metrics: PlayerMovementMetrics = {
     totalDistanceMeters: Number(effectiveTotalDist.toFixed(2)),
     avgSpeedMps: Number(avgSpeed.toFixed(2)),
     p95SpeedMps: Number(p95Speed.toFixed(2)),
     maxSpeedMps: Number(maxSpeed.toFixed(2)),
     courtCoverage: {
-      frontPercent: Number(((frontCount / validCount) * 100).toFixed(1)),
-      midPercent: Number(((midCount / validCount) * 100).toFixed(1)),
-      rearPercent: Number(((rearCount / validCount) * 100).toFixed(1)),
-      leftPercent: Number(((leftCount / validCount) * 100).toFixed(1)),
-      rightPercent: Number(((rightCount / validCount) * 100).toFixed(1)),
+      frontPercent: trackedCount > 0 ? Number(((frontCount / validCount) * 100).toFixed(1)) : 0,
+      midPercent: trackedCount > 0 ? Number(((midCount / validCount) * 100).toFixed(1)) : 0,
+      rearPercent: trackedCount > 0 ? Number(((rearCount / validCount) * 100).toFixed(1)) : 0,
+      leftPercent: trackedCount > 0 ? Number(((leftCount / validCount) * 100).toFixed(1)) : 0,
+      rightPercent: trackedCount > 0 ? Number(((rightCount / validCount) * 100).toFixed(1)) : 0,
     },
     basePosition: {
       avgCourtX: avgX !== null ? Number(avgX.toFixed(2)) : null,
@@ -567,6 +691,322 @@ export function computePlayerMovementMetrics(samples: TrackingSample[], canonica
     },
     lateralMovementMeters: Number(lateralDist.toFixed(2)),
     frontBackMovementMeters: Number(frontBackDist.toFixed(2)),
+  };
+
+  return {
+    metrics,
+    validSpeeds,
+    trackedCount,
+    sumX,
+    sumY,
+    frontCount,
+    midCount,
+    rearCount,
+    leftCount,
+    rightCount,
+  };
+}
+
+/**
+ * Calculates aggregated movement metrics for multiple players (ALL mode).
+ * Guarantees that physical movement calculations only connect samples belonging
+ * to the SAME playerId.
+ */
+export function computeMultiPlayerMovementMetrics(samples: TrackingSample[]): PlayerMovementMetrics {
+  if (samples.length === 0) {
+    return {
+      totalDistanceMeters: 0,
+      avgSpeedMps: 0,
+      p95SpeedMps: 0,
+      maxSpeedMps: 0,
+      courtCoverage: {
+        frontPercent: 0,
+        midPercent: 0,
+        rearPercent: 0,
+        leftPercent: 0,
+        rightPercent: 0,
+      },
+      basePosition: { avgCourtX: null, avgCourtY: null, dispersion: 0 },
+      lateralMovementMeters: 0,
+      frontBackMovementMeters: 0,
+    };
+  }
+
+  // 1. Group by playerId
+  const playerMap = new Map<string, TrackingSample[]>();
+  for (const s of samples) {
+    let list = playerMap.get(s.playerId);
+    if (!list) {
+      list = [];
+      playerMap.set(s.playerId, list);
+    }
+    list.push(s);
+  }
+
+  // 2. Calculate each player's movement metrics independently
+  let aggregateTotalDist = 0;
+  let aggregateLateralDist = 0;
+  let aggregateFrontBackDist = 0;
+  const pooledSpeeds: number[] = [];
+
+  let totalTrackedCount = 0;
+  let totalSumX = 0;
+  let totalSumY = 0;
+  let totalFrontCount = 0;
+  let totalMidCount = 0;
+  let totalRearCount = 0;
+  let totalLeftCount = 0;
+  let totalRightCount = 0;
+
+  for (const [, pSamples] of playerMap.entries()) {
+    const singleResult = computeSinglePlayerMovementMetrics(pSamples);
+    aggregateTotalDist += singleResult.metrics.totalDistanceMeters;
+    aggregateLateralDist += singleResult.metrics.lateralMovementMeters;
+    aggregateFrontBackDist += singleResult.metrics.frontBackMovementMeters;
+    pooledSpeeds.push(...singleResult.validSpeeds);
+
+    totalTrackedCount += singleResult.trackedCount;
+    totalSumX += singleResult.sumX;
+    totalSumY += singleResult.sumY;
+    totalFrontCount += singleResult.frontCount;
+    totalMidCount += singleResult.midCount;
+    totalRearCount += singleResult.rearCount;
+    totalLeftCount += singleResult.leftCount;
+    totalRightCount += singleResult.rightCount;
+  }
+
+  // 3. Aggregate speeds from pooled valid same-player speed observations
+  const avgSpeed = pooledSpeeds.length > 0 ? pooledSpeeds.reduce((a, b) => a + b, 0) / pooledSpeeds.length : 0;
+  const maxSpeed = pooledSpeeds.length > 0 ? Math.max(...pooledSpeeds) : 0;
+  const p95Speed = calculateP95(pooledSpeeds);
+
+  // 4. Combined occupancy centroid and dispersion
+  const avgX = totalTrackedCount > 0 ? totalSumX / totalTrackedCount : null;
+  const avgY = totalTrackedCount > 0 ? totalSumY / totalTrackedCount : null;
+
+  let totalDispersion = 0;
+  if (totalTrackedCount > 0 && avgX !== null && avgY !== null) {
+    for (const s of samples) {
+      if (s.trackingState !== 'tracked') continue;
+      const dx = s.courtX - avgX;
+      const dy = s.courtY - avgY;
+      totalDispersion += Math.sqrt(dx * dx + dy * dy);
+    }
+  }
+  const dispersion = totalTrackedCount > 0 ? totalDispersion / totalTrackedCount : 0;
+
+  const validCount = Math.max(1, totalTrackedCount);
+
+  return {
+    totalDistanceMeters: Number(aggregateTotalDist.toFixed(2)),
+    avgSpeedMps: Number(avgSpeed.toFixed(2)),
+    p95SpeedMps: Number(p95Speed.toFixed(2)),
+    maxSpeedMps: Number(maxSpeed.toFixed(2)),
+    courtCoverage: {
+      frontPercent: totalTrackedCount > 0 ? Number(((totalFrontCount / validCount) * 100).toFixed(1)) : 0,
+      midPercent: totalTrackedCount > 0 ? Number(((totalMidCount / validCount) * 100).toFixed(1)) : 0,
+      rearPercent: totalTrackedCount > 0 ? Number(((totalRearCount / validCount) * 100).toFixed(1)) : 0,
+      leftPercent: totalTrackedCount > 0 ? Number(((totalLeftCount / validCount) * 100).toFixed(1)) : 0,
+      rightPercent: totalTrackedCount > 0 ? Number(((totalRightCount / validCount) * 100).toFixed(1)) : 0,
+    },
+    basePosition: {
+      avgCourtX: avgX !== null ? Number(avgX.toFixed(2)) : null,
+      avgCourtY: avgY !== null ? Number(avgY.toFixed(2)) : null,
+      dispersion: Number(dispersion.toFixed(2)),
+    },
+    lateralMovementMeters: Number(aggregateLateralDist.toFixed(2)),
+    frontBackMovementMeters: Number(aggregateFrontBackDist.toFixed(2)),
+  };
+}
+
+/**
+ * Calculates court distance and movement metrics for a set of samples.
+ * If samples belong to multiple players, groups by playerId and aggregates
+ * to guarantee that physical movement calculations only connect samples of the same player.
+ */
+export function computePlayerMovementMetrics(samples: TrackingSample[], canonicalTotalDist?: number): PlayerMovementMetrics {
+  if (samples.length === 0) {
+    return computeSinglePlayerMovementMetrics([], canonicalTotalDist).metrics;
+  }
+
+  // Check if multiple playerIds are present
+  const firstPlayerId = samples[0].playerId;
+  let hasMultiplePlayers = false;
+  for (let i = 1; i < samples.length; i++) {
+    if (samples[i].playerId !== firstPlayerId) {
+      hasMultiplePlayers = true;
+      break;
+    }
+  }
+
+  if (hasMultiplePlayers) {
+    return computeMultiPlayerMovementMetrics(samples);
+  }
+
+  return computeSinglePlayerMovementMetrics(samples, canonicalTotalDist).metrics;
+}
+
+/**
+ * Computes multi-target tracking quality metrics.
+ * Separates per-athlete quality from session-level multi-target quality.
+ * OBSERVED: fresh measurement exists.
+ * PREDICTED: estimated without fresh observation (not observed).
+ * LOST: no reliable state (not observed).
+ */
+export function computeTrackingQuality(
+  frames: TrackingTelemetryV1[],
+  canonicalPlayerIds?: string[]
+): TrackingQuality {
+  if (frames.length === 0) {
+    return {
+      meanTargetCoverage: 0,
+      simultaneousTargetCoverage: 0,
+      fullyObservedFrameCount: 0,
+      partiallyObservedFrameCount: 0,
+      fullyLostFrameCount: 0,
+      predictedPercent: 0,
+      lostPercent: 100,
+      playerCoverage: {},
+      idSwitchCount: null,
+      manualCorrectionCount: null,
+      manualCorrections: null,
+      detectionCoverage: 0,
+      lostTimePercent: 100,
+      confidence: 0,
+      lowConfidenceWarning: true,
+    };
+  }
+
+  // 1. Identify all expected player targets
+  const expectedSet = new Set<string>();
+  if (canonicalPlayerIds) {
+    for (const pId of canonicalPlayerIds) expectedSet.add(pId);
+  }
+  for (const f of frames) {
+    for (const p of f.players) {
+      if (p.playerId) expectedSet.add(p.playerId);
+    }
+  }
+  const expectedPlayerIds = Array.from(expectedSet).sort();
+
+  // 2. Tally frame counts per player and frame-level simultaneous observation
+  interface PlayerTally {
+    observed: number;
+    predicted: number;
+    lost: number;
+    confidenceSum: number;
+    confidenceCount: number;
+  }
+  const tallies = new Map<string, PlayerTally>();
+  for (const pId of expectedPlayerIds) {
+    tallies.set(pId, { observed: 0, predicted: 0, lost: 0, confidenceSum: 0, confidenceCount: 0 });
+  }
+
+  let fullyObservedFrameCount = 0;
+  let partiallyObservedFrameCount = 0;
+  let fullyLostFrameCount = 0;
+
+  for (const f of frames) {
+    let observedInFrame = 0;
+
+    for (const pId of expectedPlayerIds) {
+      const tally = tallies.get(pId)!;
+      const p = f.players.find((x) => x.playerId === pId);
+      if (!p || p.state === 'lost') {
+        tally.lost++;
+      } else if (p.state === 'predicted') {
+        tally.predicted++;
+      } else if (p.state === 'observed') {
+        tally.observed++;
+        observedInFrame++;
+        if (typeof p.detectionConfidence === 'number') {
+          tally.confidenceSum += p.detectionConfidence;
+          tally.confidenceCount++;
+        }
+      } else {
+        tally.lost++;
+      }
+    }
+
+    if (expectedPlayerIds.length > 0) {
+      if (observedInFrame === expectedPlayerIds.length) {
+        fullyObservedFrameCount++;
+      } else if (observedInFrame > 0) {
+        partiallyObservedFrameCount++;
+      } else {
+        fullyLostFrameCount++;
+      }
+    }
+  }
+
+  // 3. Compute per-player metrics
+  const playerCoverage: Record<string, PlayerTrackingQuality> = {};
+  let totalObservedConfidenceSum = 0;
+  let totalObservedConfidenceCount = 0;
+  let totalCoverageSum = 0;
+  let totalPredictedCount = 0;
+  let totalLostCount = 0;
+
+  const totalEligibleSessionFrames = frames.length;
+
+  for (const pId of expectedPlayerIds) {
+    const tally = tallies.get(pId)!;
+    const eligibleFrames = totalEligibleSessionFrames;
+    const detectionCoverage = eligibleFrames > 0 ? Number((tally.observed / eligibleFrames).toFixed(2)) : 0;
+    const predictedPercent = eligibleFrames > 0 ? Number(((tally.predicted / eligibleFrames) * 100).toFixed(1)) : 0;
+    const lostPercent = eligibleFrames > 0 ? Number(((tally.lost / eligibleFrames) * 100).toFixed(1)) : 0;
+    const meanObservedConfidence = tally.confidenceCount > 0 ? Number((tally.confidenceSum / tally.confidenceCount).toFixed(2)) : 0;
+
+    playerCoverage[pId] = {
+      playerId: pId,
+      observedFrameCount: tally.observed,
+      predictedFrameCount: tally.predicted,
+      lostFrameCount: tally.lost,
+      detectionCoverage,
+      predictedPercent,
+      lostPercent,
+      meanObservedConfidence,
+      idSwitchCount: null,
+      manualCorrectionCount: null,
+    };
+
+    totalCoverageSum += detectionCoverage;
+    totalObservedConfidenceSum += tally.confidenceSum;
+    totalObservedConfidenceCount += tally.confidenceCount;
+    totalPredictedCount += tally.predicted;
+    totalLostCount += tally.lost;
+  }
+
+  // 4. Session Multi-Target Aggregates
+  const targetCount = Math.max(1, expectedPlayerIds.length);
+  const meanTargetCoverage = expectedPlayerIds.length > 0 ? Number((totalCoverageSum / targetCount).toFixed(2)) : 0;
+  const simultaneousTargetCoverage = totalEligibleSessionFrames > 0 && expectedPlayerIds.length > 0
+    ? Number((fullyObservedFrameCount / totalEligibleSessionFrames).toFixed(2))
+    : 0;
+
+  const totalPlayerTargetSlots = targetCount * totalEligibleSessionFrames;
+  const sessionPredictedPercent = totalPlayerTargetSlots > 0 ? Number(((totalPredictedCount / totalPlayerTargetSlots) * 100).toFixed(1)) : 0;
+  const sessionLostPercent = totalPlayerTargetSlots > 0 ? Number(((totalLostCount / totalPlayerTargetSlots) * 100).toFixed(1)) : 0;
+
+  const meanConfidence = totalObservedConfidenceCount > 0 ? Number((totalObservedConfidenceSum / totalObservedConfidenceCount).toFixed(2)) : 0;
+  const lowConfidenceWarning = meanConfidence < 0.6 || meanTargetCoverage < 0.5;
+
+  return {
+    meanTargetCoverage,
+    simultaneousTargetCoverage,
+    fullyObservedFrameCount,
+    partiallyObservedFrameCount,
+    fullyLostFrameCount,
+    predictedPercent: sessionPredictedPercent,
+    lostPercent: sessionLostPercent,
+    playerCoverage,
+    idSwitchCount: null,
+    manualCorrectionCount: null,
+    manualCorrections: null,
+    detectionCoverage: meanTargetCoverage,
+    lostTimePercent: Number(Math.max(0, (1 - meanTargetCoverage) * 100).toFixed(1)),
+    confidence: meanConfidence,
+    lowConfidenceWarning,
   };
 }
 
@@ -594,37 +1034,20 @@ export function downsampleAndChunkTrackingSamples(
     return {
       chunks: [],
       summary: { durationSeconds: 0, sampleCount: 0, players: emptyPlayerSummaries },
-      quality: {
-        detectionCoverage: 0,
-        lostTimePercent: 100,
-        confidence: 0,
-        manualCorrections: 0,
-        lowConfidenceWarning: true,
-      },
+      quality: computeTrackingQuality([], canonicalPlayerMetrics ? Object.keys(canonicalPlayerMetrics) : undefined),
     };
   }
 
-  // 1. Full-Rate Processing for Canonical Movement Metrics and Quality
+  // 1. Full-Rate Processing for Canonical Movement Metrics
   const fullRatePlayerSamples = new Map<string, TrackingSample[]>();
   const lastTotalDistances = new Map<string, number>();
-  let totalConfidence = 0;
-  let confidenceCount = 0;
-  let inputObservedFrameCount = 0;
 
   for (const frame of frames) {
-    // Quality honesty: ONLY count fresh observed detections, NEVER stale predicted/lost states
-    const hasObserved = frame.players.some((p) => p.state === 'observed');
-    if (hasObserved) inputObservedFrameCount++;
-
     for (const p of frame.players) {
       if (typeof p.totalDistanceM === 'number') {
         lastTotalDistances.set(p.playerId, p.totalDistanceM);
       }
       if (!p.courtPosition) continue;
-      if (p.state === 'observed' && typeof p.detectionConfidence === 'number') {
-        totalConfidence += p.detectionConfidence;
-        confidenceCount++;
-      }
 
       const sample: TrackingSample = {
         timestamp: frame.timestampSec,
@@ -673,20 +1096,10 @@ export function downsampleAndChunkTrackingSamples(
     }
   }
 
-  // 3. Compute Quality (Honest metrics: only fresh observed frames count towards coverage)
+  // 3. Compute Quality (Separates per-athlete quality from session-level multi-target quality)
   const durationSec = frames.length > 1 ? frames[frames.length - 1].timestampSec - frames[0].timestampSec : 0;
-  const detectionCoverage = frames.length > 0 ? inputObservedFrameCount / frames.length : 0;
-  const lostTimePercent = Math.max(0, (1 - detectionCoverage) * 100);
-  const avgConfidence = confidenceCount > 0 ? totalConfidence / confidenceCount : 0;
-  const lowConfidenceWarning = avgConfidence < 0.6 || detectionCoverage < 0.5;
-
-  const quality: TrackingQuality = {
-    detectionCoverage: Number(detectionCoverage.toFixed(2)),
-    lostTimePercent: Number(lostTimePercent.toFixed(1)),
-    confidence: Number(avgConfidence.toFixed(2)),
-    manualCorrections: 0,
-    lowConfidenceWarning,
-  };
+  const canonicalPlayerIds = canonicalPlayerMetrics ? Object.keys(canonicalPlayerMetrics) : undefined;
+  const quality = computeTrackingQuality(frames, canonicalPlayerIds);
 
   // 4. Compute Player Summaries from Full-Rate Telemetry (preserving all high-frequency motion)
   const playerSummaries: Record<string, PlayerMovementMetrics> = {};

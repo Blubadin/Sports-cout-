@@ -17,7 +17,12 @@ import type {
   TrackingSampleChunk,
   PlayerMovementMetrics,
 } from '../../services/storage/trackingStorage';
-import { computePlayerMovementMetrics } from '../../services/storage/trackingStorage';
+import {
+  computePlayerMovementMetrics,
+  computeMultiPlayerMovementMetrics,
+  calculateNominalAnalysisHz,
+  calculateEffectiveStoredHz,
+} from '../../services/storage/trackingStorage';
 
 interface BadmintonMovementDashboardProps {
   analysis?: TrackingAnalysis | null;
@@ -91,9 +96,38 @@ export default function BadmintonMovementDashboard({
     if (selectedPlayer !== 'ALL') {
       return computePlayerMovementMetrics(filteredSamples);
     }
-    // When 'ALL', aggregate or use summary
-    return computePlayerMovementMetrics(filteredSamples);
+    // When 'ALL', aggregate valid metrics across all players independently
+    return computeMultiPlayerMovementMetrics(filteredSamples);
   }, [filteredSamples, selectedPlayer]);
+
+  // Cadence & Rate Separation (Phase 0.3)
+  const sourceFps = analysis?.videoMetadata?.nominalFps ?? null;
+  const configuredFrameStride =
+    analysis?.processingConfig?.frameStride ??
+    analysis?.runtimeProvenance?.frameStride ??
+    null;
+
+  const nominalAnalysisHz = useMemo(() => {
+    if (analysis?.nominalAnalysisHz !== undefined && analysis?.nominalAnalysisHz !== null) {
+      return analysis.nominalAnalysisHz;
+    }
+    return calculateNominalAnalysisHz(sourceFps, configuredFrameStride);
+  }, [analysis?.nominalAnalysisHz, sourceFps, configuredFrameStride]);
+
+  const effectiveStoredHz = useMemo(() => {
+    const duration = timeRange[1] - timeRange[0];
+    if (duration > 0 && filteredSamples.length > 0) {
+      const uniqueTimestamps = new Set(filteredSamples.map((s) => s.timestamp)).size;
+      const calculated = calculateEffectiveStoredHz(uniqueTimestamps, duration);
+      if (calculated !== null) return calculated;
+    }
+    if (analysis?.effectiveStoredHz !== undefined && analysis?.effectiveStoredHz !== null) {
+      return analysis.effectiveStoredHz;
+    }
+    return null;
+  }, [filteredSamples, timeRange, analysis?.effectiveStoredHz]);
+
+  const processingFps = analysis?.performance?.analysisFps ?? null;
 
   // Canvas Heatmap & Trajectory rendering
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -245,19 +279,38 @@ export default function BadmintonMovementDashboard({
         }
       }
     } else if (heatmapMode === 'trail') {
-      // Trajectory Lines
+      // Trajectory Lines: group by player so only same-player samples are connected
       ctx.lineWidth = 2;
-      for (let i = 1; i < filteredSamples.length; i++) {
-        const prev = filteredSamples[i - 1];
-        const curr = filteredSamples[i];
-        if (prev.playerId !== curr.playerId) continue;
-        if (curr.trackingState !== 'tracked') continue;
+      const playerSamplesMap = new Map<string, TrackingSample[]>();
+      for (const s of filteredSamples) {
+        let list = playerSamplesMap.get(s.playerId);
+        if (!list) {
+          list = [];
+          playerSamplesMap.set(s.playerId, list);
+        }
+        list.push(s);
+      }
 
-        ctx.strokeStyle = playerColors[curr.playerId] || playerColors.default;
-        ctx.beginPath();
-        ctx.moveTo(toCanvasX(prev.courtX), toCanvasY(prev.courtY));
-        ctx.lineTo(toCanvasX(curr.courtX), toCanvasY(curr.courtY));
-        ctx.stroke();
+      for (const [pId, pSamples] of playerSamplesMap.entries()) {
+        const sorted = [...pSamples].sort((a, b) => a.timestamp - b.timestamp);
+        ctx.strokeStyle = playerColors[pId] || playerColors.default;
+        for (let i = 1; i < sorted.length; i++) {
+          const prev = sorted[i - 1];
+          const curr = sorted[i];
+          if (prev.trackingState !== 'tracked' || curr.trackingState !== 'tracked') continue;
+
+          // Teleport filter: badminton players can't move > 12 m/s
+          const dx = curr.courtX - prev.courtX;
+          const dy = curr.courtY - prev.courtY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const dt = Math.max(0.001, curr.timestamp - prev.timestamp);
+          if (dist / dt > 12.0) continue;
+
+          ctx.beginPath();
+          ctx.moveTo(toCanvasX(prev.courtX), toCanvasY(prev.courtY));
+          ctx.lineTo(toCanvasX(curr.courtX), toCanvasY(curr.courtY));
+          ctx.stroke();
+        }
       }
     } else if (heatmapMode === 'base') {
       // Base Position & Dispersion Circle
@@ -289,7 +342,8 @@ export default function BadmintonMovementDashboard({
 
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 12px sans-serif';
-        ctx.fillText(`Base (${avgX}m, ${avgY}m)`, cx + 10, cy - 8);
+        const baseLabel = selectedPlayer === 'ALL' ? 'Combined Centroid' : 'Base';
+        ctx.fillText(`${baseLabel} (${avgX}m, ${avgY}m)`, cx + 10, cy - 8);
       }
     }
   }, [filteredSamples, heatmapMode, activeMetrics]);
@@ -312,6 +366,9 @@ export default function BadmintonMovementDashboard({
   }
 
   const quality = analysis.quality;
+
+  const isMultiPlayer = playerIds.length > 1;
+  const selectedPlayerQuality = selectedPlayer !== 'ALL' ? quality.playerCoverage?.[selectedPlayer] : null;
 
   return (
     <div className="flex flex-col gap-4 p-4 bg-[#0c1721] text-slate-100 rounded-xl border border-[#263642] shadow-2xl">
@@ -359,37 +416,101 @@ export default function BadmintonMovementDashboard({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
           <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Detection Coverage
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            {selectedPlayer === 'ALL' && isMultiPlayer
+              ? 'Mean Target Coverage'
+              : 'Detection Coverage'}
           </div>
           <div className="text-lg font-black text-emerald-400 mt-1">
-            {(quality.detectionCoverage * 100).toFixed(1)}%
+            {selectedPlayerQuality
+              ? `${(selectedPlayerQuality.detectionCoverage * 100).toFixed(1)}%`
+              : `${((quality.meanTargetCoverage ?? quality.detectionCoverage) * 100).toFixed(1)}%`}
           </div>
+          {selectedPlayer === 'ALL' && isMultiPlayer && (
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              Mean of athlete coverages
+            </div>
+          )}
         </div>
+
         <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
           <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-            <Gauge className="w-3.5 h-3.5 text-sky-400" /> Mean Confidence
+            <Users className="w-3.5 h-3.5 text-sky-400" />
+            {selectedPlayer === 'ALL' && isMultiPlayer
+              ? 'All Targets Visible'
+              : 'Mean Confidence'}
           </div>
           <div className="text-lg font-black text-sky-400 mt-1">
-            {(quality.confidence * 100).toFixed(1)}%
+            {selectedPlayer === 'ALL' && isMultiPlayer
+              ? `${((quality.simultaneousTargetCoverage ?? quality.detectionCoverage) * 100).toFixed(1)}%`
+              : selectedPlayerQuality
+              ? `${Math.round(selectedPlayerQuality.meanObservedConfidence * 100)}%`
+              : `${Math.round(quality.confidence * 100)}%`}
           </div>
+          {selectedPlayer === 'ALL' && isMultiPlayer && (
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              Simultaneous coverage
+            </div>
+          )}
         </div>
+
         <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
           <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Lost Frames Time
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            {quality.predictedPercent !== undefined || selectedPlayerQuality?.predictedPercent !== undefined
+              ? 'Tracking State'
+              : 'Lost Frames Time'}
           </div>
           <div className="text-lg font-black text-amber-400 mt-1">
-            {quality.lostTimePercent.toFixed(1)}%
+            {selectedPlayerQuality
+              ? `Pred: ${selectedPlayerQuality.predictedPercent.toFixed(1)}%`
+              : quality.predictedPercent !== undefined
+              ? `Pred: ${quality.predictedPercent.toFixed(1)}%`
+              : `${quality.lostTimePercent.toFixed(1)}%`}
+          </div>
+          <div className="text-[10px] text-slate-400 mt-0.5">
+            Lost:{' '}
+            {selectedPlayerQuality
+              ? `${selectedPlayerQuality.lostPercent.toFixed(1)}%`
+              : `${(quality.lostPercent ?? quality.lostTimePercent).toFixed(1)}%`}
           </div>
         </div>
-        <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
-          <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5 text-purple-400" /> Sample Points
+
+        <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg flex flex-col justify-between" data-testid="telemetry-cadence-card">
+          <div>
+            <div className="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                {selectedPlayer === 'ALL' && isMultiPlayer ? (
+                  <Gauge className="w-3.5 h-3.5 text-purple-400" />
+                ) : (
+                  <Users className="w-3.5 h-3.5 text-purple-400" />
+                )}
+                {selectedPlayer === 'ALL' && isMultiPlayer ? 'Mean Confidence' : 'Sample Points'}
+              </span>
+              <span className="text-[10px] font-mono text-purple-300">
+                {effectiveStoredHz !== null ? `${effectiveStoredHz} Hz` : '—'}
+              </span>
+            </div>
+            <div className="text-lg font-black text-purple-400 mt-1 flex items-baseline justify-between">
+              <span>
+                {selectedPlayer === 'ALL' && isMultiPlayer
+                  ? `${(quality.confidence * 100).toFixed(0)}%`
+                  : filteredSamples.length}
+              </span>
+              {selectedPlayer === 'ALL' && isMultiPlayer && (
+                <span className="text-[10px] font-mono text-slate-400">
+                  {filteredSamples.length} samples
+                </span>
+              )}
+            </div>
           </div>
-          <div className="text-lg font-black text-purple-400 mt-1">
-            {filteredSamples.length}{' '}
-            <span className="text-xs font-normal text-slate-400">
-              {analysis.sampleRateHz > 0 ? `@ ${analysis.sampleRateHz}Hz` : 'rate unavailable'}
-            </span>
+          <div className="mt-1.5 pt-1.5 border-t border-[#263642]/60 text-[10px] font-mono text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span>Source: <strong className="text-slate-300 font-semibold">{sourceFps !== null ? `${sourceFps} FPS` : '—'}</strong></span>
+            <span>Analyzed: <strong className="text-slate-300 font-semibold">{nominalAnalysisHz !== null ? `${nominalAnalysisHz} Hz` : '—'}</strong></span>
+            <span>Stored: <strong className="text-slate-300 font-semibold">{effectiveStoredHz !== null ? `${effectiveStoredHz} Hz` : '—'}</strong></span>
+            {processingFps !== null && (
+              <span>Inference: <strong className="text-slate-300 font-semibold">{processingFps.toFixed(1)} FPS</strong></span>
+            )}
           </div>
         </div>
         </div>
@@ -399,6 +520,39 @@ export default function BadmintonMovementDashboard({
           className="p-3 text-sm text-slate-300 bg-[#132332] border border-[#263642] rounded-lg"
         >
           Quality unavailable: this analysis has no measured tracking quality record.
+        </div>
+      )}
+
+      {/* Per-Player Quality Inspectable Row */}
+      {quality.playerCoverage && isMultiPlayer && (
+        <div className="flex flex-wrap items-center gap-2 p-2.5 bg-[#132332]/70 border border-[#263642] rounded-lg text-xs">
+          <span className="font-semibold text-slate-400 text-[11px] uppercase tracking-wider">Per-Player Quality:</span>
+          {playerIds.map((pId) => {
+            const pQual = quality.playerCoverage?.[pId];
+            if (!pQual) return null;
+            return (
+              <button
+                key={pId}
+                type="button"
+                onClick={() => setSelectedPlayer(pId)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border transition-colors ${
+                  selectedPlayer === pId
+                    ? 'bg-sky-950 border-sky-600 text-sky-200 shadow-sm'
+                    : 'bg-[#09141d] border-slate-800 text-slate-300 hover:border-slate-700'
+                }`}
+                data-testid={`player-quality-pill-${pId}`}
+              >
+                <span className="font-bold text-sky-400">{pId}:</span>
+                <span className="text-emerald-400 font-semibold">{(pQual.detectionCoverage * 100).toFixed(1)}% obs</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-amber-400">{pQual.predictedPercent.toFixed(1)}% pred</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-rose-400">{pQual.lostPercent.toFixed(1)}% lost</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-sky-300 font-semibold">{Math.round(pQual.meanObservedConfidence * 100)}% conf</span>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -556,7 +710,8 @@ export default function BadmintonMovementDashboard({
 
             <div className="p-3 bg-[#132332] border border-[#263642] rounded-xl col-span-2 sm:col-span-1">
               <div className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-purple-400" /> Base Position
+                <MapPin className="w-4 h-4 text-purple-400" />{' '}
+                {selectedPlayer === 'ALL' ? 'Combined / Team Occupancy Centroid' : 'Base Position'}
               </div>
               <div className="text-lg font-black text-white mt-1">
                 {activeMetrics.basePosition.avgCourtX !== null && activeMetrics.basePosition.avgCourtY !== null

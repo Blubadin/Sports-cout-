@@ -284,8 +284,20 @@ export default function BadmintonTrackingLab() {
       // Case A: active project already has a sessionId in store
       if (
         state.sessionId &&
-        (state.status === 'PROCESSING' || state.status === 'UPLOADING' || state.status === 'COMPLETED')
+        ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'UPLOADING', 'COMPLETED', 'ERROR'].includes(state.status)
       ) {
+        // Enforce fingerprint match if file is loaded
+        if (file && state.videoFingerprint) {
+          if (state.videoFingerprint !== computeVideoFingerprint(file)) {
+            // Mismatch: clear old non-processing session to force recreation
+            if (['VIDEO_READY', 'READY_TO_ANALYZE', 'ERROR'].includes(state.status)) {
+              void aiTrackingService.deleteSession(state.sessionId).catch(() => {});
+              update({ sessionId: null, status: 'IDLE', sessionStatus: null });
+            }
+            return;
+          }
+        }
+
         try {
           const currentStatus = await aiTrackingService.getSessionStatus(state.sessionId);
           if (!alive) return;
@@ -297,10 +309,15 @@ export default function BadmintonTrackingLab() {
             analyzedFrames: currentStatus.analyzedFrames,
           });
 
-          if (currentStatus.status === 'PROCESSING') {
+          if (currentStatus.status === 'VIDEO_READY') {
+            update({ status: 'VIDEO_READY' });
+          } else if (currentStatus.status === 'READY_TO_ANALYZE') {
+            update({ status: 'READY_TO_ANALYZE' });
+          } else if (currentStatus.status === 'PROCESSING') {
             update({ status: 'PROCESSING' });
             pollSession(state.sessionId, runId);
           } else if (currentStatus.status === 'COMPLETED') {
+            update({ status: 'COMPLETED' });
             const cur = state.cursor;
             const partial = await aiTrackingService.getSessionResults(state.sessionId, cur);
             if (partial.telemetry && partial.telemetry.length > 0) {
@@ -310,6 +327,8 @@ export default function BadmintonTrackingLab() {
             if (freshState && !freshState.analysis) {
               await store.persistCompletedAnalysis(activeProjectId, freshState);
             }
+          } else if (currentStatus.status === 'ERROR') {
+            update({ status: 'ERROR', error: currentStatus.error || 'Unknown backend error' });
           }
         } catch {
           // Status check failure
@@ -324,12 +343,13 @@ export default function BadmintonTrackingLab() {
         const candidate = sessions.find(
           (item) =>
             item.projectId === activeProjectId &&
-            (item.status === 'PROCESSING' || item.status === 'COMPLETED')
+            ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'COMPLETED'].includes(item.status) &&
+            (!file || item.videoFingerprint === computeVideoFingerprint(file))
         );
         if (candidate) {
           update({
             sessionId: candidate.sessionId,
-            status: candidate.status === 'COMPLETED' ? 'COMPLETED' : 'PROCESSING',
+            status: candidate.status as any,
             gameType: candidate.gameType,
             trackedPlayerCount:
               candidate.trackedPlayerCount ?? (candidate.gameType === 'singles' ? 2 : 4),
@@ -338,7 +358,9 @@ export default function BadmintonTrackingLab() {
             totalFrames: candidate.totalFrames,
             videoFingerprint: candidate.videoFingerprint,
           });
-          pollSession(candidate.sessionId, runId);
+          if (candidate.status === 'PROCESSING' || candidate.status === 'COMPLETED') {
+            pollSession(candidate.sessionId, runId);
+          }
         }
       } catch {
         // Backend list error
@@ -357,7 +379,7 @@ export default function BadmintonTrackingLab() {
       // Note: We intentionally do NOT abort or delete session here!
       // Navigation is NOT cancellation!
     };
-  }, [activeProjectId, online]);
+  }, [activeProjectId, online, file]);
 
   // 8. Explicit User Actions
   const cancel = async () => {
@@ -407,16 +429,13 @@ export default function BadmintonTrackingLab() {
     const runId = ++generation.current;
     const current = () => generation.current === runId;
 
-    update({
-      status: 'UPLOADING',
-      error: null,
-      progress: 0,
-      telemetry: [],
-      cursor: 0,
-      sessionStatus: null,
-    });
+    let id: string | null = state.sessionId;
+    const currentBackendStatus = state.status;
+    const isResumable =
+      id &&
+      ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING'].includes(currentBackendStatus) &&
+      (!file || !state.videoFingerprint || state.videoFingerprint === computeVideoFingerprint(file));
 
-    let id: string | null = null;
     const fail = (err: unknown) => {
       if (current()) {
         update({
@@ -440,41 +459,65 @@ export default function BadmintonTrackingLab() {
         poseStride,
       };
 
-      const created = await aiTrackingService.createSession(gameType, 'upload', {
-        projectId: activeProjectId,
-        videoFingerprint: computeVideoFingerprint(file),
-        device: devicePreference,
-        trackedPlayerCount,
-        processingConfig,
-      });
+      if (!isResumable) {
+        if (id && ['VIDEO_READY', 'READY_TO_ANALYZE', 'ERROR'].includes(currentBackendStatus)) {
+          void aiTrackingService.deleteSession(id).catch(() => {});
+        }
+        update({
+          status: 'UPLOADING',
+          error: null,
+          progress: 0,
+          telemetry: [],
+          cursor: 0,
+          sessionStatus: null,
+        });
 
-      id = created.sessionId;
-      if (!current()) {
-        void aiTrackingService.deleteSession(id);
-        return;
+        const created = await aiTrackingService.createSession(gameType, 'upload', {
+          projectId: activeProjectId,
+          videoFingerprint: computeVideoFingerprint(file),
+          device: devicePreference,
+          trackedPlayerCount,
+          processingConfig,
+        });
+
+        id = created.sessionId;
+        if (!current()) {
+          void aiTrackingService.deleteSession(id);
+          return;
+        }
+
+        update({
+          sessionId: id,
+          videoFingerprint: computeVideoFingerprint(file),
+          processingConfig,
+        });
+
+        upload.current = new AbortController();
+        store.registerUploadController(activeProjectId!, upload.current);
+        await aiTrackingService.uploadSessionVideo(id, file, upload.current.signal);
+        store.clearUploadController(activeProjectId!);
+        if (!current()) return;
+
+        update({ status: 'VIDEO_READY' });
       }
 
-      update({
-        sessionId: id,
-        videoFingerprint: computeVideoFingerprint(file),
-        processingConfig,
-      });
+      // Resume flow picks up from here using the existing id
+      const activeStatus = store.getProjectState(activeProjectId!)?.status || 'VIDEO_READY';
 
-      upload.current = new AbortController();
-      store.registerUploadController(activeProjectId!, upload.current);
-      await aiTrackingService.uploadSessionVideo(id, file, upload.current.signal);
-      store.clearUploadController(activeProjectId!);
-      if (!current()) return;
+      if (activeStatus === 'VIDEO_READY' || activeStatus === 'IDLE' || activeStatus === 'CREATED') {
+        await aiTrackingService.calibrateSession(id!, corners, gameType);
+        if (!current()) return;
+        update({ status: 'READY_TO_ANALYZE' });
+      }
 
-      update({ status: 'CALIBRATED' });
-      await aiTrackingService.calibrateSession(id, corners, gameType);
-      if (!current()) return;
+      const activeStatus2 = store.getProjectState(activeProjectId!)?.status || 'READY_TO_ANALYZE';
+      if (activeStatus2 === 'READY_TO_ANALYZE') {
+        await aiTrackingService.startSessionAnalysis(id!);
+        if (!current()) return;
+        update({ status: 'PROCESSING' });
+      }
 
-      update({ status: 'PROCESSING' });
-      await aiTrackingService.startSessionAnalysis(id);
-      if (!current()) return;
-
-      pollSession(id, runId);
+      pollSession(id!, runId);
     } catch (err) {
       fail(err);
     }

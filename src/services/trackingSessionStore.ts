@@ -26,6 +26,8 @@ import {
   getLatestTrackingAnalysis,
   getTrackingSampleChunks,
   downsampleAndChunkTrackingSamples,
+  calculateNominalAnalysisHz,
+  calculateEffectiveStoredHz,
   type TrackingAnalysis,
   type TrackingSampleChunk,
 } from './storage/trackingStorage';
@@ -47,7 +49,7 @@ export interface ProjectTrackingState {
   trackedPlayerCount: number;
   corners: number[][];
   processingConfig: ProcessingConfig;
-  status: 'IDLE' | 'CREATED' | 'UPLOADING' | 'CALIBRATED' | 'PROCESSING' | 'COMPLETED' | 'ERROR';
+  status: 'IDLE' | 'CREATED' | 'UPLOADING' | 'VIDEO_READY' | 'READY_TO_ANALYZE' | 'PROCESSING' | 'COMPLETED' | 'ERROR';
   progress: number;
   currentFrame: number;
   totalFrames: number;
@@ -380,6 +382,14 @@ class TrackingSessionStore {
       const expectedIds = Array.from({ length: count }, (_, i) => `P${i + 1}`);
       const effectiveIds = Array.from(new Set([...expectedIds, ...observedPlayerIds])).sort();
 
+      const sourceFps = state.sessionStatus?.sourceFps || state.sessionStatus?.videoMetadata?.nominalFps;
+      const frameStride = state.sessionStatus?.frameStride || state.processingConfig?.frameStride;
+      const nominalAnalysisHz = calculateNominalAnalysisHz(sourceFps, frameStride);
+      const effectiveStoredHz = calculateEffectiveStoredHz(
+        saved.summary.sampleCount / Math.max(1, count),
+        saved.summary.durationSeconds
+      );
+
       const record: TrackingAnalysis = {
         id: state.sessionId,
         projectId,
@@ -393,6 +403,9 @@ class TrackingSessionStore {
         trackerModel: 'bytetrack',
         poseModel: 'yolo_pose',
         sampleRateHz: 10,
+        persistedTargetHz: 10,
+        nominalAnalysisHz,
+        effectiveStoredHz,
         createdAt: new Date().toISOString(),
         completedAt: new Date().toISOString(),
         device: state.sessionStatus?.effectiveDevice || state.sessionStatus?.device,
