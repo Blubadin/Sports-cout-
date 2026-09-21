@@ -23,9 +23,11 @@ import uuid
 try:
     from .benchmark_schema import BenchmarkClipEntry, BenchmarkManifest, generate_benchmark_run_id
     from .model_registry import get_candidate
+    from .tracker_candidates import get_baseline_tracker_candidate, get_tracker_candidate
 except ImportError:  # Direct script execution from ai_service/.
     from benchmark_schema import BenchmarkClipEntry, BenchmarkManifest, generate_benchmark_run_id
     from model_registry import get_candidate
+    from tracker_candidates import get_baseline_tracker_candidate, get_tracker_candidate
 
 
 RunStatus = Literal["SUCCESS", "FAILED", "UNAVAILABLE"]
@@ -347,6 +349,60 @@ POSE_PAIR_INVARIANTS = (
     "runtime", "precision", "device", "frame_stride", "pose_stride",
     "confidence_threshold", "court_roi_enabled",
 )
+
+TRACKER_PAIR_INVARIANTS = (
+    "candidate_id", "detector", "detector_family", "input_size",
+    "pose_model", "pose_architecture", "runtime", "precision", "device",
+    "frame_stride", "pose_stride", "confidence_threshold", "court_roi_enabled",
+)
+
+
+def build_tracker_benchmark_config(
+    baseline: BenchmarkRunConfig,
+    candidate_id: str = "botsort",
+) -> tuple[BenchmarkRunConfig, BenchmarkRunConfig]:
+    """Create a ByteTrack/candidate pair that differs only in raw MOT settings.
+
+    Semantic identity is deliberately outside this function and remains a
+    shared downstream pipeline component for both runs.
+    """
+    baseline_candidate = get_baseline_tracker_candidate()
+    candidate = get_tracker_candidate(candidate_id)
+    bytetrack = replace(
+        baseline,
+        config_id=f"{baseline.config_id}__{baseline_candidate.id}",
+        tracker=baseline_candidate.tracker_name,
+        tracker_config=baseline_candidate.tracker_config,
+        reid_enabled=baseline_candidate.reid_enabled,
+        reid_model=baseline_candidate.reid_model,
+    )
+    tracker_candidate = replace(
+        baseline,
+        config_id=f"{baseline.config_id}__{candidate.id}",
+        tracker=candidate.tracker_name,
+        tracker_config=candidate.tracker_config,
+        reid_enabled=candidate.reid_enabled,
+        reid_model=candidate.reid_model,
+    )
+    validate_tracker_comparison_pair([bytetrack, tracker_candidate])
+    return bytetrack, tracker_candidate
+
+
+def validate_tracker_comparison_pair(configs: list[BenchmarkRunConfig]) -> None:
+    """Reject tracker comparisons with changes outside raw MOT provenance."""
+    if len(configs) != 2:
+        raise ValueError("Tracker comparison requires exactly two configurations")
+    first, second = configs
+    for field_name in TRACKER_PAIR_INVARIANTS:
+        if getattr(first, field_name) != getattr(second, field_name):
+            raise ValueError(f"Tracker comparison requires matching {field_name}")
+
+    first_candidate = get_tracker_candidate(first.tracker)
+    second_candidate = get_tracker_candidate(second.tracker)
+    if first_candidate.id != "bytetrack":
+        raise ValueError("Tracker comparison baseline must use bytetrack")
+    if second_candidate.id == "bytetrack":
+        raise ValueError("Tracker comparison requires a non-baseline tracker candidate")
 
 
 def build_pose_architecture_pair(
