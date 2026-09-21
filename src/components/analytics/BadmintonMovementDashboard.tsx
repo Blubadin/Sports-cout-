@@ -20,6 +20,8 @@ import type {
 import {
   computePlayerMovementMetrics,
   computeMultiPlayerMovementMetrics,
+  calculateNominalAnalysisHz,
+  calculateEffectiveStoredHz,
 } from '../../services/storage/trackingStorage';
 
 interface BadmintonMovementDashboardProps {
@@ -97,6 +99,35 @@ export default function BadmintonMovementDashboard({
     // When 'ALL', aggregate valid metrics across all players independently
     return computeMultiPlayerMovementMetrics(filteredSamples);
   }, [filteredSamples, selectedPlayer]);
+
+  // Cadence & Rate Separation (Phase 0.3)
+  const sourceFps = analysis?.videoMetadata?.nominalFps ?? null;
+  const configuredFrameStride =
+    analysis?.processingConfig?.frameStride ??
+    analysis?.runtimeProvenance?.frameStride ??
+    null;
+
+  const nominalAnalysisHz = useMemo(() => {
+    if (analysis?.nominalAnalysisHz !== undefined && analysis?.nominalAnalysisHz !== null) {
+      return analysis.nominalAnalysisHz;
+    }
+    return calculateNominalAnalysisHz(sourceFps, configuredFrameStride);
+  }, [analysis?.nominalAnalysisHz, sourceFps, configuredFrameStride]);
+
+  const effectiveStoredHz = useMemo(() => {
+    const duration = timeRange[1] - timeRange[0];
+    if (duration > 0 && filteredSamples.length > 0) {
+      const uniqueTimestamps = new Set(filteredSamples.map((s) => s.timestamp)).size;
+      const calculated = calculateEffectiveStoredHz(uniqueTimestamps, duration);
+      if (calculated !== null) return calculated;
+    }
+    if (analysis?.effectiveStoredHz !== undefined && analysis?.effectiveStoredHz !== null) {
+      return analysis.effectiveStoredHz;
+    }
+    return null;
+  }, [filteredSamples, timeRange, analysis?.effectiveStoredHz]);
+
+  const processingFps = analysis?.performance?.analysisFps ?? null;
 
   // Canvas Heatmap & Trajectory rendering
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -426,28 +457,42 @@ export default function BadmintonMovementDashboard({
           </div>
         </div>
 
-        <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg">
-          <div className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
-            {selectedPlayer === 'ALL' && isMultiPlayer ? (
-              <Gauge className="w-3.5 h-3.5 text-purple-400" />
-            ) : (
-              <Users className="w-3.5 h-3.5 text-purple-400" />
-            )}
-            {selectedPlayer === 'ALL' && isMultiPlayer ? 'Mean Confidence' : 'Sample Points'}
-          </div>
-          <div className="text-lg font-black text-purple-400 mt-1">
-            {selectedPlayer === 'ALL' && isMultiPlayer
-              ? `${(quality.confidence * 100).toFixed(0)}%`
-              : filteredSamples.length}
-            {!(selectedPlayer === 'ALL' && isMultiPlayer) && (
-              <span className="text-xs font-normal text-slate-400 ml-1">@ 10Hz</span>
-            )}
-          </div>
-          {selectedPlayer === 'ALL' && isMultiPlayer && (
-            <div className="text-[10px] text-slate-400 mt-0.5">
-              {filteredSamples.length} samples @ 10Hz
+        <div className="p-2.5 bg-[#132332] border border-[#263642] rounded-lg flex flex-col justify-between" data-testid="telemetry-cadence-card">
+          <div>
+            <div className="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                {selectedPlayer === 'ALL' && isMultiPlayer ? (
+                  <Gauge className="w-3.5 h-3.5 text-purple-400" />
+                ) : (
+                  <Users className="w-3.5 h-3.5 text-purple-400" />
+                )}
+                {selectedPlayer === 'ALL' && isMultiPlayer ? 'Mean Confidence' : 'Sample Points'}
+              </span>
+              <span className="text-[10px] font-mono text-purple-300">
+                {effectiveStoredHz !== null ? `${effectiveStoredHz} Hz` : '—'}
+              </span>
             </div>
-          )}
+            <div className="text-lg font-black text-purple-400 mt-1 flex items-baseline justify-between">
+              <span>
+                {selectedPlayer === 'ALL' && isMultiPlayer
+                  ? `${(quality.confidence * 100).toFixed(0)}%`
+                  : filteredSamples.length}
+              </span>
+              {selectedPlayer === 'ALL' && isMultiPlayer && (
+                <span className="text-[10px] font-mono text-slate-400">
+                  {filteredSamples.length} samples
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="mt-1.5 pt-1.5 border-t border-[#263642]/60 text-[10px] font-mono text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span>Source: <strong className="text-slate-300 font-semibold">{sourceFps !== null ? `${sourceFps} FPS` : '—'}</strong></span>
+            <span>Analyzed: <strong className="text-slate-300 font-semibold">{nominalAnalysisHz !== null ? `${nominalAnalysisHz} Hz` : '—'}</strong></span>
+            <span>Stored: <strong className="text-slate-300 font-semibold">{effectiveStoredHz !== null ? `${effectiveStoredHz} Hz` : '—'}</strong></span>
+            {processingFps !== null && (
+              <span>Inference: <strong className="text-slate-300 font-semibold">{processingFps.toFixed(1)} FPS</strong></span>
+            )}
+          </div>
         </div>
       </div>
 

@@ -95,6 +95,9 @@ export interface TrackingAnalysis {
   trackerModel: string;
   poseModel?: string;
   sampleRateHz: number;
+  nominalAnalysisHz?: number | null;
+  effectiveStoredHz?: number | null;
+  persistedTargetHz?: number | null;
   createdAt: string;
   completedAt?: string;
   device?: string;
@@ -476,6 +479,64 @@ export function calculateP95(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const idx = Math.min(Math.floor(sorted.length * 0.95), sorted.length - 1);
   return Number(sorted[idx].toFixed(2));
+}
+
+/**
+ * Calculates nominal video-domain analysis cadence (Hz) from source FPS and frame stride.
+ * Formula: sourceFps / frameStride.
+ * Returns null if sourceFps or frameStride is missing, <= 0, or not finite.
+ */
+export function calculateNominalAnalysisHz(
+  sourceFps: number | null | undefined,
+  frameStride: number | null | undefined
+): number | null {
+  if (
+    sourceFps === null ||
+    sourceFps === undefined ||
+    !Number.isFinite(sourceFps) ||
+    sourceFps <= 0
+  ) {
+    return null;
+  }
+  if (
+    frameStride === null ||
+    frameStride === undefined ||
+    !Number.isFinite(frameStride) ||
+    frameStride <= 0
+  ) {
+    return null;
+  }
+  const hz = sourceFps / frameStride;
+  return Number.isFinite(hz) && hz > 0 ? Number(hz.toFixed(2)) : null;
+}
+
+/**
+ * Calculates effective stored cadence (Hz) from sample count and video duration.
+ * Formula: sampleCount / durationSec.
+ * Returns null if durationSec is missing, <= 0, or sampleCount <= 0.
+ */
+export function calculateEffectiveStoredHz(
+  sampleCount: number | null | undefined,
+  durationSec: number | null | undefined
+): number | null {
+  if (
+    sampleCount === null ||
+    sampleCount === undefined ||
+    !Number.isFinite(sampleCount) ||
+    sampleCount <= 0
+  ) {
+    return null;
+  }
+  if (
+    durationSec === null ||
+    durationSec === undefined ||
+    !Number.isFinite(durationSec) ||
+    durationSec <= 0
+  ) {
+    return null;
+  }
+  const hz = sampleCount / durationSec;
+  return Number.isFinite(hz) && hz > 0 ? Number(hz.toFixed(1)) : null;
 }
 
 export interface SinglePlayerMetricsResult {
