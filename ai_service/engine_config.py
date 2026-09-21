@@ -20,8 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-VALID_RUNTIMES = {"pytorch", "onnx", "tensorrt"}
-VALID_PRECISIONS = {"fp32", "fp16", "int8"}
+VALID_RUNTIMES = {"pytorch", "tensorrt"}
+VALID_PRECISIONS = {"fp32", "fp16"}
 VALID_POSE_ARCHITECTURES = {"roi_pose", "full_frame_pose"}
 KNOWN_TRACKERS = {
     "bytetrack": "bytetrack.yaml",
@@ -37,6 +37,11 @@ class InvalidEngineConfigError(ValueError):
 
 class ModelNotFoundError(FileNotFoundError):
     """Raised when a requested model file cannot be found or loaded."""
+    pass
+
+
+class RuntimeUnavailableError(RuntimeError):
+    """Raised when a requested inference runtime (e.g. TensorRT) is unavailable on the host."""
     pass
 
 
@@ -59,6 +64,7 @@ class TrackingEngineConfig:
     reid_model: str | None = None
     runtime: str = "pytorch"
     precision: str = "fp32"
+    model_artifact_reference: str | None = None
     detector_input_size: int = 640
     confidence_threshold: float = 0.35
     frame_stride: int = 1
@@ -84,6 +90,7 @@ class TrackingEngineConfig:
             "reidModel": self.reid_model,
             "runtime": self.runtime,
             "precision": self.precision,
+            "modelArtifactReference": self.model_artifact_reference,
             "detectorInputSize": self.detector_input_size,
             "confidenceThreshold": self.confidence_threshold,
             "frameStride": self.frame_stride,
@@ -110,6 +117,7 @@ class TrackingEngineConfig:
             "reidEnabled", "reid_enabled",
             "reidModel", "reid_model",
             "runtime", "precision",
+            "modelArtifactReference", "model_artifact_reference",
             "detectorInputSize", "detector_input_size",
             "confidenceThreshold", "confidence_threshold",
             "frameStride", "frame_stride",
@@ -136,6 +144,7 @@ class TrackingEngineConfig:
             reid_model=data.get("reidModel") if "reidModel" in data else data.get("reid_model"),
             runtime=data.get("runtime", "pytorch"),
             precision=data.get("precision", "fp32"),
+            model_artifact_reference=data.get("modelArtifactReference") or data.get("model_artifact_reference"),
             detector_input_size=int(data.get("detectorInputSize") or data.get("detector_input_size", 640)),
             confidence_threshold=float(data.get("confidenceThreshold") or data.get("confidence_threshold", 0.35)),
             frame_stride=max(1, int(data.get("frameStride") or data.get("frame_stride", 1))),
@@ -150,23 +159,82 @@ class TrackingEngineConfig:
         return cfg
 
 
+def is_tensorrt_available(device: str = "auto") -> tuple[bool, str]:
+    """Check if TensorRT execution environment is available.
+
+    Requirements:
+    1. CUDA must be available on the host.
+    2. TensorRT Python module (`tensorrt`) must be importable.
+    """
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            return False, "CUDA is not available on this device; TensorRT requires NVIDIA CUDA"
+    except Exception as e:
+        return False, f"PyTorch CUDA check failed: {e}"
+
+    try:
+        import tensorrt  # noqa: F401
+        return True, "TensorRT is available"
+    except ImportError:
+        return False, "TensorRT module ('tensorrt') is not installed or importable"
+    except Exception as e:
+        return False, f"TensorRT initialization failed: {e}"
+
+
+def validate_runtime_and_precision(
+    runtime: str,
+    precision: str,
+    device: str = "auto",
+    model_artifact_reference: str | None = None,
+) -> None:
+    """Validate runtime and precision settings, failing explicitly if unavailable.
+
+    Guarantees no silent fallback: if tensorrt is requested and unavailable,
+    raises RuntimeUnavailableError immediately.
+    """
+    if runtime not in VALID_RUNTIMES:
+        raise InvalidEngineConfigError(
+            f"Unsupported runtime: '{runtime}'. Supported runtimes: {sorted(VALID_RUNTIMES)}"
+        )
+    if precision == "int8":
+        raise InvalidEngineConfigError(
+            "Unsupported precision: 'int8'. INT8 is not implemented. Supported precisions: ['fp16', 'fp32']"
+        )
+    if precision not in VALID_PRECISIONS:
+        raise InvalidEngineConfigError(
+            f"Unsupported precision: '{precision}'. Supported precisions: {sorted(VALID_PRECISIONS)}"
+        )
+
+    if runtime == "tensorrt":
+        available, reason = is_tensorrt_available(device=device)
+        if not available:
+            raise RuntimeUnavailableError(
+                f"Requested TensorRT runtime is unavailable: {reason}. "
+                "Silent fallback to PyTorch is prohibited by SportsScout protocol."
+            )
+        if model_artifact_reference is not None:
+            artifact_path = Path(model_artifact_reference)
+            if not artifact_path.exists():
+                raise RuntimeUnavailableError(
+                    f"Model artifact file not found: {model_artifact_reference}"
+                )
+
+
 def validate_engine_config(config: TrackingEngineConfig) -> None:
     """
-    Validate tracking engine configuration.
+    Validate tracking engine configuration schema.
     Raises InvalidEngineConfigError on violation.
     """
     if not config.detector_model or not isinstance(config.detector_model, str) or not config.detector_model.strip():
         raise InvalidEngineConfigError("detector_model must be a non-empty string")
 
-    if config.runtime not in VALID_RUNTIMES:
-        raise InvalidEngineConfigError(
-            f"Unsupported runtime: '{config.runtime}'. Supported runtimes: {sorted(VALID_RUNTIMES)}"
-        )
-
-    if config.precision not in VALID_PRECISIONS:
-        raise InvalidEngineConfigError(
-            f"Unsupported precision: '{config.precision}'. Supported precisions: {sorted(VALID_PRECISIONS)}"
-        )
+    validate_runtime_and_precision(
+        runtime=config.runtime,
+        precision=config.precision,
+        device=config.device,
+        model_artifact_reference=config.model_artifact_reference,
+    )
 
     if config.detector_input_size <= 0:
         raise InvalidEngineConfigError(f"detector_input_size must be positive, got {config.detector_input_size}")
@@ -237,6 +305,7 @@ def create_baseline_engine_config(**overrides: Any) -> TrackingEngineConfig:
         reid_model=None,
         runtime="pytorch",
         precision="fp32",
+        model_artifact_reference=None,
         detector_input_size=640,
         confidence_threshold=0.35,
         frame_stride=1,

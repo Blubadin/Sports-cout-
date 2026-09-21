@@ -22,6 +22,7 @@ from engine_config import (
     TrackingEngineConfig,
     create_baseline_engine_config,
     resolve_tracker_config,
+    validate_runtime_and_precision,
 )
 from detector_adapter import BaseDetectorAdapter, UltralyticsDetectorAdapter
 from tracker_adapter import NormalizedTrackResult, TrackerProvenance
@@ -187,10 +188,20 @@ class BadmintonAnalyzerV2:
         if self._detector == "dummy":
             return
 
+        validate_runtime_and_precision(
+            runtime=self.engine_config.runtime,
+            precision=self.engine_config.precision,
+            device=self.device,
+            model_artifact_reference=self.engine_config.model_artifact_reference,
+        )
+
         if self.detector_adapter is None:
             self.detector_adapter = UltralyticsDetectorAdapter(
                 model_path=self.engine_config.detector_model,
                 device=self.device,
+                runtime=self.engine_config.runtime,
+                precision=self.engine_config.precision,
+                model_artifact_reference=self.engine_config.model_artifact_reference,
             )
 
         if self._detector is not None:
@@ -589,6 +600,10 @@ class BadmintonAnalyzerV2:
             "semanticPlayerIdSwitches": getattr(self, "semantic_player_id_switches", 0),
             "reidEnabled": self.reid_adapter.is_enabled if getattr(self, "reid_adapter", None) is not None else False,
             "reidModel": self.reid_adapter.model_name if getattr(self, "reid_adapter", None) is not None else None,
+            "runtime": self.engine_config.runtime,
+            "precision": self.engine_config.precision,
+            "actualModel": getattr(self.detector_adapter, "actual_model", None) or self.engine_config.model_artifact_reference or getattr(self, "model_path", "yolov8n.pt"),
+            "device": self.device,
             "players": player_telemetry,
 
             # Backward compatibility aliases
@@ -682,6 +697,7 @@ class BadmintonAnalyzerV2:
     def get_provenance(self) -> dict[str, Any]:
         """Return truthful runtime provenance matching the configured vision engine seams."""
         det_m = self.detector_adapter.model_name if self.detector_adapter is not None else self.engine_config.detector_model
+        actual_m = getattr(self.detector_adapter, "actual_model", None) or self.engine_config.model_artifact_reference or det_m
         pose_m = self.pose_adapter.model_name if self.pose_adapter is not None else self.engine_config.pose_model
         reid_m = self.reid_adapter.model_name if getattr(self, "reid_adapter", None) is not None else self.engine_config.reid_model
         reid_en = self.reid_adapter.is_enabled if getattr(self, "reid_adapter", None) is not None else self.engine_config.reid_enabled
@@ -702,6 +718,8 @@ class BadmintonAnalyzerV2:
             "semanticPlayerIdSwitches": getattr(self, "semantic_player_id_switches", 0),
             "runtime": self.engine_config.runtime,
             "precision": self.engine_config.precision,
+            "actualModel": actual_m,
+            "modelArtifactReference": self.engine_config.model_artifact_reference,
             "detectorInputSize": self.detector_input_size,
             "confidenceThreshold": self.conf,
             "frameStride": getattr(self, "frame_stride", 1),

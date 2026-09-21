@@ -570,6 +570,7 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     reid_model = cfg.get("reid_model") if "reid_model" in cfg else cfg.get("reidModel")
     runtime = cfg.get("runtime") or "pytorch"
     precision = cfg.get("precision") or "fp32"
+    model_artifact_ref = cfg.get("model_artifact_reference") or cfg.get("modelArtifactReference")
     conf_threshold = cfg.get("confidence_threshold") if "confidence_threshold" in cfg else cfg.get("confidenceThreshold", 0.35)
 
     return {
@@ -597,6 +598,7 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         "reidModel": str(reid_model) if reid_model else None,
         "runtime": str(runtime),
         "precision": str(precision),
+        "modelArtifactReference": str(model_artifact_ref) if model_artifact_ref else None,
         "confidenceThreshold": float(conf_threshold),
     }
 
@@ -772,6 +774,7 @@ class TrackingSession:
             reid_model=resolved_cfg.get("reidModel"),
             runtime=resolved_cfg.get("runtime", "pytorch"),
             precision=resolved_cfg.get("precision", "fp32"),
+            model_artifact_reference=resolved_cfg.get("modelArtifactReference"),
             detector_input_size=resolved_cfg["detectorInputSize"],
             confidence_threshold=resolved_cfg.get("confidenceThreshold", 0.35),
             frame_stride=resolved_cfg["frameStride"],
@@ -1210,6 +1213,8 @@ def _build_session_metrics(session: TrackingSession):
         "poseArchitecture": analyzer_prov.get("poseArchitecture", "roi_pose"),
         "runtime": analyzer_prov.get("runtime", "pytorch"),
         "precision": analyzer_prov.get("precision", "fp32"),
+        "actualModel": analyzer_prov.get("actualModel", analyzer_prov.get("detectorModel", session.analyzer.model_path)),
+        "modelArtifactReference": analyzer_prov.get("modelArtifactReference"),
         "confidenceThreshold": analyzer_prov.get("confidenceThreshold", getattr(session.analyzer, "conf", 0.35)),
         "device": session.effective_device,
         "requestedDevice": session.requested_device,

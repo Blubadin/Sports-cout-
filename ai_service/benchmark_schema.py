@@ -127,6 +127,8 @@ class BenchmarkModelConfig:
     reid_model: Optional[str] = None
     runtime: Optional[str] = None
     precision: Optional[str] = None
+    model_artifact_reference: Optional[str] = None
+    actual_model: Optional[str] = None
     court_roi_enabled: Optional[bool] = None
     pose_architecture: Optional[str] = None
 
@@ -149,6 +151,8 @@ class BenchmarkModelConfig:
             "device": self.device,
             "runtime": self.runtime,
             "precision": self.precision,
+            "modelArtifactReference": self.model_artifact_reference,
+            "actualModel": self.actual_model,
             "courtRoiEnabled": self.court_roi_enabled,
         }
 
@@ -172,6 +176,8 @@ class BenchmarkModelConfig:
             reid_model=data.get("reidModel"),
             runtime=data.get("runtime"),
             precision=data.get("precision"),
+            model_artifact_reference=data.get("modelArtifactReference"),
+            actual_model=data.get("actualModel"),
             court_roi_enabled=data.get("courtRoiEnabled") if isinstance(data.get("courtRoiEnabled"), bool) else None,
         )
 
@@ -548,6 +554,8 @@ def create_benchmark_run_from_session_dict(
         ),
         runtime=overrides.get("runtime", _first_not_none(prov.get("runtime"), cfg.get("runtime"))),
         precision=overrides.get("precision", _first_not_none(prov.get("precision"), cfg.get("precision"))),
+        model_artifact_reference=overrides.get("modelArtifactReference", _first_not_none(prov.get("modelArtifactReference"), cfg.get("modelArtifactReference"))),
+        actual_model=overrides.get("actualModel", _first_not_none(prov.get("actualModel"), cfg.get("actualModel"))),
         court_roi_enabled=overrides.get("courtRoiEnabled", _first_not_none(prov.get("useCourtRoi"), cfg.get("useCourtRoi"))),
     )
 

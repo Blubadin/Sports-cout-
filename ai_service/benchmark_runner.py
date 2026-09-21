@@ -61,6 +61,7 @@ class BenchmarkCommonConfig:
     pose_architecture: str = "roi_pose"
     runtime: str = "pytorch"
     precision: str = "fp32"
+    model_artifact_reference: str | None = None
     device: str = "cpu"
     frame_stride: int = 1
     pose_stride: int = 1
@@ -88,6 +89,7 @@ class BenchmarkRunConfig:
     pose_stride: int
     confidence_threshold: float
     court_roi_enabled: bool
+    model_artifact_reference: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -104,6 +106,7 @@ class BenchmarkRunConfig:
             "poseArchitecture": self.pose_architecture,
             "runtime": self.runtime,
             "precision": self.precision,
+            "modelArtifactReference": self.model_artifact_reference,
             "device": self.device,
             "frameStride": self.frame_stride,
             "poseStride": self.pose_stride,
@@ -127,6 +130,7 @@ class BenchmarkRunConfig:
             pose_architecture=data.get("poseArchitecture", "roi_pose"),
             runtime=data["runtime"],
             precision=data["precision"],
+            model_artifact_reference=data.get("modelArtifactReference"),
             device=data["device"],
             frame_stride=int(data["frameStride"]),
             pose_stride=int(data["poseStride"]),
@@ -364,6 +368,7 @@ def build_detector_matrix(common: BenchmarkCommonConfig) -> list[BenchmarkRunCon
             pose_architecture=common.pose_architecture,
             runtime=common.runtime,
             precision=common.precision,
+            model_artifact_reference=common.model_artifact_reference,
             device=common.device,
             frame_stride=common.frame_stride,
             pose_stride=common.pose_stride,
@@ -376,13 +381,13 @@ def build_detector_matrix(common: BenchmarkCommonConfig) -> list[BenchmarkRunCon
 POSE_PAIR_INVARIANTS = (
     "candidate_id", "detector", "detector_family", "input_size", "tracker", "tracker_config",
     "reid_enabled", "reid_model",
-    "runtime", "precision", "device", "frame_stride", "pose_stride",
+    "runtime", "precision", "model_artifact_reference", "device", "frame_stride", "pose_stride",
     "confidence_threshold", "court_roi_enabled",
 )
 
 TRACKER_PAIR_INVARIANTS = (
     "candidate_id", "detector", "detector_family", "input_size",
-    "pose_model", "pose_architecture", "runtime", "precision", "device",
+    "pose_model", "pose_architecture", "runtime", "precision", "model_artifact_reference", "device",
     "frame_stride", "pose_stride", "confidence_threshold", "court_roi_enabled",
 )
 
@@ -614,6 +619,16 @@ def resolve_local_model_path(model_reference: str, workspace_root: Path) -> Path
 
 
 def _default_availability(config: BenchmarkRunConfig, workspace_root: Path) -> tuple[bool, str]:
+    if config.runtime == "tensorrt":
+        try:
+            from .engine_config import is_tensorrt_available
+        except ImportError:
+            from engine_config import is_tensorrt_available
+        trt_ok, trt_reason = is_tensorrt_available(device=config.device)
+        if not trt_ok:
+            return False, f"TensorRT runtime unavailable: {trt_reason}"
+    if config.model_artifact_reference and resolve_local_model_path(config.model_artifact_reference, workspace_root) is None:
+        return False, f"Model artifact '{config.model_artifact_reference}' is not available locally"
     if resolve_local_model_path(config.detector, workspace_root) is None:
         return False, f"Detector model '{config.detector}' is not available locally"
     if config.pose_model and resolve_local_model_path(config.pose_model, workspace_root) is None:
@@ -1266,6 +1281,7 @@ def execute_tracking_run(
         reid_model=config.reid_model,
         runtime=config.runtime,
         precision=config.precision,
+        model_artifact_reference=config.model_artifact_reference,
         detector_input_size=config.input_size,
         confidence_threshold=config.confidence_threshold,
         frame_stride=config.frame_stride,

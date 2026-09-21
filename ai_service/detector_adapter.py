@@ -17,7 +17,12 @@ from typing import Any
 import numpy as np
 
 from court_roi import inverse_transform_bbox
-from engine_config import ModelNotFoundError, resolve_tracker_config
+from engine_config import (
+    ModelNotFoundError,
+    resolve_tracker_config,
+    validate_runtime_and_precision,
+    RuntimeUnavailableError,
+)
 from tracker_adapter import NormalizedTrackResult, TrackerProvenance
 
 
@@ -58,29 +63,68 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
     Adapter wrapping Ultralytics YOLO person detection and tracking.
     """
 
-    def __init__(self, model_path: str = "yolov8n.pt", device: str | None = None):
+    def __init__(
+        self,
+        model_path: str = "yolov8n.pt",
+        device: str | None = None,
+        runtime: str = "pytorch",
+        precision: str = "fp32",
+        model_artifact_reference: str | None = None,
+    ):
         self._model_path = str(model_path)
         self._device = device
+        self._runtime = runtime
+        self._precision = precision
+        self._model_artifact_reference = model_artifact_reference
         self._model = None
 
     @property
     def model_name(self) -> str:
         return self._model_path
 
+    @property
+    def runtime(self) -> str:
+        return self._runtime
+
+    @property
+    def precision(self) -> str:
+        return self._precision
+
+    @property
+    def actual_model(self) -> str:
+        return (
+            self._model_artifact_reference
+            if self._model_artifact_reference is not None
+            else self._model_path
+        )
+
     def _init_model(self):
         """
         Initialize the underlying YOLO model.
-        Fails explicitly if the model file is not found locally or fails to load.
+        Fails explicitly if the runtime is unavailable, or model file is not found locally.
+        Prohibits silent fallback from TensorRT to PyTorch.
         """
         if self._model is not None:
             return
 
+        validate_runtime_and_precision(
+            runtime=self._runtime,
+            precision=self._precision,
+            device=self._device or "cpu",
+            model_artifact_reference=self._model_artifact_reference,
+        )
+
         from pathlib import Path
-        p = Path(self._model_path)
+        target_path = (
+            self._model_artifact_reference
+            if self._model_artifact_reference is not None
+            else self._model_path
+        )
+        p = Path(target_path)
         cache_locations = [
             p,
-            Path.home() / "AppData" / "Roaming" / "Ultralytics" / self._model_path,
-            Path.home() / ".cache" / "ultralytics" / self._model_path,
+            Path.home() / "AppData" / "Roaming" / "Ultralytics" / target_path,
+            Path.home() / ".cache" / "ultralytics" / target_path,
         ]
         resolved_path = None
         for loc in cache_locations:
@@ -90,16 +134,16 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
 
         if resolved_path is None and not p.is_absolute():
             raise ModelNotFoundError(
-                f"Detection model '{self._model_path}' not found in local filesystem or cache. Remote downloads are prohibited in benchmark protocol."
+                f"Detection model '{target_path}' not found in local filesystem or cache. Remote downloads are prohibited in benchmark protocol."
             )
 
         from ultralytics import YOLO
         try:
-            target = resolved_path if resolved_path else self._model_path
+            target = resolved_path if resolved_path else target_path
             self._model = YOLO(target)
         except Exception as e:
             raise ModelNotFoundError(
-                f"Failed to load detection model '{self._model_path}': {e}"
+                f"Failed to load detection model '{target_path}': {e}"
             ) from e
 
     def detect_and_track(

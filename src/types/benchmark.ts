@@ -60,6 +60,10 @@ export interface TrackingBenchmarkModelConfig {
   runtime?: string | null;
   /** Numerical precision (e.g. 'fp32', 'fp16', 'int8', 'bf16') */
   precision?: string | null;
+  /** Model artifact path or reference (e.g. TensorRT engine path or export file) */
+  modelArtifactReference?: string | null;
+  /** Actual loaded model name/path verified at runtime */
+  actualModel?: string | null;
   /** Whether court ROI cropping was active during inference */
   courtRoiEnabled?: boolean | null;
 }
