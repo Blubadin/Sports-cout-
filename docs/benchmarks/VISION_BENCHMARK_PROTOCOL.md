@@ -128,3 +128,42 @@ $$\text{Video ID} + \text{Experiment Config} + \text{Model Config} + \text{Runti
 1. **Model Evaluation (Phase 1.1+)**: Compare candidate models (YOLOv8 baseline, YOLO11, etc.) across the B01–B05 clips under identical `inputSize`, `frameStride`, and `device` parameters.
 2. **Speedup Verification**: `areBenchmarkConfigsMatching` ensures hardware or architecture speedup claims are only valid when algorithmic parameters are strictly identical.
 3. **Reproducibility**: Experiments are checked in using `VisionBenchmarkExperimentConfig`, allowing any analyst or automated CI job to recreate the exact trial.
+
+---
+
+## 8. Phase 1.3 Local Detector Matrix Runner
+
+Run the fixed detector matrix from the repository root:
+
+```powershell
+python ai_service/benchmark_runner.py
+```
+
+The default matrix is exactly:
+
+- YOLOv8n: 640
+- YOLO11s: 640, 960
+- YOLO11m: 640, 960
+- YOLO26s: 640, 960
+- YOLO26m: 640, 960
+
+The runner never schedules 1280 and never downloads a missing model. It reads the local references in `src/benchmarks/visionBenchmarkManifest.json`; video files remain outside Git. Named calibration files are resolved from `benchmarks/calibrations/<courtCalibrationReference>.json` and contain a `corners` array of four pixel-coordinate pairs.
+
+Selection examples:
+
+```powershell
+python ai_service/benchmark_runner.py --clips B01_singles_easy,B04_doubles_occlusion
+python ai_service/benchmark_runner.py --detectors yolov8n,yolo11s --input-sizes 640 --device cpu
+python ai_service/benchmark_runner.py --output-dir D:\local-benchmark-results
+```
+
+The default ignored output directory is `benchmark_results/`. Each invocation writes:
+
+- a JSON bundle preserving configuration, successes, failures, unavailable inputs, per-player quality, optional ground-truth metrics, and nullable resource measurements;
+- a flat CSV comparison table sortable by detector, resolution, quality, speed, processing ratio, and measured peak VRAM.
+
+Each invocation receives a unique run-group ID. Individual run IDs include the clip, detector/input pair, tracker, pose model, runtime, precision, device, strides, confidence threshold, ROI mode, timestamp, and run group. JSON and CSV are written through temporary files and never overwrite an existing run group.
+
+`UNAVAILABLE` means a local clip or model weight was absent. `FAILED` means an available run reached the runtime but failed at a recorded stage. Neither status receives zero-filled metrics. If no selected video exists locally, the runner reports `BENCHMARK DATASET NOT AVAILABLE LOCALLY` and writes no run records.
+
+The 1280 follow-up indicator is deliberately conservative. It returns `Yes` only when a completed 960 run on a clip tagged `far_court_small_scale` has mean target coverage below 0.80, `No` only when every such measured run is at least 0.95, and `Cannot determine` for missing or mixed evidence. The runner never schedules a 1280 run itself.

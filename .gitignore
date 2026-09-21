@@ -4,6 +4,7 @@ dist/
 dev-dist/
 test-results/
 coverage/
+benchmark_results/
 .DS_Store
 *.log
 .env*
