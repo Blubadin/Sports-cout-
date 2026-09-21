@@ -563,12 +563,12 @@ export interface TrackingSessionStatus {
   totalFrames: number;
   analyzedFrames: number;
   frameStride: number;
-  elapsedSec: number;
-  videoDurationSec: number;
+  elapsedSec: number | null;
+  videoDurationSec: number | null;
   lastTelemetryTimestampSec: number | null;
-  sourceFps: number;
-  samplingFps: number;
-  analysisFps: number;
+  sourceFps: number | null;
+  samplingFps: number | null;
+  analysisFps: number | null;
   trackedPlayerCount: number;
   device: string;
   requestedDevice?: string;
@@ -631,13 +631,13 @@ export interface ProcessingConfig {
 }
 
 export interface TrackingPerformanceStats {
-  elapsedSec: number;
-  processedVideoTimeSec?: number;
-  videoDurationSec?: number;
+  elapsedSec: number | null;
+  processedVideoTimeSec?: number | null;
+  videoDurationSec?: number | null;
   rtf: number | null;
   realtimeSpeed: number | null;
-  analysisFps: number;
-  samplingFps: number;
+  analysisFps: number | null;
+  samplingFps: number | null;
   isFinal?: boolean;
 }
 
@@ -654,10 +654,12 @@ export interface PlayerTrackingCoverage {
 }
 
 export interface TrackingQualityStats {
-  observedCoveragePct: number;
-  lostFramesPct: number;
-  predictedFramesPct?: number;
-  poseCoveragePct: number;
+  observedCoveragePct: number | null;
+  lostFramesPct: number | null;
+  predictedFramesPct?: number | null;
+  poseCoveragePct: number | null;
+  meanTargetCoveragePct?: number | null;
+  simultaneousCoveragePct?: number | null;
   playerCoverage?: Record<string, PlayerTrackingCoverage>;
 }
 
@@ -678,3 +680,4 @@ export interface TrackingRuntimeProvenance {
   courtRoiMarginM?: number;
 }
 
+export * from './types/benchmark';

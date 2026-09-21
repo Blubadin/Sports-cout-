@@ -216,6 +216,52 @@ describe('Phase 5 — TrackingLabInspector Tabs & Real Metadata Foundation', () 
     expect(screen.queryByText(/°/)).not.toBeInTheDocument();
   });
 
+  it('renders unknown rate, duration, and quality telemetry as unavailable instead of zero', () => {
+    const unknownTelemetryStatus: TrackingSessionStatus = {
+      ...mockStatus,
+      elapsedSec: null,
+      videoDurationSec: null,
+      lastTelemetryTimestampSec: null,
+      sourceFps: null,
+      samplingFps: null,
+      analysisFps: null,
+      videoMetadata: {
+        ...mockStatus.videoMetadata,
+        durationSec: null,
+        nominalFps: null,
+        frameIntervalMs: null,
+      },
+      performance: {
+        elapsedSec: null,
+        processedVideoTimeSec: null,
+        videoDurationSec: null,
+        rtf: null,
+        realtimeSpeed: null,
+        analysisFps: null,
+        samplingFps: null,
+        isFinal: true,
+      },
+      quality: {
+        observedCoveragePct: null,
+        lostFramesPct: null,
+        poseCoveragePct: null,
+      },
+    };
+
+    const { container } = render(
+      <TrackingLabInspector status={unknownTelemetryStatus} isProcessing={false} language="en" />
+    );
+
+    expect(container.textContent).not.toContain('0.00s');
+    expect(container.textContent).not.toContain('NaN');
+    expect(container.textContent).not.toContain('Infinity');
+
+    fireEvent.click(screen.getByTestId('tab-performance'));
+    expect(container.textContent).not.toContain('null%');
+    expect(container.textContent).not.toContain('NaN');
+    expect(container.textContent).not.toContain('Infinity');
+  });
+
   it('switches to Performance tab and compares matching benchmark runs', () => {
     const baselineRun: TrackingAnalysis = {
       id: 'session_baseline',

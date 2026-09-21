@@ -72,7 +72,7 @@ class TestLiveTelemetryAndSessionStatus(unittest.TestCase):
         session.elapsed_sec = 0.0
         session.analyzed_frames = 0
         status_zero = get_session_status(session_id)
-        self.assertEqual(status_zero["analysisFps"], 0.0)
+        self.assertIsNone(status_zero["analysisFps"])
 
     def test_live_player_statuses_canonical_contract(self):
         """Phase 3.10: Live player metrics contract."""

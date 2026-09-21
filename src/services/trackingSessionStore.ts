@@ -26,6 +26,8 @@ import {
   getLatestTrackingAnalysis,
   getTrackingSampleChunks,
   downsampleAndChunkTrackingSamples,
+  calculateNominalAnalysisHz,
+  calculateEffectiveStoredHz,
   type TrackingAnalysis,
   type TrackingSampleChunk,
 } from './storage/trackingStorage';
@@ -357,10 +359,25 @@ class TrackingSessionStore {
     state.isPersisting = true;
 
     try {
-      const canonicalMetrics: Record<string, { totalDistanceM: number }> = {};
+      const realTelemetry = state.telemetry.filter(
+        (frame) => frame.isSynthetic !== true && frame.source !== 'synthetic_demo'
+      );
+      if (realTelemetry.length === 0) {
+        state.analysis = null;
+        state.chunks = [];
+        state.status = 'COMPLETED';
+        state.progress = 100;
+        return;
+      }
+
+      const count = state.trackedPlayerCount;
+      const expectedIds = Array.from({ length: count }, (_, i) => `P${i + 1}`);
+      const canonicalMetrics: Record<string, { totalDistanceM?: number }> = Object.fromEntries(
+        expectedIds.map((playerId) => [playerId, {}])
+      );
       if (state.sessionStatus?.players) {
         for (const lp of state.sessionStatus.players) {
-          if (lp.playerId && typeof lp.totalDistanceM === 'number') {
+          if (lp.playerId && typeof lp.totalDistanceM === 'number' && Number.isFinite(lp.totalDistanceM)) {
             canonicalMetrics[lp.playerId] = { totalDistanceM: lp.totalDistanceM };
           }
         }
@@ -368,17 +385,26 @@ class TrackingSessionStore {
 
       const saved = downsampleAndChunkTrackingSamples(
         state.sessionId,
-        state.telemetry,
+        realTelemetry,
         10,
         15,
         canonicalMetrics
       );
 
       const observedPlayerIds = new Set<string>();
-      state.telemetry.forEach((f) => f.players.forEach((p) => observedPlayerIds.add(p.playerId)));
-      const count = state.trackedPlayerCount;
-      const expectedIds = Array.from({ length: count }, (_, i) => `P${i + 1}`);
+      realTelemetry.forEach((f) => f.players.forEach((p) => observedPlayerIds.add(p.playerId)));
       const effectiveIds = Array.from(new Set([...expectedIds, ...observedPlayerIds])).sort();
+
+      const sourceFps = state.sessionStatus?.videoMetadata?.nominalFps ?? state.sessionStatus?.sourceFps;
+      const frameStride = state.sessionStatus?.frameStride ?? state.processingConfig?.frameStride;
+      const nominalAnalysisHz = calculateNominalAnalysisHz(sourceFps, frameStride);
+      const uniqueStoredTimestamps = new Set(
+        saved.chunks.flatMap((chunk) => chunk.samples.map((sample) => sample.timestamp))
+      ).size;
+      const effectiveStoredHz = calculateEffectiveStoredHz(
+        uniqueStoredTimestamps,
+        saved.summary.durationSeconds
+      );
 
       const record: TrackingAnalysis = {
         id: state.sessionId,
@@ -392,7 +418,10 @@ class TrackingSessionStore {
         detectorModel: 'yolo',
         trackerModel: 'bytetrack',
         poseModel: 'yolo_pose',
-        sampleRateHz: 10,
+        sampleRateHz: effectiveStoredHz,
+        persistedTargetHz: 10,
+        nominalAnalysisHz,
+        effectiveStoredHz,
         createdAt: new Date().toISOString(),
         completedAt: new Date().toISOString(),
         device: state.sessionStatus?.effectiveDevice || state.sessionStatus?.device,
@@ -401,13 +430,13 @@ class TrackingSessionStore {
         videoMetadata: state.sessionStatus?.videoMetadata,
         researchMetadata: state.sessionStatus?.researchMetadata,
         localFileName: state.localFileName ?? undefined,
-        analyzedFrames: state.sessionStatus?.analyzedFrames ?? state.telemetry.length,
+        analyzedFrames: state.sessionStatus?.analyzedFrames ?? realTelemetry.length,
         totalFrames: state.sessionStatus?.totalFrames ?? state.totalFrames,
         processingConfig: state.processingConfig,
         performance: state.sessionStatus?.performance,
         qualityStats: state.sessionStatus?.quality,
         players: effectiveIds.map((playerId) => {
-          const lastObserved = [...state.telemetry]
+          const lastObserved = [...realTelemetry]
             .reverse()
             .find((f) => f.players.some((p) => p.playerId === playerId));
           const pData = lastObserved?.players.find((p) => p.playerId === playerId);

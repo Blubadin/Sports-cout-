@@ -14,6 +14,27 @@ const BONES = [
 ];
 
 const CONFIDENCE_THRESHOLD = 0.4;
+const DEFAULT_FRESHNESS_TOLERANCE_SEC = 0.15;
+const MAX_FRESHNESS_TOLERANCE_SEC = 0.225;
+const CADENCE_TOLERANCE_MULTIPLIER = 1.5;
+const MAX_CADENCE_INTERVAL_SAMPLES = 31;
+const TIME_EPSILON_SEC = 1e-6;
+
+export type OverlayPlayerProvenance = TrackingPlayerV1['state'] | 'interpolated';
+
+export interface ResolvedOverlayPlayer {
+  player: TrackingPlayerV1;
+  provenance: OverlayPlayerProvenance;
+}
+
+export interface OverlayTimeResolution {
+  status: 'resolved' | 'stale' | 'unavailable';
+  players: ResolvedOverlayPlayer[];
+  freshnessToleranceSec: number;
+  sourceTimestampSec?: number;
+  nextTimestampSec?: number;
+  ageSec?: number;
+}
 
 function isPointReliable(pt?: { x: number; y: number; score: number }): boolean {
   return !!pt && pt.score >= CONFIDENCE_THRESHOLD && Number.isFinite(pt.x) && Number.isFinite(pt.y);
@@ -141,17 +162,157 @@ export function resolveFeetPosition(player: TrackingPlayerV1): FeetPositionProxy
   return null;
 }
 
-export function frameAtTime(frames: TrackingTelemetryV1[], time: number, isProcessing = false): TrackingTelemetryV1 | undefined {
+export function deriveOverlayFreshnessToleranceSec(frames: TrackingTelemetryV1[]): number {
+  const intervals: number[] = [];
+  const firstIntervalIndex = Math.max(1, frames.length - MAX_CADENCE_INTERVAL_SAMPLES);
+  for (let i = firstIntervalIndex; i < frames.length; i += 1) {
+    const interval = frames[i].timestampSec - frames[i - 1].timestampSec;
+    if (Number.isFinite(interval) && interval > TIME_EPSILON_SEC) intervals.push(interval);
+  }
+
+  if (intervals.length === 0) return DEFAULT_FRESHNESS_TOLERANCE_SEC;
+
+  intervals.sort((a, b) => a - b);
+  const middle = Math.floor(intervals.length / 2);
+  const median = intervals.length % 2 === 0
+    ? (intervals[middle - 1] + intervals[middle]) / 2
+    : intervals[middle];
+
+  return Math.min(MAX_FRESHNESS_TOLERANCE_SEC, median * CADENCE_TOLERANCE_MULTIPLIER);
+}
+
+function interpolateNumber(from: number, to: number, ratio: number): number {
+  return from + (to - from) * ratio;
+}
+
+function interpolateDisplayPlayer(
+  from: TrackingPlayerV1,
+  to: TrackingPlayerV1,
+  ratio: number,
+): TrackingPlayerV1 | null {
+  const canInterpolateBbox = !!from.bboxPct && !!to.bboxPct;
+  const canInterpolateGroundPoint = !!from.groundPointPct && !!to.groundPointPct;
+  const canInterpolatePose = !!from.pose
+    && !!to.pose
+    && from.pose.keypoints.length === to.pose.keypoints.length;
+  if (!canInterpolateBbox && !canInterpolateGroundPoint && !canInterpolatePose) return null;
+
+  const bboxPct = canInterpolateBbox
+    ? {
+        x: interpolateNumber(from.bboxPct!.x, to.bboxPct!.x, ratio),
+        y: interpolateNumber(from.bboxPct!.y, to.bboxPct!.y, ratio),
+        width: interpolateNumber(from.bboxPct!.width, to.bboxPct!.width, ratio),
+        height: interpolateNumber(from.bboxPct!.height, to.bboxPct!.height, ratio),
+      }
+    : null;
+  const groundPointPct = canInterpolateGroundPoint
+    ? {
+        x: interpolateNumber(from.groundPointPct!.x, to.groundPointPct!.x, ratio),
+        y: interpolateNumber(from.groundPointPct!.y, to.groundPointPct!.y, ratio),
+      }
+    : null;
+  const pose = canInterpolatePose
+    ? {
+        ...from.pose!,
+        keypoints: from.pose!.keypoints.map((point, index) => ({
+          ...point,
+          x: interpolateNumber(point.x, to.pose!.keypoints[index].x, ratio),
+          y: interpolateNumber(point.y, to.pose!.keypoints[index].y, ratio),
+          score: Math.min(point.score, to.pose!.keypoints[index].score),
+        })),
+      }
+    : null;
+
+  // This clone is consumed only by the overlay. Canonical metrics and tracking state
+  // deliberately remain those of the prior observed sample.
+  return { ...from, bboxPct, groundPointPct, pose };
+}
+
+export function resolveOverlayAtTime(
+  frames: TrackingTelemetryV1[],
+  time: number,
+  _isProcessing = false,
+): OverlayTimeResolution {
+  const freshnessToleranceSec = deriveOverlayFreshnessToleranceSec(frames);
+  if (frames.length === 0 || !Number.isFinite(time)) {
+    return { status: 'unavailable', players: [], freshnessToleranceSec };
+  }
+
   let lo = 0, hi = frames.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
     if (frames[mid].timestampSec <= time) lo = mid + 1;
     else hi = mid - 1;
   }
-  const frame = frames[hi];
-  if (!frame) return undefined;
-  const tolerance = isProcessing ? 2 : 0.25;
-  return time - frame.timestampSec <= tolerance ? frame : undefined;
+
+  const previous = frames[hi];
+  if (!previous) {
+    return {
+      status: 'unavailable',
+      players: [],
+      freshnessToleranceSec,
+      nextTimestampSec: frames[lo]?.timestampSec,
+    };
+  }
+
+  const ageSec = Math.max(0, time - previous.timestampSec);
+  if (ageSec - freshnessToleranceSec > TIME_EPSILON_SEC) {
+    return {
+      status: 'stale',
+      players: [],
+      freshnessToleranceSec,
+      sourceTimestampSec: previous.timestampSec,
+      ageSec,
+    };
+  }
+
+  const next = frames[lo];
+  const canInterpolate = !!next
+    && ageSec > TIME_EPSILON_SEC
+    && next.timestampSec - time <= freshnessToleranceSec + TIME_EPSILON_SEC;
+  const nextPlayers = canInterpolate
+    ? new Map(next.players.map((candidate) => [candidate.playerId, candidate]))
+    : null;
+  const ratio = canInterpolate
+    ? ageSec / (next.timestampSec - previous.timestampSec)
+    : 0;
+
+  const players = previous.players.map((current): ResolvedOverlayPlayer => {
+    if (current.state !== 'observed') {
+      return { player: current, provenance: current.state };
+    }
+
+    const following = nextPlayers?.get(current.playerId);
+    if (following?.state === 'observed') {
+      const interpolated = interpolateDisplayPlayer(current, following, ratio);
+      if (interpolated) return { player: interpolated, provenance: 'interpolated' };
+    }
+
+    return { player: current, provenance: 'observed' };
+  });
+
+  return {
+    status: 'resolved',
+    players,
+    freshnessToleranceSec,
+    sourceTimestampSec: previous.timestampSec,
+    nextTimestampSec: canInterpolate ? next.timestampSec : undefined,
+    ageSec,
+  };
+}
+
+/** @deprecated Use resolveOverlayAtTime to retain explicit display provenance. */
+export function frameAtTime(
+  frames: TrackingTelemetryV1[],
+  time: number,
+  isProcessing = false,
+): TrackingTelemetryV1 | undefined {
+  const resolution = resolveOverlayAtTime(frames, time, isProcessing);
+  if (resolution.status !== 'resolved') return undefined;
+  for (let index = frames.length - 1; index >= 0; index -= 1) {
+    if (frames[index].timestampSec === resolution.sourceTimestampSec) return frames[index];
+  }
+  return undefined;
 }
 
 export interface TrackingVideoOverlayProps {
@@ -183,7 +344,7 @@ export default function TrackingVideoOverlay({
     );
   }
 
-  const frame = frameAtTime(frames, time, isProcessing);
+  const resolution = resolveOverlayAtTime(frames, time, isProcessing);
 
   return (
     <svg
@@ -192,12 +353,18 @@ export default function TrackingVideoOverlay({
       preserveAspectRatio="none"
       className="absolute inset-0 w-full h-full pointer-events-none"
     >
-      {frame?.players.filter(p => p.state !== 'lost').map(p => {
+      {resolution.players.filter(({ provenance }) => provenance !== 'lost').map(({ player: p, provenance }) => {
         const bodyCenter = effectiveMode === 'center' ? resolveBodyCenterProxy(p) : null;
         const feet = effectiveMode === 'feet' ? resolveFeetPosition(p) : null;
+        const opacity = provenance === 'predicted' ? 0.65 : provenance === 'interpolated' ? 0.85 : 1;
 
         return (
-          <g key={p.playerId} data-testid={`player-overlay-${p.playerId}`}>
+          <g
+            key={p.playerId}
+            data-testid={`player-overlay-${p.playerId}`}
+            data-overlay-state={provenance}
+            opacity={opacity}
+          >
             {/* Real Bounding Box */}
             {p.bboxPct && (
               <>
@@ -209,6 +376,7 @@ export default function TrackingVideoOverlay({
                   height={p.bboxPct.height}
                   stroke="#38bdf8"
                   strokeWidth="0.2"
+                  strokeDasharray={provenance === 'predicted' ? '1 0.6' : undefined}
                   fill="none"
                 />
                 <text
@@ -218,7 +386,7 @@ export default function TrackingVideoOverlay({
                   fontSize="2"
                   fontWeight="bold"
                 >
-                  {p.playerId}{p.state !== 'observed' ? ` (${p.state})` : ''}
+                  {p.playerId}{provenance !== 'observed' ? ` (${provenance})` : ''}
                 </text>
               </>
             )}

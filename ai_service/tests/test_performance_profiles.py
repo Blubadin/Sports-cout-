@@ -28,10 +28,21 @@ from court_roi import (
 )
 from analyzer_v2 import BadmintonAnalyzerV2, PlayerProfile
 from server import (
+    _positive_finite,
     resolve_processing_config,
     compute_session_quality_metrics,
     TrackingSession,
 )
+
+
+class TestRateMetadataValidation(unittest.TestCase):
+    def test_positive_finite_rejects_missing_zero_nan_and_infinity(self):
+        self.assertEqual(_positive_finite(29.97), 29.97)
+        self.assertIsNone(_positive_finite(None))
+        self.assertIsNone(_positive_finite(0))
+        self.assertIsNone(_positive_finite(-1))
+        self.assertIsNone(_positive_finite(float("nan")))
+        self.assertIsNone(_positive_finite(float("inf")))
 
 
 class TestCourtRoiAndCoordinates(unittest.TestCase):
@@ -351,8 +362,19 @@ class TestPhase4PerformanceAndQualityHardening(unittest.TestCase):
         self.assertEqual(perf_zero["elapsedSec"], 0.0)
         self.assertIsNone(perf_zero["rtf"])
         self.assertIsNone(perf_zero["realtimeSpeed"])
-        self.assertEqual(perf_zero["analysisFps"], 0.0)
-        self.assertEqual(perf_zero["samplingFps"], 0.0)
+        self.assertIsNone(perf_zero["analysisFps"])
+        self.assertIsNone(perf_zero["samplingFps"])
+        self.assertIsNone(perf_zero["processedVideoTimeSec"])
+
+    def test_empty_quality_is_unknown_not_measured_zero(self):
+        """No telemetry cannot honestly imply 0% coverage, confidence, or loss."""
+        metrics = compute_session_quality_metrics([], 2)
+
+        self.assertIsNone(metrics["observedCoveragePct"])
+        self.assertIsNone(metrics["lostFramesPct"])
+        self.assertIsNone(metrics["predictedFramesPct"])
+        self.assertIsNone(metrics["poseCoveragePct"])
+        self.assertEqual(metrics["playerCoverage"], {})
 
     def test_player_level_coverage_predicted_separation_and_lost_time(self):
         """Player coverage must separate observed vs predicted, calculate mean player coverage, and compute lost time."""

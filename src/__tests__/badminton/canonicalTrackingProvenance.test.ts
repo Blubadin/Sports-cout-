@@ -111,6 +111,29 @@ describe('Phase 1: Canonical Tracking Data Provenance & Integrity', () => {
     expect(metricsLost.basePosition.avgCourtY).toBeNull();
   });
 
+  it('does not encode missing sample speed or confidence as measured zero', () => {
+    const rawFrames: TrackingTelemetryV1[] = [
+      {
+        schemaVersion: 1,
+        analysisId: 'unknown_measurements',
+        timestampSec: 1,
+        frameIndex: 30,
+        players: [
+          {
+            playerId: 'P1',
+            trackId: 9,
+            state: 'predicted',
+            courtPosition: { xM: 2, yM: 3, xPct: 32.8, yPct: 22.4 },
+          },
+        ],
+      },
+    ];
+
+    const result = downsampleAndChunkTrackingSamples('unknown_measurements', rawFrames, 10, 15);
+    expect(result.chunks[0].samples[0].speed).toBeNull();
+    expect(result.chunks[0].samples[0].confidence).toBeNull();
+  });
+
   it('preserves pose provenance flags (isReused, ageFrames)', () => {
     const rawFrames: TrackingTelemetryV1[] = [
       {
