@@ -371,7 +371,7 @@ class TemporalShuttleTracker:
             # Restart the window so the temporal model never sees a hidden gap.
             self._frames.clear()
 
-        current = TemporalFrame(image=image, timestamp_sec=float(timestamp_sec), frame_index=frame_index)
+        current = TemporalFrame(image=image.copy(), timestamp_sec=float(timestamp_sec), frame_index=frame_index)
         self._frames.append(current)
         self._valid_frames += 1
         self._last_frame_index = frame_index
@@ -467,6 +467,8 @@ class TemporalShuttleTracker:
         if not isinstance(image, np.ndarray) or image.ndim != 3:
             return False
         if image.shape[0] <= 0 or image.shape[1] <= 0 or image.shape[2] != 3:
+            return False
+        if image.dtype != np.uint8:
             return False
         if not isinstance(frame_index, int) or isinstance(frame_index, bool) or frame_index < 0:
             return False
