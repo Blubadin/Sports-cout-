@@ -46,6 +46,25 @@ def tracker(provider: ShuttleTrackerProvider, **overrides) -> TemporalShuttleTra
 
 
 class TestTemporalShuttleTracker(unittest.TestCase):
+    def test_caller_buffer_reuse_cannot_rewrite_temporal_history(self):
+        provider = RecordingProvider([TemporalModelOutput(probability_map=None)])
+        subject = tracker(provider)
+        reused = frame(1)
+        subject.process_frame(reused, 0.0, 0)
+        reused[:] = 2
+        subject.process_frame(reused, 0.04, 1)
+        reused[:] = 3
+        subject.process_frame(reused, 0.08, 2)
+        self.assertEqual([int(f.image[0, 0, 0]) for f in provider.windows[0]], [1, 2, 3])
+
+    def test_nan_frame_does_not_reach_model(self):
+        provider = RecordingProvider([])
+        subject = tracker(provider)
+        bad = np.full((6, 8, 3), np.nan)
+        for index in range(3):
+            subject.process_frame(bad, index / 30, index)
+        self.assertEqual(provider.windows, [])
+
     def test_window_initialization_is_unknown_without_inference(self):
         provider = RecordingProvider([])
         subject = tracker(provider)
