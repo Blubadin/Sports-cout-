@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "sportsscout-badminton-shuttle-benchmark-v1",
+  "updatedAt": "2026-09-22T12:00:00Z",
+  "description": "Standardized benchmark suite for badminton shuttlecock tracking evaluation (Phase 2.0). Logical video references only; video binaries are not committed to Git. Ground truth is image space first.",
+  "clips": [
+    {
+      "id": "S01_singles_clear_rally",
+      "name": "Singles / Clear Rally",
+      "category": "S01",
+      "sport": "badminton",
+      "gameType": "singles",
+      "split": "development",
+      "playerCount": 2,
+      "videoReference": "benchmarks/videos/shuttle/S01_singles_clear_rally.mp4",
+      "durationSec": 15.0,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 30.0,
+      "cameraType": "static_rear",
+      "cameraMotion": "static",
+      "difficultyTags": [
+        "singles",
+        "clear_rally",
+        "high_trajectory",
+        "contrast_lighting"
+      ],
+      "courtCalibrationReference": "calibration_rear_perspective_standard",
+      "groundTruthAvailable": true,
+      "notes": "Development baseline clip featuring clean high clears and deep baseline drop shots. Ground truth verified frame-by-frame.",
+      "knownDifficultSegments": [
+        {
+          "startSec": 4.5,
+          "endSec": 6.8,
+          "tags": ["far_court", "white_background"],
+          "description": "High defensive clear blends against arena lighting backdrop"
+        },
+        {
+          "startSec": 11.2,
+          "endSec": 12.5,
+          "tags": ["net_occlusion"],
+          "description": "Net tape crossing near forecourt drop"
+        }
+      ],
+      "groundTruthFrames": [
+        {
+          "frameIndex": 0,
+          "timestampSec": 0.0,
+          "visibility": "visible",
+          "xPx": 962.5,
+          "yPx": 540.2,
+          "xNormalized": 0.501302,
+          "yNormalized": 0.500185,
+          "annotationSource": "manual",
+          "reviewed": true,
+          "notes": "Server holding shuttle before high service"
+        },
+        {
+          "frameIndex": 1,
+          "timestampSec": 0.033333,
+          "visibility": "visible",
+          "xPx": 963.1,
+          "yPx": 538.8,
+          "xNormalized": 0.501615,
+          "yNormalized": 0.498889,
+          "annotationSource": "manual",
+          "reviewed": true,
+          "notes": null
+        },
+        {
+          "frameIndex": 150,
+          "timestampSec": 5.0,
+          "visibility": "occluded",
+          "xPx": 954.0,
+          "yPx": 210.0,
+          "xNormalized": 0.496875,
+          "yNormalized": 0.194444,
+          "annotationSource": "manual",
+          "reviewed": true,
+          "notes": "Partially occluded behind far ceiling girder"
+        },
+        {
+          "frameIndex": 180,
+          "timestampSec": 6.0,
+          "visibility": "not_visible",
+          "xPx": null,
+          "yPx": null,
+          "xNormalized": null,
+          "yNormalized": null,
+          "annotationSource": "manual",
+          "reviewed": true,
+          "notes": "Completely obscured behind upper banner"
+        },
+        {
+          "frameIndex": 181,
+          "timestampSec": 6.033333,
+          "visibility": "unknown",
+          "xPx": null,
+          "yPx": null,
+          "xNormalized": null,
+          "yNormalized": null,
+          "annotationSource": "manual",
+          "reviewed": true,
+          "notes": "Ambiguous frame between occlusion and re-emergence"
+        }
+      ]
+    },
+    {
+      "id": "S02_singles_fast_smash",
+      "name": "Singles / Fast Smash",
+      "category": "S02",
+      "sport": "badminton",
+      "gameType": "singles",
+      "split": "development",
+      "playerCount": 2,
+      "videoReference": "benchmarks/videos/shuttle/S02_singles_fast_smash.mp4",
+      "durationSec": 12.0,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 60.0,
+      "cameraType": "static_rear",
+      "cameraMotion": "static",
+      "difficultyTags": [
+        "singles",
+        "smash",
+        "motion_blur",
+        "lost_reacquisition"
+      ],
+      "courtCalibrationReference": "calibration_rear_perspective_standard",
+      "groundTruthAvailable": false,
+      "notes": "Rapid steep smash (>300 km/h) creating strong motion blur across 8-12 consecutive frames.",
+      "knownDifficultSegments": [
+        {
+          "startSec": 5.2,
+          "endSec": 6.1,
+          "tags": ["smash", "motion_blur"],
+          "description": "Steep downward smash trajectory with elongation streak"
+        },
+        {
+          "startSec": 6.2,
+          "endSec": 7.0,
+          "tags": ["shuttle_near_player", "lost_reacquisition"],
+          "description": "Defensive block near athlete body"
+        }
+      ],
+      "groundTruthFrames": null
+    },
+    {
+      "id": "S03_doubles_standard",
+      "name": "Doubles / Standard",
+      "category": "S03",
+      "sport": "badminton",
+      "gameType": "doubles",
+      "split": "validation",
+      "playerCount": 4,
+      "videoReference": "benchmarks/videos/shuttle/S03_doubles_standard.mp4",
+      "durationSec": 20.0,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 30.0,
+      "cameraType": "static_rear",
+      "cameraMotion": "static",
+      "difficultyTags": [
+        "doubles",
+        "flat_drive",
+        "rapid_exchanges",
+        "multi_player"
+      ],
+      "courtCalibrationReference": "calibration_rear_perspective_standard",
+      "groundTruthAvailable": false,
+      "notes": "Standard doubles drive rally with 4 athletes alternating fast midcourt flat exchanges.",
+      "knownDifficultSegments": [
+        {
+          "startSec": 8.0,
+          "endSec": 12.5,
+          "tags": ["motion_blur", "shuttle_near_player"],
+          "description": "Rapid drive exchanges over the net tape"
+        }
+      ],
+      "groundTruthFrames": null
+    },
+    {
+      "id": "S04_doubles_occlusion",
+      "name": "Doubles / Occlusion / Body Overlap",
+      "category": "S04",
+      "sport": "badminton",
+      "gameType": "doubles",
+      "split": "test",
+      "playerCount": 4,
+      "videoReference": "benchmarks/videos/shuttle/S04_doubles_occlusion.mp4",
+      "durationSec": 18.0,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 30.0,
+      "cameraType": "static_rear",
+      "cameraMotion": "static",
+      "difficultyTags": [
+        "doubles",
+        "body_occlusion",
+        "net_occlusion",
+        "shuttle_near_player"
+      ],
+      "courtCalibrationReference": "calibration_rear_perspective_standard",
+      "groundTruthAvailable": false,
+      "notes": "Stress-test clip where shuttle repeatedly passes directly in front of or behind partner and opponents.",
+      "knownDifficultSegments": [
+        {
+          "startSec": 3.4,
+          "endSec": 5.2,
+          "tags": ["body_occlusion", "shuttle_near_player"],
+          "description": "Front-court partner occludes view of striker contact"
+        },
+        {
+          "startSec": 9.1,
+          "endSec": 11.0,
+          "tags": ["net_occlusion"],
+          "description": "Tumbling net shot hidden behind net tape and post"
+        }
+      ],
+      "groundTruthFrames": null
+    },
+    {
+      "id": "S05_difficult_broadcast",
+      "name": "Difficult / Broadcast / Motion Blur",
+      "category": "S05",
+      "sport": "badminton",
+      "gameType": "singles",
+      "split": "test",
+      "playerCount": 2,
+      "videoReference": "benchmarks/videos/shuttle/S05_difficult_broadcast.mp4",
+      "durationSec": 25.0,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 25.0,
+      "cameraType": "broadcast_elevated",
+      "cameraMotion": "camera_motion",
+      "difficultyTags": [
+        "broadcast",
+        "camera_motion",
+        "motion_blur",
+        "crowd_background",
+        "far_court"
+      ],
+      "courtCalibrationReference": null,
+      "groundTruthAvailable": false,
+      "notes": "Broadcast feed with dynamic pan/tilt tracking, noisy spectator crowd in background, and compression artifacts.",
+      "knownDifficultSegments": [
+        {
+          "startSec": 0.0,
+          "endSec": 7.5,
+          "tags": ["camera_motion"],
+          "description": "Camera smooth pan following deep clear to far baseline"
+        },
+        {
+          "startSec": 14.0,
+          "endSec": 18.2,
+          "tags": ["crowd_background", "motion_blur"],
+          "description": "High lift trajectory traverses animated advertising boards and spectator crowd"
+        }
+      ],
+      "groundTruthFrames": null
+    }
+  ]
+}

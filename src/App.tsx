@@ -4,6 +4,7 @@ import { ScoutProvider, useScoutContext } from './context/ScoutContext';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { t } from './i18n';
 import WorkspaceMenu from './components/WorkspaceMenu';
+import SettingsModal from './components/SettingsModal';
 import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star, FileText, MonitorPlay, SlidersHorizontal } from 'lucide-react';
 import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
@@ -33,7 +34,6 @@ import CustomSelect from './components/ui/CustomSelect';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const BookmarksPanel = React.lazy(() => import('./components/BookmarksPanel'));
-const SettingsModal = React.lazy(() => import('./components/SettingsModal'));
 const VideoPlayer = React.lazy(() => import('./components/VideoPlayer'));
 const InputPanel = React.lazy(() => import('./components/InputPanel'));
 const ScoutingTable = React.lazy(() => import('./components/ScoutingTable'));
@@ -537,6 +537,7 @@ function AppContent() {
             <button 
               onClick={() => setIsSettingsOpen(true)}
               className="p-1.5 sm:p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+              aria-label={settings.uiLanguage === 'th' ? 'ตั้งค่า' : 'Settings'}
               title="Settings"
             >
               <Settings size={16} className="sm:w-[20px] sm:h-[20px]" />
@@ -790,9 +791,7 @@ function AppContent() {
       )}
 
       {isSettingsOpen && (
-        <React.Suspense fallback={<div className="fixed inset-0 z-[1000] bg-black/50" />}>
-          <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-        </React.Suspense>
+        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       )}
       {isKeyboardShortcutsOpen && (
         <React.Suspense fallback={null}>

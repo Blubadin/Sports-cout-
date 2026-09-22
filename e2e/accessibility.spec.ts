@@ -36,7 +36,8 @@ test('uses offline Noto typography and preserves native Tab navigation', async (
 test('switches analysis views with scoped Ctrl+Tab and arrow keys', async ({ page }) => {
   await openPilotWorkspace(page);
 
-  const tabs = page.getByRole('tab');
+  const analysisTablist = page.getByRole('tablist', { name: /Analysis views|มุมมองการวิเคราะห์/i });
+  const tabs = analysisTablist.getByRole('tab');
   await tabs.nth(0).focus();
   await page.keyboard.press('Control+Tab');
   await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
@@ -44,9 +45,10 @@ test('switches analysis views with scoped Ctrl+Tab and arrow keys', async ({ pag
 
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  const lastAnalysisTab = tabs.last();
-  await expect(lastAnalysisTab).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
-  await expect(lastAnalysisTab).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  const labsTab = analysisTablist.getByRole('tab', { name: 'Labs', exact: true });
+  await expect(labsTab).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
+  await expect(labsTab).toBeFocused();
 });
 
 test('keeps primary navigation usable at 200% browser zoom', async ({ page }) => {

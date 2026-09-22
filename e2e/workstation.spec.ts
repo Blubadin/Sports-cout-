@@ -5,9 +5,11 @@ async function enableWorkstation(page: import('@playwright/test').Page, language
   const activeAppHeader = page.locator('header.coach-header, header.workstation-topbar').filter({ visible: true });
   await expect(activeAppHeader).toHaveCount(1, { timeout: 10_000 });
   if (await activeAppHeader.evaluate(header => header.classList.contains('workstation-topbar'))) {
-    await page.getByRole('button', { name: /Settings|ตั้งค่า/i }).first().click();
-    await page.getByRole('button', { name: /Classic/i }).click();
-    await page.getByRole('button', { name: /ปิดการตั้งค่า|Close settings/i }).click();
+    await page.getByRole('button', { name: /Settings|ตั้งค่า/i }).click();
+    const settingsModal = page.locator('#settings-modal');
+    await expect(settingsModal).toBeVisible();
+    await settingsModal.getByRole('button', { name: 'Classic', exact: true }).click();
+    await settingsModal.getByRole('button', { name: /ปิดการตั้งค่า|Close settings/i }).click();
   }
   const currentHeader = page.locator('header.coach-header').filter({ visible: true });
   await expect(currentHeader).toHaveCount(1);
@@ -33,11 +35,16 @@ async function enableWorkstation(page: import('@playwright/test').Page, language
     await expect(langToggle).toBeVisible({ timeout: 10_000 });
     await langToggle.click();
   }
-  const settingsBtn = page.locator('button[title="Settings"], button[aria-label="Settings"], button[aria-label="ตั้งค่า"]').first();
+  const settingsBtn = currentHeader.getByRole('button', {
+    name: language === 'th' ? 'ตั้งค่า' : 'Settings',
+    exact: true,
+  });
   await expect(settingsBtn).toBeVisible({ timeout: 10_000 });
   await settingsBtn.click();
-  await page.getByRole('button', { name: /Workstation Beta/i }).click();
-  await page.getByRole('button', { name: /ปิดการตั้งค่า|Close settings/i }).click();
+  const settingsModal = page.locator('#settings-modal');
+  await expect(settingsModal).toBeVisible();
+  await settingsModal.getByRole('button', { name: 'Workstation Beta', exact: true }).click();
+  await settingsModal.getByRole('button', { name: /ปิดการตั้งค่า|Close settings/i }).click();
 }
 
 async function expectNoInspectorOverflow(

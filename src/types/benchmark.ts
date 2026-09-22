@@ -343,3 +343,6 @@ export interface DetectorCandidate {
   description?: string;
 }
 
+// Re-export Phase 2.0 Shuttlecock Benchmark Types
+export * from './shuttleBenchmark';
+

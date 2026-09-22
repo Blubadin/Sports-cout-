@@ -43,7 +43,7 @@ test('opens all four pilot sports and keeps Controller V1 opt-in', async ({ page
     if (sport !== sampleSports.at(-1)) await page.getByTestId('workspace-menu-toggle').click();
   }
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('header.coach-header').getByRole('button', { name: /Settings|ตั้งค่า/i }).click();
   await expect(page.getByRole('heading', { name: 'ตั้งค่าระบบ' })).toBeVisible();
   await page.getByRole('button', { name: /ขั้นสูง & คอนโทรลเลอร์|Advanced/i }).click();
   await expect(page.getByTestId('controller-v1-toggle')).not.toBeChecked();
@@ -70,7 +70,7 @@ for (const viewport of viewportCases) {
     );
     expect(horizontalOverflow).toBe(false);
 
-    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.locator('header.coach-header').getByRole('button', { name: /Settings|ตั้งค่า/i }).click();
     await expect(page.getByRole('heading', { name: 'ตั้งค่าระบบ' })).toBeVisible();
     const modalFits = await page.locator('#settings-modal > div').evaluate((element) => {
       const rect = element.getBoundingClientRect();
