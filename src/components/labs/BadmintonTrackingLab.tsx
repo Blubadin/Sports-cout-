@@ -17,6 +17,7 @@ import {
 } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 import TrackingVideoOverlay from './TrackingVideoOverlay';
+import { ShuttleOverlay, ShuttleControls, ShuttleDiagnostics, type ShuttleMode } from './ShuttleOverlay';
 import TrackingLabInspector from './TrackingLabInspector';
 import {
   useProjectTrackingSession,
@@ -56,6 +57,7 @@ export default function BadmintonTrackingLab() {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [calibrating, setCalibrating] = useState(false);
   const [time, setTime] = useState(0);
+  const [shuttleMode, setShuttleMode] = useState<ShuttleMode>('off');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -75,6 +77,19 @@ export default function BadmintonTrackingLab() {
   const chunks = state.chunks;
   const error = state.error;
   const overlayMode = state.uiPreferences.overlayMode;
+
+  // Follow decoded video presentation time for fast shuttle motion.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !video.requestVideoFrameCallback) return;
+    let callbackId = 0;
+    const tick: VideoFrameRequestCallback = (_now, metadata) => {
+      setTime(metadata.mediaTime);
+      callbackId = video.requestVideoFrameCallback(tick);
+    };
+    callbackId = video.requestVideoFrameCallback(tick);
+    return () => video.cancelVideoFrameCallback(callbackId);
+  }, [url]);
 
   // 1. Backend health & capabilities
   useEffect(() => {
@@ -893,6 +908,7 @@ export default function BadmintonTrackingLab() {
               mode={overlayMode}
               isProcessing={processing}
             />
+            <ShuttleOverlay frames={frames} time={time} mode={shuttleMode} width={dimensions.width} height={dimensions.height} />
             {(calibrating || corners.length > 0) && (
               <svg
                 aria-label="Court calibration"
@@ -941,6 +957,8 @@ export default function BadmintonTrackingLab() {
               </svg>
             )}
           </div>
+          <ShuttleControls mode={shuttleMode} onChange={setShuttleMode} />
+          <ShuttleDiagnostics frames={frames} time={time} />
           <button
             className={button}
             disabled={processing || !dimensions.width}
