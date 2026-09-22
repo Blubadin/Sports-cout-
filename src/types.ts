@@ -486,6 +486,8 @@ export interface TrackingTelemetryV1 {
   source?: 'real_tracking' | 'synthetic_demo' | string;
   trackedPlayerCount?: number;
   players: TrackingPlayerV1[];
+  /** Canonical separate shuttlecock observation stream (Phase 2.1) */
+  shuttle?: import('./types/shuttleTelemetry').ShuttleObservation | null;
 }
 
 export interface AITrackingPlayer extends Partial<TrackingPlayerV1> {
@@ -705,3 +707,4 @@ export interface TrackingRuntimeProvenance {
 }
 
 export * from './types/benchmark';
+export * from './types/shuttleTelemetry';
