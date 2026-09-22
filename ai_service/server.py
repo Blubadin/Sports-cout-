@@ -34,6 +34,23 @@ try:
 except ImportError:
     from video_metadata import extract_video_metadata
 
+try:
+    from ai_service.shuttle_pipeline import (
+        create_shuttle_pipeline,
+        ShuttlePipelineConfig,
+        STATUS_AVAILABLE,
+        STATUS_MODEL_UNAVAILABLE,
+        STATUS_DISABLED,
+    )
+except ImportError:
+    from shuttle_pipeline import (
+        create_shuttle_pipeline,
+        ShuttlePipelineConfig,
+        STATUS_AVAILABLE,
+        STATUS_MODEL_UNAVAILABLE,
+        STATUS_DISABLED,
+    )
+
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
 
@@ -144,6 +161,8 @@ def get_capabilities():
     report["detectorModel"] = analyzer.model_path
     pose_m = analyzer.engine_config.pose_model if hasattr(analyzer, "engine_config") and analyzer.engine_config.pose_model else "yolov8n-pose.pt"
     report["poseModel"] = pose_m
+    default_shuttle = create_shuttle_pipeline()
+    report["shuttle"] = default_shuttle.get_provenance()
     return report
 
 
@@ -572,6 +591,7 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     precision = cfg.get("precision") or "fp32"
     model_artifact_ref = cfg.get("model_artifact_reference") or cfg.get("modelArtifactReference")
     conf_threshold = cfg.get("confidence_threshold") if "confidence_threshold" in cfg else cfg.get("confidenceThreshold", 0.35)
+    shuttle_cfg = ShuttlePipelineConfig.from_dict(cfg, default_device=effective_device)
 
     return {
         "profile": requested_profile,
@@ -600,6 +620,21 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         "precision": str(precision),
         "modelArtifactReference": str(model_artifact_ref) if model_artifact_ref else None,
         "confidenceThreshold": float(conf_threshold),
+        "shuttleEnabled": shuttle_cfg.enabled,
+        "shuttleProvider": shuttle_cfg.provider,
+        "shuttleModelPath": shuttle_cfg.model_path,
+        "shuttleWindowSize": shuttle_cfg.window_size,
+        "shuttleInputWidth": shuttle_cfg.input_width,
+        "shuttleInputHeight": shuttle_cfg.input_height,
+        "shuttleConfidenceThreshold": shuttle_cfg.confidence_threshold,
+        "shuttleCentroidRelativeThreshold": shuttle_cfg.centroid_relative_threshold,
+        "shuttleCandidateMode": shuttle_cfg.candidate_mode,
+        "shuttleRecoveryEnabled": shuttle_cfg.recovery_enabled,
+        "shuttleDevice": shuttle_cfg.device,
+        "shuttleRuntime": shuttle_cfg.runtime,
+        "shuttlePrecision": shuttle_cfg.precision,
+        "shuttleAuxiliaryDetector": shuttle_cfg.auxiliary_detector,
+        "shuttleBuildTrajectory": shuttle_cfg.build_trajectory,
     }
 
 
@@ -786,11 +821,21 @@ class TrackingSession:
         )
         validate_engine_config(engine_cfg)
 
+        custom_provider = raw_config.get("custom_provider") or raw_config.get("customProvider")
+        custom_auxiliary = raw_config.get("custom_auxiliary") or raw_config.get("customAuxiliary")
+        self.shuttle_pipeline = create_shuttle_pipeline(
+            resolved_cfg,
+            custom_provider=custom_provider,
+            custom_auxiliary=custom_auxiliary,
+            default_device=self.effective_device,
+        )
+
         self.analyzer = BadmintonAnalyzerV2(
             game_type=game_type,
             max_players=self.tracked_player_count,
             device=self.effective_device,
             engine_config=engine_cfg,
+            shuttle_pipeline=self.shuttle_pipeline,
         )
         self.analyzer.analysis_id = session_id
         self.status = "READY"  # READY | VIDEO_READY | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
@@ -916,6 +961,11 @@ def _run_session_analysis(session: TrackingSession):
         session.error_message = str(e)
     finally:
         cap.release()
+        if hasattr(session, "shuttle_pipeline") and session.shuttle_pipeline is not None:
+            try:
+                session.shuttle_pipeline.end_stream()
+            except Exception:
+                pass
 
 
 @app.post("/api/tracking/sessions")
@@ -1229,6 +1279,29 @@ def _build_session_metrics(session: TrackingSession):
         "courtRoiMarginM": analyzer_prov.get("courtRoiMarginM", session.analyzer.court_roi_margin_m),
     }
 
+    shuttle_prov = (
+        session.shuttle_pipeline.get_provenance()
+        if hasattr(session, "shuttle_pipeline") and session.shuttle_pipeline is not None
+        else {
+            "enabled": False,
+            "requested": False,
+            "active": False,
+            "status": "DISABLED",
+            "provider": "opencv_onnx",
+            "model": None,
+            "runtime": "opencv_dnn",
+            "precision": "fp32",
+            "device": session.effective_device,
+            "windowSize": 3,
+            "confidenceThreshold": 0.5,
+            "recoveryEnabled": False,
+            "auxiliaryDetectorAvailable": False,
+            "failureReason": None,
+            "lastFailure": None,
+        }
+    )
+    provenance["shuttle"] = shuttle_prov
+
     return performance, quality, provenance
 
 
@@ -1266,6 +1339,7 @@ def get_session_status(session_id: str):
         "provenance": runtime_provenance,
         "performance": performance_stats,
         "quality": quality_stats,
+        "shuttle": runtime_provenance.get("shuttle"),
         "videoMetadata": getattr(session, "video_metadata", None),
         "researchMetadata": getattr(session, "research_metadata", None),
         "players": session.analyzer.get_live_player_statuses(),
@@ -1301,6 +1375,7 @@ def get_session_results(session_id: str, after: int | None = None):
         "effectiveProcessingConfig": session.effective_processing_config,
         "runtimeProvenance": runtime_provenance,
         "provenance": runtime_provenance,
+        "shuttle": runtime_provenance.get("shuttle"),
         "performance": performance_stats,
         "quality": quality_stats,
         "videoMetadata": getattr(session, "video_metadata", None),

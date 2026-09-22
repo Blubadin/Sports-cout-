@@ -30,6 +30,13 @@ from pose_adapter import BasePoseAdapter, create_pose_provider, FullFramePoseCan
 from pose_association import associate_poses_to_athletes
 from reid_adapter import BaseReIDAdapter, create_reid_provider
 from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts
+try:
+    from ai_service.shuttle_pipeline import ProductionShuttlePipeline
+except ImportError:
+    try:
+        from shuttle_pipeline import ProductionShuttlePipeline
+    except ImportError:
+        ProductionShuttlePipeline = None
 
 
 class PlayerProfile:
@@ -103,6 +110,7 @@ class BadmintonAnalyzerV2:
         detector_adapter: BaseDetectorAdapter | None = None,
         pose_adapter: BasePoseAdapter | None = None,
         reid_adapter: BaseReIDAdapter | None = None,
+        shuttle_pipeline: ProductionShuttlePipeline | None = None,
     ):
         self.game_type = game_type
         if max_players is None:
@@ -174,6 +182,7 @@ class BadmintonAnalyzerV2:
         self._last_cost_breakdowns: dict[int, SemanticIdentityCosts] = {}
         self._detector = None
         self._pose_detector = None
+        self.shuttle_pipeline = shuttle_pipeline
 
         if self.pose_adapter is None and self.pose_architecture == "full_frame_pose":
             self.pose_adapter = create_pose_provider(
@@ -586,6 +595,14 @@ class BadmintonAnalyzerV2:
                         p.last_pose = None
                         p.last_pose_age = 0
 
+        shuttle_obs = None
+        if self.shuttle_pipeline is not None:
+            shuttle_obs = self.shuttle_pipeline.process_frame(
+                frame,
+                timestamp_sec=t_sec,
+                frame_index=self.frame_count,
+            )
+
         return {
             # Canonical V1 Protocol (PDF §45 & §47)
             "schemaVersion": 1,
@@ -605,6 +622,7 @@ class BadmintonAnalyzerV2:
             "actualModel": getattr(self.detector_adapter, "actual_model", None) or self.engine_config.model_artifact_reference or getattr(self, "model_path", "yolov8n.pt"),
             "device": self.device,
             "players": player_telemetry,
+            "shuttle": shuttle_obs.to_dict() if shuttle_obs is not None else None,
 
             # Backward compatibility aliases
             "timestamp": round(t_sec, 3),
