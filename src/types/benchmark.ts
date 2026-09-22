@@ -35,10 +35,15 @@ export interface TrackingBenchmarkModelConfig {
   detectorVersion?: string | null;
   /** Name of pose estimation model (e.g. 'yolov8n-pose', 'alphapose') */
   poseModel: string | null;
+  /** Pose pipeline architecture; omitted by sessions saved before Phase 1.4B. */
+  poseArchitecture?: 'roi_pose' | 'full_frame_pose' | null;
   /** Tracker algorithm name (e.g. 'bytetrack', 'norfair', 'ocsort', 'botsort') */
   trackerName: string | null;
   /** Tracker version if available (optional) */
   trackerVersion?: string | null;
+  trackerConfig?: string | null;
+  reidEnabled?: boolean | null;
+  reidModel?: string | null;
   /** Square input dimension fed to the detector (e.g. 416, 512, 640) */
   detectorInputSize: number | null;
   /** Minimum detection confidence threshold (e.g. 0.25, 0.50) */
@@ -51,6 +56,16 @@ export interface TrackingBenchmarkModelConfig {
   maxPlayers: number | null;
   /** Execution device used (e.g. 'cpu', 'cuda', 'mps', 'tensorrt') */
   device: string | null;
+  /** Execution runtime environment (e.g. 'pytorch', 'onnxruntime', 'tensorrt', 'openvino') */
+  runtime?: string | null;
+  /** Numerical precision (e.g. 'fp32', 'fp16', 'int8', 'bf16') */
+  precision?: string | null;
+  /** Model artifact path or reference (e.g. TensorRT engine path or export file) */
+  modelArtifactReference?: string | null;
+  /** Actual loaded model name/path verified at runtime */
+  actualModel?: string | null;
+  /** Whether court ROI cropping was active during inference */
+  courtRoiEnabled?: boolean | null;
 }
 
 export interface TrackingBenchmarkVideoMetadata {
@@ -107,12 +122,36 @@ export interface TrackingBenchmarkQuality {
 }
 
 /**
+ * Recorded identity or tracking failure instance for root-cause audit.
+ */
+export interface TrackingBenchmarkFailureExample {
+  /** Specific failure category */
+  failureType: 'raw_id_reset' | 'semantic_id_switch' | 'cross_player_assignment' | 'reacquisition_failure' | 'ambiguous_identity';
+  /** Timestamp in clip when failure event occurred */
+  timestampSec: number;
+  /** Associated semantic athlete ID (e.g. P1) if identifiable */
+  playerId?: string | null;
+  /** Associated raw MOT track ID if applicable */
+  trackId?: number | null;
+  /** Human-readable explanation of the failure mode */
+  description: string;
+}
+
+/**
  * Future identity stability and manual audit metrics.
  * Optional: unavailable values must remain undefined or null (never default to zero).
  */
 export interface TrackingBenchmarkIdentityAudit {
   /** Number of identity swap occurrences during tracking session */
   idSwitchCount?: number | null;
+  /** Number of raw MOT tracker ID reassignments (e.g. ByteTrack ID 7 -> 19) */
+  rawTrackerIdSwitchCount?: number | null;
+  /** Number of semantic athlete identity swaps (P1 <-> P2) */
+  semanticPlayerIdSwitchCount?: number | null;
+  /** Average duration in seconds to reacquire a lost/predicted athlete (null if never lost/reacquired) */
+  reacquisitionDurationSec?: number | null;
+  /** Recorded concrete failure instances during tracking */
+  failureExamples?: TrackingBenchmarkFailureExample[];
   /** Number of manual analyst keypoint/box corrections applied */
   manualCorrectionCount?: number | null;
   /** Metric representing identity continuity over time (0.0..1.0) */
@@ -157,3 +196,150 @@ export interface TrackingBenchmarkRun {
   /** Ground truth benchmark metrics (optional - undefined/null if unmeasured) */
   groundTruth?: TrackingBenchmarkGroundTruth | null;
 }
+
+// ============================================================================
+// Phase 1.0 — Vision Benchmark Protocol Interfaces
+// ============================================================================
+
+/**
+ * A temporally bounded segment in a benchmark clip posing specific visual difficulty
+ * (e.g. crossing athletes, rapid occlusion, lighting transitions).
+ */
+export interface BenchmarkDifficultSegment {
+  /** Start offset in seconds from video start */
+  startSec: number;
+  /** End offset in seconds from video start */
+  endSec: number;
+  /** Descriptive tags identifying difficulty types */
+  tags: string[];
+  /** Optional human-readable description */
+  description?: string | null;
+}
+
+/**
+ * Metadata entry representing a standardized benchmark video clip.
+ * Clips are referenced by stable logical identifiers; physical videos are NOT committed to Git.
+ */
+export interface BenchmarkClipEntry {
+  /** Stable unique logical identifier (e.g. 'B01_singles_easy', 'B02_singles_fast_rally') */
+  id: string;
+  /** Human-readable descriptive name */
+  name: string;
+  /** Target sport (e.g. 'badminton', 'squash', 'tennis') */
+  sport: string;
+  /** Match configuration (e.g. 'singles', 'doubles') */
+  gameType: 'singles' | 'doubles' | string;
+  /** Expected target player count */
+  playerCount: number;
+  /** Logical relative video path or URI (null if clip placeholder) */
+  videoReference: string | null;
+  /** Video duration in seconds if known (null if unknown) */
+  durationSec: number | null;
+  /** Native video pixel width if known */
+  sourceWidth: number | null;
+  /** Native video pixel height if known */
+  sourceHeight: number | null;
+  /** Native video frame rate in FPS if known */
+  sourceFps: number | null;
+  /** Camera placement classification (e.g. 'static_rear', 'court_side', 'broadcast', 'mobile') */
+  cameraType: string;
+  /** Camera motion profile (e.g. 'static', 'pan_tilt_zoom', 'handheld', 'dynamic') */
+  cameraMotion: string;
+  /** Difficulty category tags */
+  difficultyTags: string[];
+  /** Optional court calibration file reference or preset key */
+  courtCalibrationReference?: string | null;
+  /**
+   * Whether reference ground truth data is available for this clip.
+   * Ground truth is strictly optional; when false, ground truth metrics remain null/unavailable.
+   */
+  groundTruthAvailable: boolean;
+  /** Optional engineering notes or test purpose description */
+  notes?: string | null;
+  /** Specific challenging temporal intervals inside the clip */
+  knownDifficultSegments: BenchmarkDifficultSegment[];
+}
+
+/**
+ * Container manifest defining a reproducible benchmark evaluation suite.
+ */
+export interface BenchmarkManifest {
+  /** Schema version number for manifest compatibility */
+  schemaVersion: number;
+  /** Unique manifest suite identifier */
+  manifestId: string;
+  /** ISO-8601 timestamp of last manifest update */
+  updatedAt: string;
+  /** General description of the benchmark suite purpose */
+  description?: string | null;
+  /** Registered benchmark clip entries */
+  clips: BenchmarkClipEntry[];
+}
+
+/**
+ * Structured, model-neutral experiment configuration for benchmark runs.
+ * Captures all parameters necessary to reproduce an inference and tracking trial.
+ */
+export interface VisionBenchmarkExperimentConfig {
+  /** Unique experiment configuration ID (e.g. 'EXP_YOLOV8N_BYTETRACK_640_CPU') */
+  experimentId: string;
+  /** Descriptive name of experiment candidate */
+  name: string;
+  /** Object detection model identifier (e.g. 'yolov8n', 'yolo11n', 'yolo26') */
+  detector: string;
+  /** Optional detector package / model weight version */
+  detectorVersion?: string | null;
+  /** Pose estimation model identifier (e.g. 'yolov8n-pose', null if disabled) */
+  poseModel: string | null;
+  /** Pose pipeline architecture; omitted by legacy benchmark experiments. */
+  poseArchitecture?: 'roi_pose' | 'full_frame_pose' | null;
+  /** Tracking algorithm identifier (e.g. 'bytetrack', 'norfair', 'ocsort') */
+  tracker: string;
+  /** Optional tracker version */
+  trackerVersion?: string | null;
+  trackerConfig?: string | null;
+  reidEnabled?: boolean | null;
+  reidModel?: string | null;
+  /** Execution runtime environment (e.g. 'pytorch', 'onnxruntime', 'tensorrt', 'openvino') */
+  runtime: string;
+  /** Square input dimension fed to the detector (e.g. 416, 512, 640) */
+  inputSize: number;
+  /** Minimum detection confidence threshold (0.0..1.0) */
+  confidenceThreshold: number;
+  /** Frame stride for object detection (1 = every frame, 2 = alternate frames) */
+  frameStride: number;
+  /** Frame stride for pose keypoint estimation */
+  poseStride: number;
+  /** Whether court ROI cropping is enabled */
+  courtRoiEnabled: boolean;
+  /** Target execution device ('cpu', 'cuda', 'mps', 'tensorrt') */
+  device: string;
+  /** Numerical precision ('fp32', 'fp16', 'int8', 'bf16') */
+  precision: string;
+  /** Optional predefined processing profile */
+  processingProfile?: string | null;
+  /** Optional experiment rationale or notes */
+  notes?: string | null;
+}
+
+export type ModelAvailabilityStatus = 'AVAILABLE' | 'UNAVAILABLE / RUNTIME INCOMPATIBLE';
+
+/**
+ * Metadata representation of a candidate object detector in the benchmark suite (Phase 1.2).
+ */
+export interface DetectorCandidate {
+  id: string;
+  displayName: string;
+  family: string;
+  modelFile: string;
+  task: string;
+  supportedInputSizes: number[];
+  baseline: boolean;
+  confidenceThreshold: number;
+  runtime: string;
+  precision: string;
+  availability?: ModelAvailabilityStatus;
+  availabilityReason?: string;
+  description?: string;
+}
+
