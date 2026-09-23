@@ -13,8 +13,14 @@ Lifecycle:
 
 from __future__ import annotations
 
+try:
+    from ai_service.resource_limits import validate_processing_numbers, validate_shuttle_numbers
+except ImportError:
+    from resource_limits import validate_processing_numbers, validate_shuttle_numbers
+
 from dataclasses import dataclass
 import os
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
@@ -84,6 +90,7 @@ STATUS_AVAILABLE = "AVAILABLE"
 STATUS_MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
 STATUS_RUNTIME_UNAVAILABLE = "RUNTIME_UNAVAILABLE"
 STATUS_INITIALIZATION_ERROR = "INITIALIZATION_ERROR"
+logger = logging.getLogger(__name__)
 
 
 def _to_bool(val: Any, default: bool = False) -> bool:
@@ -115,6 +122,13 @@ class ShuttlePipelineConfig:
     auxiliary_detector: Optional[str] = None
     build_trajectory: bool = False
 
+    def __post_init__(self):
+        validate_shuttle_numbers(self)
+        if self.provider == 'rallylens_tracknet' and (
+            self.window_size, self.input_width, self.input_height, self.runtime, self.precision, self.device
+        ) != (9, 512, 288, 'pytorch', 'fp32', 'cpu'):
+            raise ValueError('rallylens_tracknet requires 9 frames, 512x288, pytorch/fp32/cpu')
+
     @classmethod
     def from_dict(
         cls,
@@ -123,18 +137,21 @@ class ShuttlePipelineConfig:
     ) -> ShuttlePipelineConfig:
         """Construct configuration from optional dict overrides and environment defaults."""
         raw = dict(data or {})
+        validate_processing_numbers(raw)
 
         # 1. Environment variable defaults
         env_enabled = os.getenv("SHUTTLE_ENABLED")
         default_enabled = _to_bool(env_enabled, default=False) if env_enabled is not None else False
         default_provider = os.getenv("SHUTTLE_PROVIDER", "opencv_onnx")
+        provider = str(raw.get('shuttle_provider', raw.get('shuttleProvider', default_provider)))
+        is_rallylens = provider == 'rallylens_tracknet'
         default_model = os.getenv("SHUTTLE_MODEL_PATH")
-        default_ws = int(os.getenv("SHUTTLE_WINDOW_SIZE", "3"))
+        default_ws = int(os.getenv("SHUTTLE_WINDOW_SIZE", "9" if is_rallylens else "3"))
         default_w = int(os.getenv("SHUTTLE_INPUT_WIDTH", "512"))
         default_h = int(os.getenv("SHUTTLE_INPUT_HEIGHT", "288"))
         default_conf = float(os.getenv("SHUTTLE_CONFIDENCE_THRESHOLD", "0.5"))
-        default_dev = os.getenv("SHUTTLE_DEVICE", default_device)
-        default_rt = os.getenv("SHUTTLE_RUNTIME", "opencv_dnn")
+        default_dev = os.getenv("SHUTTLE_DEVICE", 'cpu' if is_rallylens else default_device)
+        default_rt = os.getenv("SHUTTLE_RUNTIME", "pytorch" if is_rallylens else "opencv_dnn")
         default_prec = os.getenv("SHUTTLE_PRECISION", "fp32")
         env_rec = os.getenv("SHUTTLE_RECOVERY_ENABLED")
         default_rec = _to_bool(env_rec, default=True) if env_rec is not None else True
@@ -158,7 +175,7 @@ class ShuttlePipelineConfig:
         )
         candidate_mode = str(raw.get("shuttle_candidate_mode", raw.get("shuttleCandidateMode", "centroid")))
 
-        device = str(raw.get("shuttle_device", raw.get("shuttleDevice", raw.get("device", default_dev))))
+        device = str(raw.get("shuttle_device", raw.get("shuttleDevice", default_dev if is_rallylens else raw.get("device", default_dev))))
         runtime = str(raw.get("shuttle_runtime", raw.get("shuttleRuntime", default_rt)))
         precision = str(raw.get("shuttle_precision", raw.get("shuttlePrecision", default_prec)))
 
@@ -291,20 +308,23 @@ class ProductionShuttlePipeline:
             if self.trajectory_builder is not None:
                 self.raw_observations.append(observation)
             return observation
-        except ModelUnavailableError as err:
+        except ModelUnavailableError:
+            logger.exception('Shuttle model unavailable')
             self.status = STATUS_MODEL_UNAVAILABLE
-            self.status_reason = str(err)
-            self.failure_reason = str(err)
+            self.status_reason = 'Shuttle model unavailable; see local service logs'
+            self.failure_reason = self.status_reason
             self.last_failure = "MODEL UNAVAILABLE"
             return None
-        except RuntimeUnavailableError as err:
+        except RuntimeUnavailableError:
+            logger.exception('Shuttle runtime unavailable')
             self.status = STATUS_RUNTIME_UNAVAILABLE
-            self.status_reason = str(err)
-            self.failure_reason = str(err)
+            self.status_reason = 'Shuttle runtime unavailable; see local service logs'
+            self.failure_reason = self.status_reason
             self.last_failure = "RUNTIME UNAVAILABLE"
             return None
-        except ShuttleInferenceError as err:
-            self.last_failure = str(err)
+        except ShuttleInferenceError:
+            logger.exception('Shuttle inference failed')
+            self.last_failure = 'Shuttle inference failed; see local service logs'
             # Recoverable inference failure: emit canonical lost observation
             return ShuttleObservation(
                 timestamp_sec=float(timestamp_sec),
@@ -314,14 +334,15 @@ class ProductionShuttlePipeline:
                 position_px=None,
             )
         except Exception as err:
+            logger.exception('Shuttle processing failed')
             # Check if this error was caused by missing model
             if "MODEL UNAVAILABLE" in str(err) or "not found" in str(err).lower():
                 self.status = STATUS_MODEL_UNAVAILABLE
-                self.status_reason = str(err)
-                self.failure_reason = str(err)
+                self.status_reason = 'Shuttle model unavailable; see local service logs'
+                self.failure_reason = self.status_reason
                 self.last_failure = "MODEL UNAVAILABLE"
                 return None
-            self.last_failure = str(err)
+            self.last_failure = 'Shuttle processing failed; see local service logs'
             raise
 
     def end_stream(self) -> Dict[str, Any]:
@@ -366,6 +387,8 @@ class ProductionShuttlePipeline:
         if self.config.model_path:
             model_name = Path(self.config.model_path).name
 
+        execution = self.provider.get_provenance() if self.provider is not None and hasattr(self.provider, 'get_provenance') else {}
+        metrics = self.temporal_tracker.metrics() if self.temporal_tracker else None
         return {
             "enabled": self.config.enabled,
             "requested": self.config.enabled,
@@ -386,6 +409,12 @@ class ProductionShuttlePipeline:
             ),
             "failureReason": self.failure_reason,
             "lastFailure": self.last_failure,
+            'inputWidth': self.config.input_width,
+            'inputHeight': self.config.input_height,
+            'requiredFrameStride': 1 if self.config.provider == 'rallylens_tracknet' else None,
+            'inferenceCalls': metrics.inference_calls if metrics else 0,
+            'candidateExtractionCalls': metrics.candidate_extraction_calls if metrics else 0,
+            **execution,
         }
 
 
@@ -433,6 +462,23 @@ def create_shuttle_pipeline(
             status_reason=avail.reason,
         )
 
+    if cfg.provider == 'rallylens_tracknet':
+        if not cfg.model_path or not Path(cfg.model_path).is_file():
+            return ProductionShuttlePipeline(cfg, status=STATUS_MODEL_UNAVAILABLE,
+                                             status_reason='Verified local RallyLens checkpoint not found')
+        try:
+            try:
+                from ai_service.rallylens_adapter import RallyLensTemporalModelAdapter
+            except ImportError:
+                from rallylens_adapter import RallyLensTemporalModelAdapter
+            provider = RallyLensTemporalModelAdapter(cfg.model_path)
+            provider.availability()
+            return ProductionShuttlePipeline(cfg, provider=provider)
+        except Exception:
+            logger.exception('Verified RallyLens model initialization failed')
+            return ProductionShuttlePipeline(cfg, status=STATUS_INITIALIZATION_ERROR,
+                                             status_reason='RallyLens checkpoint failed verification/loading; see local service logs')
+
     # 2. OpenCv ONNX provider
     if cfg.provider == "opencv_onnx":
         if not cfg.model_path:
@@ -479,11 +525,12 @@ def create_shuttle_pipeline(
                 status=STATUS_AVAILABLE,
                 status_reason=avail.reason,
             )
-        except Exception as err:
+        except Exception:
+            logger.exception('Shuttle provider initialization failed')
             return ProductionShuttlePipeline(
                 cfg,
                 status=STATUS_INITIALIZATION_ERROR,
-                status_reason=f"Failed to initialize OpenCV ONNX shuttle provider: {err}",
+                status_reason='Failed to initialize OpenCV ONNX shuttle provider; see local service logs',
             )
 
     return ProductionShuttlePipeline(

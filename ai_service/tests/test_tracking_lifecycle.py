@@ -14,6 +14,8 @@ from fastapi.testclient import TestClient
 from server import app, tracking_sessions
 
 CORNERS = [[200.0, 100.0], [1080.0, 100.0], [1080.0, 650.0], [200.0, 650.0]]
+# Container-shaped payload for lifecycle tests that mock the actual decoder.
+MOCK_VIDEO_BYTES = b'RIFF\x20\x00\x00\x00AVI ' + b'mocked video body'
 
 
 def _mock_cv2_cap():
@@ -41,7 +43,7 @@ class TestTrackingLifecycle(unittest.TestCase):
             return self.client.post(
                 f"/api/tracking/sessions/{session_id}/video?filename=test.mp4",
                 headers={"Content-Type": "video/mp4"},
-                content=b"valid video bytes"
+                content=MOCK_VIDEO_BYTES
             )
 
     def _calibrate(self, session_id):
@@ -90,7 +92,7 @@ class TestTrackingLifecycle(unittest.TestCase):
         res = self.client.post(
             f"/api/tracking/sessions/{session_id}/video?filename=test.mp4",
             headers={"Content-Type": "video/mp4"},
-            content=b"valid video bytes"
+            content=MOCK_VIDEO_BYTES
         )
         self.assertEqual(res.status_code, 200)
         self.assertEqual(tracking_sessions[session_id].status, "VIDEO_READY")

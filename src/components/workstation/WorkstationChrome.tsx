@@ -90,7 +90,6 @@ export const WORKSTATION_LEFT_TOOLS: ToolItem[] = [
 export interface WorkstationLeftRailProps {
   activeTool: WorkstationLeftTool;
   onSelectTool: (tool: WorkstationLeftTool) => void;
-  onToggleHUD?: () => void;
   onToggleFullscreen?: () => void;
   onOpenSettings?: () => void;
   onOpenHelp?: () => void;
@@ -100,7 +99,6 @@ export interface WorkstationLeftRailProps {
 export function WorkstationLeftRail({
   activeTool,
   onSelectTool,
-  onToggleHUD,
   onToggleFullscreen,
   onOpenSettings,
   onOpenHelp,
@@ -145,20 +143,8 @@ export function WorkstationLeftRail({
         })}
       </div>
 
-      {/* Bottom Actions: HUD Mode & Fullscreen */}
+      {/* Bottom Actions: Fullscreen */}
       <div className="flex flex-col items-center gap-1.5 w-full px-1.5 pt-2 border-t border-[#263642]/60">
-        <button
-          type="button"
-          onClick={onToggleHUD}
-          title={isThai ? 'เปิดโหมด HUD สเกาต์' : 'Toggle Scout HUD Mode'}
-          className="w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-sky-400 hover:bg-[#132332] border border-transparent transition-all cursor-pointer"
-        >
-          <Gamepad2 size={17} />
-          <span className="text-[8.5px] font-black uppercase tracking-tighter leading-none scale-90">
-            HUD
-          </span>
-        </button>
-
         <button
           type="button"
           onClick={onToggleFullscreen}
