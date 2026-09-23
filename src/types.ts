@@ -725,6 +725,19 @@ export interface ShuttleProvenance {
   configuredModel?: string | null;
   probeStatus?: string;
   probeFailureReason?: string | null;
+  inputWidth?: number;
+  inputHeight?: number;
+  requiredFrameStride?: number | null;
+  modelName?: string;
+  modelSha256?: string | null;
+  modelLoaded?: boolean;
+  inferenceCalls?: number;
+  candidateExtractionCalls?: number;
+  outputTensorReceived?: boolean;
+  lastOutputShape?: number[] | null;
+  lastOutputRange?: number[] | null;
+  inputContract?: Record<string, unknown>;
+  outputContract?: Record<string, unknown>;
 }
 
 export interface TrackingRuntimeProvenance {

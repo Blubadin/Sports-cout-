@@ -624,6 +624,8 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     model_artifact_ref = cfg.get("model_artifact_reference") or cfg.get("modelArtifactReference")
     conf_threshold = cfg.get("confidence_threshold") if "confidence_threshold" in cfg else cfg.get("confidenceThreshold", 0.35)
     shuttle_cfg = ShuttlePipelineConfig.from_dict(cfg, default_device=effective_device)
+    if shuttle_cfg.enabled and shuttle_cfg.provider == 'rallylens_tracknet' and frame_stride != 1:
+        raise ResourceConfigError('rallylens_tracknet requires frameStride=1 for consecutive source frames')
 
     return {
         "profile": requested_profile,

@@ -206,6 +206,11 @@ export default function BadmintonTrackingLab() {
     capabilities?.shuttle?.model ||
     null;
 
+  const requiredShuttleFrameStride = shuttleTrackingEnabled
+    ? capabilities?.shuttle?.requiredFrameStride
+    : null;
+  const effectiveFrameStride = requiredShuttleFrameStride ?? frameStride;
+
   useEffect(() => {
     if (state.processingConfig?.shuttleEnabled !== undefined) {
       setShuttleTrackingEnabled(state.processingConfig.shuttleEnabled);
@@ -604,15 +609,18 @@ export default function BadmintonTrackingLab() {
         useCourtRoi,
         courtRoiMarginPx,
         courtRoiMarginM: 0.5,
-        frameStride,
+        frameStride: effectiveFrameStride,
         poseStride,
         shuttleEnabled: shuttleTrackingEnabled,
         ...(shuttleTrackingEnabled
           ? {
-              shuttleProvider: 'opencv_onnx',
-              shuttleWindowSize: 3,
-              shuttleInputWidth: 512,
-              shuttleInputHeight: 288,
+              shuttleProvider: capabilities?.shuttle?.provider ?? 'opencv_onnx',
+              shuttleWindowSize: capabilities?.shuttle?.windowSize ?? 3,
+              shuttleInputWidth: capabilities?.shuttle?.inputWidth ?? 512,
+              shuttleInputHeight: capabilities?.shuttle?.inputHeight ?? 288,
+              shuttleRuntime: capabilities?.shuttle?.runtime,
+              shuttlePrecision: capabilities?.shuttle?.precision,
+              shuttleDevice: capabilities?.shuttle?.device,
               shuttleConfidenceThreshold: 0.5,
               shuttleRecoveryEnabled: true,
               shuttleBuildTrajectory: false,
@@ -834,8 +842,8 @@ export default function BadmintonTrackingLab() {
               <span className="text-slate-400 block">{th ? 'สุ่มเฟรมตรวจจับ (Frame Stride)' : 'Frame Stride'}</span>
               <select
                 aria-label="Frame Stride"
-                disabled={processing}
-                value={frameStride}
+                disabled={processing || requiredShuttleFrameStride != null}
+                value={effectiveFrameStride}
                 onChange={(e) => {
                   setFrameStride(Number(e.target.value));
                   setProfile('custom');
@@ -958,6 +966,13 @@ export default function BadmintonTrackingLab() {
                 </span>
               </div>
             </div>
+            {requiredShuttleFrameStride === 1 && (
+              <p className="text-xs text-slate-400">
+                {th
+                  ? `โมเดลนี้ต้องใช้ ${capabilities?.shuttle?.windowSize} เฟรมต่อเนื่อง ระบบจึงวิเคราะห์ทุกเฟรม (Frame Stride 1)`
+                  : `This model requires ${capabilities?.shuttle?.windowSize} consecutive frames; analysis uses every frame (Frame Stride 1).`}
+              </p>
+            )}
           </div>
         </div>
       )}

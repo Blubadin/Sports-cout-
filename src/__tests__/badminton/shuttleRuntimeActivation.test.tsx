@@ -170,6 +170,31 @@ describe('Phase 2.9A: Shuttle Runtime Activation & Frontend Config Plumbing', ()
   });
 
   // Test 3: Disable shuttle -> createSession receives false
+  it('uses the verified backend temporal contract instead of the generic ONNX defaults', async () => {
+    vi.mocked(aiTrackingService.getCapabilities).mockResolvedValue({
+      selectedDevice: 'cpu', cudaAvailable: false, mpsAvailable: false,
+      shuttle: {
+        enabled: false, requested: false, active: false, status: 'DISABLED',
+        provider: 'rallylens_tracknet', model: 'rallylens-shuttle-tracknet.pth',
+        runtime: 'pytorch', precision: 'fp32', device: 'cpu', windowSize: 9,
+        confidenceThreshold: 0.5, recoveryEnabled: false, auxiliaryDetectorAvailable: false,
+        requiredFrameStride: 1, inputWidth: 512, inputHeight: 288, modelAvailable: true,
+      },
+    });
+    render(<BadmintonTrackingLab />);
+    await waitFor(() => expect(aiTrackingService.getCapabilities).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /Advanced settings/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Enable Shuttle Tracking' }));
+    setupVideoAndCalibration();
+    fireEvent.click(screen.getByRole('button', { name: /Run Movement Analysis/i }));
+    await waitFor(() => expect(aiTrackingService.createSession).toHaveBeenCalledWith(
+      'singles', 'upload', expect.objectContaining({processingConfig: expect.objectContaining({
+        shuttleProvider: 'rallylens_tracknet', shuttleWindowSize: 9, shuttleRuntime: 'pytorch',
+        shuttlePrecision: 'fp32', shuttleDevice: 'cpu', frameStride: 1,
+      })})
+    ));
+  });
+
   it('3. disabling shuttle sends shuttleEnabled false to createSession', async () => {
     render(<BadmintonTrackingLab />);
     await waitFor(() => expect(aiTrackingService.checkBackendHealth).toHaveBeenCalled());

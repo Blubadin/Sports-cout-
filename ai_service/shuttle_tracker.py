@@ -120,6 +120,7 @@ class ShuttleTrackerMetrics:
     runtime: str
     precision: str
     last_failure: str | None
+    candidate_extraction_calls: int = 0
 
 
 class ShuttleTrackerProvider(ABC):
@@ -131,6 +132,9 @@ class ShuttleTrackerProvider(ABC):
 
     def availability(self) -> ProviderAvailability:
         return ProviderAvailability(True, "AVAILABLE", "Provider is ready")
+
+    def scale_coordinate(self, value: float, heatmap_extent: int, source_extent: int) -> float:
+        return _scale_coordinate(value, heatmap_extent, source_extent)
 
     @abstractmethod
     def infer(self, frames: Sequence[TemporalFrame]) -> TemporalModelOutput:
@@ -337,6 +341,7 @@ class TemporalShuttleTracker:
         self._valid_frames = 0
         self._invalid_frames = 0
         self._inference_calls = 0
+        self._candidate_extraction_calls = 0
         self._inference_seconds = 0.0
         self._processing_seconds = 0.0
         self._last_failure: str | None = None
@@ -398,6 +403,7 @@ class TemporalShuttleTracker:
         self._inference_seconds += time.perf_counter() - inference_started
 
         try:
+            self._candidate_extraction_calls += 1
             candidate = extract_shuttle_candidate(
                 output.probability_map,
                 confidence_threshold=self.config.confidence_threshold,
@@ -415,8 +421,8 @@ class TemporalShuttleTracker:
         source_height, source_width = image.shape[:2]
         heatmap = _validated_heatmap(output.probability_map)
         assert heatmap is not None
-        x_px = _scale_coordinate(candidate.x_heatmap, heatmap.shape[1], source_width)
-        y_px = _scale_coordinate(candidate.y_heatmap, heatmap.shape[0], source_height)
+        x_px = self.provider.scale_coordinate(candidate.x_heatmap, heatmap.shape[1], source_width)
+        y_px = self.provider.scale_coordinate(candidate.y_heatmap, heatmap.shape[0], source_height)
         observation = ShuttleObservation(
             timestamp_sec=float(timestamp_sec),
             frame_index=frame_index,
@@ -461,6 +467,7 @@ class TemporalShuttleTracker:
             runtime=self.config.runtime,
             precision=self.config.precision,
             last_failure=self._last_failure,
+            candidate_extraction_calls=self._candidate_extraction_calls,
         )
 
     def _valid_input(self, image: np.ndarray, timestamp_sec: float, frame_index: int) -> bool:

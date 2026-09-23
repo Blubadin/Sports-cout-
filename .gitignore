@@ -17,3 +17,4 @@ __pycache__/
 *.onnx
 *.engine
 *.bin
+.local-models/
