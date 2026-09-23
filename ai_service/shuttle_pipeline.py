@@ -13,8 +13,14 @@ Lifecycle:
 
 from __future__ import annotations
 
+try:
+    from ai_service.resource_limits import validate_processing_numbers, validate_shuttle_numbers
+except ImportError:
+    from resource_limits import validate_processing_numbers, validate_shuttle_numbers
+
 from dataclasses import dataclass
 import os
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
@@ -84,6 +90,7 @@ STATUS_AVAILABLE = "AVAILABLE"
 STATUS_MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
 STATUS_RUNTIME_UNAVAILABLE = "RUNTIME_UNAVAILABLE"
 STATUS_INITIALIZATION_ERROR = "INITIALIZATION_ERROR"
+logger = logging.getLogger(__name__)
 
 
 def _to_bool(val: Any, default: bool = False) -> bool:
@@ -115,6 +122,9 @@ class ShuttlePipelineConfig:
     auxiliary_detector: Optional[str] = None
     build_trajectory: bool = False
 
+    def __post_init__(self):
+        validate_shuttle_numbers(self)
+
     @classmethod
     def from_dict(
         cls,
@@ -123,6 +133,7 @@ class ShuttlePipelineConfig:
     ) -> ShuttlePipelineConfig:
         """Construct configuration from optional dict overrides and environment defaults."""
         raw = dict(data or {})
+        validate_processing_numbers(raw)
 
         # 1. Environment variable defaults
         env_enabled = os.getenv("SHUTTLE_ENABLED")
@@ -291,20 +302,23 @@ class ProductionShuttlePipeline:
             if self.trajectory_builder is not None:
                 self.raw_observations.append(observation)
             return observation
-        except ModelUnavailableError as err:
+        except ModelUnavailableError:
+            logger.exception('Shuttle model unavailable')
             self.status = STATUS_MODEL_UNAVAILABLE
-            self.status_reason = str(err)
-            self.failure_reason = str(err)
+            self.status_reason = 'Shuttle model unavailable; see local service logs'
+            self.failure_reason = self.status_reason
             self.last_failure = "MODEL UNAVAILABLE"
             return None
-        except RuntimeUnavailableError as err:
+        except RuntimeUnavailableError:
+            logger.exception('Shuttle runtime unavailable')
             self.status = STATUS_RUNTIME_UNAVAILABLE
-            self.status_reason = str(err)
-            self.failure_reason = str(err)
+            self.status_reason = 'Shuttle runtime unavailable; see local service logs'
+            self.failure_reason = self.status_reason
             self.last_failure = "RUNTIME UNAVAILABLE"
             return None
-        except ShuttleInferenceError as err:
-            self.last_failure = str(err)
+        except ShuttleInferenceError:
+            logger.exception('Shuttle inference failed')
+            self.last_failure = 'Shuttle inference failed; see local service logs'
             # Recoverable inference failure: emit canonical lost observation
             return ShuttleObservation(
                 timestamp_sec=float(timestamp_sec),
@@ -314,14 +328,15 @@ class ProductionShuttlePipeline:
                 position_px=None,
             )
         except Exception as err:
+            logger.exception('Shuttle processing failed')
             # Check if this error was caused by missing model
             if "MODEL UNAVAILABLE" in str(err) or "not found" in str(err).lower():
                 self.status = STATUS_MODEL_UNAVAILABLE
-                self.status_reason = str(err)
-                self.failure_reason = str(err)
+                self.status_reason = 'Shuttle model unavailable; see local service logs'
+                self.failure_reason = self.status_reason
                 self.last_failure = "MODEL UNAVAILABLE"
                 return None
-            self.last_failure = str(err)
+            self.last_failure = 'Shuttle processing failed; see local service logs'
             raise
 
     def end_stream(self) -> Dict[str, Any]:
@@ -479,11 +494,12 @@ def create_shuttle_pipeline(
                 status=STATUS_AVAILABLE,
                 status_reason=avail.reason,
             )
-        except Exception as err:
+        except Exception:
+            logger.exception('Shuttle provider initialization failed')
             return ProductionShuttlePipeline(
                 cfg,
                 status=STATUS_INITIALIZATION_ERROR,
-                status_reason=f"Failed to initialize OpenCV ONNX shuttle provider: {err}",
+                status_reason='Failed to initialize OpenCV ONNX shuttle provider; see local service logs',
             )
 
     return ProductionShuttlePipeline(

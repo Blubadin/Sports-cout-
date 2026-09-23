@@ -10,13 +10,31 @@ import json
 import math
 import threading
 import time
-from typing import Set
+import logging
+from typing import Set, Literal
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 import cv2
+
+try:
+    from ai_service.upload_media import has_video_container_header
+    from ai_service.resource_limits import (
+        get_max_upload_bytes, validate_processing_numbers, bounded_number,
+        ResourceConfigError, safe_filename,
+    )
+except ImportError:
+    from upload_media import has_video_container_header
+    from resource_limits import (
+        get_max_upload_bytes, validate_processing_numbers, bounded_number,
+        ResourceConfigError, safe_filename,
+    )
+
+logger = logging.getLogger(__name__)
 
 from analyzer_v2 import BadmintonAnalyzerV2
 from pose_adapter import PoseArchitectureNotImplementedError
@@ -53,6 +71,13 @@ except ImportError:
 
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
+
+
+@app.exception_handler(RequestValidationError)
+async def safe_validation_error(request: Request, error: RequestValidationError):
+    # Do not echo untrusted input (including paths and non-JSON NaN/Infinity).
+    details = [{key: item[key] for key in ('loc', 'msg', 'type')} for item in error.errors()]
+    return JSONResponse(status_code=422, content={'detail': details})
 
 DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -122,7 +147,7 @@ latest_telemetry = {}
 
 class CalibrateRequest(BaseModel):
     corners: list[list[float]]
-    game_type: str = "doubles"
+    game_type: Literal['singles', 'doubles'] = "doubles"
 
 
 class InitPlayerRequest(BaseModel):
@@ -136,7 +161,7 @@ class SwapPlayersRequest(BaseModel):
 
 class StartStreamRequest(BaseModel):
     video_source: str = "demo"  # "demo", local video path, or "0" for webcam
-    game_type: str = "doubles"
+    game_type: Literal['singles', 'doubles'] = "doubles"
 
 
 @app.get("/api/status")
@@ -429,7 +454,7 @@ async def start_tracking(req: StartStreamRequest):
         if not video_path.exists():
             raise HTTPException(
                 status_code=404,
-                detail=f"Video file not found: '{req.video_source}'. For simulated testing, use POST /api/demo."
+                detail="Video file not found. For simulated testing, use POST /api/demo."
             )
 
     is_tracking = True
@@ -505,6 +530,7 @@ import numpy as np
 
 def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> dict:
     cfg = dict(cfg or {})
+    validate_processing_numbers(cfg)
     requested_profile = cfg.get("profile") or "reference"
     requested_device = cfg.get("device") or "auto"
 
@@ -749,16 +775,16 @@ def compute_session_quality_metrics(results: list[dict], tracked_player_count: i
 
 class CreateSessionRequest(BaseModel):
     video_source: str = "demo"
-    game_type: str = "doubles"
+    game_type: Literal['singles', 'doubles'] = "doubles"
     project_id: str | None = None
     video_fingerprint: str | None = None
     device: str = "auto"
-    tracked_player_count: int | None = None
+    tracked_player_count: int | None = Field(default=None, strict=True, ge=1, le=4)
     processing_config: dict | None = None
 
 class SessionCalibrationRequest(BaseModel):
     corners: list[list[float]]
-    game_type: str = "doubles"
+    game_type: Literal['singles', 'doubles'] = "doubles"
 
 class SessionPlayerRequest(BaseModel):
     players: list[dict]
@@ -778,6 +804,8 @@ class TrackingSession:
         self.session_id = session_id
         self.video_source = video_source
         self.game_type = game_type
+        if game_type not in {'singles', 'doubles'}:
+            raise ResourceConfigError('game_type must be singles or doubles')
         self.project_id = project_id
         self.video_fingerprint = video_fingerprint
         self.created_at = time.time()
@@ -785,8 +813,7 @@ class TrackingSession:
         count = tracked_player_count
         if count is None:
             count = 2 if game_type == "singles" else 4
-        if not (1 <= count <= 4):
-            raise ValueError(f"tracked_player_count must be between 1 and 4, got {count}")
+        bounded_number(count, 'tracked_player_count', 1, 4, integer=True)
         self.tracked_player_count = count
 
         raw_config = dict(processing_config or {})
@@ -860,6 +887,7 @@ class TrackingSession:
         self.video_metadata: dict = v_meta
         self.research_metadata: dict = r_meta
         self._uploading = False
+        self._deleting = False
         self._cancel = False
         self._thread: threading.Thread | None = None
         self._state_lock = threading.RLock()
@@ -868,6 +896,27 @@ tracking_sessions: dict[str, TrackingSession] = {}
 
 
 def _run_session_analysis(session: TrackingSession):
+    try:
+        _analyze_session_frames(session)
+    except Exception:
+        logger.exception('Analysis initialization/execution failed for session %s', session.session_id)
+        session.status = 'ERROR'
+        session.error_message = 'Video analysis failed; see local service logs'
+    finally:
+        if session.status == 'ERROR':
+            with session._state_lock:
+                _discard_owned_video(session)
+
+
+def _discard_owned_video(session: TrackingSession):
+    """Only unlink the path created and owned by the upload endpoint."""
+    if session.owned_video_path is not None:
+        session.owned_video_path.unlink(missing_ok=True)
+        session.owned_video_path = None
+        session.video_source = 'upload'
+
+
+def _analyze_session_frames(session: TrackingSession):
     # session.status is already PROCESSING (set atomically by the /start endpoint)
     session.progress_pct = 0.0
     session.results = []
@@ -912,20 +961,28 @@ def _run_session_analysis(session: TrackingSession):
     video_path = Path(session.video_source)
     if not video_path.exists():
         session.status = "ERROR"
-        session.error_message = f"Video file not found: {session.video_source}"
+        session.error_message = "Video file not found"
         return
 
     cap = cv2.VideoCapture(session.video_source)
+    try:
+        _analyze_captured_frames(session, cap, start_time)
+    finally:
+        cap.release()
+        if session.shuttle_pipeline is not None:
+            session.shuttle_pipeline.end_stream()
+
+
+def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
     if not cap.isOpened():
         session.status = "ERROR"
-        session.error_message = f"Failed to open video file: {session.video_source}"
+        session.error_message = "Failed to open video file"
         return
 
     raw_total_frames = _positive_finite(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     total_frames = int(raw_total_frames) if raw_total_frames is not None else 0
     fps = _positive_finite(cap.get(cv2.CAP_PROP_FPS))
     if fps is None:
-        cap.release()
         session.status = "ERROR"
         session.error_message = "Source FPS unavailable; tracking cannot produce trustworthy video timestamps"
         return
@@ -962,16 +1019,10 @@ def _run_session_analysis(session: TrackingSession):
             session.progress_pct = 100.0
         else:
             session.status = "READY"
-    except Exception as e:
+    except Exception:
+        logger.exception('Video analysis failed for session %s', session.session_id)
         session.status = "ERROR"
-        session.error_message = str(e)
-    finally:
-        cap.release()
-        if hasattr(session, "shuttle_pipeline") and session.shuttle_pipeline is not None:
-            try:
-                session.shuttle_pipeline.end_stream()
-            except Exception:
-                pass
+        session.error_message = 'Video analysis failed; see local service logs'
 
 
 @app.post("/api/tracking/sessions")
@@ -989,7 +1040,9 @@ def create_tracking_session(req: CreateSessionRequest):
             processing_config=req.processing_config,
         )
     except (ValueError, InvalidEngineConfigError, ModelNotFoundError, PoseArchitectureNotImplementedError) as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        logger.exception('Tracking session configuration rejected')
+        detail = str(error) if isinstance(error, ResourceConfigError) else 'Invalid tracking configuration; check device (cuda/mps), model and processing settings'
+        raise HTTPException(status_code=422, detail=detail) from error
     tracking_sessions[session_id] = session
     return {
         "sessionId": session_id,
@@ -1047,6 +1100,8 @@ async def upload_session_video(session_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Session not found")
 
     with session._state_lock:
+        if session._deleting or tracking_sessions.get(session_id) is not session:
+            raise HTTPException(status_code=409, detail="Session is being deleted")
         if session.status not in ALLOWED_UPLOAD_STATES:
             raise HTTPException(status_code=409, detail=f"Cannot upload video in {session.status} state")
         if session._uploading or (session._thread and session._thread.is_alive()):
@@ -1055,6 +1110,16 @@ async def upload_session_video(session_id: str, request: Request):
 
     temp_path = None
     try:
+        try:
+            max_upload_bytes = get_max_upload_bytes()
+        except ResourceConfigError:
+            raise HTTPException(status_code=503, detail='Upload size limit is misconfigured') from None
+        content_length = request.headers.get('content-length')
+        if content_length is not None:
+            if not content_length.isascii() or not content_length.isdecimal() or len(content_length) > 20:
+                raise HTTPException(status_code=400, detail='Invalid Content-Length')
+            if int(content_length) > max_upload_bytes:
+                raise HTTPException(status_code=413, detail=f'Video upload exceeds the {max_upload_bytes}-byte limit')
         content_type = request.headers.get("content-type", "")
         if content_type.startswith("multipart/form-data"):
             raise HTTPException(status_code=400, detail="Multipart upload not supported. Send raw file bytes.")
@@ -1064,6 +1129,8 @@ async def upload_session_video(session_id: str, request: Request):
             or request.headers.get("X-Original-Filename")
             or request.headers.get("X-Filename")
         )
+        if orig_filename:
+            orig_filename = safe_filename(orig_filename)
         
         safe_ext = ".video"
         if orig_filename:
@@ -1075,11 +1142,16 @@ async def upload_session_video(session_id: str, request: Request):
         with tempfile.NamedTemporaryFile(prefix="sportscout_", suffix=safe_ext, delete=False) as target:
             temp_path = Path(target.name)
             async for chunk in request.stream():
+                if bytes_written + len(chunk) > max_upload_bytes:
+                    raise HTTPException(status_code=413, detail=f'Video upload exceeds the {max_upload_bytes}-byte limit')
                 target.write(chunk)
                 bytes_written += len(chunk)
 
         if bytes_written == 0:
             raise HTTPException(status_code=400, detail="Empty upload")
+
+        if not has_video_container_header(temp_path):
+            raise HTTPException(status_code=422, detail='Container cannot be opened: expected AVI, MP4/M4V/MOV or MKV/WebM video')
 
         cap = cv2.VideoCapture(str(temp_path))
         try:
@@ -1092,6 +1164,9 @@ async def upload_session_video(session_id: str, request: Request):
         finally:
             cap.release()
 
+        # Finish all fallible validation before changing ownership or removing
+        # the previous upload. A rejected replacement leaves that upload usable.
+        v_meta, r_meta = extract_video_metadata(str(temp_path), original_filename=orig_filename)
         with session._state_lock:
             if session.owned_video_path:
                 session.owned_video_path.unlink(missing_ok=True)
@@ -1100,7 +1175,6 @@ async def upload_session_video(session_id: str, request: Request):
             session.analyzer.fps = fps if fps > 0 else 30.0
             session.analyzer.dist_tracker.fps = session.analyzer.fps
             
-            v_meta, r_meta = extract_video_metadata(str(temp_path), original_filename=orig_filename)
             session.video_metadata = v_meta
             session.research_metadata = r_meta
             session.status = "VIDEO_READY"
@@ -1114,11 +1188,21 @@ async def upload_session_video(session_id: str, request: Request):
             "videoMetadata": session.video_metadata,
             "researchMetadata": session.research_metadata,
         }
+    except HTTPException:
+        raise
+    except (cv2.error, ValueError, RuntimeError):
+        logger.exception('Video validation failed for session %s', session_id)
+        raise HTTPException(status_code=422, detail='Video could not be validated') from None
+    except OSError:
+        logger.exception('Video storage failed for session %s', session_id)
+        raise HTTPException(status_code=507, detail='Video storage unavailable') from None
     finally:
-        with session._state_lock:
-            session._uploading = False
-        if temp_path:
-            temp_path.unlink(missing_ok=True)
+        try:
+            if temp_path:
+                temp_path.unlink(missing_ok=True)
+        finally:
+            with session._state_lock:
+                session._uploading = False
 
 
 ALLOWED_CALIBRATION_STATES_REAL = {"VIDEO_READY", "READY_TO_ANALYZE"}
@@ -1132,6 +1216,8 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
     session = tracking_sessions[session_id]
 
     with session._state_lock:
+        if session._uploading or session._deleting:
+            raise HTTPException(status_code=409, detail='Session is busy')
         allowed = ALLOWED_CALIBRATION_STATES_DEMO if session.video_source == "demo" else ALLOWED_CALIBRATION_STATES_REAL
         if session.status not in allowed:
             raise HTTPException(status_code=409, detail=f"Cannot calibrate in {session.status} state")
@@ -1154,6 +1240,8 @@ def assign_session_players(session_id: str, req: SessionPlayerRequest):
     session = tracking_sessions[session_id]
 
     with session._state_lock:
+        if session._uploading or session._deleting:
+            raise HTTPException(status_code=409, detail='Session is busy')
         if session.status != "READY_TO_ANALYZE":
             raise HTTPException(status_code=409, detail=f"Cannot assign players in {session.status} state")
 
@@ -1179,6 +1267,8 @@ def start_session_analysis(session_id: str):
     session = tracking_sessions[session_id]
 
     with session._state_lock:
+        if session._uploading or session._deleting:
+            raise HTTPException(status_code=409, detail='Session is busy')
         if session.status == "PROCESSING":
             return {"status": "already_processing", "sessionId": session_id}
 
@@ -1194,9 +1284,11 @@ def start_session_analysis(session_id: str):
         try:
             session._thread = threading.Thread(target=_run_session_analysis, args=(session,), daemon=True)
             session._thread.start()
-        except Exception as e:
+        except Exception:
+            logger.exception('Analysis worker failed to start for session %s', session_id)
             session.status = "ERROR"
-            session.error_message = f"Failed to start analysis worker: {e}"
+            session.error_message = 'Failed to start analysis worker'
+            _discard_owned_video(session)
             raise HTTPException(status_code=500, detail=session.error_message)
 
     return {"status": "started", "sessionId": session_id}
@@ -1395,16 +1487,27 @@ def delete_tracking_session(session_id: str):
     if session_id not in tracking_sessions:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     session = tracking_sessions[session_id]
-    if session._uploading:
-        raise HTTPException(status_code=409, detail="Video upload is in progress")
-    session._cancel = True
-    if session._thread and session._thread.is_alive():
-        session._thread.join(timeout=30)
-        if session._thread.is_alive():
-            raise HTTPException(status_code=409, detail="Analysis is stopping; retry deletion shortly")
-    tracking_sessions.pop(session_id)
-    if session.owned_video_path:
-        session.owned_video_path.unlink(missing_ok=True)
+    with session._state_lock:
+        if session._uploading or session._deleting:
+            raise HTTPException(status_code=409, detail="Session is busy")
+        if tracking_sessions.get(session_id) is not session:
+            raise HTTPException(status_code=404, detail='Session not found')
+        session._deleting = True
+        session._cancel = True
+    try:
+        if session._thread and session._thread.is_alive():
+            session._thread.join(timeout=30)
+            if session._thread.is_alive():
+                raise HTTPException(status_code=409, detail="Analysis is stopping; retry deletion shortly")
+        with session._state_lock:
+            _discard_owned_video(session)
+            tracking_sessions.pop(session_id)
+    except OSError:
+        logger.exception('Owned video deletion failed for session %s', session_id)
+        raise HTTPException(status_code=507, detail='Video storage unavailable; retry deletion') from None
+    finally:
+        with session._state_lock:
+            session._deleting = False
     return {"status": "deleted", "sessionId": session_id}
 
 
