@@ -2,12 +2,15 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
+import type { BackendCapabilities } from '../../services/trackingSessionApi';
 import type {
   TrackingTelemetryV1,
   TrackingOverlayMode,
   TrackingSessionStatus,
   ProcessingConfig,
   ProcessingProfile,
+  ShuttleProvenance,
+  ShuttleTrackingStatus,
 } from '../../types';
 import { loadProjectVideoFileHandle } from '../../utils/videoFileStore';
 import {
@@ -17,11 +20,119 @@ import {
 } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 import TrackingVideoOverlay from './TrackingVideoOverlay';
+import { ShuttleOverlay, ShuttleControls, ShuttleDiagnostics, type ShuttleMode } from './ShuttleOverlay';
 import TrackingLabInspector from './TrackingLabInspector';
 import {
   useProjectTrackingSession,
   computeVideoFingerprint,
 } from '../../services/trackingSessionStore';
+
+export function deriveShuttleEngineStatus(params: {
+  enabled: boolean;
+  sessionProvenance?: ShuttleProvenance | null;
+  backendCapability?: BackendCapabilities['shuttle'] | null;
+  isProcessing?: boolean;
+}): {
+  status: ShuttleTrackingStatus;
+  displayText: string;
+  badgeClass: string;
+} {
+  const { enabled, sessionProvenance, backendCapability, isProcessing } = params;
+
+  if (!enabled) {
+    return {
+      status: 'DISABLED',
+      displayText: 'Disabled',
+      badgeClass: 'bg-slate-800 text-slate-400 border border-slate-700',
+    };
+  }
+
+  // 1. Live session provenance
+  if (sessionProvenance) {
+    if (sessionProvenance.status === 'MODEL_UNAVAILABLE') {
+      return {
+        status: 'MODEL_UNAVAILABLE',
+        displayText: 'Model unavailable',
+        badgeClass: 'bg-amber-950/60 text-amber-300 border border-amber-800',
+      };
+    }
+    if (sessionProvenance.status === 'RUNTIME_UNAVAILABLE') {
+      return {
+        status: 'RUNTIME_UNAVAILABLE',
+        displayText: 'Runtime unavailable',
+        badgeClass: 'bg-rose-950/60 text-rose-300 border border-rose-800',
+      };
+    }
+    if (sessionProvenance.status === 'INITIALIZATION_ERROR') {
+      return {
+        status: 'INITIALIZATION_ERROR',
+        displayText: 'Initialization error',
+        badgeClass: 'bg-rose-950/60 text-rose-300 border border-rose-800',
+      };
+    }
+    if (sessionProvenance.status === 'DISABLED') {
+      return {
+        status: 'DISABLED',
+        displayText: 'Disabled',
+        badgeClass: 'bg-slate-800 text-slate-400 border border-slate-700',
+      };
+    }
+    if (sessionProvenance.status === 'AVAILABLE') {
+      const active = sessionProvenance.active || isProcessing;
+      return {
+        status: 'AVAILABLE',
+        displayText: active ? 'Active' : 'Ready',
+        badgeClass: active
+          ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800'
+          : 'bg-sky-950/60 text-sky-300 border border-sky-800',
+      };
+    }
+    return {
+      status: sessionProvenance.status,
+      displayText: sessionProvenance.status,
+      badgeClass: 'bg-slate-800 text-slate-300 border border-slate-700',
+    };
+  }
+
+  // 2. Pre-session backend capability probe
+  if (backendCapability) {
+    const probe = backendCapability.probeStatus || backendCapability.status;
+    if (probe === 'MODEL_UNAVAILABLE' || backendCapability.modelAvailable === false) {
+      return {
+        status: 'MODEL_UNAVAILABLE',
+        displayText: 'Model unavailable',
+        badgeClass: 'bg-amber-950/60 text-amber-300 border border-amber-800',
+      };
+    }
+    if (probe === 'RUNTIME_UNAVAILABLE') {
+      return {
+        status: 'RUNTIME_UNAVAILABLE',
+        displayText: 'Runtime unavailable',
+        badgeClass: 'bg-rose-950/60 text-rose-300 border border-rose-800',
+      };
+    }
+    if (probe === 'INITIALIZATION_ERROR') {
+      return {
+        status: 'INITIALIZATION_ERROR',
+        displayText: 'Initialization error',
+        badgeClass: 'bg-rose-950/60 text-rose-300 border border-rose-800',
+      };
+    }
+    if (probe === 'AVAILABLE' || backendCapability.modelAvailable === true) {
+      return {
+        status: 'AVAILABLE',
+        displayText: 'Ready',
+        badgeClass: 'bg-sky-950/60 text-sky-300 border border-sky-800',
+      };
+    }
+  }
+
+  return {
+    status: 'REQUESTED',
+    displayText: 'Requested',
+    badgeClass: 'bg-indigo-950/60 text-indigo-300 border border-indigo-800',
+  };
+}
 
 export default function BadmintonTrackingLab() {
   const { matchInfo, settings, localFileName, setLocalFileName, setVideoSourceType } = useScoutContext();
@@ -40,11 +151,10 @@ export default function BadmintonTrackingLab() {
   const [url, setUrl] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
   const [inferenceDevice, setInferenceDevice] = useState<string | null>(null);
-  const [capabilities, setCapabilities] = useState<{
-    selectedDevice: string;
-    cudaAvailable: boolean;
-    mpsAvailable: boolean;
-  } | null>(null);
+  const [capabilities, setCapabilities] = useState<BackendCapabilities | null>(null);
+  const [shuttleTrackingEnabled, setShuttleTrackingEnabled] = useState<boolean>(
+    state.processingConfig?.shuttleEnabled ?? false
+  );
   const [devicePreference, setDevicePreference] = useState<'auto' | 'cpu' | 'cuda' | 'mps'>('auto');
   const [profile, setProfile] = useState<ProcessingProfile>('auto');
   const [detectorInputSize, setDetectorInputSize] = useState<number>(640);
@@ -56,6 +166,7 @@ export default function BadmintonTrackingLab() {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [calibrating, setCalibrating] = useState(false);
   const [time, setTime] = useState(0);
+  const [shuttleMode, setShuttleMode] = useState<ShuttleMode>('off');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -75,6 +186,44 @@ export default function BadmintonTrackingLab() {
   const chunks = state.chunks;
   const error = state.error;
   const overlayMode = state.uiPreferences.overlayMode;
+
+  const effectiveShuttleProv =
+    sessionStatus?.shuttle ||
+    sessionStatus?.runtimeProvenance?.shuttle ||
+    analysis?.runtimeProvenance?.shuttle ||
+    null;
+
+  const shuttleStatusInfo = deriveShuttleEngineStatus({
+    enabled: shuttleTrackingEnabled,
+    sessionProvenance: effectiveShuttleProv,
+    backendCapability: capabilities?.shuttle,
+    isProcessing: processing,
+  });
+
+  const sanitizedModelName =
+    effectiveShuttleProv?.model ||
+    capabilities?.shuttle?.configuredModel ||
+    capabilities?.shuttle?.model ||
+    null;
+
+  useEffect(() => {
+    if (state.processingConfig?.shuttleEnabled !== undefined) {
+      setShuttleTrackingEnabled(state.processingConfig.shuttleEnabled);
+    }
+  }, [state.processingConfig?.shuttleEnabled]);
+
+  // Follow decoded video presentation time for fast shuttle motion.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !video.requestVideoFrameCallback) return;
+    let callbackId = 0;
+    const tick: VideoFrameRequestCallback = (_now, metadata) => {
+      setTime(metadata.mediaTime);
+      callbackId = video.requestVideoFrameCallback(tick);
+    };
+    callbackId = video.requestVideoFrameCallback(tick);
+    return () => video.cancelVideoFrameCallback(callbackId);
+  }, [url]);
 
   // 1. Backend health & capabilities
   useEffect(() => {
@@ -457,6 +606,18 @@ export default function BadmintonTrackingLab() {
         courtRoiMarginM: 0.5,
         frameStride,
         poseStride,
+        shuttleEnabled: shuttleTrackingEnabled,
+        ...(shuttleTrackingEnabled
+          ? {
+              shuttleProvider: 'opencv_onnx',
+              shuttleWindowSize: 3,
+              shuttleInputWidth: 512,
+              shuttleInputHeight: 288,
+              shuttleConfidenceThreshold: 0.5,
+              shuttleRecoveryEnabled: true,
+              shuttleBuildTrajectory: false,
+            }
+          : {}),
       };
 
       if (!isResumable) {
@@ -741,6 +902,63 @@ export default function BadmintonTrackingLab() {
               </label>
             )}
           </div>
+
+          {/* Shuttle Tracking Engine Section */}
+          <div
+            className="pt-2 border-t border-slate-800/80 space-y-2"
+            data-testid="shuttle-tracking-engine-section"
+          >
+            <div className="flex items-center justify-between">
+              <div className="font-semibold text-slate-300 flex items-center gap-2">
+                <span>{th ? 'การตรวจจับลูกขนไก่ (Shuttle Tracking Engine)' : 'Shuttle Tracking Engine'}</span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  {th ? '(Inference runtime — แยกจาก Overlay)' : '(Inference runtime — separate from display overlay)'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400">{th ? 'สถานะ:' : 'Status:'}</span>
+                <span
+                  data-testid="shuttle-tracking-status"
+                  data-status={shuttleStatusInfo.status}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium ${shuttleStatusInfo.badgeClass}`}
+                >
+                  {shuttleStatusInfo.displayText}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/40 p-2 rounded border border-slate-800">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  aria-label="Enable Shuttle Tracking"
+                  disabled={processing}
+                  checked={shuttleTrackingEnabled}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    setShuttleTrackingEnabled(enabled);
+                    update({
+                      processingConfig: {
+                        ...state.processingConfig,
+                        shuttleEnabled: enabled,
+                      },
+                    });
+                  }}
+                  className="rounded bg-slate-800 border-slate-700 text-sky-500"
+                />
+                <span className="font-medium text-slate-200">
+                  {th ? 'เปิดใช้งานการตรวจจับลูกขนไก่ (Enable Shuttle Tracking)' : 'Enable Shuttle Tracking'}
+                </span>
+              </label>
+
+              <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                <span>{th ? 'โมเดล:' : 'Model:'}</span>
+                <span className="text-slate-300 font-mono">
+                  {sanitizedModelName || (th ? 'ยังไม่ได้ระบุโมเดล (SHUTTLE_MODEL_PATH)' : 'None (configured via backend/env)')}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -893,6 +1111,7 @@ export default function BadmintonTrackingLab() {
               mode={overlayMode}
               isProcessing={processing}
             />
+            <ShuttleOverlay frames={frames} time={time} mode={shuttleMode} width={dimensions.width} height={dimensions.height} />
             {(calibrating || corners.length > 0) && (
               <svg
                 aria-label="Court calibration"
@@ -941,6 +1160,8 @@ export default function BadmintonTrackingLab() {
               </svg>
             )}
           </div>
+          <ShuttleControls mode={shuttleMode} onChange={setShuttleMode} />
+          <ShuttleDiagnostics frames={frames} time={time} />
           <button
             className={button}
             disabled={processing || !dimensions.width}

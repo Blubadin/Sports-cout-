@@ -1,0 +1,177 @@
+{
+  "$schema": "./visionBenchmarkManifest.schema.json",
+  "schemaVersion": 1,
+  "manifestId": "sportsscout-badminton-vision-benchmark-v1",
+  "updatedAt": "2026-09-21T07:00:00Z",
+  "description": "SportsScout Phase 1.0 Vision Benchmark Manifest: Standardized reference clips for player detection, tracking, pose estimation, and runtime candidate evaluation.",
+  "clips": [
+    {
+      "id": "B01_singles_easy",
+      "name": "Singles / Easy (Static Rear)",
+      "sport": "badminton",
+      "gameType": "singles",
+      "playerCount": 2,
+      "videoReference": "benchmarks/videos/B01_singles_easy.mp4",
+      "durationSec": 45.0,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 30.0,
+      "cameraType": "static_rear",
+      "cameraMotion": "static",
+      "difficultyTags": [
+        "singles",
+        "static_rear",
+        "clear_lighting",
+        "low_occlusion",
+        "standard_court"
+      ],
+      "courtCalibrationReference": "calibration_rear_perspective_standard",
+      "groundTruthAvailable": false,
+      "notes": "Reference baseline clip with clear court lighting, static monocular rear perspective, and low occlusion frequency.",
+      "knownDifficultSegments": []
+    },
+    {
+      "id": "B02_singles_fast_rally",
+      "name": "Singles / Fast Rally",
+      "sport": "badminton",
+      "gameType": "singles",
+      "playerCount": 2,
+      "videoReference": "benchmarks/videos/B02_singles_fast_rally.mp4",
+      "durationSec": 38.5,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 60.0,
+      "cameraType": "court_side_elevated",
+      "cameraMotion": "static",
+      "difficultyTags": [
+        "singles",
+        "fast_movement",
+        "motion_blur",
+        "rapid_direction_changes",
+        "high_speed_smash",
+        "recovery_footwork"
+      ],
+      "courtCalibrationReference": "calibration_side_elevated_standard",
+      "groundTruthAvailable": false,
+      "notes": "Fast singles rally evaluating detector resilience under motion blur and high-acceleration direction reversals.",
+      "knownDifficultSegments": [
+        {
+          "startSec": 14.0,
+          "endSec": 22.0,
+          "tags": ["fast_transition", "motion_blur", "rapid_direction_change"],
+          "description": "Rapid multi-shot exchange with high-speed lunges and severe motion blur on limbs."
+        }
+      ]
+    },
+    {
+      "id": "B03_doubles_standard",
+      "name": "Doubles / Standard",
+      "sport": "badminton",
+      "gameType": "doubles",
+      "playerCount": 4,
+      "videoReference": "benchmarks/videos/B03_doubles_standard.mp4",
+      "durationSec": 55.0,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 30.0,
+      "cameraType": "static_rear",
+      "cameraMotion": "static",
+      "difficultyTags": [
+        "doubles",
+        "four_players",
+        "rotational_movement",
+        "standard_crossing",
+        "front_back_formation"
+      ],
+      "courtCalibrationReference": "calibration_rear_perspective_standard",
+      "groundTruthAvailable": false,
+      "notes": "Standard doubles match tracking all 4 athletes with normal attack/defense formations and side-by-side shifts.",
+      "knownDifficultSegments": [
+        {
+          "startSec": 18.0,
+          "endSec": 27.0,
+          "tags": ["rotational_switch", "front_back_crossing"],
+          "description": "Offensive rotational switch with front court drop and rear court jump."
+        }
+      ]
+    },
+    {
+      "id": "B04_doubles_occlusion",
+      "name": "Doubles / Occlusion",
+      "sport": "badminton",
+      "gameType": "doubles",
+      "playerCount": 4,
+      "videoReference": "benchmarks/videos/B04_doubles_occlusion.mp4",
+      "durationSec": 62.0,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 30.0,
+      "cameraType": "court_rear",
+      "cameraMotion": "static",
+      "difficultyTags": [
+        "doubles",
+        "four_players",
+        "severe_occlusion",
+        "player_crossing",
+        "partner_overlap",
+        "identity_stress"
+      ],
+      "courtCalibrationReference": "calibration_rear_perspective_standard",
+      "groundTruthAvailable": false,
+      "notes": "Challenging doubles sequences where teammates repeatedly cross paths, occlude one another along the optical line of sight, and challenge tracker MOT identity continuity.",
+      "knownDifficultSegments": [
+        {
+          "startSec": 12.0,
+          "endSec": 19.5,
+          "tags": ["player-crossing", "occlusion", "line_of_sight_overlap"],
+          "description": "Direct line-of-sight visual overlap where near court partner completely obscures the far court player."
+        },
+        {
+          "startSec": 35.0,
+          "endSec": 44.0,
+          "tags": ["player-crossing", "rapid_identity_swap_risk"],
+          "description": "Double defensive scramble causing trajectory intersection at the mid-court."
+        }
+      ]
+    },
+    {
+      "id": "B05_difficult_broadcast",
+      "name": "Difficult / Broadcast or Non-Ideal",
+      "sport": "badminton",
+      "gameType": "singles",
+      "playerCount": 2,
+      "videoReference": "benchmarks/videos/B05_difficult_broadcast.mp4",
+      "durationSec": 48.0,
+      "sourceWidth": 1920,
+      "sourceHeight": 1080,
+      "sourceFps": 29.97,
+      "cameraType": "broadcast",
+      "cameraMotion": "pan_tilt_zoom",
+      "difficultyTags": [
+        "singles",
+        "broadcast_pan_zoom",
+        "dynamic_perspective",
+        "spectator_crowd",
+        "far_court_small_scale",
+        "non_ideal"
+      ],
+      "courtCalibrationReference": null,
+      "groundTruthAvailable": false,
+      "notes": "Non-ideal broadcast television footage with dynamic camera panning, focal zoom changes, spectators close to baseline, and tiny far-court player pixel footprints.",
+      "knownDifficultSegments": [
+        {
+          "startSec": 6.0,
+          "endSec": 15.0,
+          "tags": ["camera_pan", "scale_change", "far_court_shrink"],
+          "description": "Camera smooth pan tracking smash follow-through, shrinking far-court athlete bounding box."
+        },
+        {
+          "startSec": 28.0,
+          "endSec": 39.0,
+          "tags": ["spectator_proximity", "focal_zoom_in", "perspective_distortion"],
+          "description": "Close camera zoom with judges and crowd visible in optical background."
+        }
+      ]
+    }
+  ]
+}

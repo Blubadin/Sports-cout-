@@ -4,6 +4,7 @@ dist/
 dev-dist/
 test-results/
 coverage/
+benchmark_results/
 .DS_Store
 *.log
 .env*
@@ -14,3 +15,5 @@ __pycache__/
 *$py.class
 *.pt
 *.onnx
+*.engine
+*.bin

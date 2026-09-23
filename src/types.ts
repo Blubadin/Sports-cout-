@@ -486,6 +486,8 @@ export interface TrackingTelemetryV1 {
   source?: 'real_tracking' | 'synthetic_demo' | string;
   trackedPlayerCount?: number;
   players: TrackingPlayerV1[];
+  /** Canonical separate shuttlecock observation stream (Phase 2.1) */
+  shuttle?: import('./types/shuttleTelemetry').ShuttleObservation | null;
 }
 
 export interface AITrackingPlayer extends Partial<TrackingPlayerV1> {
@@ -582,6 +584,7 @@ export interface TrackingSessionStatus {
   videoMetadata?: SourceVideoMetadata;
   researchMetadata?: CameraResearchMetadata;
   players: TrackingLivePlayerStatus[];
+  shuttle?: ShuttleProvenance | null;
   error: string | null;
 }
 
@@ -628,6 +631,36 @@ export interface ProcessingConfig {
   courtRoiMarginM?: number;
   frameStride: number;
   poseStride: number;
+  detectorModel?: string;
+  detectorFamily?: string;
+  poseModel?: string | null;
+  poseFamily?: string | null;
+  poseArchitecture?: 'roi_pose' | 'full_frame_pose';
+  trackerName?: string;
+  trackerConfigPath?: string | null;
+  trackerConfig?: string | null;
+  reidEnabled?: boolean;
+  reidModel?: string | null;
+  runtime?: 'pytorch' | 'onnx' | 'tensorrt' | string;
+  precision?: 'fp32' | 'fp16' | 'int8' | string;
+  confidenceThreshold?: number;
+
+  // Shuttle configuration fields (Phase 2.9A)
+  shuttleEnabled?: boolean;
+  shuttleProvider?: string;
+  shuttleModelPath?: string | null;
+  shuttleWindowSize?: number;
+  shuttleInputWidth?: number;
+  shuttleInputHeight?: number;
+  shuttleConfidenceThreshold?: number;
+  shuttleCentroidRelativeThreshold?: number;
+  shuttleCandidateMode?: string;
+  shuttleRecoveryEnabled?: boolean;
+  shuttleDevice?: string;
+  shuttleRuntime?: string;
+  shuttlePrecision?: string;
+  shuttleAuxiliaryDetector?: string | null;
+  shuttleBuildTrajectory?: boolean;
 }
 
 export interface TrackingPerformanceStats {
@@ -663,6 +696,37 @@ export interface TrackingQualityStats {
   playerCoverage?: Record<string, PlayerTrackingCoverage>;
 }
 
+export type ShuttleTrackingStatus =
+  | 'DISABLED'
+  | 'REQUESTED'
+  | 'MODEL_UNAVAILABLE'
+  | 'AVAILABLE'
+  | 'RUNTIME_UNAVAILABLE'
+  | 'INITIALIZATION_ERROR'
+  | string;
+
+export interface ShuttleProvenance {
+  enabled: boolean;
+  requested: boolean;
+  active: boolean;
+  status: ShuttleTrackingStatus;
+  provider: string;
+  model: string | null;
+  runtime: string;
+  precision: string;
+  device: string;
+  windowSize: number;
+  confidenceThreshold: number;
+  recoveryEnabled: boolean;
+  auxiliaryDetectorAvailable: boolean;
+  failureReason?: string | null;
+  lastFailure?: string | null;
+  modelAvailable?: boolean;
+  configuredModel?: string | null;
+  probeStatus?: string;
+  probeFailureReason?: string | null;
+}
+
 export interface TrackingRuntimeProvenance {
   detectorModel: string;
   trackerModel: string;
@@ -675,9 +739,22 @@ export interface TrackingRuntimeProvenance {
   detectorInputSize: number;
   frameStride: number;
   poseStride: number;
+  poseArchitecture?: 'roi_pose' | 'full_frame_pose';
   useCourtRoi: boolean;
   courtRoiMarginPx: number;
   courtRoiMarginM?: number;
+  detectorFamily?: string;
+  trackerName?: string;
+  trackerConfigPath?: string | null;
+  trackerConfig?: string | null;
+  reidEnabled?: boolean;
+  reidModel?: string | null;
+  poseFamily?: string;
+  runtime?: string;
+  precision?: string;
+  confidenceThreshold?: number;
+  shuttle?: ShuttleProvenance | null;
 }
 
 export * from './types/benchmark';
+export * from './types/shuttleTelemetry';

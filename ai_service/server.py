@@ -19,12 +19,37 @@ from pydantic import BaseModel
 import cv2
 
 from analyzer_v2 import BadmintonAnalyzerV2
+from pose_adapter import PoseArchitectureNotImplementedError
 from court_mapper import CourtMapper
 from device_runtime import capability_report, resolve_device
+from engine_config import (
+    TrackingEngineConfig,
+    create_baseline_engine_config,
+    validate_engine_config,
+    InvalidEngineConfigError,
+    ModelNotFoundError,
+)
 try:
     from ai_service.video_metadata import extract_video_metadata
 except ImportError:
     from video_metadata import extract_video_metadata
+
+try:
+    from ai_service.shuttle_pipeline import (
+        create_shuttle_pipeline,
+        ShuttlePipelineConfig,
+        STATUS_AVAILABLE,
+        STATUS_MODEL_UNAVAILABLE,
+        STATUS_DISABLED,
+    )
+except ImportError:
+    from shuttle_pipeline import (
+        create_shuttle_pipeline,
+        ShuttlePipelineConfig,
+        STATUS_AVAILABLE,
+        STATUS_MODEL_UNAVAILABLE,
+        STATUS_DISABLED,
+    )
 
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
@@ -75,6 +100,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_private_network=True,
 )
 
 
@@ -133,7 +159,16 @@ def get_capabilities():
     report = capability_report()
     report["selectedDevice"] = analyzer.device
     report["detectorModel"] = analyzer.model_path
-    report["poseModel"] = "yolov8n-pose.pt"
+    pose_m = analyzer.engine_config.pose_model if hasattr(analyzer, "engine_config") and analyzer.engine_config.pose_model else "yolov8n-pose.pt"
+    report["poseModel"] = pose_m
+    default_shuttle = create_shuttle_pipeline()
+    shuttle_prov = default_shuttle.get_provenance()
+    probe_pipeline = create_shuttle_pipeline({"shuttle_enabled": True})
+    shuttle_prov["modelAvailable"] = (probe_pipeline.status == STATUS_AVAILABLE)
+    shuttle_prov["configuredModel"] = probe_pipeline.get_provenance().get("model")
+    shuttle_prov["probeStatus"] = probe_pipeline.status
+    shuttle_prov["probeFailureReason"] = probe_pipeline.failure_reason
+    report["shuttle"] = shuttle_prov
     return report
 
 
@@ -547,6 +582,23 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     if "pose_stride" in cfg or "poseStride" in cfg:
         pose_stride = cfg.get("pose_stride", cfg.get("poseStride"))
 
+    # Vision engine seams (detector, pose, tracker, runtime, precision)
+    detector_model = cfg.get("detector_model") or cfg.get("detectorModel") or "yolov8n.pt"
+    detector_family = cfg.get("detector_family") or cfg.get("detectorFamily") or "yolov8"
+    pose_model = cfg.get("pose_model") if "pose_model" in cfg else cfg.get("poseModel", "yolov8n-pose.pt")
+    pose_family = cfg.get("pose_family") or cfg.get("poseFamily") or "yolov8"
+    pose_architecture = cfg.get("pose_architecture") or cfg.get("poseArchitecture") or "roi_pose"
+    tracker_name = cfg.get("tracker_name") or cfg.get("trackerName") or "bytetrack"
+    tracker_config_path = cfg.get("tracker_config_path") or cfg.get("trackerConfigPath")
+    tracker_config = cfg.get("tracker_config") or cfg.get("trackerConfig")
+    reid_enabled = bool(cfg.get("reid_enabled") if "reid_enabled" in cfg else cfg.get("reidEnabled", False))
+    reid_model = cfg.get("reid_model") if "reid_model" in cfg else cfg.get("reidModel")
+    runtime = cfg.get("runtime") or "pytorch"
+    precision = cfg.get("precision") or "fp32"
+    model_artifact_ref = cfg.get("model_artifact_reference") or cfg.get("modelArtifactReference")
+    conf_threshold = cfg.get("confidence_threshold") if "confidence_threshold" in cfg else cfg.get("confidenceThreshold", 0.35)
+    shuttle_cfg = ShuttlePipelineConfig.from_dict(cfg, default_device=effective_device)
+
     return {
         "profile": requested_profile,
         "requestedProfile": requested_profile,
@@ -560,6 +612,35 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         "courtRoiMarginM": float(court_roi_margin_m),
         "frameStride": max(1, int(frame_stride)),
         "poseStride": max(1, int(pose_stride)),
+        "detectorModel": str(detector_model),
+        "detectorFamily": str(detector_family),
+        "poseModel": str(pose_model) if pose_model is not None else None,
+        "poseFamily": str(pose_family) if pose_family is not None else None,
+        "poseArchitecture": str(pose_architecture),
+        "trackerName": str(tracker_name),
+        "trackerConfigPath": str(tracker_config_path) if tracker_config_path else None,
+        "trackerConfig": str(tracker_config) if tracker_config else None,
+        "reidEnabled": reid_enabled,
+        "reidModel": str(reid_model) if reid_model else None,
+        "runtime": str(runtime),
+        "precision": str(precision),
+        "modelArtifactReference": str(model_artifact_ref) if model_artifact_ref else None,
+        "confidenceThreshold": float(conf_threshold),
+        "shuttleEnabled": shuttle_cfg.enabled,
+        "shuttleProvider": shuttle_cfg.provider,
+        "shuttleModelPath": shuttle_cfg.model_path,
+        "shuttleWindowSize": shuttle_cfg.window_size,
+        "shuttleInputWidth": shuttle_cfg.input_width,
+        "shuttleInputHeight": shuttle_cfg.input_height,
+        "shuttleConfidenceThreshold": shuttle_cfg.confidence_threshold,
+        "shuttleCentroidRelativeThreshold": shuttle_cfg.centroid_relative_threshold,
+        "shuttleCandidateMode": shuttle_cfg.candidate_mode,
+        "shuttleRecoveryEnabled": shuttle_cfg.recovery_enabled,
+        "shuttleDevice": shuttle_cfg.device,
+        "shuttleRuntime": shuttle_cfg.runtime,
+        "shuttlePrecision": shuttle_cfg.precision,
+        "shuttleAuxiliaryDetector": shuttle_cfg.auxiliary_detector,
+        "shuttleBuildTrajectory": shuttle_cfg.build_trajectory,
     }
 
 
@@ -721,15 +802,46 @@ class TrackingSession:
         self.effective_device = resolved_cfg["effectiveDevice"]
         self.device = resolved_cfg["effectiveDevice"]
 
+        engine_cfg = TrackingEngineConfig(
+            detector_model=resolved_cfg.get("detectorModel", "yolov8n.pt"),
+            detector_family=resolved_cfg.get("detectorFamily", "yolov8"),
+            pose_model=resolved_cfg.get("poseModel", "yolov8n-pose.pt"),
+            pose_family=resolved_cfg.get("poseFamily", "yolov8"),
+            pose_architecture=resolved_cfg.get("poseArchitecture", "roi_pose"),
+            tracker_name=resolved_cfg.get("trackerName", "bytetrack"),
+            tracker_config_path=resolved_cfg.get("trackerConfigPath"),
+            tracker_config=resolved_cfg.get("trackerConfig"),
+            reid_enabled=resolved_cfg.get("reidEnabled", False),
+            reid_model=resolved_cfg.get("reidModel"),
+            runtime=resolved_cfg.get("runtime", "pytorch"),
+            precision=resolved_cfg.get("precision", "fp32"),
+            model_artifact_reference=resolved_cfg.get("modelArtifactReference"),
+            detector_input_size=resolved_cfg["detectorInputSize"],
+            confidence_threshold=resolved_cfg.get("confidenceThreshold", 0.35),
+            frame_stride=resolved_cfg["frameStride"],
+            pose_stride=resolved_cfg["poseStride"],
+            use_court_roi=resolved_cfg["useCourtRoi"],
+            court_roi_margin_px=resolved_cfg["courtRoiMarginPx"],
+            court_roi_margin_m=resolved_cfg.get("courtRoiMarginM", 2.0),
+            device=self.effective_device,
+        )
+        validate_engine_config(engine_cfg)
+
+        custom_provider = raw_config.get("custom_provider") or raw_config.get("customProvider")
+        custom_auxiliary = raw_config.get("custom_auxiliary") or raw_config.get("customAuxiliary")
+        self.shuttle_pipeline = create_shuttle_pipeline(
+            resolved_cfg,
+            custom_provider=custom_provider,
+            custom_auxiliary=custom_auxiliary,
+            default_device=self.effective_device,
+        )
+
         self.analyzer = BadmintonAnalyzerV2(
             game_type=game_type,
             max_players=self.tracked_player_count,
             device=self.effective_device,
-            detector_input_size=resolved_cfg["detectorInputSize"],
-            use_court_roi=resolved_cfg["useCourtRoi"],
-            court_roi_margin_px=resolved_cfg["courtRoiMarginPx"],
-            court_roi_margin_m=resolved_cfg.get("courtRoiMarginM", 2.0),
-            pose_stride=resolved_cfg["poseStride"],
+            engine_config=engine_cfg,
+            shuttle_pipeline=self.shuttle_pipeline,
         )
         self.analyzer.analysis_id = session_id
         self.status = "READY"  # READY | VIDEO_READY | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
@@ -855,6 +967,11 @@ def _run_session_analysis(session: TrackingSession):
         session.error_message = str(e)
     finally:
         cap.release()
+        if hasattr(session, "shuttle_pipeline") and session.shuttle_pipeline is not None:
+            try:
+                session.shuttle_pipeline.end_stream()
+            except Exception:
+                pass
 
 
 @app.post("/api/tracking/sessions")
@@ -871,7 +988,7 @@ def create_tracking_session(req: CreateSessionRequest):
             tracked_player_count=req.tracked_player_count,
             processing_config=req.processing_config,
         )
-    except ValueError as error:
+    except (ValueError, InvalidEngineConfigError, ModelNotFoundError, PoseArchitectureNotImplementedError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     tracking_sessions[session_id] = session
     return {
@@ -1136,22 +1253,60 @@ def _build_session_metrics(session: TrackingSession):
 
     quality = compute_session_quality_metrics(session.results, session.tracked_player_count)
 
+    analyzer_prov = session.analyzer.get_provenance() if hasattr(session.analyzer, "get_provenance") else {}
+    tracker_name = analyzer_prov.get("trackerName") or analyzer_prov.get("trackerModel") or "bytetrack"
     provenance = {
-        "detectorModel": session.analyzer.model_path,
-        "trackerModel": "bytetrack",
-        "poseModel": "yolov8n-pose.pt",
+        "detectorModel": analyzer_prov.get("detectorModel", session.analyzer.model_path),
+        "detectorFamily": analyzer_prov.get("detectorFamily", "yolov8"),
+        "trackerModel": tracker_name,
+        "trackerName": tracker_name,
+        "trackerConfigPath": analyzer_prov.get("trackerConfigPath"),
+        "trackerConfig": analyzer_prov.get("trackerConfig"),
+        "reidEnabled": analyzer_prov.get("reidEnabled", False),
+        "reidModel": analyzer_prov.get("reidModel"),
+        "poseModel": analyzer_prov.get("poseModel", "yolov8n-pose.pt"),
+        "poseFamily": analyzer_prov.get("poseFamily", "yolov8"),
+        "poseArchitecture": analyzer_prov.get("poseArchitecture", "roi_pose"),
+        "runtime": analyzer_prov.get("runtime", "pytorch"),
+        "precision": analyzer_prov.get("precision", "fp32"),
+        "actualModel": analyzer_prov.get("actualModel", analyzer_prov.get("detectorModel", session.analyzer.model_path)),
+        "modelArtifactReference": analyzer_prov.get("modelArtifactReference"),
+        "confidenceThreshold": analyzer_prov.get("confidenceThreshold", getattr(session.analyzer, "conf", 0.35)),
         "device": session.effective_device,
         "requestedDevice": session.requested_device,
         "effectiveDevice": session.effective_device,
         "requestedProfile": session.requested_profile,
         "effectiveProfile": session.effective_profile,
-        "detectorInputSize": session.analyzer.detector_input_size,
+        "detectorInputSize": analyzer_prov.get("detectorInputSize", session.analyzer.detector_input_size),
         "frameStride": session.frame_stride,
-        "poseStride": session.analyzer.pose_stride,
-        "useCourtRoi": session.analyzer.use_court_roi,
-        "courtRoiMarginPx": session.analyzer.court_roi_margin_px,
-        "courtRoiMarginM": session.analyzer.court_roi_margin_m,
+        "poseStride": analyzer_prov.get("poseStride", session.analyzer.pose_stride),
+        "useCourtRoi": analyzer_prov.get("useCourtRoi", session.analyzer.use_court_roi),
+        "courtRoiMarginPx": analyzer_prov.get("courtRoiMarginPx", session.analyzer.court_roi_margin_px),
+        "courtRoiMarginM": analyzer_prov.get("courtRoiMarginM", session.analyzer.court_roi_margin_m),
     }
+
+    shuttle_prov = (
+        session.shuttle_pipeline.get_provenance()
+        if hasattr(session, "shuttle_pipeline") and session.shuttle_pipeline is not None
+        else {
+            "enabled": False,
+            "requested": False,
+            "active": False,
+            "status": "DISABLED",
+            "provider": "opencv_onnx",
+            "model": None,
+            "runtime": "opencv_dnn",
+            "precision": "fp32",
+            "device": session.effective_device,
+            "windowSize": 3,
+            "confidenceThreshold": 0.5,
+            "recoveryEnabled": False,
+            "auxiliaryDetectorAvailable": False,
+            "failureReason": None,
+            "lastFailure": None,
+        }
+    )
+    provenance["shuttle"] = shuttle_prov
 
     return performance, quality, provenance
 
@@ -1190,6 +1345,7 @@ def get_session_status(session_id: str):
         "provenance": runtime_provenance,
         "performance": performance_stats,
         "quality": quality_stats,
+        "shuttle": runtime_provenance.get("shuttle"),
         "videoMetadata": getattr(session, "video_metadata", None),
         "researchMetadata": getattr(session, "research_metadata", None),
         "players": session.analyzer.get_live_player_statuses(),
@@ -1225,6 +1381,7 @@ def get_session_results(session_id: str, after: int | None = None):
         "effectiveProcessingConfig": session.effective_processing_config,
         "runtimeProvenance": runtime_provenance,
         "provenance": runtime_provenance,
+        "shuttle": runtime_provenance.get("shuttle"),
         "performance": performance_stats,
         "quality": quality_stats,
         "videoMetadata": getattr(session, "video_metadata", None),

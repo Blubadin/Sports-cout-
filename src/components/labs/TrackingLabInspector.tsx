@@ -664,6 +664,22 @@ export default function TrackingLabInspector({
                       {status.trackedPlayerCount} {th ? 'คน' : 'players'}
                     </span>
                   </div>
+                  <div className="flex justify-between border-t border-slate-800/60 pt-1.5">
+                    <span className="text-slate-400">{th ? 'ตรวจจับลูกขนไก่ (Shuttle Tracking)' : 'Shuttle Tracking Engine'}</span>
+                    <span className="font-mono text-slate-200" data-testid="inspector-shuttle-status">
+                      {status.processingConfig?.shuttleEnabled
+                        ? (status.shuttle?.status || status.runtimeProvenance?.shuttle?.status || 'REQUESTED')
+                        : 'DISABLED'}
+                    </span>
+                  </div>
+                  {status.processingConfig?.shuttleEnabled && (
+                    <div className="flex justify-between border-t border-slate-800/60 pt-1.5">
+                      <span className="text-slate-400">{th ? 'โมเดลลูกขนไก่ (Shuttle Model)' : 'Shuttle Model'}</span>
+                      <span className="font-mono text-slate-200" data-testid="inspector-shuttle-model">
+                        {status.shuttle?.model || status.runtimeProvenance?.shuttle?.model || 'None'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 

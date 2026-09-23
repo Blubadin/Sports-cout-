@@ -11,6 +11,7 @@ import type {
   TrackingBenchmarkQuality,
   TrackingBenchmarkIdentityAudit,
   TrackingBenchmarkGroundTruth,
+  VisionBenchmarkExperimentConfig,
 } from '../types';
 import type { TrackingAnalysis } from '../services/storage/trackingStorage';
 import { get, set, del } from 'idb-keyval';
@@ -261,6 +262,9 @@ export interface CreateBenchmarkRunOptions {
   poseStride?: number;
   maxPlayers?: number;
   device?: string;
+  runtime?: string | null;
+  precision?: string | null;
+  courtRoiEnabled?: boolean | null;
   sourceWidth?: number | null;
   sourceHeight?: number | null;
   sourceFps?: number | null;
@@ -334,6 +338,10 @@ export function createBenchmarkRun(params: {
       poseStride: positiveOrNull(params.modelConfig.poseStride),
       maxPlayers: positiveOrNull(params.modelConfig.maxPlayers),
       device: params.modelConfig.device,
+      runtime: params.modelConfig.runtime ?? null,
+      precision: params.modelConfig.precision ?? null,
+      courtRoiEnabled:
+        params.modelConfig.courtRoiEnabled !== undefined ? params.modelConfig.courtRoiEnabled : null,
     },
     videoMetadata: {
       sourceWidth: positiveOrNull(params.videoMetadata.sourceWidth),
@@ -503,6 +511,21 @@ export function createBenchmarkRunFromAnalysis(
         analysis.effectiveDevice ??
         analysis.device ??
         null,
+      runtime:
+        overrides?.runtime ??
+        analysis.runtimeProvenance?.runtime ??
+        analysis.processingConfig?.runtime ??
+        null,
+      precision:
+        overrides?.precision ??
+        analysis.runtimeProvenance?.precision ??
+        analysis.processingConfig?.precision ??
+        null,
+      courtRoiEnabled:
+        overrides?.courtRoiEnabled ??
+        analysis.runtimeProvenance?.useCourtRoi ??
+        analysis.processingConfig?.useCourtRoi ??
+        null,
     },
     videoMetadata: {
       sourceWidth: overrides?.sourceWidth ?? analysis.videoMetadata?.width ?? null,
@@ -643,6 +666,21 @@ export function createBenchmarkRunFromSessionStatus(
         overrides?.device ??
         status.effectiveDevice ??
         status.device ??
+        null,
+      runtime:
+        overrides?.runtime ??
+        status.runtimeProvenance?.runtime ??
+        status.processingConfig?.runtime ??
+        null,
+      precision:
+        overrides?.precision ??
+        status.runtimeProvenance?.precision ??
+        status.processingConfig?.precision ??
+        null,
+      courtRoiEnabled:
+        overrides?.courtRoiEnabled ??
+        status.runtimeProvenance?.useCourtRoi ??
+        status.processingConfig?.useCourtRoi ??
         null,
     },
     videoMetadata: {
@@ -798,4 +836,220 @@ export async function deleteBenchmarkRun(runId: string): Promise<void> {
  */
 export function clearInMemoryBenchmarkStore(): void {
   inMemoryBenchmarkStore.clear();
+}
+
+// ============================================================================
+// Phase 1.0 — Vision Benchmark Protocol Helpers
+// ============================================================================
+
+export interface GenerateBenchmarkRunIdParams {
+  /** Target clip logical ID (e.g. 'B01_singles_easy') */
+  clipId: string;
+  /** Experiment identifier if using a registered experiment profile */
+  experimentId?: string;
+  /** Detection model name (e.g. 'yolov8n', 'yolo11n', 'yolo26') */
+  detector?: string | null;
+  /** Tracker name (e.g. 'bytetrack', 'norfair', 'ocsort') */
+  tracker?: string | null;
+  /** Square input dimension (e.g. 640) */
+  inputSize?: number | null;
+  /** Execution device (e.g. 'cpu', 'cuda') */
+  device?: string | null;
+  /** Execution runtime environment (e.g. 'pytorch', 'tensorrt', 'onnxruntime') */
+  runtime?: string | null;
+  /** Precision ('fp32', 'fp16', 'int8') */
+  precision?: string | null;
+  /** Optional ISO or UTC timestamp string; defaults to current UTC formatted timestamp */
+  timestamp?: string;
+}
+
+/**
+ * Sanitizes an arbitrary string into a safe identifier slug.
+ */
+function sanitizeIdentifier(val: string): string {
+  return val.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+}
+
+/**
+ * Generates a deterministic, structured benchmark run identifier.
+ * Ensures every result is uniquely and unambiguously traceable to:
+ * video ID + experiment configuration + model configuration + runtime/device.
+ *
+ * Forbids unstructured names like 'test1', 'test2', 'best', 'final2'.
+ */
+export function generateBenchmarkRunId(params: GenerateBenchmarkRunIdParams): string {
+  const clip = sanitizeIdentifier(params.clipId || 'unknown_clip');
+
+  let configSlug: string;
+  if (params.experimentId && params.experimentId.trim().length > 0) {
+    configSlug = sanitizeIdentifier(params.experimentId.trim());
+  } else {
+    const parts: string[] = [
+      params.detector ? sanitizeIdentifier(params.detector) : 'det',
+      params.tracker ? sanitizeIdentifier(params.tracker) : 'trk',
+      params.inputSize ? `${params.inputSize}px` : 'defsize',
+      params.device ? sanitizeIdentifier(params.device) : 'cpu',
+    ];
+    if (params.runtime) parts.push(sanitizeIdentifier(params.runtime));
+    if (params.precision) parts.push(sanitizeIdentifier(params.precision));
+    configSlug = parts.join('_');
+  }
+
+  const rawTime = params.timestamp ? new Date(params.timestamp) : new Date();
+  const timeStr = Number.isNaN(rawTime.getTime())
+    ? new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, 'Z')
+    : rawTime.toISOString().replace(/[-:]/g, '').replace(/\..+/, 'Z');
+
+  return `RUN__${clip}__${configSlug}__${timeStr}`;
+}
+
+/**
+ * Validates a VisionBenchmarkExperimentConfig.
+ * Ensures model neutrality: any model, tracker, or runtime is accepted as long as types are sound.
+ */
+export function validateExperimentConfig(config: unknown): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!config || typeof config !== 'object') {
+    return { valid: false, errors: ['Experiment config must be an object'] };
+  }
+  const c = config as Record<string, unknown>;
+
+  if (typeof c.experimentId !== 'string' || c.experimentId.trim().length === 0) {
+    errors.push('experimentId must be a non-empty string');
+  }
+  if (typeof c.name !== 'string' || c.name.trim().length === 0) {
+    errors.push('name must be a non-empty string');
+  }
+  if (typeof c.detector !== 'string' || c.detector.trim().length === 0) {
+    errors.push('detector must be a non-empty string');
+  }
+  if (typeof c.tracker !== 'string' || c.tracker.trim().length === 0) {
+    errors.push('tracker must be a non-empty string');
+  }
+  if (typeof c.runtime !== 'string' || c.runtime.trim().length === 0) {
+    errors.push('runtime must be a non-empty string');
+  }
+  if (typeof c.device !== 'string' || c.device.trim().length === 0) {
+    errors.push('device must be a non-empty string');
+  }
+  if (typeof c.precision !== 'string' || c.precision.trim().length === 0) {
+    errors.push('precision must be a non-empty string');
+  }
+
+  if (typeof c.inputSize !== 'number' || !Number.isInteger(c.inputSize) || c.inputSize <= 0) {
+    errors.push('inputSize must be a positive integer');
+  }
+  if (
+    typeof c.confidenceThreshold !== 'number' ||
+    !Number.isFinite(c.confidenceThreshold) ||
+    c.confidenceThreshold < 0 ||
+    c.confidenceThreshold > 1
+  ) {
+    errors.push('confidenceThreshold must be a finite number between 0.0 and 1.0');
+  }
+  if (typeof c.frameStride !== 'number' || !Number.isInteger(c.frameStride) || c.frameStride <= 0) {
+    errors.push('frameStride must be a positive integer');
+  }
+  if (typeof c.poseStride !== 'number' || !Number.isInteger(c.poseStride) || c.poseStride <= 0) {
+    errors.push('poseStride must be a positive integer');
+  }
+  if (typeof c.courtRoiEnabled !== 'boolean') {
+    errors.push('courtRoiEnabled must be a boolean');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Constructs a VisionBenchmarkExperimentConfig with sensible defaults, preserving model neutrality.
+ */
+export function createExperimentConfig(
+  params: Partial<VisionBenchmarkExperimentConfig> & {
+    experimentId: string;
+    detector: string;
+    tracker: string;
+  }
+): VisionBenchmarkExperimentConfig {
+  return {
+    experimentId: params.experimentId,
+    name: params.name ?? params.experimentId,
+    detector: params.detector,
+    detectorVersion: params.detectorVersion ?? null,
+    poseModel: params.poseModel !== undefined ? params.poseModel : 'yolov8n-pose',
+    tracker: params.tracker,
+    trackerVersion: params.trackerVersion ?? null,
+    runtime: params.runtime ?? 'pytorch',
+    inputSize: params.inputSize && params.inputSize > 0 ? params.inputSize : 640,
+    confidenceThreshold:
+      typeof params.confidenceThreshold === 'number' && Number.isFinite(params.confidenceThreshold)
+        ? params.confidenceThreshold
+        : 0.25,
+    frameStride: params.frameStride && params.frameStride > 0 ? params.frameStride : 2,
+    poseStride: params.poseStride && params.poseStride > 0 ? params.poseStride : 1,
+    courtRoiEnabled: params.courtRoiEnabled === true,
+    device: params.device ?? 'cpu',
+    precision: params.precision ?? 'fp32',
+    processingProfile: params.processingProfile ?? null,
+    notes: params.notes ?? null,
+  };
+}
+
+/**
+ * Converts a VisionBenchmarkExperimentConfig into a TrackingBenchmarkModelConfig
+ * for seamless integration into TrackingBenchmarkRun.
+ */
+export function experimentConfigToModelConfig(
+  exp: VisionBenchmarkExperimentConfig
+): TrackingBenchmarkModelConfig {
+  return {
+    detectorName: exp.detector,
+    detectorVersion: exp.detectorVersion ?? null,
+    poseModel: exp.poseModel,
+    trackerName: exp.tracker,
+    trackerVersion: exp.trackerVersion ?? null,
+    detectorInputSize: exp.inputSize,
+    confidenceThreshold: exp.confidenceThreshold,
+    frameStride: exp.frameStride,
+    poseStride: exp.poseStride,
+    maxPlayers: null, // Clip-dependent, not model-dependent
+    device: exp.device,
+    runtime: exp.runtime,
+    precision: exp.precision,
+    courtRoiEnabled: exp.courtRoiEnabled,
+  };
+}
+
+/**
+ * Converts a TrackingBenchmarkModelConfig into a VisionBenchmarkExperimentConfig.
+ */
+export function modelConfigToExperimentConfig(
+  modelConfig: TrackingBenchmarkModelConfig,
+  options?: { experimentId?: string; name?: string; notes?: string }
+): VisionBenchmarkExperimentConfig {
+  const detector = modelConfig.detectorName || 'unknown_detector';
+  const tracker = modelConfig.trackerName || 'unknown_tracker';
+  const experimentId =
+    options?.experimentId ||
+    `EXP_${detector.toUpperCase()}_${tracker.toUpperCase()}_${modelConfig.detectorInputSize || 640}_${(modelConfig.device || 'cpu').toUpperCase()}`;
+
+  return {
+    experimentId,
+    name: options?.name || experimentId,
+    detector,
+    detectorVersion: modelConfig.detectorVersion ?? null,
+    poseModel: modelConfig.poseModel ?? null,
+    tracker,
+    trackerVersion: modelConfig.trackerVersion ?? null,
+    runtime: modelConfig.runtime || 'pytorch',
+    inputSize: modelConfig.detectorInputSize || 640,
+    confidenceThreshold:
+      typeof modelConfig.confidenceThreshold === 'number' ? modelConfig.confidenceThreshold : 0.25,
+    frameStride: modelConfig.frameStride || 2,
+    poseStride: modelConfig.poseStride || 1,
+    courtRoiEnabled: modelConfig.courtRoiEnabled === true,
+    device: modelConfig.device || 'cpu',
+    precision: modelConfig.precision || 'fp32',
+    processingProfile: null,
+    notes: options?.notes ?? null,
+  };
 }

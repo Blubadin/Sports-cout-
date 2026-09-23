@@ -190,6 +190,51 @@ class TestProcessingConfigAndPresets(unittest.TestCase):
         self.assertEqual(cfg["frameStride"], 4)
         self.assertEqual(cfg["poseStride"], 3)
 
+    def test_production_profiles_explicit_contract(self):
+        """Verify explicit resolution contract for FAST, BALANCED, QUALITY, and REFERENCE profiles."""
+        for prof_name in ["reference", "fast", "balanced", "quality"]:
+            cfg = resolve_processing_config({"profile": prof_name})
+            self.assertEqual(cfg["requestedProfile"], prof_name)
+            self.assertEqual(cfg["effectiveProfile"], prof_name)
+            self.assertEqual(cfg["detectorModel"], "yolov8n.pt")
+            self.assertEqual(cfg["detectorFamily"], "yolov8")
+            self.assertEqual(cfg["poseModel"], "yolov8n-pose.pt")
+            self.assertEqual(cfg["poseArchitecture"], "roi_pose")
+            self.assertEqual(cfg["trackerName"], "bytetrack")
+            self.assertFalse(cfg["reidEnabled"])
+            self.assertIsNone(cfg["reidModel"])
+            self.assertEqual(cfg["runtime"], "pytorch")
+            self.assertEqual(cfg["precision"], "fp32")
+            self.assertEqual(cfg["confidenceThreshold"], 0.35)
+
+        # Fast profile
+        fast = resolve_processing_config({"profile": "fast"})
+        self.assertEqual(fast["detectorInputSize"], 416)
+        self.assertEqual(fast["frameStride"], 3)
+        self.assertEqual(fast["poseStride"], 2)
+        self.assertTrue(fast["useCourtRoi"])
+
+        # Balanced profile
+        balanced = resolve_processing_config({"profile": "balanced"})
+        self.assertEqual(balanced["detectorInputSize"], 512)
+        self.assertEqual(balanced["frameStride"], 2)
+        self.assertEqual(balanced["poseStride"], 1)
+        self.assertTrue(balanced["useCourtRoi"])
+
+        # Quality profile
+        quality = resolve_processing_config({"profile": "quality"})
+        self.assertEqual(quality["detectorInputSize"], 640)
+        self.assertEqual(quality["frameStride"], 1)
+        self.assertEqual(quality["poseStride"], 1)
+        self.assertFalse(quality["useCourtRoi"])
+
+        # Reference profile (baseline)
+        reference = resolve_processing_config({"profile": "reference"})
+        self.assertEqual(reference["detectorInputSize"], 640)
+        self.assertEqual(reference["frameStride"], 2)
+        self.assertEqual(reference["poseStride"], 1)
+        self.assertFalse(reference["useCourtRoi"])
+
 
 class TestPoseStrideHonesty(unittest.TestCase):
     def test_pose_stride_honesty(self):
@@ -487,6 +532,60 @@ class TestPhase4PerformanceAndQualityHardening(unittest.TestCase):
         self.assertEqual(prov["poseStride"], 2)
         self.assertTrue(prov["useCourtRoi"])
         self.assertEqual(prov["courtRoiMarginM"], 0.5)
+        self.assertEqual(prov["runtime"], "pytorch")
+        self.assertEqual(prov["precision"], "fp32")
+        self.assertEqual(prov["poseArchitecture"], "roi_pose")
+        self.assertFalse(prov["reidEnabled"])
+        self.assertEqual(prov["confidenceThreshold"], 0.35)
+
+    def test_shuttle_config_resolution_and_session_transport(self):
+        """Shuttle configuration parameters survive resolve_processing_config and TrackingSession."""
+        # 1. Default config has shuttleEnabled = False
+        default_cfg = resolve_processing_config(None)
+        self.assertFalse(default_cfg["shuttleEnabled"])
+
+        # 2. Enabling shuttle via camelCase preserves fields without mutating player config
+        enabled_cfg = resolve_processing_config({
+            "profile": "balanced",
+            "shuttleEnabled": True,
+            "shuttleProvider": "opencv_onnx",
+            "shuttleWindowSize": 3,
+            "shuttleConfidenceThreshold": 0.6,
+        })
+        self.assertTrue(enabled_cfg["shuttleEnabled"])
+        self.assertEqual(enabled_cfg["shuttleProvider"], "opencv_onnx")
+        self.assertEqual(enabled_cfg["shuttleWindowSize"], 3)
+        self.assertEqual(enabled_cfg["shuttleConfidenceThreshold"], 0.6)
+        # Player config preserved
+        self.assertEqual(enabled_cfg["profile"], "balanced")
+        self.assertEqual(enabled_cfg["detectorInputSize"], 512)
+        self.assertTrue(enabled_cfg["useCourtRoi"])
+
+        # 3. TrackingSession preserves shuttleEnabled across the entire chain
+        session = TrackingSession(
+            session_id="test_shuttle_session",
+            game_type="singles",
+            tracked_player_count=2,
+            processing_config={
+                "shuttleEnabled": True,
+                "shuttleWindowSize": 3,
+            },
+        )
+        self.assertTrue(session.effective_processing_config["shuttleEnabled"])
+        self.assertTrue(session.shuttle_pipeline.config.enabled)
+        # With no model file, status is truthfully reported as MODEL_UNAVAILABLE
+        self.assertEqual(session.shuttle_pipeline.status, "MODEL_UNAVAILABLE")
+
+        # 4. Old session without shuttle fields loads with shuttleEnabled = False
+        old_session = TrackingSession(
+            session_id="old_session",
+            game_type="doubles",
+            tracked_player_count=4,
+            processing_config={"profile": "reference"},
+        )
+        self.assertFalse(old_session.effective_processing_config["shuttleEnabled"])
+        self.assertFalse(old_session.shuttle_pipeline.config.enabled)
+        self.assertEqual(old_session.shuttle_pipeline.status, "DISABLED")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import type {
   ProcessingConfig,
   TrackingPerformanceStats,
   TrackingQualityStats,
+  ShuttleProvenance,
 } from '../types';
 
 export type BadmintonGameType = 'singles' | 'doubles';
@@ -37,6 +38,20 @@ export function getAiHost(): string {
     return host;
   }
   return '127.0.0.1';
+}
+
+export interface BackendCapabilities {
+  selectedDevice: string;
+  cudaAvailable: boolean;
+  mpsAvailable: boolean;
+  detectorModel?: string;
+  poseModel?: string;
+  shuttle?: ShuttleProvenance & {
+    modelAvailable?: boolean;
+    configuredModel?: string | null;
+    probeStatus?: string;
+    probeFailureReason?: string | null;
+  };
 }
 
 export class TrackingSessionApiClient {
@@ -131,11 +146,7 @@ export class TrackingSessionApiClient {
     }
   }
 
-  public async getCapabilities(): Promise<{
-    selectedDevice: string;
-    cudaAvailable: boolean;
-    mpsAvailable: boolean;
-  }> {
+  public async getCapabilities(): Promise<BackendCapabilities> {
     const res = await fetch(this.getApiUrl('/api/capabilities'));
     if (!res.ok) throw new Error(`Failed to fetch backend capabilities: ${res.statusText}`);
     return res.json();
@@ -356,6 +367,25 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         pose: p.pose,
       };
     }),
+    shuttle: frame.shuttle
+      ? {
+          timestampSec: frame.shuttle.timestampSec ?? (frame.timestampSec ?? frame.timestamp),
+          frameIndex: frame.shuttle.frameIndex ?? (frame.frameIndex ?? frame.frame_idx),
+          positionPx:
+            frame.shuttle.positionPx !== null && frame.shuttle.positionPx !== undefined
+              ? {
+                  x: Number(frame.shuttle.positionPx.x),
+                  y: Number(frame.shuttle.positionPx.y),
+                }
+              : null,
+          confidence: typeof frame.shuttle.confidence === 'number' ? frame.shuttle.confidence : null,
+          state: frame.shuttle.state || 'unknown',
+          source: frame.shuttle.source || 'unknown',
+          trajectoryId: frame.shuttle.trajectoryId ?? null,
+          velocityPxPerSec: frame.shuttle.velocityPxPerSec ?? null,
+          speedPxPerSec: frame.shuttle.speedPxPerSec ?? null,
+        }
+      : null,
   };
 }
 

@@ -73,6 +73,7 @@ export function getDefaultProcessingConfig(): ProcessingConfig {
     courtRoiMarginPx: 60,
     frameStride: 2,
     poseStride: 1,
+    shuttleEnabled: false,
   };
 }
 
@@ -144,7 +145,11 @@ class TrackingSessionStore {
             state.gameType = data.gameType ?? 'singles';
             state.trackedPlayerCount = data.trackedPlayerCount ?? 2;
             state.corners = data.corners ?? [];
-            state.processingConfig = data.processingConfig ?? getDefaultProcessingConfig();
+            const loadedCfg = data.processingConfig ?? getDefaultProcessingConfig();
+            state.processingConfig = {
+              ...loadedCfg,
+              shuttleEnabled: loadedCfg.shuttleEnabled ?? false,
+            };
             state.status = data.status ?? 'IDLE';
             state.progress = data.progress ?? 0;
             state.currentFrame = data.currentFrame ?? 0;
