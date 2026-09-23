@@ -162,7 +162,13 @@ def get_capabilities():
     pose_m = analyzer.engine_config.pose_model if hasattr(analyzer, "engine_config") and analyzer.engine_config.pose_model else "yolov8n-pose.pt"
     report["poseModel"] = pose_m
     default_shuttle = create_shuttle_pipeline()
-    report["shuttle"] = default_shuttle.get_provenance()
+    shuttle_prov = default_shuttle.get_provenance()
+    probe_pipeline = create_shuttle_pipeline({"shuttle_enabled": True})
+    shuttle_prov["modelAvailable"] = (probe_pipeline.status == STATUS_AVAILABLE)
+    shuttle_prov["configuredModel"] = probe_pipeline.get_provenance().get("model")
+    shuttle_prov["probeStatus"] = probe_pipeline.status
+    shuttle_prov["probeFailureReason"] = probe_pipeline.failure_reason
+    report["shuttle"] = shuttle_prov
     return report
 
 

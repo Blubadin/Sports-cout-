@@ -584,6 +584,7 @@ export interface TrackingSessionStatus {
   videoMetadata?: SourceVideoMetadata;
   researchMetadata?: CameraResearchMetadata;
   players: TrackingLivePlayerStatus[];
+  shuttle?: ShuttleProvenance | null;
   error: string | null;
 }
 
@@ -643,6 +644,23 @@ export interface ProcessingConfig {
   runtime?: 'pytorch' | 'onnx' | 'tensorrt' | string;
   precision?: 'fp32' | 'fp16' | 'int8' | string;
   confidenceThreshold?: number;
+
+  // Shuttle configuration fields (Phase 2.9A)
+  shuttleEnabled?: boolean;
+  shuttleProvider?: string;
+  shuttleModelPath?: string | null;
+  shuttleWindowSize?: number;
+  shuttleInputWidth?: number;
+  shuttleInputHeight?: number;
+  shuttleConfidenceThreshold?: number;
+  shuttleCentroidRelativeThreshold?: number;
+  shuttleCandidateMode?: string;
+  shuttleRecoveryEnabled?: boolean;
+  shuttleDevice?: string;
+  shuttleRuntime?: string;
+  shuttlePrecision?: string;
+  shuttleAuxiliaryDetector?: string | null;
+  shuttleBuildTrajectory?: boolean;
 }
 
 export interface TrackingPerformanceStats {
@@ -678,6 +696,37 @@ export interface TrackingQualityStats {
   playerCoverage?: Record<string, PlayerTrackingCoverage>;
 }
 
+export type ShuttleTrackingStatus =
+  | 'DISABLED'
+  | 'REQUESTED'
+  | 'MODEL_UNAVAILABLE'
+  | 'AVAILABLE'
+  | 'RUNTIME_UNAVAILABLE'
+  | 'INITIALIZATION_ERROR'
+  | string;
+
+export interface ShuttleProvenance {
+  enabled: boolean;
+  requested: boolean;
+  active: boolean;
+  status: ShuttleTrackingStatus;
+  provider: string;
+  model: string | null;
+  runtime: string;
+  precision: string;
+  device: string;
+  windowSize: number;
+  confidenceThreshold: number;
+  recoveryEnabled: boolean;
+  auxiliaryDetectorAvailable: boolean;
+  failureReason?: string | null;
+  lastFailure?: string | null;
+  modelAvailable?: boolean;
+  configuredModel?: string | null;
+  probeStatus?: string;
+  probeFailureReason?: string | null;
+}
+
 export interface TrackingRuntimeProvenance {
   detectorModel: string;
   trackerModel: string;
@@ -704,6 +753,7 @@ export interface TrackingRuntimeProvenance {
   runtime?: string;
   precision?: string;
   confidenceThreshold?: number;
+  shuttle?: ShuttleProvenance | null;
 }
 
 export * from './types/benchmark';

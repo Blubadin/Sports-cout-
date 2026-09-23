@@ -538,6 +538,55 @@ class TestPhase4PerformanceAndQualityHardening(unittest.TestCase):
         self.assertFalse(prov["reidEnabled"])
         self.assertEqual(prov["confidenceThreshold"], 0.35)
 
+    def test_shuttle_config_resolution_and_session_transport(self):
+        """Shuttle configuration parameters survive resolve_processing_config and TrackingSession."""
+        # 1. Default config has shuttleEnabled = False
+        default_cfg = resolve_processing_config(None)
+        self.assertFalse(default_cfg["shuttleEnabled"])
+
+        # 2. Enabling shuttle via camelCase preserves fields without mutating player config
+        enabled_cfg = resolve_processing_config({
+            "profile": "balanced",
+            "shuttleEnabled": True,
+            "shuttleProvider": "opencv_onnx",
+            "shuttleWindowSize": 3,
+            "shuttleConfidenceThreshold": 0.6,
+        })
+        self.assertTrue(enabled_cfg["shuttleEnabled"])
+        self.assertEqual(enabled_cfg["shuttleProvider"], "opencv_onnx")
+        self.assertEqual(enabled_cfg["shuttleWindowSize"], 3)
+        self.assertEqual(enabled_cfg["shuttleConfidenceThreshold"], 0.6)
+        # Player config preserved
+        self.assertEqual(enabled_cfg["profile"], "balanced")
+        self.assertEqual(enabled_cfg["detectorInputSize"], 512)
+        self.assertTrue(enabled_cfg["useCourtRoi"])
+
+        # 3. TrackingSession preserves shuttleEnabled across the entire chain
+        session = TrackingSession(
+            session_id="test_shuttle_session",
+            game_type="singles",
+            tracked_player_count=2,
+            processing_config={
+                "shuttleEnabled": True,
+                "shuttleWindowSize": 3,
+            },
+        )
+        self.assertTrue(session.effective_processing_config["shuttleEnabled"])
+        self.assertTrue(session.shuttle_pipeline.config.enabled)
+        # With no model file, status is truthfully reported as MODEL_UNAVAILABLE
+        self.assertEqual(session.shuttle_pipeline.status, "MODEL_UNAVAILABLE")
+
+        # 4. Old session without shuttle fields loads with shuttleEnabled = False
+        old_session = TrackingSession(
+            session_id="old_session",
+            game_type="doubles",
+            tracked_player_count=4,
+            processing_config={"profile": "reference"},
+        )
+        self.assertFalse(old_session.effective_processing_config["shuttleEnabled"])
+        self.assertFalse(old_session.shuttle_pipeline.config.enabled)
+        self.assertEqual(old_session.shuttle_pipeline.status, "DISABLED")
+
 
 if __name__ == "__main__":
     unittest.main()

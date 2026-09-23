@@ -16,6 +16,7 @@ import type {
   ProcessingConfig,
   TrackingPerformanceStats,
   TrackingQualityStats,
+  ShuttleProvenance,
 } from '../types';
 
 export type BadmintonGameType = 'singles' | 'doubles';
@@ -37,6 +38,20 @@ export function getAiHost(): string {
     return host;
   }
   return '127.0.0.1';
+}
+
+export interface BackendCapabilities {
+  selectedDevice: string;
+  cudaAvailable: boolean;
+  mpsAvailable: boolean;
+  detectorModel?: string;
+  poseModel?: string;
+  shuttle?: ShuttleProvenance & {
+    modelAvailable?: boolean;
+    configuredModel?: string | null;
+    probeStatus?: string;
+    probeFailureReason?: string | null;
+  };
 }
 
 export class TrackingSessionApiClient {
@@ -131,11 +146,7 @@ export class TrackingSessionApiClient {
     }
   }
 
-  public async getCapabilities(): Promise<{
-    selectedDevice: string;
-    cudaAvailable: boolean;
-    mpsAvailable: boolean;
-  }> {
+  public async getCapabilities(): Promise<BackendCapabilities> {
     const res = await fetch(this.getApiUrl('/api/capabilities'));
     if (!res.ok) throw new Error(`Failed to fetch backend capabilities: ${res.statusText}`);
     return res.json();
