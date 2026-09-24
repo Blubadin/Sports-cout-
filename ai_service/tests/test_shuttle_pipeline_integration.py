@@ -98,6 +98,34 @@ class TestShuttlePipelineIntegration(unittest.TestCase):
     def setUp(self):
         tracking_sessions.clear()
 
+    def test_trajectory_runtime_buffer_is_bounded_without_dropping_emitted_telemetry(self):
+        provider = DeterministicShuttleProvider()
+        pipeline = create_shuttle_pipeline(
+            {
+                "shuttle_enabled": True,
+                "shuttle_window_size": 2,
+                "shuttle_recovery_enabled": False,
+                "shuttle_build_trajectory": True,
+                "shuttle_trajectory_history_limit": 2,
+            },
+            custom_provider=provider,
+        )
+        frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+
+        emitted = [
+            pipeline.process_frame(frame, timestamp_sec=index * 0.04, frame_index=index)
+            for index in range(5)
+        ]
+
+        self.assertEqual(len(emitted), 5)
+        self.assertTrue(all(item is not None for item in emitted))
+        self.assertEqual(pipeline.get_trajectory_working_history_size(), 2)
+
+        pipeline.end_stream()
+        derived = pipeline.get_derived_trajectory()
+        self.assertIsNotNone(derived)
+        self.assertLessEqual(len(derived.raw_observations), 2)
+
     # =========================================================================
     # A. SHUTTLE DISABLED
     # =========================================================================
