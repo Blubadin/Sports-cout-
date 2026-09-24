@@ -95,6 +95,31 @@ describe('TrackingSessionApiClient connection security', () => {
     await expect(client.checkConnection()).resolves.toMatchObject({ code: 'AI_OFFLINE', connected: false });
   });
 
+  it('reports missing authentication when protected capabilities reject a connection probe', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string) => ({
+      ok: !url.endsWith('/api/capabilities'),
+      status: url.endsWith('/api/capabilities') ? 401 : 200,
+    } as Response));
+
+    await expect(client.checkConnection()).resolves.toMatchObject({ code: 'AUTH_REQUIRED', connected: false });
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/capabilities',
+      expect.any(Object),
+    );
+  });
+
+  it('sends the runtime bearer credential to protected capabilities', async () => {
+    client.setCredential('secret-value');
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ selectedDevice: 'cpu' }) } as Response);
+
+    await client.getCapabilities();
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/capabilities',
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer secret-value' }) }),
+    );
+  });
+
   it('uses the backend-supported subprotocols for an authenticated WebSocket', () => {
     client.setCredential('secret-value');
     const socket = client.connectTelemetry();

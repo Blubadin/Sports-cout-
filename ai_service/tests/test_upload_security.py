@@ -140,9 +140,11 @@ class UploadSecurityTests(unittest.TestCase):
         self.assertEqual(self.upload().status_code, 200)
         previous = self.session.owned_video_path
         with patch('server.extract_video_metadata', side_effect=RuntimeError('private C:/server/secret/video.avi')):
-            response = self.upload()
+            with self.assertLogs(server.logger, level='ERROR') as captured:
+                response = self.upload()
         self.assertEqual(response.status_code, 422)
         self.assertNotIn('C:/server', response.text)
+        self.assertNotIn('C:/server/secret/video.avi', '\n'.join(captured.output))
         self.assertTrue(previous.exists())
         self.assertEqual(self.session.owned_video_path, previous)
         self.assertEqual(self.owned_files(), [previous])
@@ -271,9 +273,11 @@ class RuntimeInputSecurityTests(unittest.TestCase):
                 provider.infer.side_effect = error('C:/private/models/private.onnx')
                 pipeline = create_shuttle_pipeline({'shuttle_enabled': True, 'shuttle_recovery_enabled': False},
                                                    custom_provider=provider)
-                for index in range(3):
-                    pipeline.process_frame(np.zeros((48, 64, 3), dtype=np.uint8), index / 30, index)
+                with self.assertLogs('shuttle_pipeline', level='ERROR') as captured:
+                    for index in range(3):
+                        pipeline.process_frame(np.zeros((48, 64, 3), dtype=np.uint8), index / 30, index)
                 self.assertNotIn('C:/private', json.dumps(pipeline.get_provenance()))
+                self.assertNotIn('C:/private', '\n'.join(captured.output))
 
     def test_nan_in_typed_fields_is_422_not_serialization_error(self):
         client = TestClient(server.app)

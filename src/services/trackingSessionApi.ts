@@ -179,7 +179,7 @@ export class TrackingSessionApiClient {
     try {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 2000);
-      await this.request('/api/status', { signal: controller.signal }, false);
+      await this.request('/api/capabilities', { signal: controller.signal });
       clearTimeout(id);
       return this.setConnectionSnapshot({ ...initial, code: 'CONNECTED', connected: true });
     } catch (error) {
@@ -193,7 +193,7 @@ export class TrackingSessionApiClient {
   }
 
   public async getCapabilities(): Promise<BackendCapabilities> {
-    const res = await this.request('/api/capabilities', {}, false);
+    const res = await this.request('/api/capabilities');
     return res.json();
   }
 

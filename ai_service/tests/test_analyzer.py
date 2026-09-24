@@ -3,6 +3,8 @@ test_analyzer.py — Unit tests for analyzer_v2 and server.py safety constraints
 """
 
 import unittest
+import os
+from unittest.mock import patch
 import numpy as np
 import sys
 from pathlib import Path
@@ -97,11 +99,12 @@ class TestServerSafetyEndpoints(unittest.TestCase):
         self.assertIn("poseModel", data)
 
     def test_nonexistent_video_does_not_silently_fallback(self):
-        """Starting tracking with a non-existent file must fail with 404, not simulate fake AI."""
-        res = self.client.post(
-            "/api/start",
-            json={"video_source": "non_existent_fake_video_12345.mp4", "game_type": "doubles"},
-        )
+        """An explicitly enabled direct source still rejects missing files."""
+        with patch.dict(os.environ, {"SPORTSCOUT_AI_LEGACY_DIRECT_SOURCES": "true"}):
+            res = self.client.post(
+                "/api/start",
+                json={"video_source": "non_existent_fake_video_12345.mp4", "game_type": "doubles"},
+            )
         self.assertEqual(res.status_code, 404)
         self.assertIn("Video file not found", res.json()["detail"])
 

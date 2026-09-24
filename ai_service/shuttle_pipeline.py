@@ -331,21 +331,21 @@ class ProductionShuttlePipeline:
             self.last_failure = None
             return self._record_observation(observation)
         except ModelUnavailableError:
-            logger.exception('Shuttle model unavailable')
+            logger.error('Shuttle model unavailable')
             self.status = STATUS_MODEL_UNAVAILABLE
             self.status_reason = 'Shuttle model unavailable; see local service logs'
             self.failure_reason = self.status_reason
             self.last_failure = "MODEL UNAVAILABLE"
             return None
         except RuntimeUnavailableError:
-            logger.exception('Shuttle runtime unavailable')
+            logger.error('Shuttle runtime unavailable')
             self.status = STATUS_RUNTIME_UNAVAILABLE
             self.status_reason = 'Shuttle runtime unavailable; see local service logs'
             self.failure_reason = self.status_reason
             self.last_failure = "RUNTIME UNAVAILABLE"
             return None
         except ShuttleInferenceError:
-            logger.exception('Shuttle inference failed')
+            logger.error('Shuttle inference failed')
             self.last_failure = 'Shuttle inference failed; see local service logs'
             # Recoverable inference failure: emit canonical lost observation
             return self._record_observation(
@@ -358,7 +358,7 @@ class ProductionShuttlePipeline:
                 )
             )
         except Exception as err:
-            logger.exception('Shuttle processing failed')
+            logger.error('Shuttle processing failed (%s)', type(err).__name__)
             # Check if this error was caused by missing model
             if "MODEL UNAVAILABLE" in str(err) or "not found" in str(err).lower():
                 self.status = STATUS_MODEL_UNAVAILABLE
@@ -521,8 +521,8 @@ def create_shuttle_pipeline(
             provider = RallyLensTemporalModelAdapter(cfg.model_path)
             provider.availability()
             return ProductionShuttlePipeline(cfg, provider=provider)
-        except Exception:
-            logger.exception('Verified RallyLens model initialization failed')
+        except Exception as error:
+            logger.error('Verified RallyLens model initialization failed (%s)', type(error).__name__)
             return ProductionShuttlePipeline(cfg, status=STATUS_INITIALIZATION_ERROR,
                                              status_reason='RallyLens checkpoint failed verification/loading; see local service logs')
 
@@ -572,8 +572,8 @@ def create_shuttle_pipeline(
                 status=STATUS_AVAILABLE,
                 status_reason=avail.reason,
             )
-        except Exception:
-            logger.exception('Shuttle provider initialization failed')
+        except Exception as error:
+            logger.error('Shuttle provider initialization failed (%s)', type(error).__name__)
             return ProductionShuttlePipeline(
                 cfg,
                 status=STATUS_INITIALIZATION_ERROR,
