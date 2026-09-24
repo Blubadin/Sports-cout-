@@ -1,0 +1,18 @@
+{
+  "name": "sportscout-efficiency",
+  "version": "1.0.0",
+  "description": "Token-efficient SPORTSCOUT project context routing, phase execution, and tracking-domain guidance.",
+  "author": {
+    "name": "SPORTSCOUT local development"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "SPORTSCOUT Efficiency",
+    "shortDescription": "Focused SPORTSCOUT context and tracking guidance.",
+    "longDescription": "Routes SPORTSCOUT work to focused context and preserves tracking-domain invariants.",
+    "developerName": "SPORTSCOUT",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": "Use the focused SPORTSCOUT context and tracking guidance."
+  }
+}

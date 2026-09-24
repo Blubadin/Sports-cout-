@@ -1,0 +1,20 @@
+{
+  "name": "local-repo",
+  "interface": {
+    "displayName": "Personal"
+  },
+  "plugins": [
+    {
+      "name": "sportscout-efficiency",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sportscout-efficiency"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
