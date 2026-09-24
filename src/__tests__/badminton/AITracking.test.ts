@@ -84,7 +84,7 @@ describe('Phase 2 — Legacy HUD Tracking Removal & Boundary Isolation', () => {
       const isHealthy = await trackingSessionApi.checkBackendHealth();
       expect(isHealthy).toBe(true);
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://127.0.0.1:8000/api/status',
+        'http://127.0.0.1:8000/api/capabilities',
         expect.any(Object)
       );
     });

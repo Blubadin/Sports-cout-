@@ -12,8 +12,9 @@ import math
 import threading
 import time
 import logging
+from contextlib import asynccontextmanager
 from typing import Set, Literal
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _AI_SERVICE_DIR = Path(__file__).resolve().parent
@@ -43,6 +44,22 @@ except ImportError:
     )
 
 logger = logging.getLogger(__name__)
+
+
+def public_metadata(value):
+    """Expose model/source names, not absolute machine paths, in API metadata."""
+    if isinstance(value, dict):
+        return {key: public_metadata(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [public_metadata(item) for item in value]
+    if isinstance(value, str):
+        windows_path = PureWindowsPath(value)
+        if windows_path.is_absolute():
+            return windows_path.name
+        posix_path = PurePosixPath(value)
+        if posix_path.is_absolute():
+            return posix_path.name
+    return value
 
 from analyzer_v2 import BadmintonAnalyzerV2
 from pose_adapter import PoseArchitectureNotImplementedError
@@ -77,8 +94,19 @@ except ImportError:
         STATUS_DISABLED,
     )
 
+try:
+    from ai_service.local_security import SecurityConfigurationError, SecuritySettings, LegacySourceError
+except ImportError:
+    from local_security import SecurityConfigurationError, SecuritySettings, LegacySourceError
 
-app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0")
+
+@asynccontextmanager
+async def security_lifespan(_app: FastAPI):
+    SecuritySettings.from_env().validate_bind()
+    yield
+
+
+app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0", lifespan=security_lifespan)
 
 
 @app.exception_handler(RequestValidationError)
@@ -103,6 +131,16 @@ def _positive_finite(value):
     if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
         return None
     return float(value)
+
+
+def _video_frame_timestamp(frame_index: int, fps: float, pos_msec, previous_timestamp: float | None = None) -> float:
+    reported_msec = _positive_finite(pos_msec)
+    timestamp = reported_msec / 1000.0 if reported_msec is not None else None
+    if timestamp is None or (previous_timestamp is not None and timestamp <= previous_timestamp):
+        timestamp = frame_index / fps
+        if previous_timestamp is not None and timestamp <= previous_timestamp:
+            timestamp = previous_timestamp + (1.0 / fps)
+    return timestamp
 
 
 def get_cors_configuration(
@@ -143,6 +181,33 @@ async def add_pna_and_cors_headers(request: Request, call_next):
     if request.headers.get("access-control-request-private-network") == "true":
         response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response
+
+
+@app.middleware("http")
+async def enforce_ai_security(request: Request, call_next):
+    settings = SecuritySettings.from_env()
+    try:
+        settings.validate_bind()
+    except SecurityConfigurationError:
+        return JSONResponse(status_code=503, content={"detail": "AI service security configuration is invalid"})
+
+    server_address = request.scope.get("server")
+    if server_address and not settings.may_serve_interface(server_address[0]):
+        return JSONResponse(status_code=403, content={"detail": "Remote AI service access is disabled"})
+
+    path = request.url.path
+    if (
+        path.startswith("/api/")
+        and request.method != "OPTIONS"
+        and not (request.method == "GET" and path == "/api/status")
+        and not settings.authorize_bearer(request.headers.get("authorization"))
+    ):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Authentication required"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
 
 # Global State
 analyzer = BadmintonAnalyzerV2(game_type="doubles", max_players=4)
@@ -191,7 +256,7 @@ def get_capabilities():
     """Expose the actual inference runtime so the UI never guesses GPU state."""
     report = capability_report()
     report["selectedDevice"] = analyzer.device
-    report["detectorModel"] = analyzer.model_path
+    report["detectorModel"] = public_metadata(analyzer.model_path)
     pose_m = analyzer.engine_config.pose_model if hasattr(analyzer, "engine_config") and analyzer.engine_config.pose_model else "yolov8n-pose.pt"
     report["poseModel"] = pose_m
     default_shuttle = create_shuttle_pipeline()
@@ -202,7 +267,7 @@ def get_capabilities():
     shuttle_prov["probeStatus"] = probe_pipeline.status
     shuttle_prov["probeFailureReason"] = probe_pipeline.failure_reason
     report["shuttle"] = shuttle_prov
-    return report
+    return public_metadata(report)
 
 
 @app.post("/api/calibrate")
@@ -370,7 +435,7 @@ def _demo_worker(loop: asyncio.AbstractEventLoop):
 def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
     """Background thread running real video frame inference."""
     global is_tracking, tracking_mode
-    print(f"[AI Service] Real Tracking worker started for source: {video_source}")
+    print("[AI Service] Real Tracking worker started")
     tracking_mode = "real"
 
     src = int(video_source) if video_source.isdigit() else video_source
@@ -378,7 +443,7 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
     if not cap.isOpened():
         is_tracking = False
         tracking_mode = "idle"
-        error_msg = f"Failed to open video source: {video_source}"
+        error_msg = "Failed to open video source"
         print(f"[AI Service] Error: {error_msg}")
         asyncio.run_coroutine_threadsafe(
             broadcast_telemetry({"type": "error", "error": error_msg, "is_synthetic": False}),
@@ -399,6 +464,7 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
         return
     frame_delay = 1.0 / fps
     frame_idx = 0
+    last_timestamp_sec = None
 
     try:
         while is_tracking and tracking_mode == "real":
@@ -409,7 +475,8 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
 
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
-            timestamp_sec = (pos_msec / 1000.0) if pos_msec > 0 else (frame_idx / fps)
+            timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
+            last_timestamp_sec = timestamp_sec
 
             telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
             telemetry["source"] = "real_tracking"
@@ -450,20 +517,15 @@ async def start_demo():
 async def start_tracking(req: StartStreamRequest):
     """Start tracking from video source or webcam. Requires a valid source."""
     global is_tracking, tracking_mode, tracking_thread
+    try:
+        SecuritySettings.from_env().validate_legacy_source(req.video_source)
+    except LegacySourceError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from None
     if is_tracking:
         return {"status": "already_running", "mode": tracking_mode}
 
     if req.video_source == "demo":
         return await start_demo()
-
-    # Validate video source existence if not numeric webcam device
-    if not req.video_source.isdigit():
-        video_path = Path(req.video_source)
-        if not video_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail="Video file not found. For simulated testing, use POST /api/demo."
-            )
 
     is_tracking = True
     tracking_mode = "real"
@@ -474,7 +536,7 @@ async def start_tracking(req: StartStreamRequest):
         daemon=True,
     )
     tracking_thread.start()
-    return {"status": "started", "mode": "real", "video_source": req.video_source, "is_synthetic": False}
+    return {"status": "started", "mode": "real", "is_synthetic": False}
 
 
 @app.post("/api/stop")
@@ -487,7 +549,21 @@ def stop_tracking():
 
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket):
-    await websocket.accept()
+    settings = SecuritySettings.from_env()
+    server_address = websocket.scope.get("server")
+    protocols = websocket.scope.get("subprotocols") or []
+    try:
+        settings.validate_bind()
+    except SecurityConfigurationError:
+        await websocket.close(code=4401)
+        return
+    if (
+        (server_address and not settings.may_serve_interface(server_address[0]))
+        or not settings.authorize_websocket(websocket.headers.get("authorization"), protocols)
+    ):
+        await websocket.close(code=4401)
+        return
+    await websocket.accept(subprotocol="sportscout" if "sportscout" in protocols else None)
     connected_websockets.add(websocket)
     print("[AI Service] Client connected to AI Telemetry WebSocket")
 
@@ -908,8 +984,8 @@ tracking_sessions: dict[str, TrackingSession] = {}
 def _run_session_analysis(session: TrackingSession):
     try:
         _analyze_session_frames(session)
-    except Exception:
-        logger.exception('Analysis initialization/execution failed for session %s', session.session_id)
+    except Exception as error:
+        logger.error('Analysis initialization/execution failed for session %s (%s)', session.session_id, type(error).__name__)
         session.status = 'ERROR'
         session.error_message = 'Video analysis failed; see local service logs'
     finally:
@@ -1003,6 +1079,7 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
     session.duration_sec = round(total_frames / fps, 2) if total_frames > 0 else 0.0
 
     frame_idx = 0
+    last_timestamp_sec = None
     try:
         while not session._cancel:
             ret, frame = cap.read()
@@ -1010,7 +1087,8 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
                 break
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
-            timestamp_sec = (pos_msec / 1000.0) if pos_msec > 0 else (frame_idx / fps)
+            timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
+            last_timestamp_sec = timestamp_sec
             if frame_idx % session.frame_stride != 0:
                 session.current_frame = frame_idx
                 session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
@@ -1029,8 +1107,8 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
             session.progress_pct = 100.0
         else:
             session.status = "READY"
-    except Exception:
-        logger.exception('Video analysis failed for session %s', session.session_id)
+    except Exception as error:
+        logger.error('Video analysis failed for session %s (%s)', session.session_id, type(error).__name__)
         session.status = "ERROR"
         session.error_message = 'Video analysis failed; see local service logs'
 
@@ -1050,21 +1128,21 @@ def create_tracking_session(req: CreateSessionRequest):
             processing_config=req.processing_config,
         )
     except (ValueError, InvalidEngineConfigError, ModelNotFoundError, PoseArchitectureNotImplementedError) as error:
-        logger.exception('Tracking session configuration rejected')
-        detail = str(error) if isinstance(error, ResourceConfigError) else 'Invalid tracking configuration; check device (cuda/mps), model and processing settings'
+        logger.error('Tracking session configuration rejected (%s)', type(error).__name__)
+        detail = 'Invalid tracking configuration; check device (cuda/mps), model and processing settings'
         raise HTTPException(status_code=422, detail=detail) from error
     tracking_sessions[session_id] = session
     return {
         "sessionId": session_id,
         "status": session.status,
         "gameType": session.game_type,
-        "videoSource": session.video_source,
+        "videoSource": public_metadata(session.video_source),
         "trackedPlayerCount": session.tracked_player_count,
         "device": session.effective_device,
         "requestedDevice": session.requested_device,
         "effectiveDevice": session.effective_device,
-        "processingConfig": session.processing_config,
-        "effectiveProcessingConfig": session.effective_processing_config,
+        "processingConfig": public_metadata(session.processing_config),
+        "effectiveProcessingConfig": public_metadata(session.effective_processing_config),
     }
 
 
@@ -1091,8 +1169,8 @@ def list_tracking_sessions(project_id: str | None = None):
                 "totalFrames": session.total_frames,
                 "analyzedFrames": session.analyzed_frames,
                 "trackedPlayerCount": session.tracked_player_count,
-                "processingConfig": session.processing_config,
-                "effectiveProcessingConfig": session.effective_processing_config,
+                "processingConfig": public_metadata(session.processing_config),
+                "effectiveProcessingConfig": public_metadata(session.effective_processing_config),
                 "resumable": session.status not in {"COMPLETED", "ERROR"},
             }
             for session in sessions
@@ -1200,11 +1278,11 @@ async def upload_session_video(session_id: str, request: Request):
         }
     except HTTPException:
         raise
-    except (cv2.error, ValueError, RuntimeError):
-        logger.exception('Video validation failed for session %s', session_id)
+    except (cv2.error, ValueError, RuntimeError) as error:
+        logger.error('Video validation failed for session %s (%s)', session_id, type(error).__name__)
         raise HTTPException(status_code=422, detail='Video could not be validated') from None
-    except OSError:
-        logger.exception('Video storage failed for session %s', session_id)
+    except OSError as error:
+        logger.error('Video storage failed for session %s (%s)', session_id, type(error).__name__)
         raise HTTPException(status_code=507, detail='Video storage unavailable') from None
     finally:
         try:
@@ -1294,8 +1372,8 @@ def start_session_analysis(session_id: str):
         try:
             session._thread = threading.Thread(target=_run_session_analysis, args=(session,), daemon=True)
             session._thread.start()
-        except Exception:
-            logger.exception('Analysis worker failed to start for session %s', session_id)
+        except Exception as error:
+            logger.error('Analysis worker failed to start for session %s (%s)', session_id, type(error).__name__)
             session.status = "ERROR"
             session.error_message = 'Failed to start analysis worker'
             _discard_owned_video(session)
@@ -1410,7 +1488,7 @@ def _build_session_metrics(session: TrackingSession):
     )
     provenance["shuttle"] = shuttle_prov
 
-    return performance, quality, provenance
+    return performance, quality, public_metadata(provenance)
 
 
 @app.get("/api/tracking/sessions/{session_id}/status")
@@ -1441,8 +1519,8 @@ def get_session_status(session_id: str):
         "device": session.effective_device,
         "requestedDevice": session.requested_device,
         "effectiveDevice": session.effective_device,
-        "processingConfig": session.processing_config,
-        "effectiveProcessingConfig": session.effective_processing_config,
+        "processingConfig": public_metadata(session.processing_config),
+        "effectiveProcessingConfig": public_metadata(session.effective_processing_config),
         "runtimeProvenance": runtime_provenance,
         "provenance": runtime_provenance,
         "performance": performance_stats,
@@ -1479,8 +1557,8 @@ def get_session_results(session_id: str, after: int | None = None):
         "device": session.effective_device,
         "requestedDevice": session.requested_device,
         "effectiveDevice": session.effective_device,
-        "processingConfig": session.processing_config,
-        "effectiveProcessingConfig": session.effective_processing_config,
+        "processingConfig": public_metadata(session.processing_config),
+        "effectiveProcessingConfig": public_metadata(session.effective_processing_config),
         "runtimeProvenance": runtime_provenance,
         "provenance": runtime_provenance,
         "shuttle": runtime_provenance.get("shuttle"),
@@ -1512,8 +1590,8 @@ def delete_tracking_session(session_id: str):
         with session._state_lock:
             _discard_owned_video(session)
             tracking_sessions.pop(session_id)
-    except OSError:
-        logger.exception('Owned video deletion failed for session %s', session_id)
+    except OSError as error:
+        logger.error('Owned video deletion failed for session %s (%s)', session_id, type(error).__name__)
         raise HTTPException(status_code=507, detail='Video storage unavailable; retry deletion') from None
     finally:
         with session._state_lock:
@@ -1523,5 +1601,7 @@ def delete_tracking_session(session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    print("[AI Service] Starting SportsScout Badminton AI Service on http://localhost:8000 ...")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    security_settings = SecuritySettings.from_env()
+    security_settings.validate_bind()
+    print(f"[AI Service] Starting SportsScout Badminton AI Service on {security_settings.host}:8000 ...")
+    uvicorn.run(app, host=security_settings.host, port=8000)
