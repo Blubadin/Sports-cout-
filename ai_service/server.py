@@ -4,6 +4,7 @@ Bridges Python Badminton Motion Analyzer with React/TypeScript PWA.
 """
 
 import os
+import sys
 import tempfile
 import asyncio
 import json
@@ -13,6 +14,13 @@ import time
 import logging
 from typing import Set, Literal
 from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_AI_SERVICE_DIR = Path(__file__).resolve().parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+if str(_AI_SERVICE_DIR) not in sys.path:
+    sys.path.insert(0, str(_AI_SERVICE_DIR))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
