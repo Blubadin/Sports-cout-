@@ -7,22 +7,33 @@ vi.mock('../../context/ScoutContext', () => ({ useScoutContext: () => ({ matchIn
 vi.mock('../../context/WorkspaceContext', () => ({ useWorkspace: () => ({ activeProjectId: 'p1', projects: [], updateProjectVideoCalibration: vi.fn() }) }));
 vi.mock('../../utils/videoFileStore', () => ({ loadProjectVideoFileHandle: vi.fn().mockResolvedValue(null) }));
 vi.mock('../../services/storage/trackingStorage', () => ({ listTrackingAnalyses: vi.fn().mockResolvedValue([]), getTrackingSampleChunks: vi.fn(), saveTrackingAnalysis: vi.fn(), downsampleAndChunkTrackingSamples: vi.fn() }));
-vi.mock('../../services/aiTrackingService', () => ({ aiTrackingService: { checkBackendHealth: vi.fn(), getCapabilities: vi.fn().mockResolvedValue({ selectedDevice: 'cpu', cudaAvailable: false, mpsAvailable: false }), listSessions: vi.fn().mockResolvedValue([]), createSession: vi.fn(), uploadSessionVideo: vi.fn(), calibrateSession: vi.fn(), startSessionAnalysis: vi.fn(), getSessionStatus: vi.fn(), getSessionResults: vi.fn(), deleteSession: vi.fn().mockResolvedValue(undefined) } }));
-beforeEach(() => { vi.clearAllMocks(); vi.mocked(aiTrackingService.checkBackendHealth).mockResolvedValue(true); URL.createObjectURL = vi.fn(() => 'blob:video'); URL.revokeObjectURL = vi.fn(); });
+vi.mock('../../services/aiTrackingService', () => ({ aiTrackingService: { checkConnection: vi.fn(), getCapabilities: vi.fn().mockResolvedValue({ selectedDevice: 'cpu', cudaAvailable: false, mpsAvailable: false }), listSessions: vi.fn().mockResolvedValue([]), createSession: vi.fn(), uploadSessionVideo: vi.fn(), calibrateSession: vi.fn(), startSessionAnalysis: vi.fn(), getSessionStatus: vi.fn(), getSessionResults: vi.fn(), deleteSession: vi.fn().mockResolvedValue(undefined) } }));
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(aiTrackingService.checkConnection).mockResolvedValue({ code: 'CONNECTED', connected: true, endpoint: 'http://127.0.0.1:8000' }); URL.createObjectURL = vi.fn(() => 'blob:video'); URL.revokeObjectURL = vi.fn(); });
 afterEach(cleanup);
 it('requires actual video bytes and four real court corners before analysis', async () => {
   render(<BadmintonTrackingLab />);
-  await waitFor(() => expect(aiTrackingService.checkBackendHealth).toHaveBeenCalled());
+  await waitFor(() => expect(aiTrackingService.checkConnection).toHaveBeenCalled());
   expect(screen.getByRole('button', { name: /Run Movement Analysis/i })).toBeDisabled();
   expect(screen.getByLabelText('Select video file')).toBeInTheDocument();
   expect(aiTrackingService.createSession).not.toHaveBeenCalled();
 });
 it('does not offer or launch synthetic tracking when the backend is offline', async () => {
-  vi.mocked(aiTrackingService.checkBackendHealth).mockResolvedValue(false);
+  vi.mocked(aiTrackingService.checkConnection).mockResolvedValue({ code: 'AI_OFFLINE', connected: false, endpoint: 'http://127.0.0.1:8000' });
   render(<BadmintonTrackingLab />);
   await screen.findByText('Local AI service offline');
   expect(screen.queryByText(/Use Simulation|In-Browser Engine/)).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Run Movement Analysis/i })).toBeDisabled();
+});
+it('shows authentication required without exposing credential details', async () => {
+  vi.mocked(aiTrackingService.checkConnection).mockResolvedValue({ code: 'AUTH_REQUIRED', connected: false, endpoint: 'https://ai.example.com' });
+  render(<BadmintonTrackingLab />);
+  expect(await screen.findByRole('status')).toHaveTextContent('Authentication required');
+  expect(screen.getByRole('status')).not.toHaveTextContent('secret-value');
+});
+it('shows browser-security blocking distinctly from offline', async () => {
+  vi.mocked(aiTrackingService.checkConnection).mockResolvedValue({ code: 'MIXED_CONTENT', connected: false, endpoint: 'http://ai.example.com' });
+  render(<BadmintonTrackingLab />);
+  expect(await screen.findByRole('status')).toHaveTextContent('Blocked by browser security');
 });
 it('shows the actual inference device reported by the backend', async () => {
   render(<BadmintonTrackingLab />);

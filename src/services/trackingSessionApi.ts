@@ -18,6 +18,13 @@ import type {
   TrackingQualityStats,
   ShuttleProvenance,
 } from '../types';
+import {
+  AIConnectionError,
+  type AIConnectionCode,
+  type AIConnectionSnapshot,
+  resolveAiConnection,
+  toWebSocketUrl,
+} from './aiConnection';
 
 export type BadmintonGameType = 'singles' | 'doubles';
 export type AIConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -32,12 +39,8 @@ export interface MarkingState {
 }
 
 export function getAiHost(): string {
-  if (typeof window !== 'undefined' && window.location.hostname) {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '::1') return '127.0.0.1';
-    return host;
-  }
-  return '127.0.0.1';
+  const endpoint = resolveAiConnection().endpoint;
+  return endpoint ? new URL(endpoint).hostname : '127.0.0.1';
 }
 
 export interface BackendCapabilities {
@@ -54,8 +57,28 @@ export interface BackendCapabilities {
   };
 }
 
+export interface TrackingSessionSummary {
+  sessionId: string;
+  status: string;
+  gameType: BadmintonGameType;
+  projectId: string | null;
+  videoFingerprint: string | null;
+  progressPct: number;
+  currentFrame: number;
+  totalFrames: number;
+  trackedPlayerCount?: number;
+  processingConfig?: ProcessingConfig;
+  resumable: boolean;
+}
+
+function asConnectionFailure(code: AIConnectionCode): Exclude<AIConnectionCode, 'CONNECTED'> {
+  return code === 'CONNECTED' ? 'NETWORK_ERROR' : code;
+}
+
 export class TrackingSessionApiClient {
   private activeBaseUrl: string | null = null;
+  private credential: string | null = null;
+  private connectionSnapshot: AIConnectionSnapshot = resolveAiConnection();
   private status: AIConnectionStatus = 'disconnected';
   private mode: AIEngineMode = 'server';
   private gameType: BadmintonGameType = 'doubles';
@@ -63,17 +86,31 @@ export class TrackingSessionApiClient {
   private telemetryListeners: Set<(frame: AITelemetryFrame) => void> = new Set();
   private telemetryV1Listeners: Set<(telemetry: TrackingTelemetryV1) => void> = new Set();
   private statusListeners: Set<(status: AIConnectionStatus) => void> = new Set();
+  private telemetrySocket: WebSocket | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
 
   public setBaseUrl(url: string | null): void {
-    this.activeBaseUrl = url;
+    this.activeBaseUrl = url?.trim().replace(/\/+$/, '') || null;
+    this.connectionSnapshot = this.resolveConnection();
+  }
+
+  /** Runtime-only bearer credential. It is never persisted by this client. */
+  public setCredential(token: string | null): void {
+    this.credential = token?.trim() || null;
+  }
+
+  public getConnectionSnapshot(): AIConnectionSnapshot {
+    return this.connectionSnapshot;
   }
 
   public getApiUrl(path: string): string {
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    if (this.activeBaseUrl !== null) {
-      return `${this.activeBaseUrl}${cleanPath}`;
+    const connection = this.resolveConnection();
+    if (!connection.endpoint || connection.code !== 'CONNECTED') {
+      throw new AIConnectionError(asConnectionFailure(connection.code));
     }
-    return `http://${getAiHost()}:8000${cleanPath}`;
+    return `${connection.endpoint}${cleanPath}`;
   }
 
   public getStatus(): AIConnectionStatus {
@@ -105,8 +142,12 @@ export class TrackingSessionApiClient {
   }
 
   public disconnect(): void {
-    this.status = 'disconnected';
-    this.statusListeners.forEach((cb) => cb('disconnected'));
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.reconnectAttempts = 0;
+    this.telemetrySocket?.close();
+    this.telemetrySocket = null;
+    this.setStatus('disconnected');
   }
 
   public onStatus(cb: (status: AIConnectionStatus) => void): () => void {
@@ -132,23 +173,27 @@ export class TrackingSessionApiClient {
     this.telemetryV1Listeners.forEach((cb) => cb(v1));
   }
 
-  public async checkBackendHealth(): Promise<boolean> {
+  public async checkConnection(): Promise<AIConnectionSnapshot> {
+    const initial = this.resolveConnection();
+    if (initial.code !== 'CONNECTED') return initial;
     try {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(this.getApiUrl('/api/status'), {
-        signal: controller.signal,
-      });
+      await this.request('/api/status', { signal: controller.signal }, false);
       clearTimeout(id);
-      return res.ok;
-    } catch {
-      return false;
+      return this.setConnectionSnapshot({ ...initial, code: 'CONNECTED', connected: true });
+    } catch (error) {
+      const code = error instanceof AIConnectionError ? error.code : 'NETWORK_ERROR';
+      return this.setConnectionSnapshot({ ...initial, code, connected: false });
     }
   }
 
+  public async checkBackendHealth(): Promise<boolean> {
+    return (await this.checkConnection()).code === 'CONNECTED';
+  }
+
   public async getCapabilities(): Promise<BackendCapabilities> {
-    const res = await fetch(this.getApiUrl('/api/capabilities'));
-    if (!res.ok) throw new Error(`Failed to fetch backend capabilities: ${res.statusText}`);
+    const res = await this.request('/api/capabilities', {}, false);
     return res.json();
   }
 
@@ -168,7 +213,7 @@ export class TrackingSessionApiClient {
     trackedPlayerCount?: number;
     processingConfig?: ProcessingConfig;
   }> {
-    const res = await fetch(this.getApiUrl('/api/tracking/sessions'), {
+    const res = await this.request('/api/tracking/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -181,7 +226,6 @@ export class TrackingSessionApiClient {
         processing_config: options?.processingConfig ?? null,
       }),
     });
-    if (!res.ok) throw new Error(`Failed to create tracking session: ${res.statusText}`);
     return res.json();
   }
 
@@ -191,17 +235,23 @@ export class TrackingSessionApiClient {
     signal?: AbortSignal
   ): Promise<{ width: number; height: number }> {
     const encodedFilename = encodeURIComponent(file.name);
-    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/video?filename=${encodedFilename}`), {
-      method: 'POST',
-      body: file,
-      headers: {
-        'Content-Type': file.type || 'application/octet-stream',
+    const res = await this.request(
+      `/api/tracking/sessions/${sessionId}/video?filename=${encodedFilename}`,
+      {
+        method: 'POST',
+        body: file,
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        signal,
       },
-      signal,
-    });
+      true,
+      true
+    );
     if (!res.ok) {
-      const detail = await res.json().catch(() => ({}));
-      throw new Error(detail.detail || `Video upload failed (${res.status})`);
+      const payload = await res.json().catch(() => null) as { detail?: unknown } | null;
+      const detail = typeof payload?.detail === 'string' ? payload.detail : 'Video upload was rejected.';
+      throw new Error(this.redactCredential(detail));
     }
     return res.json();
   }
@@ -211,36 +261,32 @@ export class TrackingSessionApiClient {
     corners: number[][],
     gameType: BadmintonGameType
   ): Promise<void> {
-    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/calibration`), {
+    await this.request(`/api/tracking/sessions/${sessionId}/calibration`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ corners, game_type: gameType }),
     });
-    if (!res.ok) throw new Error(`Failed to calibrate session: ${res.statusText}`);
   }
 
   public async assignSessionPlayers(
     sessionId: string,
     players: { player_id: number; bbox: number[]; name?: string }[]
   ): Promise<void> {
-    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/players`), {
+    await this.request(`/api/tracking/sessions/${sessionId}/players`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ players }),
     });
-    if (!res.ok) throw new Error(`Failed to assign players: ${res.statusText}`);
   }
 
   public async startSessionAnalysis(sessionId: string): Promise<void> {
-    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/start`), {
+    await this.request(`/api/tracking/sessions/${sessionId}/start`, {
       method: 'POST',
     });
-    if (!res.ok) throw new Error(`Failed to start analysis: ${res.statusText}`);
   }
 
   public async getSessionStatus(sessionId: string): Promise<TrackingSessionStatus> {
-    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/status`));
-    if (!res.ok) throw new Error(`Failed to get session status: ${res.statusText}`);
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/status`);
     return res.json();
   }
 
@@ -260,49 +306,138 @@ export class TrackingSessionApiClient {
     telemetry: TrackingTelemetryV1[];
   }> {
     const query = after !== undefined ? `?after=${encodeURIComponent(after)}` : '';
-    const res = await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}/results${query}`));
-    if (!res.ok) throw new Error(`Failed to get session results: ${res.statusText}`);
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/results${query}`);
     return res.json();
   }
 
-  public async listSessions(projectId?: string | null): Promise<
-    Array<{
-      sessionId: string;
-      status: string;
-      gameType: BadmintonGameType;
-      projectId: string | null;
-      videoFingerprint: string | null;
-      progressPct: number;
-      currentFrame: number;
-      totalFrames: number;
-      trackedPlayerCount?: number;
-      processingConfig?: ProcessingConfig;
-      resumable: boolean;
-    }>
-  > {
+  public async listSessions(projectId?: string | null): Promise<TrackingSessionSummary[] | { sessions: TrackingSessionSummary[] }> {
     const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
-    const res = await fetch(this.getApiUrl(`/api/tracking/sessions${query}`));
-    if (!res.ok) throw new Error(`Failed to list sessions: ${res.statusText}`);
+    const res = await this.request(`/api/tracking/sessions${query}`);
     const payload = (await res.json()) as {
-      sessions?: Array<{
-        sessionId: string;
-        status: string;
-        gameType: BadmintonGameType;
-        projectId: string | null;
-        videoFingerprint: string | null;
-        progressPct: number;
-        currentFrame: number;
-        totalFrames: number;
-        trackedPlayerCount?: number;
-        processingConfig?: ProcessingConfig;
-        resumable: boolean;
-      }>;
+      sessions?: TrackingSessionSummary[];
     };
     return payload.sessions ?? [];
   }
 
   public async deleteSession(sessionId: string): Promise<void> {
-    await fetch(this.getApiUrl(`/api/tracking/sessions/${sessionId}`), { method: 'DELETE' });
+    await this.request(`/api/tracking/sessions/${sessionId}`, { method: 'DELETE' });
+  }
+
+  public connectTelemetry(): WebSocket {
+    const connection = this.resolveConnection();
+    if (!connection.endpoint || connection.code !== 'CONNECTED') {
+      throw new AIConnectionError(asConnectionFailure(connection.code));
+    }
+    if (typeof WebSocket === 'undefined') {
+      throw new AIConnectionError('BROWSER_SECURITY_BLOCKED');
+    }
+
+    const protocols = this.credential ? ['sportscout', `auth.${this.credential}`] : ['sportscout'];
+    const socket = new WebSocket(toWebSocketUrl(connection.endpoint), protocols);
+    this.telemetrySocket = socket;
+    this.setStatus('connecting');
+    socket.onopen = () => {
+      this.reconnectAttempts = 0;
+      this.setConnectionSnapshot({ ...connection, code: 'CONNECTED', connected: true });
+      this.setStatus('connected');
+    };
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as { type?: string; data?: AITelemetryFrame };
+        if (payload.type === 'telemetry' && payload.data) this.emitTelemetry(payload.data);
+      } catch {
+        // Ignore malformed telemetry; it does not alter connection authorization.
+      }
+    };
+    socket.onclose = (event) => {
+      this.telemetrySocket = null;
+      if (event.code === 4401) {
+        this.setConnectionSnapshot({
+          ...connection,
+          code: this.credential ? 'AUTH_FAILED' : 'AUTH_REQUIRED',
+          connected: false,
+        });
+        this.setStatus('error');
+        return;
+      }
+      this.setConnectionSnapshot({ ...connection, code: 'AI_OFFLINE', connected: false });
+      this.setStatus('disconnected');
+      this.scheduleReconnect();
+    };
+    return socket;
+  }
+
+  private resolveConnection(): AIConnectionSnapshot {
+    return this.setConnectionSnapshot(resolveAiConnection({ configuredEndpoint: this.activeBaseUrl }));
+  }
+
+  private setConnectionSnapshot(snapshot: AIConnectionSnapshot): AIConnectionSnapshot {
+    this.connectionSnapshot = snapshot;
+    return snapshot;
+  }
+
+  private setStatus(status: AIConnectionStatus): void {
+    this.status = status;
+    this.statusListeners.forEach((cb) => cb(status));
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer || this.reconnectAttempts >= 3) return;
+    this.reconnectAttempts += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      try {
+        this.connectTelemetry();
+      } catch {
+        // The typed snapshot already describes a configuration/security failure.
+      }
+    }, 1000 * this.reconnectAttempts);
+  }
+
+  private async request(
+    path: string,
+    init: RequestInit = {},
+    sensitive = true,
+    preserveValidationError = false
+  ): Promise<Response> {
+    const url = this.getApiUrl(path);
+    const headers = this.mergeHeaders(init.headers, sensitive);
+    let response: Response;
+    try {
+      response = await fetch(url, { ...init, headers });
+    } catch (error) {
+      throw new AIConnectionError(this.classifyTransportError(error));
+    }
+    if (response.status === 401) {
+      throw new AIConnectionError(this.credential ? 'AUTH_FAILED' : 'AUTH_REQUIRED');
+    }
+    if (response.status === 403) throw new AIConnectionError('AUTH_FAILED');
+    if (!response.ok) {
+      if (preserveValidationError && response.status === 422) return response;
+      throw new AIConnectionError('NETWORK_ERROR');
+    }
+    return response;
+  }
+
+  private mergeHeaders(headers: HeadersInit | undefined, sensitive: boolean): Record<string, string> {
+    const merged: Record<string, string> = {};
+    if (headers instanceof Headers) headers.forEach((value, key) => { merged[key] = value; });
+    else if (Array.isArray(headers)) headers.forEach(([key, value]) => { merged[key] = value; });
+    else if (headers) Object.assign(merged, headers);
+    if (sensitive && this.credential) merged.Authorization = `Bearer ${this.credential}`;
+    return merged;
+  }
+
+  private classifyTransportError(error: unknown): Exclude<AIConnectionCode, 'CONNECTED'> {
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    if (message.includes('content security policy')) return 'CSP_BLOCKED';
+    if (message.includes('mixed content') || message.includes('blocked')) return 'BROWSER_SECURITY_BLOCKED';
+    if (message.includes('abort') || message.includes('failed to fetch') || message.includes('networkerror')) return 'AI_OFFLINE';
+    return 'NETWORK_ERROR';
+  }
+
+  private redactCredential(value: string): string {
+    return this.credential ? value.split(this.credential).join('[redacted]') : value;
   }
 }
 

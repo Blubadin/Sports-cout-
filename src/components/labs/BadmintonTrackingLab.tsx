@@ -3,6 +3,7 @@ import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
 import type { BackendCapabilities } from '../../services/trackingSessionApi';
+import type { AIConnectionSnapshot } from '../../services/aiConnection';
 import type {
   TrackingTelemetryV1,
   TrackingOverlayMode,
@@ -166,6 +167,34 @@ export function deriveShuttleEngineStatus(params: {
   };
 }
 
+function connectionStatusText(connection: AIConnectionSnapshot | null, th: boolean): string {
+  if (connection === null) return th ? 'กำลังตรวจสอบบริการ AI…' : 'Checking local AI service…';
+  const english: Record<AIConnectionSnapshot['code'], string> = {
+    CONNECTED: 'Local AI Connected',
+    AI_OFFLINE: 'Local AI service offline',
+    AUTH_REQUIRED: 'Local AI Authentication required',
+    AUTH_FAILED: 'Local AI Authentication failed',
+    ENDPOINT_NOT_CONFIGURED: 'Remote AI endpoint not configured',
+    MIXED_CONTENT: 'Local AI Blocked by browser security',
+    NETWORK_ERROR: 'Local AI network error',
+    BROWSER_SECURITY_BLOCKED: 'Local AI Blocked by browser security',
+    CSP_BLOCKED: 'Local AI Blocked by browser security',
+  };
+  if (!th) return english[connection.code];
+  const thai: Record<AIConnectionSnapshot['code'], string> = {
+    CONNECTED: 'เชื่อมต่อ Local AI แล้ว',
+    AI_OFFLINE: 'บริการ Local AI ยังไม่ทำงาน',
+    AUTH_REQUIRED: 'Local AI ต้องยืนยันตัวตน',
+    AUTH_FAILED: 'Local AI ยืนยันตัวตนไม่สำเร็จ',
+    ENDPOINT_NOT_CONFIGURED: 'ยังไม่ได้ตั้งค่า Remote AI endpoint',
+    MIXED_CONTENT: 'Local AI ถูกบล็อกโดยความปลอดภัยของเบราว์เซอร์',
+    NETWORK_ERROR: 'เกิดข้อผิดพลาดเครือข่าย Local AI',
+    BROWSER_SECURITY_BLOCKED: 'Local AI ถูกบล็อกโดยความปลอดภัยของเบราว์เซอร์',
+    CSP_BLOCKED: 'Local AI ถูกบล็อกโดยนโยบายความปลอดภัย',
+  };
+  return thai[connection.code];
+}
+
 export default function BadmintonTrackingLab() {
   const { matchInfo, settings, localFileName, setLocalFileName, setVideoSourceType } = useScoutContext();
   const { activeProjectId } = useWorkspace();
@@ -182,6 +211,7 @@ export default function BadmintonTrackingLab() {
 
   const [url, setUrl] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
+  const [connection, setConnection] = useState<AIConnectionSnapshot | null>(null);
   const [inferenceDevice, setInferenceDevice] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<BackendCapabilities | null>(null);
   const [shuttleTrackingEnabled, setShuttleTrackingEnabled] = useState<boolean>(
@@ -266,10 +296,20 @@ export default function BadmintonTrackingLab() {
   useEffect(() => {
     let alive = true;
     const check = async () => {
-      const ok = await aiTrackingService.checkBackendHealth();
+      const service = aiTrackingService as typeof aiTrackingService & {
+        checkConnection?: () => Promise<AIConnectionSnapshot>;
+      };
+      let snapshot: AIConnectionSnapshot;
+      if (service.checkConnection) {
+        snapshot = await service.checkConnection();
+      } else {
+        const connected = await aiTrackingService.checkBackendHealth();
+        snapshot = { code: connected ? 'CONNECTED' : 'AI_OFFLINE', connected, endpoint: null };
+      }
       if (!alive) return;
-      setOnline(ok);
-      if (ok) {
+      setConnection(snapshot);
+      setOnline(snapshot.connected);
+      if (snapshot.connected) {
         try {
           const caps = await aiTrackingService.getCapabilities();
           if (alive) {
@@ -755,19 +795,9 @@ export default function BadmintonTrackingLab() {
 
       <div
         role="status"
-        className={online ? 'text-emerald-400' : 'text-amber-300'}
+        className={connection?.connected ? 'text-emerald-400' : 'text-amber-300'}
       >
-        {online === null
-          ? th
-            ? 'กำลังตรวจสอบบริการ AI…'
-            : 'Checking local AI service…'
-          : online
-          ? th
-            ? 'บริการ AI พร้อมใช้งาน'
-            : 'Local AI service online'
-          : th
-          ? 'บริการ AI ยังไม่ทำงาน'
-          : 'Local AI service offline'}
+        {connectionStatusText(connection, th)}
       </div>
 
       {inferenceDevice && (
