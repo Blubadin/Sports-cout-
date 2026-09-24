@@ -353,7 +353,13 @@ class ShuttleBenchmarkClip:
                 errors.append(f"knownDifficultSegments[{idx}]: {'; '.join(seg_errors)}")
 
         if self.ground_truth_frames is not None:
+            seen_frame_indices = set()
             for idx, frame in enumerate(self.ground_truth_frames):
+                if frame.frame_index in seen_frame_indices:
+                    errors.append(
+                        f"duplicate groundTruthFrames frameIndex: {frame.frame_index}"
+                    )
+                seen_frame_indices.add(frame.frame_index)
                 frame_errors = frame.validate(self.source_width, self.source_height)
                 if frame_errors:
                     errors.append(f"groundTruthFrames[{idx}]: {'; '.join(frame_errors)}")

@@ -204,7 +204,7 @@ describe('Phase 2.6 — Shuttle Quality Benchmark Evaluation', () => {
     expect(metrics.lostFramesCount).toBe(5);
     expect(metrics.lostPercent).toBe(50.0);
     expect(metrics.longestLostGapFrames).toBe(5);
-    expect(metrics.longestLostGapSec).toBeCloseTo(5 / 30.0, 3);
+    expect(metrics.longestLostGapSec).toBeCloseTo(0.165, 3);
   });
 
   // 7. REACQUISITION TIME
@@ -395,5 +395,194 @@ describe('Phase 2.6 — Shuttle Quality Benchmark Evaluation', () => {
     expect(mA.visibleFrameRecall).toBeCloseTo(0.75, 4);
     expect(mB.visibleFrameRecall).toBeCloseTo(1.0, 4);
     expect(mB.meanReacquisitionFrames!).toBeLessThan(mA.meanReacquisitionFrames!);
+  });
+
+  it('13. rejects same frame when timestamp conflict exceeds tolerance', () => {
+    const gtFrames: ShuttleGroundTruthFrame[] = [
+      { frameIndex: 10, timestampSec: 1.0, visibility: 'visible', xPx: 10, yPx: 10 },
+    ];
+    const predictions: ShuttleObservation[] = [
+      { frameIndex: 10, timestampSec: 101.0, state: 'observed', source: 'temporal_tracker', positionPx: { x: 10, y: 10 }, confidence: 0.9, trajectoryId: null },
+    ];
+
+    const pairs = alignShuttlePredictionsAndGroundTruth(gtFrames, predictions);
+
+    expect(pairs).toHaveLength(2);
+    expect(pairs.every((pair) => pair.gt === null || pair.pred === null)).toBe(true);
+  });
+
+  it('13b. timestamp equality cannot override conflicting frame indices', () => {
+    const gtFrames: ShuttleGroundTruthFrame[] = [
+      { frameIndex: 10, timestampSec: 1.0, visibility: 'visible', xPx: 10, yPx: 10 },
+    ];
+    const predictions: ShuttleObservation[] = [
+      { frameIndex: 11, timestampSec: 1.0, state: 'observed', source: 'temporal_tracker', positionPx: { x: 10, y: 10 }, confidence: 0.9, trajectoryId: null },
+    ];
+
+    const pairs = alignShuttlePredictionsAndGroundTruth(gtFrames, predictions);
+
+    expect(pairs).toHaveLength(2);
+    expect(pairs.every((pair) => pair.gt === null || pair.pred === null)).toBe(true);
+  });
+
+  it('14. rejects duplicate ground-truth and prediction frame keys', () => {
+    const duplicateGt: ShuttleGroundTruthFrame[] = [
+      { frameIndex: 1, timestampSec: 0, visibility: 'visible', xPx: 1, yPx: 1 },
+      { frameIndex: 1, timestampSec: 0.033, visibility: 'visible', xPx: 2, yPx: 2 },
+    ];
+    const duplicatePredictions: ShuttleObservation[] = [
+      { frameIndex: 1, timestampSec: 0, state: 'observed', source: 'temporal_tracker', positionPx: { x: 1, y: 1 }, confidence: 0.9, trajectoryId: null },
+      { frameIndex: 1, timestampSec: 0.033, state: 'observed', source: 'temporal_tracker', positionPx: { x: 2, y: 2 }, confidence: 0.9, trajectoryId: null },
+    ];
+
+    expect(() => alignShuttlePredictionsAndGroundTruth(duplicateGt, [])).toThrow(/duplicate ground truth frameIndex/i);
+    expect(() => alignShuttlePredictionsAndGroundTruth([], duplicatePredictions)).toThrow(/duplicate prediction frameIndex/i);
+  });
+
+  it('15. returns unavailable accuracy metrics when GT is incomplete', () => {
+    const predictions: ShuttleObservation[] = [
+      { frameIndex: 0, timestampSec: 0, state: 'observed', source: 'temporal_tracker', positionPx: { x: 10, y: 10 }, confidence: 0.9, trajectoryId: null },
+    ];
+    const metrics = evaluateShuttleTracking(alignShuttlePredictionsAndGroundTruth([], predictions), { isDatasetComplete: false });
+
+    expect(metrics.truePositivesCount).toBeNull();
+    expect(metrics.falsePositivesCount).toBeNull();
+    expect(metrics.falseNegativesCount).toBeNull();
+    expect(metrics.falsePositivesPerMinute).toBeNull();
+  });
+
+  it('16. requires spatial correctness for default observed matching', () => {
+    const gtFrames: ShuttleGroundTruthFrame[] = [
+      { frameIndex: 0, timestampSec: 0, visibility: 'visible', xPx: 100, yPx: 100 },
+    ];
+    const wrong = [{ frameIndex: 0, timestampSec: 0, state: 'observed', source: 'temporal_tracker', positionPx: { x: 1000, y: 1000 }, confidence: 0.9, trajectoryId: null }] as ShuttleObservation[];
+    const correct = [{ frameIndex: 0, timestampSec: 0, state: 'observed', source: 'temporal_tracker', positionPx: { x: 110, y: 100 }, confidence: 0.9, trajectoryId: null }] as ShuttleObservation[];
+
+    const wrongMetrics = evaluateShuttleTracking(alignShuttlePredictionsAndGroundTruth(gtFrames, wrong));
+    const correctMetrics = evaluateShuttleTracking(alignShuttlePredictionsAndGroundTruth(gtFrames, correct));
+
+    expect([wrongMetrics.truePositivesCount, wrongMetrics.falsePositivesCount, wrongMetrics.falseNegativesCount]).toEqual([0, 1, 1]);
+    expect([correctMetrics.truePositivesCount, correctMetrics.falsePositivesCount, correctMetrics.falseNegativesCount]).toEqual([1, 0, 0]);
+  });
+
+  it('16a. spatially wrong observations do not count as continuous tracking', () => {
+    const gtFrames: ShuttleGroundTruthFrame[] = [0, 1].map((frameIndex) => ({
+      frameIndex,
+      timestampSec: frameIndex / 30,
+      visibility: 'visible',
+      xPx: 100,
+      yPx: 100,
+    }));
+    const predictions: ShuttleObservation[] = [0, 1].map((frameIndex) => ({
+      frameIndex,
+      timestampSec: frameIndex / 30,
+      state: 'observed',
+      source: 'temporal_tracker',
+      positionPx: { x: 1000, y: 1000 },
+      confidence: 0.9,
+      trajectoryId: null,
+    }));
+
+    const metrics = evaluateShuttleTracking(alignShuttlePredictionsAndGroundTruth(gtFrames, predictions));
+
+    expect(metrics.trackContinuity).toBe(0);
+    expect(metrics.longestContinuousTrackFrames).toBe(0);
+  });
+
+  it('16b. supports normalized spatial tolerance when pixel tolerance is unset', () => {
+    const gtFrames: ShuttleGroundTruthFrame[] = [
+      { frameIndex: 0, timestampSec: 0, visibility: 'visible', xPx: 100, yPx: 100 },
+    ];
+    const predictions: ShuttleObservation[] = [
+      { frameIndex: 0, timestampSec: 0, state: 'observed', source: 'temporal_tracker', positionPx: { x: 110, y: 100 }, confidence: 0.9, trajectoryId: null },
+    ];
+
+    const metrics = evaluateShuttleTracking(alignShuttlePredictionsAndGroundTruth(gtFrames, predictions), {
+      sourceWidth: 100,
+      sourceHeight: 100,
+      config: { matchDistanceThresholdPx: null, matchDistanceThresholdNormalized: 0.08 },
+    });
+
+    expect(metrics.truePositivesCount).toBe(1);
+  });
+
+  it('17. sparse source annotations do not create continuity transitions', () => {
+    const gtFrames: ShuttleGroundTruthFrame[] = [
+      { frameIndex: 100, timestampSec: 10, visibility: 'visible', xPx: 100, yPx: 100 },
+      { frameIndex: 130, timestampSec: 13, visibility: 'visible', xPx: 110, yPx: 100 },
+    ];
+    const predictions: ShuttleObservation[] = [
+      { frameIndex: 100, timestampSec: 10, state: 'observed', source: 'temporal_tracker', positionPx: { x: 100, y: 100 }, confidence: 0.9, trajectoryId: null },
+      { frameIndex: 130, timestampSec: 13, state: 'observed', source: 'temporal_tracker', positionPx: { x: 110, y: 100 }, confidence: 0.9, trajectoryId: null },
+    ];
+
+    const metrics = evaluateShuttleTracking(alignShuttlePredictionsAndGroundTruth(gtFrames, predictions));
+
+    expect(metrics.trackContinuity).toBeNull();
+    expect(metrics.longestContinuousTrackFrames).toBe(1);
+  });
+
+  it('18. lost duration follows irregular timestamps', () => {
+    const predictions: ShuttleObservation[] = [
+      { frameIndex: 10, timestampSec: 1.0, state: 'observed', source: 'temporal_tracker', positionPx: { x: 10, y: 10 }, confidence: 0.9, trajectoryId: null },
+      { frameIndex: 11, timestampSec: 1.1, state: 'lost', source: 'temporal_tracker', positionPx: null, confidence: null, trajectoryId: null },
+      { frameIndex: 12, timestampSec: 1.5, state: 'lost', source: 'temporal_tracker', positionPx: null, confidence: null, trajectoryId: null },
+      { frameIndex: 13, timestampSec: 1.6, state: 'observed', source: 'temporal_tracker', positionPx: { x: 12, y: 10 }, confidence: 0.9, trajectoryId: null },
+    ];
+
+    const metrics = evaluateShuttleTracking(alignShuttlePredictionsAndGroundTruth([], predictions), { isDatasetComplete: false });
+
+    expect(metrics.longestLostGapSec).toBeCloseTo(0.5, 4);
+  });
+
+  it('18b. sparse lost samples do not form one continuous gap', () => {
+    const predictions: ShuttleObservation[] = [
+      { frameIndex: 10, timestampSec: 1, state: 'lost', source: 'temporal_tracker', positionPx: null, confidence: null, trajectoryId: null },
+      { frameIndex: 12, timestampSec: 1.2, state: 'lost', source: 'temporal_tracker', positionPx: null, confidence: null, trajectoryId: null },
+    ];
+
+    const metrics = evaluateShuttleTracking(alignShuttlePredictionsAndGroundTruth([], predictions), {
+      isDatasetComplete: false,
+      sourceFps: 30,
+    });
+
+    expect(metrics.longestLostGapFrames).toBe(1);
+    expect(metrics.longestLostGapSec).toBeCloseTo(1 / 30, 5);
+  });
+
+  it('19. false reacquisition requires a spatially valid observed candidate', () => {
+    const gtFrames: ShuttleGroundTruthFrame[] = [
+      { frameIndex: 0, timestampSec: 0, visibility: 'visible', xPx: 100, yPx: 100 },
+      { frameIndex: 1, timestampSec: 0.1, visibility: 'occluded', xPx: null, yPx: null },
+      { frameIndex: 2, timestampSec: 0.2, visibility: 'visible', xPx: 100, yPx: 100 },
+    ];
+    const predictions: ShuttleObservation[] = [
+      { frameIndex: 0, timestampSec: 0, state: 'observed', source: 'temporal_tracker', positionPx: { x: 100, y: 100 }, confidence: 0.9, trajectoryId: null },
+      { frameIndex: 1, timestampSec: 0.1, state: 'lost', source: 'temporal_tracker', positionPx: null, confidence: null, trajectoryId: null },
+      { frameIndex: 2, timestampSec: 0.2, state: 'observed', source: 'temporal_tracker', positionPx: { x: 1000, y: 1000 }, confidence: 0.9, trajectoryId: null },
+    ];
+
+    const metrics = evaluateShuttleTracking(alignShuttlePredictionsAndGroundTruth(gtFrames, predictions));
+
+    expect(metrics.reacquisitionEventsCount).toBe(0);
+  });
+
+  it('20. non-finite timestamps and coordinates do not leak into metrics', () => {
+    const gtFrames: ShuttleGroundTruthFrame[] = [
+      { frameIndex: 0, timestampSec: 0, visibility: 'visible', xPx: 1, yPx: 1 },
+    ];
+    const predictions: ShuttleObservation[] = [
+      { frameIndex: 0, timestampSec: Number.NaN, state: 'observed', source: 'temporal_tracker', positionPx: { x: Number.NaN, y: 1 }, confidence: 0.9, trajectoryId: null },
+    ];
+
+    const pairs = alignShuttlePredictionsAndGroundTruth(gtFrames, predictions);
+    const metrics = evaluateShuttleTracking(pairs);
+
+    for (const value of Object.values(metrics)) {
+      if (typeof value === 'number') expect(Number.isFinite(value)).toBe(true);
+    }
+    expect(metrics.truePositivesCount).toBe(0);
+    expect(metrics.falsePositivesCount).toBe(0);
+    expect(metrics.falseNegativesCount).toBe(1);
   });
 });

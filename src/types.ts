@@ -731,7 +731,14 @@ export interface ShuttleProvenance {
   modelName?: string;
   modelSha256?: string | null;
   modelLoaded?: boolean;
-  inferenceCalls?: number;
+  framesReceived?: number | null;
+  validFrames?: number | null;
+  inferenceCalls?: number | null;
+  meanInferenceMs?: number | null;
+  observedCount?: number | null;
+  predictedCount?: number | null;
+  lostCount?: number | null;
+  unknownCount?: number | null;
   candidateExtractionCalls?: number;
   outputTensorReceived?: boolean;
   lastOutputShape?: number[] | null;

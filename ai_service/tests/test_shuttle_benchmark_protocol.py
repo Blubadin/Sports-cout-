@@ -288,6 +288,22 @@ class TestShuttleBenchmarkProtocol(unittest.TestCase):
         self.assertIn("S04", categories)
         self.assertIn("S05", categories)
 
+    def test_clip_validation_rejects_duplicate_ground_truth_frame_index(self):
+        clip = ShuttleBenchmarkClip(
+            id="duplicate-gt",
+            name="Duplicate GT",
+            category="S01",
+            ground_truth_available=True,
+            ground_truth_frames=[
+                ShuttleGroundTruthFrame(frame_index=1, timestamp_sec=0.0, visibility="visible", x_px=1.0, y_px=1.0),
+                ShuttleGroundTruthFrame(frame_index=1, timestamp_sec=0.033, visibility="visible", x_px=2.0, y_px=2.0),
+            ],
+        )
+
+        errors = clip.validate()
+
+        self.assertTrue(any("duplicate groundTruthFrames frameIndex: 1" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

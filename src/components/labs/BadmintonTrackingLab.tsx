@@ -3,6 +3,7 @@ import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
 import type { BackendCapabilities } from '../../services/trackingSessionApi';
+import type { AIConnectionSnapshot } from '../../services/aiConnection';
 import type {
   TrackingTelemetryV1,
   TrackingOverlayMode,
@@ -27,6 +28,11 @@ import {
   computeVideoFingerprint,
 } from '../../services/trackingSessionStore';
 
+function formatDiagnosticCount(val: number | null | undefined): string {
+  if (val === null || val === undefined) return '—';
+  return String(val);
+}
+
 export function deriveShuttleEngineStatus(params: {
   enabled: boolean;
   sessionProvenance?: ShuttleProvenance | null;
@@ -35,6 +41,7 @@ export function deriveShuttleEngineStatus(params: {
 }): {
   status: ShuttleTrackingStatus;
   displayText: string;
+  detailText: string;
   badgeClass: string;
 } {
   const { enabled, sessionProvenance, backendCapability, isProcessing } = params;
@@ -43,6 +50,7 @@ export function deriveShuttleEngineStatus(params: {
     return {
       status: 'DISABLED',
       displayText: 'Disabled',
+      detailText: 'Tracking disabled',
       badgeClass: 'bg-slate-800 text-slate-400 border border-slate-700',
     };
   }
@@ -50,9 +58,11 @@ export function deriveShuttleEngineStatus(params: {
   // 1. Live session provenance
   if (sessionProvenance) {
     if (sessionProvenance.status === 'MODEL_UNAVAILABLE') {
+      const hasModel = Boolean(sessionProvenance.model || sessionProvenance.configuredModel);
       return {
         status: 'MODEL_UNAVAILABLE',
         displayText: 'Model unavailable',
+        detailText: hasModel ? 'Model failed to load' : 'No model configured',
         badgeClass: 'bg-amber-950/60 text-amber-300 border border-amber-800',
       };
     }
@@ -60,6 +70,7 @@ export function deriveShuttleEngineStatus(params: {
       return {
         status: 'RUNTIME_UNAVAILABLE',
         displayText: 'Runtime unavailable',
+        detailText: 'Runtime unavailable',
         badgeClass: 'bg-rose-950/60 text-rose-300 border border-rose-800',
       };
     }
@@ -67,6 +78,7 @@ export function deriveShuttleEngineStatus(params: {
       return {
         status: 'INITIALIZATION_ERROR',
         displayText: 'Initialization error',
+        detailText: 'Model failed to load',
         badgeClass: 'bg-rose-950/60 text-rose-300 border border-rose-800',
       };
     }
@@ -74,14 +86,28 @@ export function deriveShuttleEngineStatus(params: {
       return {
         status: 'DISABLED',
         displayText: 'Disabled',
+        detailText: 'Tracking disabled',
         badgeClass: 'bg-slate-800 text-slate-400 border border-slate-700',
       };
     }
     if (sessionProvenance.status === 'AVAILABLE') {
-      const active = sessionProvenance.active || isProcessing;
+      const active = Boolean(sessionProvenance.active || isProcessing);
+      const calls = sessionProvenance.inferenceCalls ?? 0;
+      const observed = sessionProvenance.observedCount ?? 0;
+      let detailText = 'Model ready';
+      if (active) {
+        if (calls > 0 && observed === 0) {
+          detailText = 'Model active but no shuttle candidates';
+        } else if (observed > 0) {
+          detailText = 'Model active and shuttle observed';
+        } else {
+          detailText = 'Model active';
+        }
+      }
       return {
         status: 'AVAILABLE',
         displayText: active ? 'Active' : 'Ready',
+        detailText,
         badgeClass: active
           ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800'
           : 'bg-sky-950/60 text-sky-300 border border-sky-800',
@@ -90,6 +116,7 @@ export function deriveShuttleEngineStatus(params: {
     return {
       status: sessionProvenance.status,
       displayText: sessionProvenance.status,
+      detailText: sessionProvenance.status,
       badgeClass: 'bg-slate-800 text-slate-300 border border-slate-700',
     };
   }
@@ -97,10 +124,12 @@ export function deriveShuttleEngineStatus(params: {
   // 2. Pre-session backend capability probe
   if (backendCapability) {
     const probe = backendCapability.probeStatus || backendCapability.status;
+    const hasModel = Boolean(backendCapability.configuredModel || backendCapability.model);
     if (probe === 'MODEL_UNAVAILABLE' || backendCapability.modelAvailable === false) {
       return {
         status: 'MODEL_UNAVAILABLE',
         displayText: 'Model unavailable',
+        detailText: hasModel ? 'Model failed to load' : 'No model configured',
         badgeClass: 'bg-amber-950/60 text-amber-300 border border-amber-800',
       };
     }
@@ -108,6 +137,7 @@ export function deriveShuttleEngineStatus(params: {
       return {
         status: 'RUNTIME_UNAVAILABLE',
         displayText: 'Runtime unavailable',
+        detailText: 'Runtime unavailable',
         badgeClass: 'bg-rose-950/60 text-rose-300 border border-rose-800',
       };
     }
@@ -115,6 +145,7 @@ export function deriveShuttleEngineStatus(params: {
       return {
         status: 'INITIALIZATION_ERROR',
         displayText: 'Initialization error',
+        detailText: 'Model failed to load',
         badgeClass: 'bg-rose-950/60 text-rose-300 border border-rose-800',
       };
     }
@@ -122,6 +153,7 @@ export function deriveShuttleEngineStatus(params: {
       return {
         status: 'AVAILABLE',
         displayText: 'Ready',
+        detailText: 'Model ready',
         badgeClass: 'bg-sky-950/60 text-sky-300 border border-sky-800',
       };
     }
@@ -130,8 +162,37 @@ export function deriveShuttleEngineStatus(params: {
   return {
     status: 'REQUESTED',
     displayText: 'Requested',
+    detailText: 'Tracking requested',
     badgeClass: 'bg-indigo-950/60 text-indigo-300 border border-indigo-800',
   };
+}
+
+function connectionStatusText(connection: AIConnectionSnapshot | null, th: boolean): string {
+  if (connection === null) return th ? 'กำลังตรวจสอบบริการ AI…' : 'Checking local AI service…';
+  const english: Record<AIConnectionSnapshot['code'], string> = {
+    CONNECTED: 'Local AI Connected',
+    AI_OFFLINE: 'Local AI service offline',
+    AUTH_REQUIRED: 'Local AI Authentication required',
+    AUTH_FAILED: 'Local AI Authentication failed',
+    ENDPOINT_NOT_CONFIGURED: 'Remote AI endpoint not configured',
+    MIXED_CONTENT: 'Local AI Blocked by browser security',
+    NETWORK_ERROR: 'Local AI network error',
+    BROWSER_SECURITY_BLOCKED: 'Local AI Blocked by browser security',
+    CSP_BLOCKED: 'Local AI Blocked by browser security',
+  };
+  if (!th) return english[connection.code];
+  const thai: Record<AIConnectionSnapshot['code'], string> = {
+    CONNECTED: 'เชื่อมต่อ Local AI แล้ว',
+    AI_OFFLINE: 'บริการ Local AI ยังไม่ทำงาน',
+    AUTH_REQUIRED: 'Local AI ต้องยืนยันตัวตน',
+    AUTH_FAILED: 'Local AI ยืนยันตัวตนไม่สำเร็จ',
+    ENDPOINT_NOT_CONFIGURED: 'ยังไม่ได้ตั้งค่า Remote AI endpoint',
+    MIXED_CONTENT: 'Local AI ถูกบล็อกโดยความปลอดภัยของเบราว์เซอร์',
+    NETWORK_ERROR: 'เกิดข้อผิดพลาดเครือข่าย Local AI',
+    BROWSER_SECURITY_BLOCKED: 'Local AI ถูกบล็อกโดยความปลอดภัยของเบราว์เซอร์',
+    CSP_BLOCKED: 'Local AI ถูกบล็อกโดยนโยบายความปลอดภัย',
+  };
+  return thai[connection.code];
 }
 
 export default function BadmintonTrackingLab() {
@@ -150,6 +211,7 @@ export default function BadmintonTrackingLab() {
 
   const [url, setUrl] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
+  const [connection, setConnection] = useState<AIConnectionSnapshot | null>(null);
   const [inferenceDevice, setInferenceDevice] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<BackendCapabilities | null>(null);
   const [shuttleTrackingEnabled, setShuttleTrackingEnabled] = useState<boolean>(
@@ -194,7 +256,7 @@ export default function BadmintonTrackingLab() {
     null;
 
   const shuttleStatusInfo = deriveShuttleEngineStatus({
-    enabled: shuttleTrackingEnabled,
+    enabled: shuttleTrackingEnabled || Boolean(effectiveShuttleProv?.enabled),
     sessionProvenance: effectiveShuttleProv,
     backendCapability: capabilities?.shuttle,
     isProcessing: processing,
@@ -234,10 +296,20 @@ export default function BadmintonTrackingLab() {
   useEffect(() => {
     let alive = true;
     const check = async () => {
-      const ok = await aiTrackingService.checkBackendHealth();
+      const service = aiTrackingService as typeof aiTrackingService & {
+        checkConnection?: () => Promise<AIConnectionSnapshot>;
+      };
+      let snapshot: AIConnectionSnapshot;
+      if (service.checkConnection) {
+        snapshot = await service.checkConnection();
+      } else {
+        const connected = await aiTrackingService.checkBackendHealth();
+        snapshot = { code: connected ? 'CONNECTED' : 'AI_OFFLINE', connected, endpoint: null };
+      }
       if (!alive) return;
-      setOnline(ok);
-      if (ok) {
+      setConnection(snapshot);
+      setOnline(snapshot.connected);
+      if (snapshot.connected) {
         try {
           const caps = await aiTrackingService.getCapabilities();
           if (alive) {
@@ -430,7 +502,7 @@ export default function BadmintonTrackingLab() {
 
   // 7. Navigation-Safe Session Lifecycle & Discovery
   useEffect(() => {
-    if (!activeProjectId || online !== true) return;
+    if (!activeProjectId || online === false) return;
     let alive = true;
     const runId = ++generation.current;
 
@@ -492,13 +564,16 @@ export default function BadmintonTrackingLab() {
 
       // Case B: No sessionId in store, discover from backend listSessions
       try {
-        const sessions = await aiTrackingService.listSessions(activeProjectId);
+        const rawSessions = await aiTrackingService.listSessions(activeProjectId);
         if (!alive) return;
+        const sessions = Array.isArray(rawSessions)
+          ? rawSessions
+          : (rawSessions as any)?.sessions || [];
         const candidate = sessions.find(
-          (item) =>
-            item.projectId === activeProjectId &&
+          (item: any) =>
+            (!item.projectId || item.projectId === activeProjectId) &&
             ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'COMPLETED'].includes(item.status) &&
-            (!file || item.videoFingerprint === computeVideoFingerprint(file))
+            (!file || !item.videoFingerprint || item.videoFingerprint === computeVideoFingerprint(file))
         );
         if (candidate) {
           update({
@@ -511,6 +586,10 @@ export default function BadmintonTrackingLab() {
             currentFrame: candidate.currentFrame,
             totalFrames: candidate.totalFrames,
             videoFingerprint: candidate.videoFingerprint,
+            sessionStatus: candidate,
+            processingConfig: candidate.processingConfig
+              ? { ...state.processingConfig, ...candidate.processingConfig }
+              : state.processingConfig,
           });
           if (candidate.status === 'PROCESSING' || candidate.status === 'COMPLETED') {
             pollSession(candidate.sessionId, runId);
@@ -533,7 +612,7 @@ export default function BadmintonTrackingLab() {
       // Note: We intentionally do NOT abort or delete session here!
       // Navigation is NOT cancellation!
     };
-  }, [activeProjectId, online, file]);
+  }, [activeProjectId, file]);
 
   // 8. Explicit User Actions
   const cancel = async () => {
@@ -716,19 +795,9 @@ export default function BadmintonTrackingLab() {
 
       <div
         role="status"
-        className={online ? 'text-emerald-400' : 'text-amber-300'}
+        className={connection?.connected ? 'text-emerald-400' : 'text-amber-300'}
       >
-        {online === null
-          ? th
-            ? 'กำลังตรวจสอบบริการ AI…'
-            : 'Checking local AI service…'
-          : online
-          ? th
-            ? 'บริการ AI พร้อมใช้งาน'
-            : 'Local AI service online'
-          : th
-          ? 'บริการ AI ยังไม่ทำงาน'
-          : 'Local AI service offline'}
+        {connectionStatusText(connection, th)}
       </div>
 
       {inferenceDevice && (
@@ -935,6 +1004,10 @@ export default function BadmintonTrackingLab() {
               </div>
             </div>
 
+            <p data-testid="shuttle-tracking-explanation" className="text-xs text-slate-400">
+              {shuttleStatusInfo.detailText}
+            </p>
+
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/40 p-2 rounded border border-slate-800">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -966,6 +1039,67 @@ export default function BadmintonTrackingLab() {
                 </span>
               </div>
             </div>
+
+            {(shuttleTrackingEnabled || Boolean(effectiveShuttleProv?.enabled)) && (
+              <div
+                data-testid="shuttle-runtime-diagnostics"
+                className="bg-slate-950/60 p-2.5 rounded border border-slate-800 space-y-2 text-[11px]"
+              >
+                <div className="font-medium text-slate-300">
+                  {th ? 'การวินิจฉัยรันไทม์ลูกขนไก่ (Runtime Diagnostics)' : 'Shuttle Runtime Diagnostics'}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-slate-400">
+                  <div>
+                    <span className="block text-[10px] text-slate-400 uppercase">Provider / Model</span>
+                    <span className="text-slate-200 font-mono" data-testid="diag-provider-model">
+                      {effectiveShuttleProv?.provider ?? capabilities?.shuttle?.provider ?? '—'} / {sanitizedModelName ?? '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-400 uppercase">Runtime / Precision</span>
+                    <span className="text-slate-200 font-mono" data-testid="diag-runtime-precision">
+                      {effectiveShuttleProv?.runtime ?? capabilities?.shuttle?.runtime ?? '—'} ({effectiveShuttleProv?.precision ?? capabilities?.shuttle?.precision ?? '—'})
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-400 uppercase">Device / Window</span>
+                    <span className="text-slate-200 font-mono" data-testid="diag-device-window">
+                      {effectiveShuttleProv?.device ?? capabilities?.shuttle?.device ?? '—'} / {effectiveShuttleProv?.windowSize ?? capabilities?.shuttle?.windowSize ?? '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-400 uppercase">Frames (Rec / Valid)</span>
+                    <span className="text-slate-200 font-mono" data-testid="diag-frames">
+                      {formatDiagnosticCount(effectiveShuttleProv?.framesReceived)} / {formatDiagnosticCount(effectiveShuttleProv?.validFrames)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-400 uppercase">Inference Calls / Mean</span>
+                    <span className="text-slate-200 font-mono" data-testid="diag-inference">
+                      {formatDiagnosticCount(effectiveShuttleProv?.inferenceCalls)} ({effectiveShuttleProv?.meanInferenceMs != null ? `${effectiveShuttleProv.meanInferenceMs.toFixed(1)}ms` : '—'})
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-400 uppercase">Obs / Pred</span>
+                    <span className="text-slate-200 font-mono" data-testid="diag-obs-pred">
+                      {formatDiagnosticCount(effectiveShuttleProv?.observedCount)} / {formatDiagnosticCount(effectiveShuttleProv?.predictedCount)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-400 uppercase">Lost / Unknown</span>
+                    <span className="text-slate-200 font-mono" data-testid="diag-lost-unknown">
+                      {formatDiagnosticCount(effectiveShuttleProv?.lostCount)} / {formatDiagnosticCount(effectiveShuttleProv?.unknownCount)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-400 uppercase">Last Failure</span>
+                    <span className="text-slate-200 font-mono truncate" data-testid="diag-last-failure">
+                      {effectiveShuttleProv?.lastFailure || effectiveShuttleProv?.failureReason || '—'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
             {requiredShuttleFrameStride === 1 && (
               <p className="text-xs text-slate-400">
                 {th

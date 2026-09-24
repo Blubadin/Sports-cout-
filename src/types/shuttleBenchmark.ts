@@ -153,8 +153,10 @@ export interface ShuttleBenchmarkManifest {
 export interface ShuttleBenchmarkConfig {
   /** Maximum timestamp difference in seconds to consider two frames aligned (default: 0.02) */
   timestampToleranceSec?: number;
-  /** Optional spatial distance threshold in pixels for a detection to match visible GT (e.g. 30.0 px) */
+  /** Spatial distance threshold in pixels for a detection to match visible GT (default: 30 px) */
   matchDistanceThresholdPx?: number | null;
+  /** Optional normalized spatial threshold, used when the pixel threshold is null and dimensions exist. */
+  matchDistanceThresholdNormalized?: number | null;
 }
 
 /**
@@ -185,17 +187,17 @@ export interface ShuttleQualityMetrics {
   /** Precision (TP / (TP + FP)), or null if no positive predictions */
   precision: number | null;
   /** Count of true positive detections */
-  truePositivesCount: number;
+  truePositivesCount: number | null;
   /** Count of false positive detections (hallucinations or distant matches) */
-  falsePositivesCount: number;
+  falsePositivesCount: number | null;
   /** Count of false negative frames (missed visible shuttle) */
-  falseNegativesCount: number;
+  falseNegativesCount: number | null;
   /** False Positives Per Minute of video duration */
-  falsePositivesPerMinute: number;
+  falsePositivesPerMinute: number | null;
 
   // Spatial Error Metrics (Raw Image Pixels)
   /** Number of matched coordinate pairs evaluated for spatial error */
-  positionEvaluatedCount: number;
+  positionEvaluatedCount: number | null;
   /** Mean Euclidean distance error in native image pixels, or null if 0 pairs */
   meanPixelError: number | null;
   /** Median (50th percentile) distance error in native image pixels, or null */
@@ -231,11 +233,11 @@ export interface ShuttleQualityMetrics {
   /** Maximum number of consecutive lost frames */
   longestLostGapFrames: number;
   /** Duration in seconds of the longest lost gap */
-  longestLostGapSec: number;
+  longestLostGapSec: number | null;
 
   // Reacquisition Metrics
   /** Number of reacquisition opportunities evaluated */
-  reacquisitionEventsCount: number;
+  reacquisitionEventsCount: number | null;
   /** Mean time in seconds to reacquire after loss/occlusion, or null */
   meanReacquisitionTimeSec: number | null;
   /** 95th percentile reacquisition time in seconds, or null */

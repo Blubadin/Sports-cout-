@@ -20,7 +20,7 @@ export function resolveShuttle(frames: TrackingTelemetryV1[], time: number) {
 }
 
 function positioned(s: ShuttleObservation | null | undefined): s is ShuttleObservation & { positionPx: { x: number; y: number } } {
-  return !!s && ['observed', 'predicted', 'interpolated'].includes(s.state)
+  return !!s && s.state === 'observed'
     && !!s.positionPx && Number.isFinite(s.positionPx.x) && Number.isFinite(s.positionPx.y);
 }
 
@@ -59,7 +59,7 @@ export function ShuttleControls({ mode, onChange }: { mode: ShuttleMode; onChang
     <select aria-label="Shuttle overlay mode" value={mode} onChange={e => onChange(e.target.value as ShuttleMode)} className="bg-slate-900 border border-slate-700 rounded px-2 py-1">
       {(['off', 'point', 'trail', 'debug'] as const).map(m => <option key={m} value={m}>Shuttle {m[0].toUpperCase() + m.slice(1)}</option>)}
     </select>
-    <span className="text-slate-500">Solid: observed · Ring: predicted · Dashed: interpolated</span>
+    <span className="text-slate-500">Solid: observed shuttle only</span>
   </label>;
 }
 

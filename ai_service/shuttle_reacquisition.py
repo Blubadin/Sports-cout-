@@ -4,8 +4,12 @@ from enum import Enum
 from typing import Protocol, Sequence
 import math
 
-from ai_service.shuttle_telemetry import ShuttleObservation, ShuttlePositionPx
-from ai_service.shuttle_tracker import TemporalShuttleTracker
+try:
+    from ai_service.shuttle_telemetry import ShuttleObservation, ShuttlePositionPx
+    from ai_service.shuttle_tracker import TemporalShuttleTracker
+except ImportError:
+    from shuttle_telemetry import ShuttleObservation, ShuttlePositionPx
+    from shuttle_tracker import TemporalShuttleTracker
 
 
 class TrackingState(str, Enum):

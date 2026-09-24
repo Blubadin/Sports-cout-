@@ -328,10 +328,20 @@ export function validateShuttleBenchmarkClip(clip: unknown): { valid: boolean; e
     } else {
       const w = typeof c.sourceWidth === 'number' ? c.sourceWidth : undefined;
       const h = typeof c.sourceHeight === 'number' ? c.sourceHeight : undefined;
+      const frameIndices = new Set<number>();
       c.groundTruthFrames.forEach((frame, idx) => {
         const frameResult = validateShuttleGroundTruthFrame(frame, { imageWidth: w, imageHeight: h });
         if (!frameResult.valid) {
           errors.push(`groundTruthFrames[${idx}]: ${frameResult.errors.join('; ')}`);
+        }
+        if (frame && typeof frame === 'object') {
+          const frameIndex = (frame as Record<string, unknown>).frameIndex;
+          if (typeof frameIndex === 'number' && Number.isInteger(frameIndex)) {
+            if (frameIndices.has(frameIndex)) {
+              errors.push(`duplicate groundTruthFrames frameIndex: ${frameIndex}`);
+            }
+            frameIndices.add(frameIndex);
+          }
         }
       });
     }

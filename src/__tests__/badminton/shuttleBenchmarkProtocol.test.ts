@@ -420,6 +420,28 @@ describe('Phase 2.0 — Shuttlecock Benchmark & Ground-Truth Protocol', () => {
     });
   });
 
+  describe('11b. Duplicate ground-truth keys', () => {
+    it('rejects duplicate frameIndex entries instead of collapsing them', () => {
+      const clip = createShuttleBenchmarkClip({
+        id: 'S99_duplicate_gt',
+        name: 'Duplicate GT',
+        category: 'S01',
+        gameType: 'singles',
+        split: 'development',
+        groundTruthAvailable: true,
+        groundTruthFrames: [
+          { frameIndex: 4, timestampSec: 0.1, visibility: 'visible', xPx: 10, yPx: 10 },
+          { frameIndex: 4, timestampSec: 0.2, visibility: 'visible', xPx: 11, yPx: 11 },
+        ],
+      });
+
+      const result = validateShuttleBenchmarkClip(clip);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((error) => error.includes('duplicate groundTruthFrames frameIndex: 4'))).toBe(true);
+    });
+  });
+
   // 12. GEOMETRY INVARIANT: DIRECT COURT HOMOGRAPHY PROHIBITION
   describe('12. Geometry invariant: Direct court homography prohibition', () => {
     it('throws explicit error when direct court homography projection is attempted on airborne shuttle', () => {
