@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 try:
     from ai_service.shuttle_benchmark_schema import (
@@ -69,12 +69,20 @@ def _safe_percentile(values: Sequence[float], percentile: float) -> Optional[flo
     return clean[low] * (1.0 - weight) + clean[high] * weight
 
 
+DEFAULT_MATCH_DISTANCE_THRESHOLD_PX = 30.0
+
+
+class DuplicateBenchmarkFrameError(ValueError):
+    """Raised when a benchmark input contains more than one entry for a source frame."""
+
+
 @dataclass(frozen=True)
 class ShuttleBenchmarkConfig:
     """Controls for pairing predictions to ground truth and spatial matching."""
 
     timestamp_tolerance_sec: float = 0.02
-    match_distance_threshold_px: Optional[float] = None
+    match_distance_threshold_px: Optional[float] = DEFAULT_MATCH_DISTANCE_THRESHOLD_PX
+    match_distance_threshold_normalized: Optional[float] = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.timestamp_tolerance_sec) or self.timestamp_tolerance_sec < 0:
@@ -82,6 +90,14 @@ class ShuttleBenchmarkConfig:
         if self.match_distance_threshold_px is not None:
             if not math.isfinite(self.match_distance_threshold_px) or self.match_distance_threshold_px <= 0:
                 raise ValueError("match_distance_threshold_px must be a positive finite number or None")
+        if self.match_distance_threshold_normalized is not None:
+            if (
+                not math.isfinite(self.match_distance_threshold_normalized)
+                or self.match_distance_threshold_normalized <= 0
+            ):
+                raise ValueError(
+                    "match_distance_threshold_normalized must be a positive finite number or None"
+                )
 
 
 @dataclass
@@ -109,13 +125,13 @@ class ShuttleQualityMetrics:
     # Primary Accuracy Metrics
     visible_frame_recall: Optional[float]
     precision: Optional[float]
-    true_positives_count: int
-    false_positives_count: int
-    false_negatives_count: int
-    false_positives_per_minute: float
+    true_positives_count: Optional[int]
+    false_positives_count: Optional[int]
+    false_negatives_count: Optional[int]
+    false_positives_per_minute: Optional[float]
 
     # Spatial Error Metrics (Raw Image Pixels)
-    position_evaluated_count: int
+    position_evaluated_count: Optional[int]
     mean_pixel_error: Optional[float]
     median_pixel_error: Optional[float]
     p95_pixel_error: Optional[float]
@@ -136,10 +152,10 @@ class ShuttleQualityMetrics:
     lost_percent: float
     lost_frames_count: int
     longest_lost_gap_frames: int
-    longest_lost_gap_sec: float
+    longest_lost_gap_sec: Optional[float]
 
     # Reacquisition Metrics
-    reacquisition_events_count: int
+    reacquisition_events_count: Optional[int]
     mean_reacquisition_time_sec: Optional[float]
     p95_reacquisition_time_sec: Optional[float]
     mean_reacquisition_frames: Optional[float]
@@ -212,8 +228,119 @@ class ShuttleQualityMetrics:
             "meanInferenceMs": self.mean_inference_ms,
             "device": self.device,
             "runtime": self.runtime,
-            "precision": self.precision_mode,
+            "precisionMode": self.precision_mode,
         }
+
+
+def _assert_unique_frame_indices(items: Sequence[Any], label: str) -> None:
+    seen = set()
+    for item in items:
+        frame_index = item.frame_index
+        if frame_index in seen:
+            raise DuplicateBenchmarkFrameError(
+                f"duplicate {label} frameIndex: {frame_index}"
+            )
+        seen.add(frame_index)
+
+
+def _is_source_adjacent(previous: ShuttleAlignedPair, current: ShuttleAlignedPair) -> bool:
+    """Checks source-frame adjacency without treating list position as time."""
+    if current.frame_index != previous.frame_index + 1:
+        return False
+    return (
+        math.isfinite(previous.timestamp_sec)
+        and math.isfinite(current.timestamp_sec)
+        and current.timestamp_sec >= previous.timestamp_sec
+    )
+
+
+def _effective_match_distance_px(
+    config: ShuttleBenchmarkConfig,
+    source_width: Optional[int],
+    source_height: Optional[int],
+) -> float:
+    if config.match_distance_threshold_px is not None:
+        return config.match_distance_threshold_px
+    if (
+        config.match_distance_threshold_normalized is not None
+        and source_width
+        and source_height
+        and source_width > 0
+        and source_height > 0
+    ):
+        return config.match_distance_threshold_normalized * math.hypot(source_width, source_height)
+    return DEFAULT_MATCH_DISTANCE_THRESHOLD_PX
+
+
+def _is_spatial_match(
+    pred: Optional[ShuttleObservation],
+    gt: Optional[ShuttleGroundTruthFrame],
+    config: ShuttleBenchmarkConfig,
+    source_width: Optional[int] = None,
+    source_height: Optional[int] = None,
+) -> bool:
+    if (
+        pred is None
+        or pred.state != "observed"
+        or pred.position_px is None
+        or gt is None
+        or gt.x_px is None
+        or gt.y_px is None
+    ):
+        return False
+    distance = math.hypot(pred.position_px.x - gt.x_px, pred.position_px.y - gt.y_px)
+    return math.isfinite(distance) and distance <= _effective_match_distance_px(
+        config, source_width, source_height
+    )
+
+
+def _has_finite_observed_position(pred: Optional[ShuttleObservation]) -> bool:
+    return bool(
+        pred is not None
+        and pred.state == "observed"
+        and pred.position_px is not None
+        and math.isfinite(pred.position_px.x)
+        and math.isfinite(pred.position_px.y)
+    )
+
+
+def _longest_lost_gap(
+    aligned_pairs: Sequence[ShuttleAlignedPair],
+    source_fps: Optional[float] = None,
+) -> Tuple[int, Optional[float]]:
+    longest_frames = 0
+    longest_seconds: Optional[float] = 0.0
+    current: List[ShuttleAlignedPair] = []
+
+    def finish(run: List[ShuttleAlignedPair], boundary: Optional[ShuttleAlignedPair] = None) -> None:
+        nonlocal longest_frames, longest_seconds
+        if not run:
+            return
+        if len(run) > longest_frames:
+            longest_frames = len(run)
+            timestamps = [p.timestamp_sec for p in run if math.isfinite(p.timestamp_sec)]
+            if (
+                timestamps
+                and boundary is not None
+                and _is_source_adjacent(run[-1], boundary)
+            ):
+                longest_seconds = max(0.0, boundary.timestamp_sec - min(timestamps))
+            elif source_fps is not None and math.isfinite(source_fps) and source_fps > 0:
+                longest_seconds = len(run) / source_fps
+            else:
+                longest_seconds = max(timestamps) - min(timestamps) if len(timestamps) > 1 else None
+
+    for pair in aligned_pairs:
+        if pair.pred is not None and pair.pred.state == "lost":
+            if current and not _is_source_adjacent(current[-1], pair):
+                finish(current)
+                current = []
+            current.append(pair)
+        else:
+            finish(current, pair)
+            current = []
+    finish(current)
+    return longest_frames, longest_seconds
 
 
 def align_predictions_and_ground_truth(
@@ -244,6 +371,9 @@ def align_predictions_and_ground_truth(
         elif isinstance(p, dict):
             parsed_pred.append(ShuttleObservation.from_dict(p))
 
+    _assert_unique_frame_indices(parsed_gt, "ground truth")
+    _assert_unique_frame_indices(parsed_pred, "prediction")
+
     # Fast indexed lookup by frameIndex
     gt_by_frame: Dict[int, ShuttleGroundTruthFrame] = {f.frame_index: f for f in parsed_gt}
     pred_by_frame: Dict[int, ShuttleObservation] = {p.frame_index: p for p in parsed_pred}
@@ -251,77 +381,28 @@ def align_predictions_and_ground_truth(
     all_frame_indices = sorted(set(gt_by_frame.keys()) | set(pred_by_frame.keys()))
     pairs: List[ShuttleAlignedPair] = []
 
-    # Case 1: Both sets have matching or overlapping frame indices
-    if any(idx in gt_by_frame and idx in pred_by_frame for idx in all_frame_indices) or not parsed_gt or not parsed_pred:
-        for idx in all_frame_indices:
-            gt_item = gt_by_frame.get(idx)
-            pred_item = pred_by_frame.get(idx)
-            t_sec = (
-                gt_item.timestamp_sec
-                if gt_item is not None
-                else (pred_item.timestamp_sec if pred_item is not None else 0.0)
-            )
-            pairs.append(
-                ShuttleAlignedPair(
-                    frame_index=idx,
-                    timestamp_sec=t_sec,
-                    gt=gt_item,
-                    pred=pred_item,
-                )
-            )
-        return pairs
-
-    # Case 2: Frame indices do not match (e.g. mismatched offset), align by timestamp tolerance
-    sorted_gt = sorted(parsed_gt, key=lambda f: f.timestamp_sec)
-    sorted_pred = sorted(parsed_pred, key=lambda p: p.timestamp_sec)
-
-    pred_matched = set()
-    for gt_item in sorted_gt:
-        best_pred = None
-        best_delta = float("inf")
-        best_idx = None
-        for p_idx, p in enumerate(sorted_pred):
-            if p_idx in pred_matched:
-                continue
-            delta = abs(p.timestamp_sec - gt_item.timestamp_sec)
-            if delta <= cfg.timestamp_tolerance_sec and delta < best_delta:
-                best_delta = delta
-                best_pred = p
-                best_idx = p_idx
-
-        if best_pred is not None and best_idx is not None:
-            pred_matched.add(best_idx)
-            pairs.append(
-                ShuttleAlignedPair(
-                    frame_index=gt_item.frame_index,
-                    timestamp_sec=gt_item.timestamp_sec,
-                    gt=gt_item,
-                    pred=best_pred,
-                )
-            )
-        else:
-            pairs.append(
-                ShuttleAlignedPair(
-                    frame_index=gt_item.frame_index,
-                    timestamp_sec=gt_item.timestamp_sec,
-                    gt=gt_item,
-                    pred=None,
-                )
-            )
-
-    # Add unaligned predictions as well
-    for p_idx, p in enumerate(sorted_pred):
-        if p_idx not in pred_matched:
-            pairs.append(
-                ShuttleAlignedPair(
-                    frame_index=p.frame_index,
-                    timestamp_sec=p.timestamp_sec,
-                    gt=None,
-                    pred=p,
-                )
-            )
-
-    pairs.sort(key=lambda item: (item.frame_index, item.timestamp_sec))
+    # The frame index is the source identity. Timestamp tolerance validates that
+    # identity; it cannot override a conflicting frame index.
+    for idx in all_frame_indices:
+        gt_item = gt_by_frame.get(idx)
+        pred_item = pred_by_frame.get(idx)
+        if gt_item is not None and pred_item is not None:
+            if (
+                math.isfinite(gt_item.timestamp_sec)
+                and math.isfinite(pred_item.timestamp_sec)
+                and abs(gt_item.timestamp_sec - pred_item.timestamp_sec) <= cfg.timestamp_tolerance_sec
+            ):
+                pairs.append(ShuttleAlignedPair(idx, gt_item.timestamp_sec, gt_item, pred_item))
+            else:
+                pairs.extend([
+                    ShuttleAlignedPair(idx, gt_item.timestamp_sec, gt_item, None),
+                    ShuttleAlignedPair(idx, pred_item.timestamp_sec, None, pred_item),
+                ])
+        elif gt_item is not None:
+            pairs.append(ShuttleAlignedPair(idx, gt_item.timestamp_sec, gt_item, None))
+        elif pred_item is not None:
+            pairs.append(ShuttleAlignedPair(idx, pred_item.timestamp_sec, None, pred_item))
+    pairs.sort(key=lambda item: (item.frame_index, item.timestamp_sec, 0 if item.gt is not None else 1))
     return pairs
 
 
@@ -366,15 +447,15 @@ def evaluate_shuttle_tracking(
     gt_not_visible_count = len(gt_not_visible)
     gt_unknown_count = len(gt_unknown)
 
+    pred_obs = sum(1 for p in aligned_pairs if p.pred and p.pred.state == "observed")
+    pred_extrap = sum(1 for p in aligned_pairs if p.pred and p.pred.state == "predicted")
+    pred_interp = sum(1 for p in aligned_pairs if p.pred and p.pred.state == "interpolated")
+    pred_lost = sum(1 for p in aligned_pairs if p.pred and p.pred.state == "lost")
+    pred_unk = sum(1 for p in aligned_pairs if not p.pred or p.pred.state == "unknown")
+    longest_lost_gap_frames, longest_lost_gap_sec = _longest_lost_gap(aligned_pairs, source_fps)
+
     # Check completeness
     if not is_dataset_complete or len(gt_frames) == 0:
-        # State distribution on predictions alone is still computable
-        pred_obs = sum(1 for p in aligned_pairs if p.pred and p.pred.state == "observed")
-        pred_extrap = sum(1 for p in aligned_pairs if p.pred and p.pred.state == "predicted")
-        pred_interp = sum(1 for p in aligned_pairs if p.pred and p.pred.state == "interpolated")
-        pred_lost = sum(1 for p in aligned_pairs if p.pred and p.pred.state == "lost")
-        pred_unk = sum(1 for p in aligned_pairs if not p.pred or p.pred.state == "unknown")
-
         return ShuttleQualityMetrics(
             dataset_status="GROUND TRUTH DATASET INCOMPLETE",
             total_frames=total_frames,
@@ -385,11 +466,11 @@ def evaluate_shuttle_tracking(
             gt_unknown_count=gt_unknown_count,
             visible_frame_recall=None,
             precision=None,
-            true_positives_count=0,
-            false_positives_count=0,
-            false_negatives_count=0,
-            false_positives_per_minute=0.0,
-            position_evaluated_count=0,
+            true_positives_count=None,
+            false_positives_count=None,
+            false_negatives_count=None,
+            false_positives_per_minute=None,
+            position_evaluated_count=None,
             mean_pixel_error=None,
             median_pixel_error=None,
             p95_pixel_error=None,
@@ -405,9 +486,9 @@ def evaluate_shuttle_tracking(
             track_fragmentation_count=0,
             lost_percent=(pred_lost / total_frames * 100.0) if total_frames > 0 else 0.0,
             lost_frames_count=pred_lost,
-            longest_lost_gap_frames=0,
-            longest_lost_gap_sec=0.0,
-            reacquisition_events_count=0,
+            longest_lost_gap_frames=longest_lost_gap_frames,
+            longest_lost_gap_sec=longest_lost_gap_sec,
+            reacquisition_events_count=None,
             mean_reacquisition_time_sec=None,
             p95_reacquisition_time_sec=None,
             mean_reacquisition_frames=None,
@@ -441,32 +522,25 @@ def evaluate_shuttle_tracking(
         # Visible ground truth evaluation
         if gt is not None and gt.visibility == "visible":
             # Target is visible in GT
-            if (
-                pred is not None
-                and pred.state == "observed"
-                and pred.position_px is not None
-                and gt.x_px is not None
-                and gt.y_px is not None
-            ):
+            if _has_finite_observed_position(pred) and gt.x_px is not None and gt.y_px is not None:
                 dist = math.hypot(pred.position_px.x - gt.x_px, pred.position_px.y - gt.y_px)
-                pixel_errors.append(dist)
+                if math.isfinite(dist):
+                    pixel_errors.append(dist)
 
-                if cfg.match_distance_threshold_px is not None:
-                    if dist <= cfg.match_distance_threshold_px:
-                        tp_count += 1
-                    else:
-                        # Spatial mismatch beyond distance threshold
-                        fn_count += 1
-                        fp_count += 1
-                else:
+                if _is_spatial_match(pred, gt, cfg, source_width, source_height):
                     tp_count += 1
+                else:
+                    # A candidate at the wrong location is both a false positive
+                    # and a miss for the visible GT target.
+                    fn_count += 1
+                    fp_count += 1
             else:
                 # Missed visible shuttle (prediction is lost, unknown, predicted, or null)
                 fn_count += 1
 
         # Not-visible ground truth evaluation
         elif gt is not None and gt.visibility == "not_visible":
-            if pred is not None and pred.state == "observed" and pred.position_px is not None:
+            if _has_finite_observed_position(pred):
                 # Model-generated observed shuttle when GT states no visible shuttle -> False Positive
                 fp_count += 1
 
@@ -482,7 +556,8 @@ def evaluate_shuttle_tracking(
                 and gt.y_px is not None
             ):
                 dist = math.hypot(pred.position_px.x - gt.x_px, pred.position_px.y - gt.y_px)
-                pixel_errors.append(dist)
+                if math.isfinite(dist):
+                    pixel_errors.append(dist)
 
         # Missing GT frames but observed prediction (when GT not present in sequence)
         elif gt is None:
@@ -496,7 +571,7 @@ def evaluate_shuttle_tracking(
 
     # False Positives Per Minute
     duration_min = duration_sec / 60.0
-    fp_per_min = (fp_count / duration_min) if duration_min > 0 else 0.0
+    fp_per_min = (fp_count / duration_min) if duration_min > 0 else None
 
     # 2. Pixel Error Metrics (Mean, Median, P95)
     mean_pixel_error = (sum(pixel_errors) / len(pixel_errors)) if pixel_errors else None
@@ -531,26 +606,8 @@ def evaluate_shuttle_tracking(
     lost_pct = (lost_count / total_frames * 100.0) if total_frames > 0 else 0.0
     unknown_pct = (unknown_count / total_frames * 100.0) if total_frames > 0 else 0.0
 
-    # 5. Lost Gaps
-    longest_lost_gap_frames = 0
-    current_lost_run = 0
-    for p in aligned_pairs:
-        if p.pred and p.pred.state == "lost":
-            current_lost_run += 1
-            if current_lost_run > longest_lost_gap_frames:
-                longest_lost_gap_frames = current_lost_run
-        else:
-            current_lost_run = 0
-
-    longest_lost_gap_sec = 0.0
-    if longest_lost_gap_frames > 0:
-        if source_fps and source_fps > 0:
-            longest_lost_gap_sec = longest_lost_gap_frames / source_fps
-        elif total_frames > 1 and duration_sec > 0:
-            longest_lost_gap_sec = longest_lost_gap_frames * (duration_sec / (total_frames - 1))
-
     # 6. Track Continuity & Fragmentation
-    # Evaluated over consecutive frames where GT is visible
+    # Evaluated only over adjacent source frames where GT is visible.
     consecutive_visible_transitions = 0
     consecutive_observed_transitions = 0
     longest_continuous_track = 0
@@ -561,9 +618,21 @@ def evaluate_shuttle_tracking(
     for idx in range(len(aligned_pairs)):
         pair = aligned_pairs[idx]
         is_gt_vis = pair.gt is not None and pair.gt.visibility == "visible"
-        is_pred_obs = pair.pred is not None and pair.pred.state == "observed"
+        is_pred_obs = _is_spatial_match(
+            pair.pred, pair.gt, cfg, source_width, source_height
+        )
 
         if is_gt_vis:
+            adjacent_visible = (
+                idx > 0
+                and aligned_pairs[idx - 1].gt is not None
+                and aligned_pairs[idx - 1].gt.visibility == "visible"
+                and _is_source_adjacent(aligned_pairs[idx - 1], pair)
+            )
+            if not adjacent_visible:
+                current_continuous_track = 0
+                was_observed_in_visible = False
+
             if is_pred_obs:
                 current_continuous_track += 1
                 if current_continuous_track > longest_continuous_track:
@@ -575,24 +644,22 @@ def evaluate_shuttle_tracking(
                 current_continuous_track = 0
                 was_observed_in_visible = False
 
-            if idx > 0:
+            if adjacent_visible:
                 prev_pair = aligned_pairs[idx - 1]
-                if prev_pair.gt is not None and prev_pair.gt.visibility == "visible":
-                    consecutive_visible_transitions += 1
-                    if (
-                        prev_pair.pred is not None
-                        and prev_pair.pred.state == "observed"
-                        and is_pred_obs
-                    ):
-                        consecutive_observed_transitions += 1
+                consecutive_visible_transitions += 1
+                if (
+                    _is_spatial_match(
+                        prev_pair.pred, prev_pair.gt, cfg, source_width, source_height
+                    )
+                    and is_pred_obs
+                ):
+                    consecutive_observed_transitions += 1
         else:
             was_observed_in_visible = False
             current_continuous_track = 0
 
     if consecutive_visible_transitions > 0:
         track_continuity = consecutive_observed_transitions / consecutive_visible_transitions
-    elif gt_visible_count == 1:
-        track_continuity = 1.0 if longest_continuous_track == 1 else 0.0
     else:
         track_continuity = None
 
@@ -622,17 +689,13 @@ def evaluate_shuttle_tracking(
                 if s_pair.gt is not None and s_pair.gt.visibility != "visible":
                     # GT became non-visible before tracker reacquired
                     break
-                if (
-                    s_pair.pred is not None
-                    and s_pair.pred.state == "observed"
-                    and s_pair.pred.position_px is not None
-                ):
+                if _is_spatial_match(s_pair.pred, s_pair.gt, cfg, source_width, source_height):
                     reacquired_idx = search_idx
                     reacquired_time = s_pair.timestamp_sec
                     break
 
             if reacquired_idx is not None and reacquired_time is not None:
-                delta_frames = reacquired_idx - resume_idx
+                delta_frames = aligned_pairs[reacquired_idx].frame_index - pair.frame_index
                 delta_sec = max(0.0, reacquired_time - resume_time)
                 reacquisition_frames_list.append(delta_frames)
                 reacquisition_times_sec.append(delta_sec)
@@ -742,7 +805,11 @@ def format_benchmark_report(
     # Complete dataset report
     recall_str = f"{metrics.visible_frame_recall * 100.0:.1f}%" if metrics.visible_frame_recall is not None else "N/A"
     prec_str = f"{metrics.precision * 100.0:.1f}%" if metrics.precision is not None else "N/A"
-    fp_min_str = f"{metrics.false_positives_per_minute:.2f}"
+    fp_min_str = (
+        f"{metrics.false_positives_per_minute:.2f}"
+        if metrics.false_positives_per_minute is not None
+        else "N/A"
+    )
 
     mean_err_str = f"{metrics.mean_pixel_error:.2f} px" if metrics.mean_pixel_error is not None else "N/A"
     if metrics.mean_normalized_error is not None:
@@ -762,9 +829,14 @@ def format_benchmark_report(
         else f"N/A (longest: {metrics.longest_continuous_track_frames} frames)"
     )
 
-    lost_str = f"{metrics.lost_percent:.1f}% ({metrics.lost_frames_count} frames, longest gap: {metrics.longest_lost_gap_frames} frames / {metrics.longest_lost_gap_sec:.2f}s)"
+    longest_gap_sec_str = (
+        f"{metrics.longest_lost_gap_sec:.2f}s"
+        if metrics.longest_lost_gap_sec is not None
+        else "N/A"
+    )
+    lost_str = f"{metrics.lost_percent:.1f}% ({metrics.lost_frames_count} frames, longest gap: {metrics.longest_lost_gap_frames} frames / {longest_gap_sec_str})"
 
-    if metrics.reacquisition_events_count > 0:
+    if metrics.reacquisition_events_count is not None and metrics.reacquisition_events_count > 0:
         reacq_str = (
             f"Mean: {metrics.mean_reacquisition_time_sec:.3f}s ({metrics.mean_reacquisition_frames:.1f} frames) | "
             f"P95: {metrics.p95_reacquisition_time_sec:.3f}s ({metrics.p95_reacquisition_frames:.1f} frames) | "
@@ -822,6 +894,7 @@ def format_benchmark_report(
 
 def run_benchmark_on_manifest(
     manifest_path_or_obj: Union[str, Path, ShuttleBenchmarkManifest],
+    predictions_by_clip: Optional[Mapping[str, Sequence[Union[ShuttleObservation, Dict[str, Any]]]]] = None,
 ) -> Dict[str, Any]:
     """
     Evaluates the clips registered in a manifest.
@@ -833,18 +906,31 @@ def run_benchmark_on_manifest(
     else:
         manifest = ShuttleBenchmarkManifest.load_json(manifest_path_or_obj)
 
-    results = {}
+    results: Dict[str, Any] = {}
     for clip in manifest.clips:
-        has_complete_gt = clip.ground_truth_available and bool(clip.ground_truth_frames)
-        # S01 in bundled manifest has 5 sample frames for 15s clip (450 frames expected)
-        expected_frames = int((clip.duration_sec or 10.0) * (clip.source_fps or 30.0))
-        actual_frames = len(clip.ground_truth_frames) if clip.ground_truth_frames else 0
-        if actual_frames < expected_frames * 0.8:
-            has_complete_gt = False
+        clip_gt = clip.ground_truth_frames or []
+        expected_frames = None
+        if clip.duration_sec and clip.duration_sec > 0 and clip.source_fps and clip.source_fps > 0:
+            expected_frames = max(1, int(round(clip.duration_sec * clip.source_fps)))
+        sorted_indices = sorted(frame.frame_index for frame in clip_gt)
+        contiguous = bool(sorted_indices) and all(
+            right == left + 1 for left, right in zip(sorted_indices, sorted_indices[1:])
+        )
+        has_complete_gt = bool(
+            clip.ground_truth_available
+            and expected_frames is not None
+            and len(clip_gt) == expected_frames
+            and contiguous
+            and sorted_indices[0] == 0
+            and sorted_indices[-1] == expected_frames - 1
+            and all(frame.reviewed is True for frame in clip_gt)
+        )
+        predictions = list((predictions_by_clip or {}).get(clip.id, []))
+        aligned_pairs = align_predictions_and_ground_truth(clip_gt if has_complete_gt else [], predictions)
 
         if not has_complete_gt:
             metrics = evaluate_shuttle_tracking(
-                aligned_pairs=[],
+                aligned_pairs=aligned_pairs,
                 source_width=clip.source_width,
                 source_height=clip.source_height,
                 source_fps=clip.source_fps,
@@ -860,6 +946,24 @@ def run_benchmark_on_manifest(
             )
             results[clip.id] = {
                 "status": "GROUND TRUTH DATASET INCOMPLETE",
+                "metrics": metrics.to_dict(),
+                "report": report,
+            }
+        else:
+            metrics = evaluate_shuttle_tracking(
+                aligned_pairs=aligned_pairs,
+                source_width=clip.source_width,
+                source_height=clip.source_height,
+                source_fps=clip.source_fps,
+                is_dataset_complete=True,
+            )
+            report = format_benchmark_report(
+                clip_id=clip.id,
+                configuration_name="Temporal Tracker Baseline (Phase 2.2)",
+                metrics=metrics,
+            )
+            results[clip.id] = {
+                "status": "COMPLETE",
                 "metrics": metrics.to_dict(),
                 "report": report,
             }

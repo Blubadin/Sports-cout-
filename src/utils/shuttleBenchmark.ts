@@ -19,6 +19,97 @@ export interface ShuttleAlignedPair {
   pred: ShuttleObservation | null;
 }
 
+const DEFAULT_MATCH_DISTANCE_THRESHOLD_PX = 30;
+
+function assertUniqueFrameIndices<T extends { frameIndex: number }>(items: T[], label: string): void {
+  const seen = new Set<number>();
+  for (const item of items) {
+    if (seen.has(item.frameIndex)) {
+      throw new Error(`duplicate ${label} frameIndex: ${item.frameIndex}`);
+    }
+    seen.add(item.frameIndex);
+  }
+}
+
+function areSourceAdjacent(previous: ShuttleAlignedPair, current: ShuttleAlignedPair): boolean {
+  return (
+    current.frameIndex === previous.frameIndex + 1 &&
+    Number.isFinite(previous.timestampSec) &&
+    Number.isFinite(current.timestampSec) &&
+    current.timestampSec >= previous.timestampSec
+  );
+}
+
+function matchDistanceThresholdPx(
+  config: ShuttleBenchmarkConfig | undefined,
+  sourceWidth?: number | null,
+  sourceHeight?: number | null
+): number {
+  if (config?.matchDistanceThresholdPx != null) return config.matchDistanceThresholdPx;
+  if (
+    config?.matchDistanceThresholdNormalized != null &&
+    sourceWidth != null && sourceHeight != null && sourceWidth > 0 && sourceHeight > 0
+  ) {
+    return config.matchDistanceThresholdNormalized * Math.hypot(sourceWidth, sourceHeight);
+  }
+  return DEFAULT_MATCH_DISTANCE_THRESHOLD_PX;
+}
+
+function isSpatialMatch(
+  pred: ShuttleObservation | null,
+  gt: ShuttleGroundTruthFrame | null,
+  config?: ShuttleBenchmarkConfig,
+  sourceWidth?: number | null,
+  sourceHeight?: number | null
+): boolean {
+  if (
+    pred?.state !== 'observed' ||
+    pred.positionPx === null ||
+    gt === null ||
+    gt.xPx === null ||
+    gt.yPx === null
+  ) return false;
+  const distance = Math.hypot(pred.positionPx.x - gt.xPx, pred.positionPx.y - gt.yPx);
+  return Number.isFinite(distance) && distance <= matchDistanceThresholdPx(config, sourceWidth, sourceHeight);
+}
+
+function hasFiniteObservedPosition(pred: ShuttleObservation | null): boolean {
+  return Boolean(
+    pred?.state === 'observed' &&
+    pred.positionPx !== null &&
+    Number.isFinite(pred.positionPx.x) &&
+    Number.isFinite(pred.positionPx.y)
+  );
+}
+
+function longestLostGap(pairs: ShuttleAlignedPair[], sourceFps?: number | null): { frames: number; seconds: number | null } {
+  let longestFrames = 0;
+  let longestSeconds: number | null = 0;
+  let run: ShuttleAlignedPair[] = [];
+  const finish = (boundary?: ShuttleAlignedPair) => {
+    if (run.length > longestFrames) {
+      longestFrames = run.length;
+      const times = run.map((pair) => pair.timestampSec).filter(Number.isFinite);
+      longestSeconds = times.length > 0 && boundary && areSourceAdjacent(run[run.length - 1], boundary)
+        ? Math.max(0, boundary.timestampSec - Math.min(...times))
+        : sourceFps != null && Number.isFinite(sourceFps) && sourceFps > 0
+          ? run.length / sourceFps
+          : times.length > 1 ? Math.max(...times) - Math.min(...times) : null;
+    }
+    run = [];
+  };
+  for (const pair of pairs) {
+    if (pair.pred?.state === 'lost') {
+      if (run.length > 0 && !areSourceAdjacent(run[run.length - 1], pair)) finish();
+      run.push(pair);
+    } else {
+      finish(pair);
+    }
+  }
+  finish();
+  return { frames: longestFrames, seconds: longestSeconds };
+}
+
 function safePercentile(values: number[], percentile: number): number | null {
   if (values.length === 0) return null;
   const clean = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
@@ -35,7 +126,7 @@ function safePercentile(values: number[], percentile: number): number | null {
 
 /**
  * Aligns prediction observations to ground truth frames strictly.
- * Primary alignment: frameIndex. Secondary alignment: timestampSec with tolerance.
+ * Frame indices must agree and timestamps for a shared index must be within tolerance.
  */
 export function alignShuttlePredictionsAndGroundTruth(
   gtFrames: ShuttleGroundTruthFrame[],
@@ -44,89 +135,33 @@ export function alignShuttlePredictionsAndGroundTruth(
 ): ShuttleAlignedPair[] {
   const tolerance = config?.timestampToleranceSec ?? 0.02;
 
-  const gtByFrame = new Map<number, ShuttleGroundTruthFrame>();
-  for (const f of gtFrames) {
-    gtByFrame.set(f.frameIndex, f);
-  }
-
-  const predByFrame = new Map<number, ShuttleObservation>();
-  for (const p of predictions) {
-    predByFrame.set(p.frameIndex, p);
-  }
-
-  const allIndices = Array.from(
-    new Set([...Array.from(gtByFrame.keys()), ...Array.from(predByFrame.keys())])
-  ).sort((a, b) => a - b);
-
-  const hasOverlap = allIndices.some((idx) => gtByFrame.has(idx) && predByFrame.has(idx));
-
-  if (hasOverlap || gtFrames.length === 0 || predictions.length === 0) {
-    return allIndices.map((idx) => {
-      const gtItem = gtByFrame.get(idx) ?? null;
-      const predItem = predByFrame.get(idx) ?? null;
-      const tSec = gtItem?.timestampSec ?? predItem?.timestampSec ?? 0.0;
-      return {
-        frameIndex: idx,
-        timestampSec: tSec,
-        gt: gtItem,
-        pred: predItem,
-      };
-    });
-  }
-
-  // Fallback timestamp alignment when frame indices do not match
-  const sortedGt = [...gtFrames].sort((a, b) => a.timestampSec - b.timestampSec);
-  const sortedPred = [...predictions].sort((a, b) => a.timestampSec - b.timestampSec);
-  const matchedPredIndices = new Set<number>();
+  assertUniqueFrameIndices(gtFrames, 'ground truth');
+  assertUniqueFrameIndices(predictions, 'prediction');
+  const gtByFrame = new Map(gtFrames.map((frame) => [frame.frameIndex, frame]));
+  const predByFrame = new Map(predictions.map((prediction) => [prediction.frameIndex, prediction]));
+  const allIndices = Array.from(new Set([...gtByFrame.keys(), ...predByFrame.keys()])).sort((a, b) => a - b);
   const pairs: ShuttleAlignedPair[] = [];
-
-  for (const gtItem of sortedGt) {
-    let bestPred: ShuttleObservation | null = null;
-    let bestDelta = Infinity;
-    let bestIdx: number | null = null;
-
-    for (let pIdx = 0; pIdx < sortedPred.length; pIdx++) {
-      if (matchedPredIndices.has(pIdx)) continue;
-      const p = sortedPred[pIdx];
-      const delta = Math.abs(p.timestampSec - gtItem.timestampSec);
-      if (delta <= tolerance && delta < bestDelta) {
-        bestDelta = delta;
-        bestPred = p;
-        bestIdx = pIdx;
-      }
-    }
-
-    if (bestPred !== null && bestIdx !== null) {
-      matchedPredIndices.add(bestIdx);
-      pairs.push({
-        frameIndex: gtItem.frameIndex,
-        timestampSec: gtItem.timestampSec,
-        gt: gtItem,
-        pred: bestPred,
-      });
+  for (const frameIndex of allIndices) {
+    const gtItem = gtByFrame.get(frameIndex) ?? null;
+    const predItem = predByFrame.get(frameIndex) ?? null;
+    if (
+      gtItem && predItem &&
+      (!Number.isFinite(gtItem.timestampSec) || !Number.isFinite(predItem.timestampSec) ||
+        Math.abs(gtItem.timestampSec - predItem.timestampSec) > tolerance)
+    ) {
+      pairs.push({ frameIndex, timestampSec: gtItem.timestampSec, gt: gtItem, pred: null });
+      pairs.push({ frameIndex, timestampSec: predItem.timestampSec, gt: null, pred: predItem });
     } else {
       pairs.push({
-        frameIndex: gtItem.frameIndex,
-        timestampSec: gtItem.timestampSec,
+        frameIndex,
+        timestampSec: gtItem?.timestampSec ?? predItem?.timestampSec ?? 0,
         gt: gtItem,
-        pred: null,
+        pred: predItem,
       });
     }
   }
 
-  for (let pIdx = 0; pIdx < sortedPred.length; pIdx++) {
-    if (!matchedPredIndices.has(pIdx)) {
-      const p = sortedPred[pIdx];
-      pairs.push({
-        frameIndex: p.frameIndex,
-        timestampSec: p.timestampSec,
-        gt: null,
-        pred: p,
-      });
-    }
-  }
-
-  pairs.sort((a, b) => a.frameIndex - b.frameIndex || a.timestampSec - b.timestampSec);
+  pairs.sort((a, b) => a.frameIndex - b.frameIndex || a.timestampSec - b.timestampSec || (a.gt ? -1 : 1));
   return pairs;
 }
 
@@ -184,6 +219,7 @@ export function evaluateShuttleTracking(
   const predInterp = alignedPairs.filter((p) => p.pred?.state === 'interpolated').length;
   const predLost = alignedPairs.filter((p) => p.pred?.state === 'lost').length;
   const predUnk = alignedPairs.filter((p) => !p.pred || p.pred.state === 'unknown').length;
+  const lostGap = longestLostGap(alignedPairs, options?.sourceFps);
 
   if (!isComplete || gtFrames.length === 0) {
     return {
@@ -196,11 +232,11 @@ export function evaluateShuttleTracking(
       gtUnknownCount: gtUnknown.length,
       visibleFrameRecall: null,
       precision: null,
-      truePositivesCount: 0,
-      falsePositivesCount: 0,
-      falseNegativesCount: 0,
-      falsePositivesPerMinute: 0.0,
-      positionEvaluatedCount: 0,
+      truePositivesCount: null,
+      falsePositivesCount: null,
+      falseNegativesCount: null,
+      falsePositivesPerMinute: null,
+      positionEvaluatedCount: null,
       meanPixelError: null,
       medianPixelError: null,
       p95PixelError: null,
@@ -214,9 +250,9 @@ export function evaluateShuttleTracking(
       trackFragmentationCount: 0,
       lostPercent: totalFrames > 0 ? (predLost / totalFrames) * 100.0 : 0.0,
       lostFramesCount: predLost,
-      longestLostGapFrames: 0,
-      longestLostGapSec: 0.0,
-      reacquisitionEventsCount: 0,
+      longestLostGapFrames: lostGap.frames,
+      longestLostGapSec: lostGap.seconds,
+      reacquisitionEventsCount: null,
       meanReacquisitionTimeSec: null,
       p95ReacquisitionTimeSec: null,
       meanReacquisitionFrames: null,
@@ -249,33 +285,23 @@ export function evaluateShuttleTracking(
     const pred = pair.pred;
 
     if (gt && gt.visibility === 'visible') {
-      if (
-        pred &&
-        pred.state === 'observed' &&
-        pred.positionPx !== null &&
-        gt.xPx !== null &&
-        gt.yPx !== null
-      ) {
+      if (hasFiniteObservedPosition(pred) && gt.xPx !== null && gt.yPx !== null) {
         const dx = pred.positionPx.x - gt.xPx;
         const dy = pred.positionPx.y - gt.yPx;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        pixelErrors.push(dist);
+        if (Number.isFinite(dist)) pixelErrors.push(dist);
 
-        if (cfg?.matchDistanceThresholdPx !== undefined && cfg.matchDistanceThresholdPx !== null) {
-          if (dist <= cfg.matchDistanceThresholdPx) {
-            tp++;
-          } else {
-            fn++;
-            fp++;
-          }
-        } else {
+        if (isSpatialMatch(pred, gt, cfg, options?.sourceWidth, options?.sourceHeight)) {
           tp++;
+        } else {
+          fn++;
+          fp++;
         }
       } else {
         fn++;
       }
     } else if (gt && gt.visibility === 'not_visible') {
-      if (pred && pred.state === 'observed' && pred.positionPx !== null) {
+      if (hasFiniteObservedPosition(pred)) {
         fp++;
       }
     } else if (gt && gt.visibility === 'occluded') {
@@ -288,7 +314,8 @@ export function evaluateShuttleTracking(
       ) {
         const dx = pred.positionPx.x - gt.xPx;
         const dy = pred.positionPx.y - gt.yPx;
-        pixelErrors.push(Math.sqrt(dx * dx + dy * dy));
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (Number.isFinite(dist)) pixelErrors.push(dist);
       }
     }
   }
@@ -296,7 +323,7 @@ export function evaluateShuttleTracking(
   const recall = gtVisible.length > 0 ? tp / gtVisible.length : null;
   const precision = tp + fp > 0 ? tp / (tp + fp) : null;
   const durationMin = durationSec / 60.0;
-  const fpPerMin = durationMin > 0 ? fp / durationMin : 0.0;
+  const fpPerMin = durationMin > 0 ? fp / durationMin : null;
 
   const meanPix = pixelErrors.length > 0 ? pixelErrors.reduce((a, b) => a + b, 0) / pixelErrors.length : null;
   const medPix = safePercentile(pixelErrors, 50.0);
@@ -313,27 +340,6 @@ export function evaluateShuttleTracking(
     p95Norm = safePercentile(normErrors, 95.0);
   }
 
-  // Lost Gaps
-  let longestLostGap = 0;
-  let currentLostGap = 0;
-  for (const p of alignedPairs) {
-    if (p.pred && p.pred.state === 'lost') {
-      currentLostGap++;
-      if (currentLostGap > longestLostGap) longestLostGap = currentLostGap;
-    } else {
-      currentLostGap = 0;
-    }
-  }
-
-  let longestLostGapSec = 0.0;
-  if (longestLostGap > 0) {
-    if (options?.sourceFps && options.sourceFps > 0) {
-      longestLostGapSec = longestLostGap / options.sourceFps;
-    } else if (totalFrames > 1 && durationSec > 0) {
-      longestLostGapSec = longestLostGap * (durationSec / (totalFrames - 1));
-    }
-  }
-
   // Continuity
   let visibleTransitions = 0;
   let observedTransitions = 0;
@@ -345,9 +351,16 @@ export function evaluateShuttleTracking(
   for (let idx = 0; idx < alignedPairs.length; idx++) {
     const pair = alignedPairs[idx];
     const isGtVis = pair.gt !== null && pair.gt.visibility === 'visible';
-    const isPredObs = pair.pred !== null && pair.pred.state === 'observed';
+    const isPredObs = isSpatialMatch(pair.pred, pair.gt, cfg, options?.sourceWidth, options?.sourceHeight);
 
     if (isGtVis) {
+      const adjacentVisible = idx > 0 &&
+        alignedPairs[idx - 1].gt?.visibility === 'visible' &&
+        areSourceAdjacent(alignedPairs[idx - 1], pair);
+      if (!adjacentVisible) {
+        currentTrack = 0;
+        wasObserved = false;
+      }
       if (isPredObs) {
         currentTrack++;
         if (currentTrack > longestContinuousTrack) longestContinuousTrack = currentTrack;
@@ -358,13 +371,11 @@ export function evaluateShuttleTracking(
         wasObserved = false;
       }
 
-      if (idx > 0) {
+      if (adjacentVisible) {
         const prev = alignedPairs[idx - 1];
-        if (prev.gt !== null && prev.gt.visibility === 'visible') {
-          visibleTransitions++;
-          if (prev.pred?.state === 'observed' && isPredObs) {
-            observedTransitions++;
-          }
+        visibleTransitions++;
+        if (isSpatialMatch(prev.pred, prev.gt, cfg, options?.sourceWidth, options?.sourceHeight) && isPredObs) {
+          observedTransitions++;
         }
       }
     } else {
@@ -376,8 +387,6 @@ export function evaluateShuttleTracking(
   let trackContinuity: number | null = null;
   if (visibleTransitions > 0) {
     trackContinuity = observedTransitions / visibleTransitions;
-  } else if (gtVisible.length === 1) {
-    trackContinuity = longestContinuousTrack === 1 ? 1.0 : 0.0;
   }
 
   // Reacquisition
@@ -402,7 +411,7 @@ export function evaluateShuttleTracking(
       for (let s = resumeIdx; s < alignedPairs.length; s++) {
         const sPair = alignedPairs[s];
         if (sPair.gt !== null && sPair.gt.visibility !== 'visible') break;
-        if (sPair.pred?.state === 'observed' && sPair.pred.positionPx !== null) {
+        if (isSpatialMatch(sPair.pred, sPair.gt, cfg, options?.sourceWidth, options?.sourceHeight)) {
           reacquiredIdx = s;
           reacquiredTime = sPair.timestampSec;
           break;
@@ -410,7 +419,7 @@ export function evaluateShuttleTracking(
       }
 
       if (reacquiredIdx !== null && reacquiredTime !== null) {
-        reacqFramesList.push(reacquiredIdx - resumeIdx);
+        reacqFramesList.push(alignedPairs[reacquiredIdx].frameIndex - pair.frameIndex);
         reacqTimesSec.push(Math.max(0, reacquiredTime - resumeTime));
       }
       hadPriorLossOrOcclusion = false;
@@ -454,8 +463,8 @@ export function evaluateShuttleTracking(
     trackFragmentationCount: trackFragments,
     lostPercent: totalFrames > 0 ? (predLost / totalFrames) * 100.0 : 0.0,
     lostFramesCount: predLost,
-    longestLostGapFrames: longestLostGap,
-    longestLostGapSec: longestLostGapSec,
+    longestLostGapFrames: lostGap.frames,
+    longestLostGapSec: lostGap.seconds,
     reacquisitionEventsCount: reacqCount,
     meanReacquisitionTimeSec: meanReacqSec,
     p95ReacquisitionTimeSec: p95ReacqSec,
@@ -521,7 +530,9 @@ export function formatShuttleBenchmarkReport(
       : 'N/A';
   const precStr =
     metrics.precision !== null ? `${(metrics.precision * 100.0).toFixed(1)}%` : 'N/A';
-  const fpMinStr = metrics.falsePositivesPerMinute.toFixed(2);
+  const fpMinStr = metrics.falsePositivesPerMinute !== null
+    ? metrics.falsePositivesPerMinute.toFixed(2)
+    : 'N/A';
 
   let meanErrStr =
     metrics.meanPixelError !== null ? `${metrics.meanPixelError.toFixed(2)} px` : 'N/A';
@@ -546,10 +557,13 @@ export function formatShuttleBenchmarkReport(
       ? `${(metrics.trackContinuity * 100.0).toFixed(1)}% (longest: ${metrics.longestContinuousTrackFrames} frames, fragments: ${metrics.trackFragmentationCount})`
       : `N/A (longest: ${metrics.longestContinuousTrackFrames} frames)`;
 
-  const lostStr = `${metrics.lostPercent.toFixed(1)}% (${metrics.lostFramesCount} frames, longest gap: ${metrics.longestLostGapFrames} frames / ${metrics.longestLostGapSec.toFixed(2)}s)`;
+  const longestGapSecStr = metrics.longestLostGapSec !== null
+    ? `${metrics.longestLostGapSec.toFixed(2)}s`
+    : 'N/A';
+  const lostStr = `${metrics.lostPercent.toFixed(1)}% (${metrics.lostFramesCount} frames, longest gap: ${metrics.longestLostGapFrames} frames / ${longestGapSecStr})`;
 
   let reacqStr = 'No reacquisition events during clip';
-  if (metrics.reacquisitionEventsCount > 0) {
+  if (metrics.reacquisitionEventsCount !== null && metrics.reacquisitionEventsCount > 0) {
     reacqStr = `Mean: ${metrics.meanReacquisitionTimeSec?.toFixed(3)}s (${metrics.meanReacquisitionFrames?.toFixed(1)} frames) | P95: ${metrics.p95ReacquisitionTimeSec?.toFixed(3)}s (${metrics.p95ReacquisitionFrames?.toFixed(1)} frames) | Events: ${metrics.reacquisitionEventsCount}`;
   }
 

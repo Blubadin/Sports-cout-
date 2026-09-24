@@ -301,7 +301,7 @@ class TestShuttleQualityBenchmark(unittest.TestCase):
         self.assertEqual(metrics.lost_frames_count, 5)
         self.assertEqual(metrics.lost_percent, 50.0)
         self.assertEqual(metrics.longest_lost_gap_frames, 5)
-        self.assertAlmostEqual(metrics.longest_lost_gap_sec, 5 / 30.0, places=3)
+        self.assertAlmostEqual(metrics.longest_lost_gap_sec, 0.165, places=3)
 
     def test_reacquisition_time(self):
         """7. Reacquisition time: measures time/frames after visible period resumes."""
@@ -474,6 +474,209 @@ class TestShuttleQualityBenchmark(unittest.TestCase):
 
         # Reacquisition latency is shorter in Config B
         self.assertLess(m_b.mean_reacquisition_frames, m_a.mean_reacquisition_frames)
+
+    def test_alignment_rejects_same_frame_with_conflicting_timestamp(self):
+        gt = [ShuttleGroundTruthFrame(frame_index=10, timestamp_sec=1.0, visibility="visible", x_px=10.0, y_px=10.0)]
+        pred = [ShuttleObservation(frame_index=10, timestamp_sec=101.0, state="observed", position_px=ShuttlePositionPx(10.0, 10.0))]
+
+        pairs = align_predictions_and_ground_truth(gt, pred)
+
+        self.assertEqual(len(pairs), 2)
+        self.assertTrue(all(pair.gt is None or pair.pred is None for pair in pairs))
+
+    def test_alignment_accepts_timestamp_within_tolerance(self):
+        gt = [ShuttleGroundTruthFrame(frame_index=10, timestamp_sec=1.0, visibility="visible", x_px=10.0, y_px=10.0)]
+        pred = [ShuttleObservation(frame_index=10, timestamp_sec=1.015, state="observed", position_px=ShuttlePositionPx(10.0, 10.0))]
+
+        pairs = align_predictions_and_ground_truth(gt, pred)
+
+        self.assertEqual(len(pairs), 1)
+        self.assertIsNotNone(pairs[0].gt)
+        self.assertIsNotNone(pairs[0].pred)
+
+    def test_alignment_does_not_override_conflicting_frame_indices_with_timestamp(self):
+        gt = [ShuttleGroundTruthFrame(frame_index=10, timestamp_sec=1.0, visibility="visible", x_px=10.0, y_px=10.0)]
+        pred = [ShuttleObservation(frame_index=11, timestamp_sec=1.0, state="observed", position_px=ShuttlePositionPx(10.0, 10.0))]
+
+        pairs = align_predictions_and_ground_truth(gt, pred)
+
+        self.assertEqual(len(pairs), 2)
+        self.assertTrue(all(pair.gt is None or pair.pred is None for pair in pairs))
+
+    def test_alignment_rejects_duplicate_ground_truth_and_prediction_frames(self):
+        duplicate_gt = [
+            ShuttleGroundTruthFrame(frame_index=1, timestamp_sec=0.0, visibility="visible", x_px=1.0, y_px=1.0),
+            ShuttleGroundTruthFrame(frame_index=1, timestamp_sec=0.033, visibility="visible", x_px=2.0, y_px=2.0),
+        ]
+        duplicate_pred = [
+            ShuttleObservation(frame_index=1, timestamp_sec=0.0, state="observed", position_px=ShuttlePositionPx(1.0, 1.0)),
+            ShuttleObservation(frame_index=1, timestamp_sec=0.033, state="observed", position_px=ShuttlePositionPx(2.0, 2.0)),
+        ]
+
+        with self.assertRaises(ValueError):
+            align_predictions_and_ground_truth(duplicate_gt, [])
+        with self.assertRaises(ValueError):
+            align_predictions_and_ground_truth([], duplicate_pred)
+
+    def test_incomplete_ground_truth_keeps_accuracy_unavailable(self):
+        pred = [ShuttleObservation(frame_index=0, timestamp_sec=0.0, state="observed", position_px=ShuttlePositionPx(10.0, 10.0))]
+
+        metrics = evaluate_shuttle_tracking(
+            align_predictions_and_ground_truth([], pred),
+            is_dataset_complete=False,
+        )
+
+        self.assertIsNone(metrics.true_positives_count)
+        self.assertIsNone(metrics.false_positives_count)
+        self.assertIsNone(metrics.false_negatives_count)
+        self.assertIsNone(metrics.false_positives_per_minute)
+
+    def test_spatial_match_is_required_for_default_accuracy(self):
+        gt = [ShuttleGroundTruthFrame(frame_index=0, timestamp_sec=0.0, visibility="visible", x_px=100.0, y_px=100.0)]
+        wrong = [ShuttleObservation(frame_index=0, timestamp_sec=0.0, state="observed", position_px=ShuttlePositionPx(1000.0, 1000.0))]
+        correct = [ShuttleObservation(frame_index=0, timestamp_sec=0.0, state="observed", position_px=ShuttlePositionPx(110.0, 100.0))]
+
+        wrong_metrics = evaluate_shuttle_tracking(align_predictions_and_ground_truth(gt, wrong))
+        correct_metrics = evaluate_shuttle_tracking(align_predictions_and_ground_truth(gt, correct))
+
+        self.assertEqual((wrong_metrics.true_positives_count, wrong_metrics.false_positives_count, wrong_metrics.false_negatives_count), (0, 1, 1))
+        self.assertEqual((correct_metrics.true_positives_count, correct_metrics.false_positives_count, correct_metrics.false_negatives_count), (1, 0, 0))
+
+    def test_spatially_wrong_observed_points_do_not_count_as_continuity(self):
+        gt = [
+            ShuttleGroundTruthFrame(frame_index=i, timestamp_sec=i / 30, visibility="visible", x_px=100.0, y_px=100.0)
+            for i in range(2)
+        ]
+        pred = [
+            ShuttleObservation(frame_index=i, timestamp_sec=i / 30, state="observed", position_px=ShuttlePositionPx(1000.0, 1000.0))
+            for i in range(2)
+        ]
+
+        metrics = evaluate_shuttle_tracking(align_predictions_and_ground_truth(gt, pred))
+
+        self.assertEqual(metrics.track_continuity, 0.0)
+        self.assertEqual(metrics.longest_continuous_track_frames, 0)
+
+    def test_normalized_spatial_tolerance_is_supported(self):
+        gt = [ShuttleGroundTruthFrame(frame_index=0, timestamp_sec=0.0, visibility="visible", x_px=100.0, y_px=100.0)]
+        pred = [ShuttleObservation(frame_index=0, timestamp_sec=0.0, state="observed", position_px=ShuttlePositionPx(110.0, 100.0))]
+
+        metrics = evaluate_shuttle_tracking(
+            align_predictions_and_ground_truth(gt, pred),
+            source_width=100,
+            source_height=100,
+            config=ShuttleBenchmarkConfig(
+                match_distance_threshold_px=None,
+                match_distance_threshold_normalized=0.08,
+            ),
+        )
+
+        self.assertEqual(metrics.true_positives_count, 1)
+
+    def test_serialization_preserves_precision_metric_and_runtime_mode(self):
+        gt = [ShuttleGroundTruthFrame(frame_index=0, timestamp_sec=0.0, visibility="visible", x_px=100.0, y_px=100.0)]
+        pred = [ShuttleObservation(frame_index=0, timestamp_sec=0.0, state="observed", position_px=ShuttlePositionPx(100.0, 100.0))]
+        metrics = evaluate_shuttle_tracking(
+            align_predictions_and_ground_truth(gt, pred),
+            performance_metrics={"precision": "fp32"},
+        )
+
+        data = metrics.to_dict()
+
+        self.assertEqual(data["precision"], 1.0)
+        self.assertEqual(data["precisionMode"], "fp32")
+
+    def test_sparse_ground_truth_does_not_create_continuous_transition(self):
+        gt = [
+            ShuttleGroundTruthFrame(frame_index=100, timestamp_sec=10.0, visibility="visible", x_px=100.0, y_px=100.0),
+            ShuttleGroundTruthFrame(frame_index=130, timestamp_sec=13.0, visibility="visible", x_px=110.0, y_px=100.0),
+        ]
+        pred = [
+            ShuttleObservation(frame_index=100, timestamp_sec=10.0, state="observed", position_px=ShuttlePositionPx(100.0, 100.0)),
+            ShuttleObservation(frame_index=130, timestamp_sec=13.0, state="observed", position_px=ShuttlePositionPx(110.0, 100.0)),
+        ]
+
+        metrics = evaluate_shuttle_tracking(align_predictions_and_ground_truth(gt, pred))
+
+        self.assertIsNone(metrics.track_continuity)
+        self.assertEqual(metrics.longest_continuous_track_frames, 1)
+
+    def test_irregular_lost_timestamps_are_not_derived_from_list_position(self):
+        pred = [
+            ShuttleObservation(frame_index=10, timestamp_sec=1.0, state="observed", position_px=ShuttlePositionPx(10.0, 10.0)),
+            ShuttleObservation(frame_index=11, timestamp_sec=1.1, state="lost", position_px=None),
+            ShuttleObservation(frame_index=12, timestamp_sec=1.5, state="lost", position_px=None),
+            ShuttleObservation(frame_index=13, timestamp_sec=1.6, state="observed", position_px=ShuttlePositionPx(12.0, 10.0)),
+        ]
+
+        metrics = evaluate_shuttle_tracking(align_predictions_and_ground_truth([], pred), is_dataset_complete=False)
+
+        self.assertAlmostEqual(metrics.longest_lost_gap_sec, 0.5, places=4)
+
+    def test_sparse_lost_samples_do_not_form_one_continuous_gap(self):
+        pred = [
+            ShuttleObservation(frame_index=10, timestamp_sec=1.0, state="lost", position_px=None),
+            ShuttleObservation(frame_index=12, timestamp_sec=1.2, state="lost", position_px=None),
+        ]
+
+        metrics = evaluate_shuttle_tracking(
+            align_predictions_and_ground_truth([], pred),
+            is_dataset_complete=False,
+            source_fps=30.0,
+        )
+
+        self.assertEqual(metrics.longest_lost_gap_frames, 1)
+        self.assertAlmostEqual(metrics.longest_lost_gap_sec, 1.0 / 30.0, places=5)
+
+    def test_non_finite_candidate_does_not_leak_into_metrics(self):
+        gt = [ShuttleGroundTruthFrame(frame_index=0, timestamp_sec=0.0, visibility="visible", x_px=1.0, y_px=1.0)]
+        pred = [ShuttleObservation(frame_index=0, timestamp_sec=float("nan"), state="observed", position_px=ShuttlePositionPx(float("nan"), 1.0))]
+
+        metrics = evaluate_shuttle_tracking(align_predictions_and_ground_truth(gt, pred))
+
+        for value in metrics.to_dict().values():
+            if isinstance(value, float):
+                self.assertTrue(math.isfinite(value))
+        self.assertEqual(metrics.true_positives_count, 0)
+        self.assertEqual(metrics.false_positives_count, 0)
+        self.assertEqual(metrics.false_negatives_count, 1)
+
+    def test_false_reacquisition_requires_spatial_match(self):
+        gt = [
+            ShuttleGroundTruthFrame(frame_index=0, timestamp_sec=0.0, visibility="visible", x_px=100.0, y_px=100.0),
+            ShuttleGroundTruthFrame(frame_index=1, timestamp_sec=0.1, visibility="occluded", x_px=None, y_px=None),
+            ShuttleGroundTruthFrame(frame_index=2, timestamp_sec=0.2, visibility="visible", x_px=100.0, y_px=100.0),
+        ]
+        pred = [
+            ShuttleObservation(frame_index=0, timestamp_sec=0.0, state="observed", position_px=ShuttlePositionPx(100.0, 100.0)),
+            ShuttleObservation(frame_index=1, timestamp_sec=0.1, state="lost", position_px=None),
+            ShuttleObservation(frame_index=2, timestamp_sec=0.2, state="observed", position_px=ShuttlePositionPx(1000.0, 1000.0)),
+        ]
+
+        metrics = evaluate_shuttle_tracking(align_predictions_and_ground_truth(gt, pred))
+
+        self.assertEqual(metrics.reacquisition_events_count, 0)
+
+    def test_manifest_runner_returns_complete_and_incomplete_clips(self):
+        complete_clip = ShuttleBenchmarkClip(
+            id="complete",
+            name="Complete",
+            category="S01",
+            duration_sec=2.0 / 30.0,
+            source_fps=30.0,
+            ground_truth_available=True,
+            ground_truth_frames=[
+                ShuttleGroundTruthFrame(frame_index=0, timestamp_sec=0.0, visibility="visible", x_px=10.0, y_px=10.0, reviewed=True),
+                ShuttleGroundTruthFrame(frame_index=1, timestamp_sec=1.0 / 30.0, visibility="visible", x_px=11.0, y_px=10.0, reviewed=True),
+            ],
+        )
+        incomplete_clip = ShuttleBenchmarkClip(id="incomplete", name="Incomplete", category="S02")
+        manifest = ShuttleBenchmarkManifest(schema_version=1, manifest_id="test", updated_at="2026-09-24", clips=[complete_clip, incomplete_clip])
+
+        results = run_benchmark_on_manifest(manifest)
+
+        self.assertEqual(results["complete"]["status"], "COMPLETE")
+        self.assertEqual(results["incomplete"]["status"], "GROUND TRUTH DATASET INCOMPLETE")
 
     def test_run_manifest_reports_incomplete_dataset(self):
         """13. Running benchmark on bundled manifest accurately reports incomplete dataset."""
