@@ -10,9 +10,29 @@ function frame(time: number, state = 'observed'): TrackingTelemetryV1 {
       positionPx: state === 'lost' ? null : { x: 50, y: 30 }, confidence: 0.8, source: 'temporal_tracker', trajectoryId: null } };
 }
 describe('shuttle overlay', () => {
-  it.each(['observed', 'predicted', 'interpolated'])('renders %s with explicit provenance', state => {
+  it('renders observed shuttle with explicit provenance', () => {
+    render(<ShuttleOverlay frames={[frame(1, 'observed')]} time={1} mode="point" width={100} height={100} />);
+    expect(screen.getByTestId('shuttle-current')).toHaveAttribute('data-state', 'observed');
+  });
+
+  it.each(['predicted', 'interpolated'])('does not render %s shuttle in point overlay', state => {
     render(<ShuttleOverlay frames={[frame(1, state)]} time={1} mode="point" width={100} height={100} />);
-    expect(screen.getByTestId('shuttle-current')).toHaveAttribute('data-state', state);
+    expect(screen.queryByTestId('shuttle-current')).toBeNull();
+  });
+
+  it('excludes non-observed positions from trail history', () => {
+    render(
+      <ShuttleOverlay
+        frames={[frame(0.7, 'predicted'), frame(0.8, 'interpolated'), frame(0.9, 'observed'), frame(1, 'observed')]}
+        time={1}
+        mode="trail"
+        width={100}
+        height={100}
+      />
+    );
+    const trails = screen.getAllByTestId('shuttle-trail');
+    expect(trails).toHaveLength(1);
+    expect(trails[0]).toHaveAttribute('data-state', 'observed');
   });
   it.each([1.3, 0.9])('hides stale or future observations at %s', time => {
     render(<ShuttleOverlay frames={[frame(1)]} time={time} mode="point" width={100} height={100} />);

@@ -238,6 +238,7 @@ class ProductionShuttlePipeline:
         self.raw_observations: List[ShuttleObservation] = []
         self._derived_trajectory: Optional[ShuttleTrajectory] = None
         self._stream_ended: bool = False
+        self._observation_counts: Optional[Dict[str, int]] = None
 
         if not self.config.enabled:
             self.status = STATUS_DISABLED
@@ -260,6 +261,12 @@ class ProductionShuttlePipeline:
             precision=config.precision,
         )
         self.temporal_tracker = TemporalShuttleTracker(self.provider, tracker_cfg)
+        self._observation_counts = {
+            "observed": 0,
+            "predicted": 0,
+            "lost": 0,
+            "unknown": 0,
+        }
 
         if self.config.recovery_enabled:
             self.recovery_tracker = RecoveringShuttleTracker(
@@ -305,9 +312,7 @@ class ProductionShuttlePipeline:
         try:
             observation = active_tracker.process_frame(image, timestamp_sec, frame_index)
             self.last_failure = None
-            if self.trajectory_builder is not None:
-                self.raw_observations.append(observation)
-            return observation
+            return self._record_observation(observation)
         except ModelUnavailableError:
             logger.exception('Shuttle model unavailable')
             self.status = STATUS_MODEL_UNAVAILABLE
@@ -326,12 +331,14 @@ class ProductionShuttlePipeline:
             logger.exception('Shuttle inference failed')
             self.last_failure = 'Shuttle inference failed; see local service logs'
             # Recoverable inference failure: emit canonical lost observation
-            return ShuttleObservation(
-                timestamp_sec=float(timestamp_sec),
-                frame_index=int(frame_index),
-                state="lost",
-                source="temporal_tracker",
-                position_px=None,
+            return self._record_observation(
+                ShuttleObservation(
+                    timestamp_sec=float(timestamp_sec),
+                    frame_index=int(frame_index),
+                    state="lost",
+                    source="temporal_tracker",
+                    position_px=None,
+                )
             )
         except Exception as err:
             logger.exception('Shuttle processing failed')
@@ -344,6 +351,13 @@ class ProductionShuttlePipeline:
                 return None
             self.last_failure = 'Shuttle processing failed; see local service logs'
             raise
+
+    def _record_observation(self, observation: ShuttleObservation) -> ShuttleObservation:
+        if self._observation_counts is not None:
+            self._observation_counts[observation.state] += 1
+        if self.trajectory_builder is not None:
+            self.raw_observations.append(observation)
+        return observation
 
     def end_stream(self) -> Dict[str, Any]:
         """Finalize the video session stream and release frame window buffers."""
@@ -389,6 +403,10 @@ class ProductionShuttlePipeline:
 
         execution = self.provider.get_provenance() if self.provider is not None and hasattr(self.provider, 'get_provenance') else {}
         metrics = self.temporal_tracker.metrics() if self.temporal_tracker else None
+        counts = self._observation_counts
+        last_failure = self.last_failure if self.last_failure is not None else (
+            metrics.last_failure if metrics is not None else None
+        )
         return {
             "enabled": self.config.enabled,
             "requested": self.config.enabled,
@@ -408,12 +426,19 @@ class ProductionShuttlePipeline:
                 else False
             ),
             "failureReason": self.failure_reason,
-            "lastFailure": self.last_failure,
+            "lastFailure": last_failure,
             'inputWidth': self.config.input_width,
             'inputHeight': self.config.input_height,
             'requiredFrameStride': 1 if self.config.provider == 'rallylens_tracknet' else None,
-            'inferenceCalls': metrics.inference_calls if metrics else 0,
-            'candidateExtractionCalls': metrics.candidate_extraction_calls if metrics else 0,
+            'framesReceived': metrics.frames_received if metrics is not None else None,
+            'validFrames': metrics.valid_frames if metrics is not None else None,
+            'inferenceCalls': metrics.inference_calls if metrics is not None else None,
+            'meanInferenceMs': metrics.mean_inference_ms if metrics is not None else None,
+            'observedCount': counts['observed'] if counts is not None else None,
+            'predictedCount': counts['predicted'] if counts is not None else None,
+            'lostCount': counts['lost'] if counts is not None else None,
+            'unknownCount': counts['unknown'] if counts is not None else None,
+            'candidateExtractionCalls': metrics.candidate_extraction_calls if metrics is not None else None,
             **execution,
         }
 
