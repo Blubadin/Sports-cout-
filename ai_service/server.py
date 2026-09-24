@@ -105,6 +105,16 @@ def _positive_finite(value):
     return float(value)
 
 
+def _video_frame_timestamp(frame_index: int, fps: float, pos_msec, previous_timestamp: float | None = None) -> float:
+    reported_msec = _positive_finite(pos_msec)
+    timestamp = reported_msec / 1000.0 if reported_msec is not None else None
+    if timestamp is None or (previous_timestamp is not None and timestamp <= previous_timestamp):
+        timestamp = frame_index / fps
+        if previous_timestamp is not None and timestamp <= previous_timestamp:
+            timestamp = previous_timestamp + (1.0 / fps)
+    return timestamp
+
+
 def get_cors_configuration(
     cors_origins: str | None = None,
     cors_origin_regex: str | None = None,
@@ -399,6 +409,7 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
         return
     frame_delay = 1.0 / fps
     frame_idx = 0
+    last_timestamp_sec = None
 
     try:
         while is_tracking and tracking_mode == "real":
@@ -409,7 +420,8 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
 
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
-            timestamp_sec = (pos_msec / 1000.0) if pos_msec > 0 else (frame_idx / fps)
+            timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
+            last_timestamp_sec = timestamp_sec
 
             telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
             telemetry["source"] = "real_tracking"
@@ -1003,6 +1015,7 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
     session.duration_sec = round(total_frames / fps, 2) if total_frames > 0 else 0.0
 
     frame_idx = 0
+    last_timestamp_sec = None
     try:
         while not session._cancel:
             ret, frame = cap.read()
@@ -1010,7 +1023,8 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
                 break
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
-            timestamp_sec = (pos_msec / 1000.0) if pos_msec > 0 else (frame_idx / fps)
+            timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
+            last_timestamp_sec = timestamp_sec
             if frame_idx % session.frame_stride != 0:
                 session.current_frame = frame_idx
                 session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
