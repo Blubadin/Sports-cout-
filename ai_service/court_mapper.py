@@ -49,6 +49,30 @@ class CourtMapper:
         self.H = None
         self.H_inv = None
 
+    def apply_calibration(
+        self,
+        corners: np.ndarray | list,
+        H: np.ndarray | None = None,
+        H_inv: np.ndarray | None = None,
+    ) -> None:
+        """Consume an accepted, validated calibration result."""
+        if H is not None and H_inv is not None:
+            self.H = np.asarray(H, dtype=np.float32)
+            self.H_inv = np.asarray(H_inv, dtype=np.float32)
+        else:
+            self.calibrate(corners)
+
+    def apply_candidate(self, candidate) -> None:
+        """Consume an accepted CourtCalibrationCandidate."""
+        if hasattr(candidate, "h_matrix") and candidate.h_matrix is not None and hasattr(candidate, "h_inv_matrix") and candidate.h_inv_matrix is not None:
+            self.apply_calibration(candidate.corners_px, candidate.h_matrix, candidate.h_inv_matrix)
+        elif hasattr(candidate, "corners_px"):
+            self.calibrate(candidate.corners_px)
+        elif hasattr(candidate, "cornersPx"):
+            self.calibrate(candidate.cornersPx)
+        else:
+            self.calibrate(candidate)
+
     def calibrate(self, image_corners: np.ndarray | list):
         """
         Calibrate using 4 image corners matching [TL, TR, BR, BL] of outer court boundary.

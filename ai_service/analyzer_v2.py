@@ -16,7 +16,15 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from court_mapper import CourtMapper, DistanceTracker, COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M, COURT_WIDTH_SINGLES_M
-from calibration_contract import CalibrationContext, CalibrationSource
+from calibration_contract import CalibrationContext, CalibrationSource, CalibrationState
+from court_calibration import (
+    AutomaticCourtCalibrationProvider,
+    CourtCalibrationCandidate,
+    CourtCalibrationProvider,
+    ManualCourtCalibrationProvider,
+    TemporalStabilityValidator,
+    validate_court_geometry,
+)
 from camera_cut_detector import CameraCutDetector
 from court_roi import calculate_court_roi, inverse_transform_bbox
 from device_runtime import resolve_device
@@ -113,6 +121,8 @@ class BadmintonAnalyzerV2:
         pose_adapter: BasePoseAdapter | None = None,
         reid_adapter: BaseReIDAdapter | None = None,
         shuttle_pipeline: ProductionShuttlePipeline | None = None,
+        calibration_provider: CourtCalibrationProvider | None = None,
+        auto_calibrate: bool = False,
     ):
         self.game_type = game_type
         if max_players is None:
@@ -158,6 +168,13 @@ class BadmintonAnalyzerV2:
         self.calibration_context = CalibrationContext()
         self.camera_cut_detector = CameraCutDetector()
         self.court_corners_px: np.ndarray | None = None
+        self.manual_calibration_provider = ManualCourtCalibrationProvider()
+        self.auto_calibration_provider = (
+            calibration_provider
+            if calibration_provider is not None
+            else (AutomaticCourtCalibrationProvider() if auto_calibrate else None)
+        )
+        self.temporal_stability_validator = TemporalStabilityValidator()
         self.frame_count = 0
 
         # Initialize player profiles (exactly max_players, no phantoms)
@@ -306,6 +323,9 @@ class BadmintonAnalyzerV2:
         if source_kind is CalibrationSource.MANUAL and (confidence is not None or reprojection_error_px is not None):
             raise ValueError("Manual four-corner calibration has no measured confidence or reprojection error")
         candidate = np.array(corners, dtype=np.float32)
+        valid, reason = validate_court_geometry(candidate)
+        if not valid:
+            raise ValueError(f"Invalid court geometry: {reason}")
         candidate_mapper = CourtMapper(game_type=self.game_type)
         candidate_mapper.calibrate(candidate)
         self.calibration_context.accept(
@@ -314,6 +334,9 @@ class BadmintonAnalyzerV2:
             timestamp_sec=self.frame_count / self.fps if created_at_timestamp_sec is None else created_at_timestamp_sec,
             confidence=confidence,
             reprojection_error_px=reprojection_error_px,
+            corners=candidate.tolist(),
+            h_matrix=candidate_mapper.H.tolist(),
+            h_inv_matrix=candidate_mapper.H_inv.tolist(),
         )
         self.mapper.H = candidate_mapper.H
         self.mapper.H_inv = candidate_mapper.H_inv
@@ -321,10 +344,48 @@ class BadmintonAnalyzerV2:
         self.court_corners_px = candidate
         self.dist_tracker.pause_metric_tracking()
         self.camera_cut_detector.rearm_after_calibration()
+        self.manual_calibration_provider.set_corners(candidate, self.calibration_context.camera_segment_id)
+        cand_tuple = tuple(tuple(float(c) for c in pt) for pt in candidate)
+        self.temporal_stability_validator.is_locked = True
+        self.temporal_stability_validator.locked_candidate = CourtCalibrationCandidate(
+            corners_px=cand_tuple,
+            source=source_kind,
+            confidence=confidence,
+            reprojection_error_px=reprojection_error_px,
+            h_matrix=tuple(tuple(float(v) for v in row) for row in candidate_mapper.H),
+            h_inv_matrix=tuple(tuple(float(v) for v in row) for row in candidate_mapper.H_inv),
+        )
+        self.temporal_stability_validator.current_segment_id = self.calibration_context.camera_segment_id
+        for profile in self.profiles.values():
+            profile.last_real_pos = None
+
+    def _accept_automatic_candidate(
+        self, candidate: CourtCalibrationCandidate, frame: int, timestamp_sec: float
+    ) -> None:
+        candidate_arr = np.asarray(candidate.corners_px, dtype=np.float32)
+        candidate_mapper = CourtMapper(game_type=self.game_type)
+        candidate_mapper.calibrate(candidate_arr)
+        self.calibration_context.accept(
+            source=CalibrationSource.AUTOMATIC,
+            frame=frame,
+            timestamp_sec=timestamp_sec,
+            confidence=candidate.confidence,
+            reprojection_error_px=candidate.reprojection_error_px,
+            corners=candidate_arr.tolist(),
+            h_matrix=candidate_mapper.H.tolist(),
+            h_inv_matrix=candidate_mapper.H_inv.tolist(),
+        )
+        self.mapper.H = candidate_mapper.H
+        self.mapper.H_inv = candidate_mapper.H_inv
+        self.mapper.game_type = self.game_type
+        self.court_corners_px = candidate_arr
+        self.dist_tracker.pause_metric_tracking()
+        self.camera_cut_detector.rearm_after_calibration()
         for profile in self.profiles.values():
             profile.last_real_pos = None
 
     def lose_calibration(self) -> None:
+        self.temporal_stability_validator.invalidate()
         self.calibration_context.lose()
         self.mapper.invalidate()
         self.court_corners_px = None
@@ -333,6 +394,7 @@ class BadmintonAnalyzerV2:
             profile.last_real_pos = None
 
     def begin_recalibration(self) -> None:
+        self.temporal_stability_validator.invalidate()
         self.calibration_context.begin_recalibration()
         self.mapper.invalidate()
         self.court_corners_px = None
@@ -347,6 +409,7 @@ class BadmintonAnalyzerV2:
 
     def _invalidate_for_camera_cut(self) -> None:
         """Break all metric state before processing the first frame of a cut."""
+        self.temporal_stability_validator.invalidate()
         self.calibration_context.start_camera_segment()
         self.mapper.invalidate()
         self.court_corners_px = None
@@ -476,6 +539,24 @@ class BadmintonAnalyzerV2:
 
         if self.camera_cut_detector.observe(frame):
             self._invalidate_for_camera_cut()
+        elif self.auto_calibration_provider is not None and not self.calibration_context.is_metric_valid:
+            cand = self.auto_calibration_provider.get_candidate(
+                frame,
+                frame_index=self.frame_count,
+                timestamp_sec=t_sec,
+                camera_segment_id=self.calibration_context.camera_segment_id,
+            )
+            if cand is not None:
+                if self.calibration_context.state is CalibrationState.CALIBRATION_LOST:
+                    self.calibration_context.begin_recalibration()
+                locked = self.temporal_stability_validator.observe(cand, self.calibration_context.camera_segment_id)
+                if locked is not None:
+                    self._accept_automatic_candidate(locked, frame=self.frame_count, timestamp_sec=t_sec)
+                else:
+                    if self.calibration_context.state is CalibrationState.CALIBRATION_LOST:
+                        self.calibration_context.begin_recalibration()
+            else:
+                self.temporal_stability_validator.observe(None, self.calibration_context.camera_segment_id)
 
         raw_detections = self.detect_and_track(frame)
 
