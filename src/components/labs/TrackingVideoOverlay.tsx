@@ -113,6 +113,21 @@ export function resolveBodyCenterProxy(player: TrackingPlayerV1): BodyCenterProx
  * 3. Backend groundPointPct (or bbox bottom center)
  */
 export function resolveFeetPosition(player: TrackingPlayerV1): FeetPositionProxy | null {
+  // Task 7: Prefer canonical backend feet/ground telemetry when available
+  if (
+    player.groundPointProvenance &&
+    player.groundPointPct &&
+    Number.isFinite(player.groundPointPct.x) &&
+    Number.isFinite(player.groundPointPct.y)
+  ) {
+    return {
+      xPct: player.groundPointPct.x,
+      yPct: player.groundPointPct.y,
+      provenance: player.groundPointProvenance,
+    };
+  }
+
+  // Legacy fallback for stored/unannotated sessions
   const kps = player.pose?.keypoints;
   if (kps && kps.length >= 17) {
     const la = kps[15];

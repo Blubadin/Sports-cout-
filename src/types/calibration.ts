@@ -14,6 +14,9 @@ export interface CalibrationProvenance {
   createdAtTimestampSec: number;
   confidence?: number | null;
   reprojectionErrorPx?: number | null;
+  corners?: number[][] | null;
+  hMatrix?: number[][] | null;
+  hInvMatrix?: number[][] | null;
 }
 
 export function isCalibrationState(value: unknown): value is CalibrationState {

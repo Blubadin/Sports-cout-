@@ -92,6 +92,7 @@ class TrackingEngineConfig:
     use_court_roi: bool = False
     court_roi_margin_px: int = 60
     court_roi_margin_m: float = 0.5
+    auto_court_calibration_enabled: bool = False
     device: str = "auto"
     extra_options: dict[str, Any] = field(default_factory=dict)
 
@@ -118,6 +119,7 @@ class TrackingEngineConfig:
             "useCourtRoi": self.use_court_roi,
             "courtRoiMarginPx": self.court_roi_margin_px,
             "courtRoiMarginM": self.court_roi_margin_m,
+            "autoCourtCalibrationEnabled": self.auto_court_calibration_enabled,
             "device": self.device,
             **self.extra_options,
         }
@@ -145,11 +147,13 @@ class TrackingEngineConfig:
             "useCourtRoi", "use_court_roi",
             "courtRoiMarginPx", "court_roi_margin_px",
             "courtRoiMarginM", "court_roi_margin_m",
+            "autoCourtCalibrationEnabled", "auto_court_calibration_enabled",
             "device",
         }
         extra = {k: v for k, v in data.items() if k not in known_keys}
 
         pose_val = data.get("poseModel") if "poseModel" in data else data.get("pose_model", "yolov8n-pose.pt")
+        auto_calib = bool(data.get("autoCourtCalibrationEnabled") if "autoCourtCalibrationEnabled" in data else data.get("auto_court_calibration_enabled", False))
 
         cfg = cls(
             detector_model=data.get("detectorModel") or data.get("detector_model", "yolov8n.pt"),
@@ -172,6 +176,7 @@ class TrackingEngineConfig:
             use_court_roi=bool(data.get("useCourtRoi") if "useCourtRoi" in data else data.get("use_court_roi", False)),
             court_roi_margin_px=int(data.get("courtRoiMarginPx") or data.get("court_roi_margin_px", 60)),
             court_roi_margin_m=float(data.get("courtRoiMarginM") or data.get("court_roi_margin_m", 0.5)),
+            auto_court_calibration_enabled=auto_calib,
             device=data.get("device", "auto"),
             extra_options=extra,
         )

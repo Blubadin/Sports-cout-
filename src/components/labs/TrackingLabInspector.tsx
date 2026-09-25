@@ -269,6 +269,57 @@ export default function TrackingLabInspector({
                 </div>
               </div>
 
+              {/* Calibration & Camera Cut State Card */}
+              <div
+                data-testid="calibration-inspector-card"
+                className="bg-slate-900/80 p-3 rounded border border-slate-800/80 text-xs space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-300">
+                    {th ? 'การเทียบพิกัดสนาม (Court Calibration)' : 'Court Calibration & Camera Segment'}
+                  </span>
+                  <span
+                    className={`font-mono text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                      status.calibrationState === 'CALIBRATED'
+                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                        : status.calibrationState === 'RECALIBRATING'
+                        ? 'bg-amber-950 text-amber-400 border border-amber-800'
+                        : 'bg-rose-950 text-rose-400 border border-rose-800'
+                    }`}
+                  >
+                    {status.calibrationState || 'UNCALIBRATED'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                  <div>
+                    <span className="text-slate-500 block">{th ? 'รหัสกล้อง/ช็อต' : 'Camera Segment'}</span>
+                    <span className="font-mono text-slate-200">
+                      {status.cameraSegmentId || 'segment-0'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">{th ? 'รหัสเทียบพิกัด' : 'Calibration ID'}</span>
+                    <span className="font-mono text-slate-200 truncate block">
+                      {status.calibrationId || '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">{th ? 'ความคลาดเคลื่อน' : 'Reprojection Error'}</span>
+                    <span className="font-mono text-slate-200">
+                      {status.reprojectionErrorPx !== null && status.reprojectionErrorPx !== undefined
+                        ? `${status.reprojectionErrorPx.toFixed(2)} px`
+                        : '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">{th ? 'โหมดอัตโนมัติ' : 'Auto Calibrate'}</span>
+                    <span className="font-mono text-slate-200">
+                      {status.processingConfig?.autoCourtCalibrationEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* Dynamic Live Player Cards */}
               {status.players && status.players.length > 0 && (
                 <div className="space-y-2">

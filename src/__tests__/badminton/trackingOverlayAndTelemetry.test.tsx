@@ -164,6 +164,36 @@ describe('Phase 3 — Tracking Overlays & Pure Resolvers', () => {
       expect(result?.xPct).toBe(42);
       expect(result?.yPct).toBe(85);
     });
+
+    it('prefers canonical backend feet/ground telemetry over local recomputation', () => {
+      const player = createMockPlayer({
+        groundPointProvenance: 'pose_both_ankles',
+        groundPointPct: { x: 49.5, y: 80.2 },
+        pose: {
+          keypoints: mockKeypoints({
+            15: { x: 30, y: 70, score: 0.9 },
+            16: { x: 32, y: 70, score: 0.9 },
+          }),
+        },
+      });
+
+      const result = resolveFeetPosition(player);
+      expect(result?.provenance).toBe('pose_both_ankles');
+      expect(result?.xPct).toBe(49.5);
+      expect(result?.yPct).toBe(80.2);
+    });
+
+    it('prefers canonical bbox_bottom_center backend provenance when present', () => {
+      const player = createMockPlayer({
+        groundPointProvenance: 'bbox_bottom_center',
+        groundPointPct: { x: 40.0, y: 88.0 },
+      });
+
+      const result = resolveFeetPosition(player);
+      expect(result?.provenance).toBe('bbox_bottom_center');
+      expect(result?.xPct).toBe(40.0);
+      expect(result?.yPct).toBe(88.0);
+    });
   });
 
   describe('TrackingVideoOverlay Rendering Modes', () => {

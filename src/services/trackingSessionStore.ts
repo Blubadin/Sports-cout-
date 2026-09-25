@@ -74,6 +74,7 @@ export function getDefaultProcessingConfig(): ProcessingConfig {
     frameStride: 2,
     poseStride: 1,
     shuttleEnabled: false,
+    autoCourtCalibrationEnabled: false,
   };
 }
 

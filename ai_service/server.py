@@ -754,6 +754,11 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         "shuttlePrecision": shuttle_cfg.precision,
         "shuttleAuxiliaryDetector": shuttle_cfg.auxiliary_detector,
         "shuttleBuildTrajectory": shuttle_cfg.build_trajectory,
+        "autoCourtCalibrationEnabled": bool(
+            cfg.get("auto_court_calibration_enabled")
+            if "auto_court_calibration_enabled" in cfg
+            else cfg.get("autoCourtCalibrationEnabled", False)
+        ),
     }
 
 
@@ -939,6 +944,7 @@ class TrackingSession:
             use_court_roi=resolved_cfg["useCourtRoi"],
             court_roi_margin_px=resolved_cfg["courtRoiMarginPx"],
             court_roi_margin_m=resolved_cfg.get("courtRoiMarginM", 2.0),
+            auto_court_calibration_enabled=bool(resolved_cfg.get("autoCourtCalibrationEnabled", False)),
             device=self.effective_device,
         )
         validate_engine_config(engine_cfg)
@@ -958,6 +964,7 @@ class TrackingSession:
             device=self.effective_device,
             engine_config=engine_cfg,
             shuttle_pipeline=self.shuttle_pipeline,
+            auto_calibrate=bool(resolved_cfg.get("autoCourtCalibrationEnabled", False)),
         )
         self.analyzer.analysis_id = session_id
         self.status = "READY"  # READY | VIDEO_READY | READY_TO_ANALYZE | PROCESSING | COMPLETED | ERROR
@@ -1501,6 +1508,17 @@ def _build_session_metrics(session: TrackingSession):
         }
     )
     provenance["shuttle"] = shuttle_prov
+    calib_prov = session.analyzer.calibration_context.provenance
+    provenance["autoCourtCalibrationEnabled"] = session.analyzer.auto_calibration_provider is not None
+    provenance["calibration"] = {
+        "autoCalibrationEnabled": session.analyzer.auto_calibration_provider is not None,
+        "cameraSegmentId": session.analyzer.calibration_context.camera_segment_id,
+        "calibrationId": calib_prov.calibration_id if calib_prov else None,
+        "state": session.analyzer.calibration_context.state.value,
+        "source": calib_prov.source.value if calib_prov else None,
+        "confidence": calib_prov.confidence if calib_prov else None,
+        "reprojectionErrorPx": calib_prov.reprojection_error_px if calib_prov else None,
+    }
 
     return performance, quality, public_metadata(provenance)
 
