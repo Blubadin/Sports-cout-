@@ -45,6 +45,103 @@ describe('calibration contract', () => {
     expect(legacy.players[0].courtPosition?.xM).toBe(2);
   });
 
+  it('preserves canonical image-space feet and fails closed for every meter foot field', () => {
+    const canonicalPlayer = {
+      ...player,
+      groundPointPct: { x: 4.5, y: 8.25 },
+      groundPointProvenance: 'pose_left_ankle',
+      groundPositionM: { xM: 1.25, yM: 3.5 },
+      leftFootPx: { x: 12, y: 8 },
+      rightFootPx: { x: 16, y: 9 },
+      leftFootConfidence: 0.8,
+      rightFootConfidence: 0.7,
+      leftFootCourtM: { xM: 1, yM: 2 },
+      rightFootCourtM: { xM: 1.5, yM: 2.5 },
+      leftFoot: { positionPx: { x: 12, y: 8 }, positionPct: { x: 4.5, y: 8.25 }, confidence: 0.8, courtPositionM: { xM: 1, yM: 2 } },
+      rightFoot: { positionPx: { x: 16, y: 9 }, positionPct: { x: 5, y: 9.25 }, confidence: 0.7, courtPositionM: { xM: 1.5, yM: 2.5 } },
+    };
+    const calibrated = frame(0, { players: [canonicalPlayer] }).players[0];
+    expect(calibrated).toMatchObject(canonicalPlayer);
+
+    const lost = frame(1, {
+      calibrationState: 'CALIBRATION_LOST', calibrationId: null,
+      players: [canonicalPlayer],
+    }).players[0];
+    expect(lost.groundPointPct).toEqual({ x: 4.5, y: 8.25 });
+    expect(lost.leftFootPx).toEqual({ x: 12, y: 8 });
+    expect(lost.rightFootPx).toEqual({ x: 16, y: 9 });
+    expect(lost.leftFoot?.positionPx).toEqual({ x: 12, y: 8 });
+    expect(lost.groundPositionM).toBeNull();
+    expect(lost.leftFootCourtM).toBeNull();
+    expect(lost.rightFootCourtM).toBeNull();
+    expect(lost.leftFoot?.courtPositionM).toBeNull();
+    expect(lost.rightFoot?.courtPositionM).toBeNull();
+
+    const explicitNull = toTrackingTelemetryV1({
+      timestampSec: 2, frameIndex: 2, players: [{
+        ...player, leftFootPx: null, leftFoot: { positionPx: { x: 12, y: 8 } },
+      }],
+    });
+    expect(explicitNull.players[0].leftFootPx).toBeNull();
+  });
+
+  it('round trips image-space feet observations through persistent analysis storage', async () => {
+    const canonicalPlayer = {
+      ...player,
+      groundPointPct: { x: 4.5, y: 8.25 },
+      groundPointProvenance: 'pose_left_ankle',
+      groundPositionM: null,
+      leftFootPx: { x: 12, y: 8 },
+      rightFootPx: { x: 16, y: 9 },
+      leftFootConfidence: 0.8,
+      rightFootConfidence: 0.7,
+      leftFootCourtM: null,
+      rightFootCourtM: null,
+      leftFoot: { positionPx: { x: 12, y: 8 }, positionPct: { x: 4.5, y: 8.25 }, confidence: 0.8, courtPositionM: null },
+      rightFoot: { positionPx: { x: 16, y: 9 }, positionPct: { x: 5, y: 9.25 }, confidence: 0.7, courtPositionM: null },
+    };
+    const client = new TrackingSessionApiClient();
+    client.setBaseUrl('http://127.0.0.1:8000');
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ sessionId: 'a1', status: 'COMPLETED', nextCursor: 1, telemetry: [{
+        schemaVersion: 1, analysisId: 'a1', frameIndex: 0, timestampSec: 0,
+        cameraSegmentId: 'segment-1', calibrationId: null, calibrationState: 'CALIBRATION_LOST',
+        players: [canonicalPlayer],
+      }] }),
+    } as Response);
+    const telemetry = (await client.getSessionResults('a1')).telemetry;
+    const saved = downsampleAndChunkTrackingSamples('a1', telemetry);
+    const analysis: TrackingAnalysis = {
+      id: 'a1', projectId: 'p1', sportType: 'badminton', gameType: 'singles', status: 'completed',
+      engineVersion: '1', detectorModel: 'yolo', trackerModel: 'bytetrack', sampleRateHz: 1,
+      createdAt: new Date().toISOString(), players: [], summary: saved.summary,
+      imageObservations: saved.imageObservations,
+    };
+    await saveTrackingAnalysis(analysis, saved.chunks);
+    const reloaded = await getTrackingAnalysis('a1');
+    expect(reloaded?.imageObservations?.[0].players[0]).toMatchObject({
+      groundPointPct: canonicalPlayer.groundPointPct,
+      groundPointProvenance: canonicalPlayer.groundPointProvenance,
+      leftFootPx: canonicalPlayer.leftFootPx,
+      rightFootPx: canonicalPlayer.rightFootPx,
+      leftFootConfidence: canonicalPlayer.leftFootConfidence,
+      rightFootConfidence: canonicalPlayer.rightFootConfidence,
+      leftFootCourtM: null,
+      rightFootCourtM: null,
+      leftFoot: { ...canonicalPlayer.leftFoot, courtPositionM: null },
+      rightFoot: { ...canonicalPlayer.rightFoot, courtPositionM: null },
+    });
+  });
+
+  it('marks normalized pose keypoint coordinates explicitly at the API boundary', () => {
+    const normalized = toTrackingTelemetryV1({
+      timestampSec: 0, frameIndex: 0,
+      players: [{ ...player, pose: { keypoints: [{ x: 4, y: 8, score: 0.9 }] } }],
+    });
+    expect(normalized.players[0].pose?.keypointCoordinateSpace).toBe('normalized_percent');
+  });
+
   it('preserves calibrated identity and rejects uncalibrated metric values', () => {
     const calibrated = frame(0);
     expect(calibrated.calibration?.calibrationId).toBe('cal-1');
@@ -56,8 +153,8 @@ describe('calibration contract', () => {
       expect(unavailable.players[0].speedMps).toBeNull();
       expect(unavailable.players[0].absoluteZone).toBeNull();
       expect(unavailable.players[0].bboxPct).toEqual(player.bboxPct);
-      expect(unavailable.players[0].pose).toEqual(player.pose);
-      expect(unavailable.players[0].totalDistanceM).toBe(3);
+      expect(unavailable.players[0].pose).toMatchObject(player.pose);
+      expect(unavailable.players[0].totalDistanceM).toBeNull();
     }
   });
 

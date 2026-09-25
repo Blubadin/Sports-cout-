@@ -293,8 +293,8 @@ export default function TrackingLabInspector({
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
                   <div>
                     <span className="text-slate-500 block">{th ? 'รหัสกล้อง/ช็อต' : 'Camera Segment'}</span>
-                    <span className="font-mono text-slate-200">
-                      {status.cameraSegmentId || 'segment-0'}
+                    <span data-testid="camera-segment-value" className="font-mono text-slate-200">
+                      {status.cameraSegmentId || '—'}
                     </span>
                   </div>
                   <div>
@@ -312,9 +312,16 @@ export default function TrackingLabInspector({
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">{th ? 'โหมดอัตโนมัติ' : 'Auto Calibrate'}</span>
-                    <span className="font-mono text-slate-200">
-                      {status.processingConfig?.autoCourtCalibrationEnabled ? 'Enabled' : 'Disabled'}
+                    <span className="text-slate-500 block">{th ? 'โหมดปรับเทียบอัตโนมัติ' : 'Auto Calibration Mode'}</span>
+                    <span data-testid="auto-calibration-mode" className="font-mono text-slate-200">
+                      Requested: {status.processingConfig?.autoCourtCalibrationEnabled === undefined
+                        ? '—' : status.processingConfig.autoCourtCalibrationEnabled ? 'Enabled' : 'Disabled'}
+                      {' · '}
+                      Effective: {(status.runtimeProvenance?.autoCourtCalibrationEnabled ??
+                        status.effectiveProcessingConfig?.autoCourtCalibrationEnabled) === undefined
+                        ? '—'
+                        : (status.runtimeProvenance?.autoCourtCalibrationEnabled ??
+                          status.effectiveProcessingConfig?.autoCourtCalibrationEnabled) ? 'Enabled' : 'Disabled'}
                     </span>
                   </div>
                 </div>
