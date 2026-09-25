@@ -45,6 +45,10 @@ class CourtMapper:
         """Returns True if valid perspective homography matrices exist."""
         return self.H is not None and self.H_inv is not None
 
+    def invalidate(self) -> None:
+        self.H = None
+        self.H_inv = None
+
     def calibrate(self, image_corners: np.ndarray | list):
         """
         Calibrate using 4 image corners matching [TL, TR, BR, BL] of outer court boundary.
@@ -204,6 +208,7 @@ class DistanceTracker:
         self.fps = fps
         self.smooth_k = smooth_k
         self._data: dict[int, dict] = {}
+        self.metric_segment_index = 0
 
     def _get_or_create(self, player_id: int) -> dict:
         if player_id not in self._data:
@@ -223,6 +228,25 @@ class DistanceTracker:
                 "current_zone": "ML",
             }
         return self._data[player_id]
+
+    def pause_metric_tracking(self) -> None:
+        """Keep accumulated distance but never bridge across an invalid interval."""
+        self.break_metric_segment()
+
+    def break_metric_segment(self) -> None:
+        """End the current metric trajectory without clearing accumulated totals."""
+        self.metric_segment_index += 1
+        for data in self._data.values():
+            data["prev_real"] = None
+            data["prev_time"] = None
+            data["positions_m"].clear()
+            data["positions_pct"].clear()
+            data["raw_speeds"].clear()
+            data["current_speed_ms"] = None
+            data["current_zone"] = "UNKNOWN"
+
+    def has_metric_observation(self, player_id: int) -> bool:
+        return bool(self._data.get(player_id, {}).get("positions_px"))
 
     def update(
         self,

@@ -224,7 +224,10 @@ class TestTrackingLifecycle(unittest.TestCase):
         self.assertEqual(tracking_sessions[session_id].status, "READY_TO_ANALYZE")
 
         # start -> PROCESSING (set atomically by endpoint)
-        res = self.client.post(f"/api/tracking/sessions/{session_id}/start")
+        # This test checks the endpoint transition, not decoder execution.
+        # The mocked decoder returns a non-image frame and cannot run analysis.
+        with patch("server._run_session_analysis"):
+            res = self.client.post(f"/api/tracking/sessions/{session_id}/start")
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()["status"], "started")
         self.assertEqual(tracking_sessions[session_id].status, "PROCESSING")

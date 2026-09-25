@@ -61,19 +61,29 @@ def compute_identity_association_cost(
     """
     Compute explicit, testable 5-component cost between a PlayerProfile and a detection.
     """
-    d_real = detection.get("real_pos", (0.0, 0.0))
+    d_real = detection.get("real_pos")
 
     # 1. Spatial Distance Cost (meters on calibrated court plane)
     net_y = COURT_LENGTH_M / 2.0
-    if profile.last_real_pos is not None:
+    previous_bbox = getattr(profile, "last_bbox", None)
+    current_bbox = detection.get("bbox")
+    if previous_bbox is not None and current_bbox is not None and (
+            d_real is None or profile.last_real_pos is None):
+        # Use image continuity while calibration is invalid and on its first recovered frame.
+        prev_center = ((previous_bbox[0] + previous_bbox[2]) / 2, (previous_bbox[1] + previous_bbox[3]) / 2)
+        current_center = ((current_bbox[0] + current_bbox[2]) / 2, (current_bbox[1] + current_bbox[3]) / 2)
+        spatial_cost = float(CourtMapper.euclidean_distance(prev_center, current_center) / 50.0)
+    elif d_real is None:
+        spatial_cost = 0.0
+    elif profile.last_real_pos is not None:
         spatial_cost = float(CourtMapper.euclidean_distance(profile.last_real_pos, d_real))
     else:
         expected_y = 3.0 if profile.team == 1 else (10.0 if profile.team == 2 else net_y)
         spatial_cost = float(abs(d_real[1] - expected_y))
 
     # 2. Court-Side Penalty: severe penalty for jumping across the net once side is established
-    d_team = 1 if d_real[1] < net_y else 2
-    if profile.team in (1, 2) and d_team != profile.team:
+    d_team = 1 if d_real is not None and d_real[1] < net_y else 2
+    if d_real is not None and profile.team in (1, 2) and d_team != profile.team:
         court_side_penalty = float(side_penalty_val)
     else:
         court_side_penalty = 0.0
@@ -189,10 +199,13 @@ def match_tracks_to_profiles_with_reid(
     semantic_player_id_switches = 0
 
     # Auto-seeding on first observation if all profiles are unassigned
-    if all(p.last_real_pos is None for p in profiles.values()):
+    if all(p.last_real_pos is None and p.last_bbox is None for p in profiles.values()):
         sorted_detections = sorted(
             detections,
-            key=lambda det: (0 if det["real_pos"][1] < net_y else 1, det["real_pos"][0]),
+            key=lambda det: (
+                (0 if det["real_pos"][1] < net_y else 1) if det.get("real_pos") is not None else det["center"][1],
+                det["real_pos"][0] if det.get("real_pos") is not None else det["center"][0],
+            ),
         )
         matched: dict[int, dict[str, Any]] = {}
         cost_breakdowns: dict[int, SemanticIdentityCosts] = {}
@@ -207,7 +220,7 @@ def match_tracks_to_profiles_with_reid(
                 p.last_real_pos = d["real_pos"]
                 p.last_bbox = d["bbox"]
                 p.missed_frames = 0
-                if p.team == 0:
+                if p.team == 0 and d["real_pos"] is not None:
                     p.team = 1 if d["real_pos"][1] < net_y else 2
                 p.update_appearance(frame, d["bbox"])
 
@@ -219,7 +232,7 @@ def match_tracks_to_profiles_with_reid(
                         d["reid_embedding"] = emb
 
                 cx, cy = d["center"]
-                if dist_tracker is not None:
+                if dist_tracker is not None and d["real_pos"] is not None:
                     try:
                         dist_tracker.update(pid, (cx, cy), timestamp_sec=timestamp_sec)
                     except Exception:
@@ -317,7 +330,7 @@ def match_tracks_to_profiles_with_reid(
             p.last_real_pos = d["real_pos"]
             p.last_bbox = d["bbox"]
             p.missed_frames = 0
-            if p.team == 0:
+            if p.team == 0 and d["real_pos"] is not None:
                 p.team = 1 if d["real_pos"][1] < net_y else 2
             p.update_appearance(frame, d["bbox"])
 
@@ -334,7 +347,7 @@ def match_tracks_to_profiles_with_reid(
                         p.reid_embedding = updated / norm
 
             cx, cy = d["center"]
-            if dist_tracker is not None:
+            if dist_tracker is not None and d["real_pos"] is not None:
                 try:
                     dist_tracker.update(pid, (cx, cy), timestamp_sec=timestamp_sec)
                 except Exception:
