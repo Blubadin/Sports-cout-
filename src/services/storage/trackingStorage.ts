@@ -7,6 +7,17 @@ import type {
   SourceVideoMetadata,
   CameraResearchMetadata,
 } from '../../types';
+import { isMetricCalibrationValid } from '../../types/calibration';
+import type { CalibrationProvenance, CalibrationState } from '../../types/calibration';
+
+export interface TrackingCalibrationEvent {
+  frameIndex: number;
+  timestampSec: number;
+  cameraSegmentId?: string;
+  calibrationId?: string | null;
+  state: CalibrationState;
+  provenance: CalibrationProvenance | null;
+}
 
 export interface TrackingPlayerMetadata {
   playerId: string;
@@ -104,6 +115,7 @@ export interface TrackingAnalysis {
   device?: string;
   effectiveDevice?: string;
   runtimeProvenance?: TrackingRuntimeProvenance;
+  calibrationTimeline?: TrackingCalibrationEvent[];
   videoMetadata?: SourceVideoMetadata;
   researchMetadata?: CameraResearchMetadata;
   localFileName?: string;
@@ -125,6 +137,10 @@ export interface TrackingSample {
   speed: number | null; // m/s
   confidence: number | null; // 0..1
   trackingState: 'tracked' | 'predicted' | 'lost';
+  cameraSegmentId?: string;
+  calibrationId?: string | null;
+  /** Breaks metric movement across invalid calibration intervals. */
+  metricRunId?: number;
   normalizedX?: number; // 0..1
   normalizedY?: number; // 0..1
 }
@@ -634,7 +650,10 @@ export function computeSinglePlayerMovementMetrics(
 
     if (i > 0) {
       const prev = sorted[i - 1];
-      if (prev.trackingState === 'tracked') {
+      if (prev.trackingState === 'tracked' &&
+          (s.metricRunId === undefined || prev.metricRunId === undefined || s.metricRunId === prev.metricRunId) &&
+          (s.calibrationId === undefined || prev.calibrationId === undefined || s.calibrationId === prev.calibrationId) &&
+          (s.cameraSegmentId === undefined || prev.cameraSegmentId === undefined || s.cameraSegmentId === prev.cameraSegmentId)) {
         const dx = s.courtX - prev.courtX;
         const dy = s.courtY - prev.courtY;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1046,13 +1065,40 @@ export function downsampleAndChunkTrackingSamples(
   chunks: TrackingSampleChunk[];
   summary: TrackingSummary;
   quality: TrackingQuality;
+  calibrationTimeline: TrackingCalibrationEvent[];
 } {
   if (frames.length === 0) {
     return {
       chunks: [],
       summary: { durationSeconds: 0, sampleCount: 0, players: {} },
       quality: computeTrackingQuality([], canonicalPlayerMetrics ? Object.keys(canonicalPlayerMetrics) : undefined),
+      calibrationTimeline: [],
     };
+  }
+
+  const calibrationTimeline: TrackingCalibrationEvent[] = [];
+  let priorCalibrationKey: string | null = null;
+  let metricRunId = 0;
+  const runIds = new Map<TrackingTelemetryV1, number>();
+  for (const frame of frames) {
+    if (frame.calibrationState !== undefined) {
+      const key = `${frame.cameraSegmentId ?? ''}:${frame.calibrationId ?? ''}:${frame.calibrationState}`;
+      if (key !== priorCalibrationKey) {
+        calibrationTimeline.push({
+          frameIndex: frame.frameIndex,
+          timestampSec: frame.timestampSec,
+          cameraSegmentId: frame.cameraSegmentId,
+          calibrationId: frame.calibrationId,
+          state: frame.calibrationState,
+          provenance: frame.calibration ?? null,
+        });
+      }
+      if (!isMetricCalibrationValid(frame) || (priorCalibrationKey !== null && key !== priorCalibrationKey)) {
+        metricRunId++;
+      }
+      priorCalibrationKey = key;
+    }
+    runIds.set(frame, metricRunId);
   }
 
   // 1. Full-Rate Processing for Canonical Movement Metrics
@@ -1060,6 +1106,7 @@ export function downsampleAndChunkTrackingSamples(
   const lastTotalDistances = new Map<string, number>();
 
   for (const frame of frames) {
+    if (!isMetricCalibrationValid(frame)) continue;
     for (const p of frame.players) {
       if (typeof p.totalDistanceM === 'number') {
         lastTotalDistances.set(p.playerId, p.totalDistanceM);
@@ -1074,6 +1121,9 @@ export function downsampleAndChunkTrackingSamples(
         speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
         confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
+        cameraSegmentId: frame.cameraSegmentId,
+        calibrationId: frame.calibrationId,
+        metricRunId: runIds.get(frame),
         normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
         normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
       };
@@ -1091,6 +1141,7 @@ export function downsampleAndChunkTrackingSamples(
   let lastTimestamp = -1;
 
   for (const frame of frames) {
+    if (!isMetricCalibrationValid(frame)) continue;
     if (lastTimestamp >= 0 && frame.timestampSec - lastTimestamp < sampleInterval * 0.95) {
       continue;
     }
@@ -1106,6 +1157,9 @@ export function downsampleAndChunkTrackingSamples(
         speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
         confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
+        cameraSegmentId: frame.cameraSegmentId,
+        calibrationId: frame.calibrationId,
+        metricRunId: runIds.get(frame),
         normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
         normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
       };
@@ -1176,7 +1230,7 @@ export function downsampleAndChunkTrackingSamples(
     }
   }
 
-  return { chunks, summary, quality };
+  return { chunks, summary, quality, calibrationTimeline };
 }
 
 // -------------------------------------------------------------

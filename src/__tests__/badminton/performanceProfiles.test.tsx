@@ -134,7 +134,7 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
       trackedPlayerCount: 2,
     });
     vi.mocked(aiTrackingService.uploadSessionVideo).mockResolvedValue({ width: 1280, height: 720 });
-    vi.mocked(aiTrackingService.calibrateSession).mockResolvedValue();
+    vi.mocked(aiTrackingService.calibrateSession).mockResolvedValue({});
     vi.mocked(aiTrackingService.startSessionAnalysis).mockResolvedValue();
     vi.mocked(aiTrackingService.deleteSession).mockResolvedValue();
   });

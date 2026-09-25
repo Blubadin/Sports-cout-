@@ -18,6 +18,7 @@ import type {
   TrackingQualityStats,
   ShuttleProvenance,
 } from '../types';
+import { isCalibrationState, isMetricCalibrationValid, parseCalibrationProvenance } from '../types/calibration';
 import {
   AIConnectionError,
   type AIConnectionCode,
@@ -260,12 +261,13 @@ export class TrackingSessionApiClient {
     sessionId: string,
     corners: number[][],
     gameType: BadmintonGameType
-  ): Promise<void> {
-    await this.request(`/api/tracking/sessions/${sessionId}/calibration`, {
+  ): Promise<Pick<TrackingTelemetryV1, 'cameraSegmentId' | 'calibrationId' | 'calibrationState' | 'calibrationConfidence' | 'calibration'>> {
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/calibration`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ corners, game_type: gameType }),
     });
+    return res.json();
   }
 
   public async assignSessionPlayers(
@@ -307,7 +309,8 @@ export class TrackingSessionApiClient {
   }> {
     const query = after !== undefined ? `?after=${encodeURIComponent(after)}` : '';
     const res = await this.request(`/api/tracking/sessions/${sessionId}/results${query}`);
-    return res.json();
+    const payload = await res.json();
+    return { ...payload, telemetry: (payload.telemetry || []).map(toTrackingTelemetryV1) };
   }
 
   public async listSessions(projectId?: string | null): Promise<TrackingSessionSummary[] | { sessions: TrackingSessionSummary[] }> {
@@ -454,6 +457,21 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         frame.source.includes('browser')
       : false);
 
+  const hasCalibrationFields = frame.calibrationState !== undefined || frame.calibration !== undefined ||
+    frame.cameraSegmentId !== undefined || frame.calibrationId !== undefined || frame.calibrationConfidence !== undefined;
+  const parsedCalibration = parseCalibrationProvenance(frame.calibration);
+  const calibrationState = !hasCalibrationFields ? undefined :
+    isCalibrationState(frame.calibrationState) ? frame.calibrationState :
+      frame.calibrationState === undefined && parsedCalibration ? parsedCalibration.state : 'UNCALIBRATED';
+  const cameraSegmentId = typeof frame.cameraSegmentId === 'string' && frame.cameraSegmentId
+    ? frame.cameraSegmentId : parsedCalibration?.cameraSegmentId;
+  const calibrationId = typeof frame.calibrationId === 'string' && frame.calibrationId
+    ? frame.calibrationId : frame.calibrationId === null ? null : parsedCalibration?.calibrationId ?? null;
+  const calibration = parsedCalibration && parsedCalibration.state === calibrationState &&
+    parsedCalibration.cameraSegmentId === cameraSegmentId && parsedCalibration.calibrationId === calibrationId
+    ? parsedCalibration : null;
+  const metricValid = isMetricCalibrationValid({ calibrationState, cameraSegmentId, calibrationId, calibration });
+
   return {
     schemaVersion: 1,
     analysisId: frame.analysisId || 'tracking_session',
@@ -461,6 +479,14 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     frameIndex: frame.frameIndex ?? frame.frame_idx,
     engineVersion: frame.engineVersion || '1.0.0',
     modelVersion: frame.modelVersion || 'badminton-tracking-v1',
+    ...(hasCalibrationFields ? {
+      cameraSegmentId,
+      calibrationId,
+      calibrationState,
+      calibrationConfidence: calibrationState === 'CALIBRATED' && metricValid
+        ? calibration?.confidence ?? null : null,
+      calibration,
+    } : {}),
     isSynthetic,
     source: frame.source || (isSynthetic ? 'synthetic_demo' : 'real_tracking'),
     trackedPlayerCount: frame.trackedPlayerCount ?? frame.tracked_player_count,
@@ -492,10 +518,10 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         teamCode: p.teamCode || (p.team ? `team${p.team}` : undefined),
         bboxPct: p.bboxPct || p.video_bbox_pct,
         groundPointPct: groundPoint,
-        courtPosition: courtPos,
-        absoluteZone: p.absoluteZone || p.zone,
-        playerRelativeZone: p.playerRelativeZone || p.zone,
-        speedMps: p.speedMps ?? p.speed_ms,
+        courtPosition: metricValid ? courtPos : null,
+        absoluteZone: metricValid ? (p.absoluteZone ?? p.zone) : null,
+        playerRelativeZone: metricValid ? (p.playerRelativeZone ?? p.zone) : null,
+        speedMps: metricValid ? (p.speedMps ?? p.speed_ms) : null,
         totalDistanceM: p.totalDistanceM ?? p.total_dist_m,
         detectionConfidence: typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null,
         state: p.state || (p.is_active ? 'observed' : 'lost'),

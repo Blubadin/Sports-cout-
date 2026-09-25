@@ -16,6 +16,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from court_mapper import CourtMapper, DistanceTracker, COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M, COURT_WIDTH_SINGLES_M
+from calibration_contract import CalibrationContext, CalibrationSource
 from court_roi import calculate_court_roi, inverse_transform_bbox
 from device_runtime import resolve_device
 from engine_config import (
@@ -153,6 +154,7 @@ class BadmintonAnalyzerV2:
 
         self.mapper = CourtMapper(game_type=game_type)
         self.dist_tracker = DistanceTracker(self.mapper, fps=self.fps)
+        self.calibration_context = CalibrationContext()
         self.court_corners_px: np.ndarray | None = None
         self.frame_count = 0
 
@@ -291,10 +293,58 @@ class BadmintonAnalyzerV2:
             self._pose_detector = self.pose_adapter._detector
         return res
 
-    def set_court_corners(self, corners: list[list[float]] | np.ndarray):
+    def set_court_corners(
+        self, corners: list[list[float]] | np.ndarray, *,
+        source: str = "manual", created_at_frame: int | None = None,
+        created_at_timestamp_sec: float | None = None,
+        confidence: float | None = None, reprojection_error_px: float | None = None,
+    ):
         """Set court corners for perspective calibration."""
-        self.court_corners_px = np.array(corners, dtype=np.float32)
-        self.mapper.calibrate(self.court_corners_px)
+        source_kind = CalibrationSource(source)
+        if source_kind is CalibrationSource.MANUAL and (confidence is not None or reprojection_error_px is not None):
+            raise ValueError("Manual four-corner calibration has no measured confidence or reprojection error")
+        candidate = np.array(corners, dtype=np.float32)
+        candidate_mapper = CourtMapper(game_type=self.game_type)
+        candidate_mapper.calibrate(candidate)
+        self.calibration_context.accept(
+            source=source_kind,
+            frame=self.frame_count if created_at_frame is None else created_at_frame,
+            timestamp_sec=self.frame_count / self.fps if created_at_timestamp_sec is None else created_at_timestamp_sec,
+            confidence=confidence,
+            reprojection_error_px=reprojection_error_px,
+        )
+        self.mapper.H = candidate_mapper.H
+        self.mapper.H_inv = candidate_mapper.H_inv
+        self.mapper.game_type = self.game_type
+        self.court_corners_px = candidate
+        self.dist_tracker.pause_metric_tracking()
+        for profile in self.profiles.values():
+            profile.last_real_pos = None
+
+    def lose_calibration(self) -> None:
+        self.calibration_context.lose()
+        self.mapper.invalidate()
+        self.court_corners_px = None
+        self.dist_tracker.pause_metric_tracking()
+        for profile in self.profiles.values():
+            profile.last_real_pos = None
+
+    def begin_recalibration(self) -> None:
+        self.calibration_context.begin_recalibration()
+        self.mapper.invalidate()
+        self.court_corners_px = None
+        self.dist_tracker.pause_metric_tracking()
+        for profile in self.profiles.values():
+            profile.last_real_pos = None
+
+    def start_camera_segment(self) -> None:
+        """Explicit invalidation hook; camera-cut detection is out of scope."""
+        self.calibration_context.start_camera_segment()
+        self.mapper.invalidate()
+        self.court_corners_px = None
+        self.dist_tracker.pause_metric_tracking()
+        for profile in self.profiles.values():
+            profile.last_real_pos = None
 
     def assign_initial_players(self, frame: np.ndarray, assignments: list[dict]):
         """
@@ -433,9 +483,9 @@ class BadmintonAnalyzerV2:
                 dist_px = cv2.pointPolygonTest(self.court_corners_px.astype(np.float32), (float(cx), float(cy)), True)
                 if dist_px < -30.0:
                     continue
-                d["real_pos"] = (0.0, 0.0)
+                d["real_pos"] = None
             else:
-                d["real_pos"] = (0.0, 0.0)
+                d["real_pos"] = None
             valid_detections.append(d)
 
         # Match detections to the 4 player profiles using Hungarian Algorithm
@@ -456,15 +506,16 @@ class BadmintonAnalyzerV2:
             bbox = p.last_bbox if p.missed_frames < 30 else None
             pos_m = stats.get("court_pos_m")
             pos_pct = stats.get("court_pos_pct")
-            abs_zone = stats.get("current_zone", "UNKNOWN")
+            metric_valid = self.calibration_context.is_metric_valid and self.mapper.is_calibrated
+            abs_zone = stats.get("current_zone") if metric_valid else None
             rel_zone = (
                 self.mapper.get_relative_zone_2d((pos_m["x"], pos_m["y"]), p.team)
-                if (pos_m is not None and p.team in (1, 2))
+                if (metric_valid and pos_m is not None and p.team in (1, 2))
                 else abs_zone
             )
 
             # State: observed | predicted | lost (PDF §45)
-            if p.last_real_pos is None:
+            if p.last_bbox is None:
                 tracking_state = "lost"
             elif p.missed_frames == 0:
                 tracking_state = "observed"
@@ -486,7 +537,7 @@ class BadmintonAnalyzerV2:
                 ground_pt_pct = {"x": cx_pct, "y": cy_pct}
 
             court_position = None
-            if pos_m is not None and pos_pct is not None and p.last_real_pos is not None:
+            if metric_valid and pos_m is not None and pos_pct is not None and p.last_real_pos is not None:
                 court_position = {
                     "xM": round(pos_m["x"], 2),
                     "yM": round(pos_m["y"], 2),
@@ -496,7 +547,7 @@ class BadmintonAnalyzerV2:
 
             confidence = (
                 round(float(p.detection_confidence), 3)
-                if (p.last_real_pos is not None and p.missed_frames == 0 and p.detection_confidence is not None)
+                if (p.last_bbox is not None and p.missed_frames == 0 and p.detection_confidence is not None)
                 else None
             )
 
@@ -510,8 +561,8 @@ class BadmintonAnalyzerV2:
                 "courtPosition": court_position,
                 "absoluteZone": abs_zone,
                 "playerRelativeZone": rel_zone,
-                "speedMps": stats.get("current_speed_ms", 0.0),
-                "totalDistanceM": stats.get("total_dist_m", 0.0),
+                "speedMps": stats.get("current_speed_ms") if metric_valid and court_position is not None else None,
+                "totalDistanceM": stats.get("total_dist_m") if self.dist_tracker.has_metric_observation(pid) else None,
                 "detectionConfidence": confidence,
                 "state": tracking_state,
                 "identityCosts": self._last_cost_breakdowns.get(pid).to_dict() if (hasattr(self, "_last_cost_breakdowns") and pid in self._last_cost_breakdowns) else None,
@@ -521,11 +572,11 @@ class BadmintonAnalyzerV2:
                 "team": p.team,
                 "name": p.name,
                 "bbox": bbox,
-                "court_pos_pct": pos_pct,
-                "court_pos_m": pos_m,
+                "court_pos_pct": pos_pct if metric_valid else None,
+                "court_pos_m": pos_m if metric_valid else None,
                 "zone": abs_zone,
-                "speed_ms": stats.get("current_speed_ms", 0.0),
-                "total_dist_m": stats.get("total_dist_m", 0.0),
+                "speed_ms": stats.get("current_speed_ms") if metric_valid and court_position is not None else None,
+                "total_dist_m": stats.get("total_dist_m") if self.dist_tracker.has_metric_observation(pid) else None,
                 "is_active": p.missed_frames < 10,
                 "video_bbox_pct": bbox_pct,
             })
@@ -611,6 +662,7 @@ class BadmintonAnalyzerV2:
             "frameIndex": self.frame_count,
             "engineVersion": "1.0.0",
             "modelVersion": getattr(self, "model_path", "yolov8n.pt"),
+            **self.calibration_context.frame_fields(),
             "isSynthetic": False,
             "source": "real_tracking",
             "rawTrackerIdSwitches": getattr(self, "raw_tracker_id_switches", 0),
@@ -636,7 +688,7 @@ class BadmintonAnalyzerV2:
         statuses = []
         for pid, p in self.profiles.items():
             stats = self.dist_tracker.get_stats(pid)
-            if p.last_real_pos is None:
+            if p.last_bbox is None:
                 tracking_state = "lost"
             elif p.missed_frames == 0:
                 tracking_state = "observed"
@@ -648,7 +700,7 @@ class BadmintonAnalyzerV2:
             pos_m = stats.get("court_pos_m")
             pos_pct = stats.get("court_pos_pct")
             court_pos = None
-            if pos_m and pos_pct and p.last_real_pos is not None:
+            if self.calibration_context.is_metric_valid and self.mapper.is_calibrated and pos_m and pos_pct and p.last_real_pos is not None:
                 court_pos = {
                     "xM": round(pos_m.get("x", 0.0), 2),
                     "yM": round(pos_m.get("y", 0.0), 2),
@@ -658,15 +710,15 @@ class BadmintonAnalyzerV2:
 
             confidence = (
                 round(float(p.detection_confidence), 3)
-                if (p.last_real_pos is not None and p.missed_frames == 0 and p.detection_confidence is not None)
+                if (p.last_bbox is not None and p.missed_frames == 0 and p.detection_confidence is not None)
                 else None
             )
 
             statuses.append({
                 "playerId": f"P{pid}",
                 "trackId": p.track_id,
-                "totalDistanceM": round(stats.get("total_dist_m", 0.0), 2),
-                "currentSpeedMps": round(stats.get("current_speed_ms", 0.0), 2),
+                "totalDistanceM": round(stats.get("total_dist_m", 0.0), 2) if self.dist_tracker.has_metric_observation(pid) else None,
+                "currentSpeedMps": round(stats["current_speed_ms"], 2) if court_pos is not None and stats.get("current_speed_ms") is not None else None,
                 "trackingState": tracking_state,
                 "detectionConfidence": confidence,
                 "courtPosition": court_pos,

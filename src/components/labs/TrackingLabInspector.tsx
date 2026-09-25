@@ -309,7 +309,9 @@ export default function TrackingLabInspector({
 
                           <div className="text-xs flex justify-between text-slate-300">
                             <span className="text-slate-500">{th ? 'ระยะทาง:' : 'Distance:'}</span>
-                            <span className="font-mono font-semibold">{player.totalDistanceM.toFixed(1)} m</span>
+                            <span className="font-mono font-semibold">
+                              {typeof player.totalDistanceM === 'number' ? `${player.totalDistanceM.toFixed(1)} m` : '—'}
+                            </span>
                           </div>
 
                           <div className="text-xs flex justify-between text-slate-300">

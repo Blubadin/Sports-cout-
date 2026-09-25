@@ -469,7 +469,7 @@ export interface TrackingPlayerV1 {
   absoluteZone?: string | null;
   playerRelativeZone?: string | null;
   speedMps?: number | null;
-  totalDistanceM?: number;
+  totalDistanceM?: number | null;
   detectionConfidence?: number | null;
   state: 'observed' | 'predicted' | 'lost';
   pose?: TrackingPoseV1 | null;
@@ -482,6 +482,12 @@ export interface TrackingTelemetryV1 {
   frameIndex: number;
   engineVersion?: string;
   modelVersion?: string;
+  /** Additive V1 temporal calibration identity. Absent on legacy saved frames. */
+  cameraSegmentId?: string;
+  calibrationId?: string | null;
+  calibrationState?: import('./types/calibration').CalibrationState;
+  calibrationConfidence?: number | null;
+  calibration?: import('./types/calibration').CalibrationProvenance | null;
   isSynthetic?: boolean;
   source?: 'real_tracking' | 'synthetic_demo' | string;
   trackedPlayerCount?: number;
@@ -494,11 +500,11 @@ export interface AITrackingPlayer extends Partial<TrackingPlayerV1> {
   id: number;
   team: 1 | 2;
   name: string;
-  court_pos_pct: { x: number; y: number };
-  court_pos_m?: { x: number; y: number };
-  zone: string;
-  speed_ms: number;
-  total_dist_m: number;
+  court_pos_pct: { x: number; y: number } | null;
+  court_pos_m?: { x: number; y: number } | null;
+  zone: string | null;
+  speed_ms: number | null;
+  total_dist_m: number | null;
   is_active?: boolean;
   bbox?: [number, number, number, number] | null;
   // AlphaPose Body & Action Tracking additions
@@ -536,8 +542,8 @@ export interface FeetPositionProxy {
 export interface TrackingLivePlayerStatus {
   playerId: string;
   trackId: number | null;
-  totalDistanceM: number;
-  currentSpeedMps: number;
+  totalDistanceM: number | null;
+  currentSpeedMps: number | null;
   trackingState: 'observed' | 'predicted' | 'lost';
   detectionConfidence?: number | null;
   courtPosition?: {
@@ -584,6 +590,11 @@ export interface TrackingSessionStatus {
   videoMetadata?: SourceVideoMetadata;
   researchMetadata?: CameraResearchMetadata;
   players: TrackingLivePlayerStatus[];
+  cameraSegmentId?: string;
+  calibrationId?: string | null;
+  calibrationState?: import('./types/calibration').CalibrationState;
+  calibrationConfidence?: number | null;
+  calibration?: import('./types/calibration').CalibrationProvenance | null;
   shuttle?: ShuttleProvenance | null;
   error: string | null;
 }
@@ -778,3 +789,4 @@ export interface TrackingRuntimeProvenance {
 
 export * from './types/benchmark';
 export * from './types/shuttleTelemetry';
+export * from './types/calibration';

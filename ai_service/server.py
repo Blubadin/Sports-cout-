@@ -25,7 +25,7 @@ if str(_AI_SERVICE_DIR) not in sys.path:
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import cv2
@@ -869,6 +869,7 @@ class CreateSessionRequest(BaseModel):
     processing_config: dict | None = None
 
 class SessionCalibrationRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     corners: list[list[float]]
     game_type: Literal['singles', 'doubles'] = "doubles"
 
@@ -1310,15 +1311,16 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
         if session.status not in allowed:
             raise HTTPException(status_code=409, detail=f"Cannot calibrate in {session.status} state")
 
-        session.game_type = req.game_type
-        session.analyzer.game_type = req.game_type
         try:
             session.analyzer.set_court_corners(req.corners)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+        session.game_type = req.game_type
+        session.analyzer.game_type = req.game_type
+        session.analyzer.mapper.game_type = req.game_type
         session.status = "READY_TO_ANALYZE"
-        return {"status": "success", "sessionStatus": session.status}
+        return {"status": "success", "sessionStatus": session.status, **session.analyzer.calibration_context.frame_fields()}
 
 
 @app.post("/api/tracking/sessions/{session_id}/players")
@@ -1529,6 +1531,7 @@ def get_session_status(session_id: str):
         "videoMetadata": getattr(session, "video_metadata", None),
         "researchMetadata": getattr(session, "research_metadata", None),
         "players": session.analyzer.get_live_player_statuses(),
+        **session.analyzer.calibration_context.frame_fields(),
         "error": session.error_message,
     }
 
@@ -1567,6 +1570,7 @@ def get_session_results(session_id: str, after: int | None = None):
         "videoMetadata": getattr(session, "video_metadata", None),
         "researchMetadata": getattr(session, "research_metadata", None),
         "telemetry": items,
+        **session.analyzer.calibration_context.frame_fields(),
     }
 
 
