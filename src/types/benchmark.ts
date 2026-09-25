@@ -258,6 +258,19 @@ export interface BenchmarkClipEntry {
   notes?: string | null;
   /** Specific challenging temporal intervals inside the clip */
   knownDifficultSegments: BenchmarkDifficultSegment[];
+
+  // Phase 3.4 Grouping & Split Safety Metadata
+  venueId?: string | null;
+  cameraId?: string | null;
+  sessionDate?: string | null;
+  recordingGroup?: string | null;
+  resolution?: string | null;
+  fps?: number | null;
+  cameraSegments?: Array<Record<string, unknown>>;
+  calibrationGroundTruthAvailable?: boolean;
+  playerIdentityGroundTruthAvailable?: boolean;
+  groundPositionGroundTruthAvailable?: boolean;
+  cameraCutGroundTruthAvailable?: boolean;
 }
 
 /**
@@ -346,3 +359,97 @@ export interface DetectorCandidate {
 // Re-export Phase 2.0 Shuttlecock Benchmark Types
 export * from './shuttleBenchmark';
 
+
+// ======================================================================
+// Phase 3.4 — Court, Position & Identity Benchmark Types
+// ======================================================================
+
+export type BenchmarkMetricStatus = 'MEASURED' | 'UNAVAILABLE' | 'FAILED_VALIDATION';
+
+export interface CameraCutBenchmarkMetrics {
+  status: BenchmarkMetricStatus;
+  statusReason?: string | null;
+  tpCuts?: number | null;
+  fpCuts?: number | null;
+  fnCuts?: number | null;
+  duplicateCutCount?: number | null;
+  precision?: number | null;
+  recall?: number | null;
+  f1?: number | null;
+  meanDetectionLatencySec?: number | null;
+}
+
+export interface CalibrationBenchmarkMetrics {
+  status: BenchmarkMetricStatus;
+  statusReason?: string | null;
+  reprojectionErrorPxMean?: number | null;
+  reprojectionErrorPxMedian?: number | null;
+  reprojectionErrorPxP95?: number | null;
+  courtPositionErrorMMean?: number | null;
+  courtPositionErrorMMedian?: number | null;
+  courtPositionErrorMP95?: number | null;
+  calibrationAvailabilityPct?: number | null;
+  falseValidCalibrationCount?: number | null;
+  relockLatencySec?: number | null;
+  cameraSegmentCalibrationConsistency?: number | null;
+}
+
+export interface GroundProvenanceSubMetrics {
+  sampleCount: number;
+  pixelErrorMean?: number | null;
+  pixelErrorMedian?: number | null;
+  pixelErrorP95?: number | null;
+  courtPositionErrorMMean?: number | null;
+  courtPositionErrorMMedian?: number | null;
+  courtPositionErrorMP95?: number | null;
+}
+
+export interface GroundPositionBenchmarkMetrics {
+  status: BenchmarkMetricStatus;
+  statusReason?: string | null;
+  pixelErrorMean?: number | null;
+  pixelErrorMedian?: number | null;
+  pixelErrorP95?: number | null;
+  courtPositionErrorMMean?: number | null;
+  courtPositionErrorMMedian?: number | null;
+  courtPositionErrorMP95?: number | null;
+  coveragePct?: number | null;
+  byProvenance?: Record<string, GroundProvenanceSubMetrics>;
+}
+
+export interface TrackingIdentityBenchmarkMetrics {
+  status: BenchmarkMetricStatus;
+  statusReason?: string | null;
+  idSwitchCount?: number | null;
+  idSwitchesPer10Min?: number | null;
+  idf1?: number | null;
+  idtp?: number | null;
+  idfp?: number | null;
+  idfn?: number | null;
+  hotaStatus: 'UNAVAILABLE';
+  hotaReason: string;
+  hota: null;
+}
+
+export interface Phase3BenchmarkProvenance {
+  manifestVersion: number;
+  datasetId: string;
+  clipId: string;
+  engineVersion: string;
+  detectorModel?: string | null;
+  trackerModel?: string | null;
+  reidModel?: string | null;
+  shuttleModel?: string | null;
+  calibrationProvider?: string | null;
+  cameraSegmentInfo?: Record<string, unknown> | null;
+  runtime?: string | null;
+  device?: string | null;
+}
+
+export interface Phase3BenchmarkReport {
+  provenance: Phase3BenchmarkProvenance;
+  cameraCuts: CameraCutBenchmarkMetrics;
+  calibration: CalibrationBenchmarkMetrics;
+  groundPosition: GroundPositionBenchmarkMetrics;
+  identity: TrackingIdentityBenchmarkMetrics;
+}

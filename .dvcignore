@@ -1,0 +1,24 @@
+# .dvcignore — Antigravity DVC Ignore Rules
+# Exclude build artifacts, virtual environments, caches, and IDE state
+
+.git/
+.hg/
+.svn/
+.gemini/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node.js / Vite build output
+node_modules/
+dist/
+build/
+coverage/
+
+# Local temp and benchmark results
+tmp/
+temp/
+benchmark_results/
+*.log
+scratch/

@@ -734,6 +734,17 @@ class BenchmarkClipEntry:
     court_calibration_reference: Optional[str] = None
     notes: Optional[str] = None
     known_difficult_segments: list[BenchmarkDifficultSegment] = field(default_factory=list)
+    venue_id: Optional[str] = None
+    camera_id: Optional[str] = None
+    session_date: Optional[str] = None
+    recording_group: Optional[str] = None
+    resolution: Optional[str] = None
+    fps: Optional[float] = None
+    camera_segments: list[dict] = field(default_factory=list)
+    calibration_ground_truth_available: bool = False
+    player_identity_ground_truth_available: bool = False
+    ground_position_ground_truth_available: bool = False
+    camera_cut_ground_truth_available: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -754,6 +765,17 @@ class BenchmarkClipEntry:
             "groundTruthAvailable": self.ground_truth_available,
             "notes": self.notes,
             "knownDifficultSegments": [s.to_dict() for s in self.known_difficult_segments],
+            "venueId": self.venue_id,
+            "cameraId": self.camera_id,
+            "sessionDate": self.session_date,
+            "recordingGroup": self.recording_group,
+            "resolution": self.resolution or (f"{self.source_width}x{self.source_height}" if self.source_width and self.source_height else None),
+            "fps": self.fps if self.fps is not None else self.source_fps,
+            "cameraSegments": list(self.camera_segments),
+            "calibrationGroundTruthAvailable": self.calibration_ground_truth_available,
+            "playerIdentityGroundTruthAvailable": self.player_identity_ground_truth_available,
+            "groundPositionGroundTruthAvailable": self.ground_position_ground_truth_available,
+            "cameraCutGroundTruthAvailable": self.camera_cut_ground_truth_available,
         }
 
     @classmethod
@@ -765,6 +787,8 @@ class BenchmarkClipEntry:
             if isinstance(s, dict)
         ]
         tags = data.get("difficultyTags") if isinstance(data.get("difficultyTags"), list) else []
+        fps_val = _positive_float(data.get("fps")) or _positive_float(data.get("sourceFps"))
+        segments_data = data.get("cameraSegments") if isinstance(data.get("cameraSegments"), list) else []
         return cls(
             id=data["id"],
             name=data["name"],
@@ -775,7 +799,7 @@ class BenchmarkClipEntry:
             duration_sec=_positive_float(data.get("durationSec")),
             source_width=_positive_int(data.get("sourceWidth")),
             source_height=_positive_int(data.get("sourceHeight")),
-            source_fps=_positive_float(data.get("sourceFps")),
+            source_fps=fps_val,
             camera_type=data.get("cameraType", "static_rear"),
             camera_motion=data.get("cameraMotion", "static"),
             difficulty_tags=[str(t) for t in tags],
@@ -783,6 +807,17 @@ class BenchmarkClipEntry:
             ground_truth_available=data.get("groundTruthAvailable") is True,
             notes=data.get("notes"),
             known_difficult_segments=segments,
+            venue_id=data.get("venueId"),
+            camera_id=data.get("cameraId"),
+            session_date=data.get("sessionDate"),
+            recording_group=data.get("recordingGroup"),
+            resolution=data.get("resolution"),
+            fps=fps_val,
+            camera_segments=segments_data,
+            calibration_ground_truth_available=data.get("calibrationGroundTruthAvailable") is True,
+            player_identity_ground_truth_available=data.get("playerIdentityGroundTruthAvailable") is True,
+            ground_position_ground_truth_available=data.get("groundPositionGroundTruthAvailable") is True,
+            camera_cut_ground_truth_available=data.get("cameraCutGroundTruthAvailable") is True,
         )
 
 
@@ -931,3 +966,417 @@ class VisionBenchmarkExperimentConfig:
             court_roi_enabled=self.court_roi_enabled,
         )
 
+
+
+# ======================================================================
+# Phase 3.4 — Split Safety & Benchmark Quality Gates
+# ======================================================================
+
+def validate_split_leakage(
+    splits: dict[str, list[BenchmarkClipEntry]],
+    group_by: tuple[str, ...] = ("venueId", "cameraId", "recordingGroup", "sessionDate", "videoReference"),
+) -> tuple[bool, list[str]]:
+    """
+    Validates that no source recording, session, or physical video reference leaks across splits.
+    Guarantees adjacent frames/sessions are not co-located across train, validation, and test splits.
+    """
+    errors: list[str] = []
+    seen: dict[str, dict[str, str]] = {key: {} for key in group_by}
+
+    for split_name, clips in splits.items():
+        for clip in clips:
+            clip_dict = clip.to_dict()
+            for key in group_by:
+                val = clip_dict.get(key)
+                if val:
+                    str_val = str(val).strip()
+                    if not str_val:
+                        continue
+                    if str_val in seen[key]:
+                        prior_split = seen[key][str_val]
+                        if prior_split != split_name:
+                            errors.append(
+                                f"Data leakage detected: {key}='{str_val}' in clip '{clip.id}' "
+                                f"present in both '{prior_split}' and '{split_name}'"
+                            )
+                    else:
+                        seen[key][str_val] = split_name
+    return len(errors) == 0, errors
+
+
+def partition_clips_by_group(
+    clips: list[BenchmarkClipEntry],
+    group_key: str = "recordingGroup",
+) -> dict[str, list[BenchmarkClipEntry]]:
+    """
+    Partitions benchmark clips by a specified grouping key (e.g. 'venueId', 'cameraId', 'recordingGroup').
+    Clips without the group key are grouped under their clip id to ensure isolation.
+    """
+    grouped: dict[str, list[BenchmarkClipEntry]] = {}
+    for clip in clips:
+        clip_dict = clip.to_dict()
+        val = clip_dict.get(group_key)
+        key_str = str(val).strip() if val else f"ungrouped_{clip.id}"
+        if key_str not in grouped:
+            grouped[key_str] = []
+        grouped[key_str].append(clip)
+    return grouped
+
+
+@dataclass
+class CameraCutBenchmarkMetrics:
+    status: str = "UNAVAILABLE"  # 'MEASURED' | 'UNAVAILABLE' | 'FAILED_VALIDATION'
+    status_reason: Optional[str] = None
+    tp_cuts: Optional[int] = None
+    fp_cuts: Optional[int] = None
+    fn_cuts: Optional[int] = None
+    duplicate_cut_count: Optional[int] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    f1: Optional[float] = None
+    mean_detection_latency_sec: Optional[float] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "statusReason": self.status_reason,
+            "tpCuts": self.tp_cuts,
+            "fpCuts": self.fp_cuts,
+            "fnCuts": self.fn_cuts,
+            "duplicateCutCount": self.duplicate_cut_count,
+            "precision": self.precision,
+            "recall": self.recall,
+            "f1": self.f1,
+            "meanDetectionLatencySec": self.mean_detection_latency_sec,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CameraCutBenchmarkMetrics:
+        return cls(
+            status=data.get("status", "UNAVAILABLE"),
+            status_reason=data.get("statusReason"),
+            tp_cuts=_optional_int(data.get("tpCuts")),
+            fp_cuts=_optional_int(data.get("fpCuts")),
+            fn_cuts=_optional_int(data.get("fnCuts")),
+            duplicate_cut_count=_optional_int(data.get("duplicateCutCount")),
+            precision=_optional_float(data.get("precision")),
+            recall=_optional_float(data.get("recall")),
+            f1=_optional_float(data.get("f1")),
+            mean_detection_latency_sec=_optional_float(data.get("meanDetectionLatencySec")),
+        )
+
+
+@dataclass
+class CalibrationBenchmarkMetrics:
+    status: str = "UNAVAILABLE"  # 'MEASURED' | 'UNAVAILABLE' | 'FAILED_VALIDATION'
+    status_reason: Optional[str] = None
+    reprojection_error_px_mean: Optional[float] = None
+    reprojection_error_px_median: Optional[float] = None
+    reprojection_error_px_p95: Optional[float] = None
+    court_position_error_m_mean: Optional[float] = None
+    court_position_error_m_median: Optional[float] = None
+    court_position_error_m_p95: Optional[float] = None
+    calibration_availability_pct: Optional[float] = None
+    false_valid_calibration_count: Optional[int] = None
+    relock_latency_sec: Optional[float] = None
+    camera_segment_calibration_consistency: Optional[float] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "statusReason": self.status_reason,
+            "reprojectionErrorPxMean": self.reprojection_error_px_mean,
+            "reprojectionErrorPxMedian": self.reprojection_error_px_median,
+            "reprojectionErrorPxP95": self.reprojection_error_px_p95,
+            "courtPositionErrorMMean": self.court_position_error_m_mean,
+            "courtPositionErrorMMedian": self.court_position_error_m_median,
+            "courtPositionErrorMP95": self.court_position_error_m_p95,
+            "calibrationAvailabilityPct": self.calibration_availability_pct,
+            "falseValidCalibrationCount": self.false_valid_calibration_count,
+            "relockLatencySec": self.relock_latency_sec,
+            "cameraSegmentCalibrationConsistency": self.camera_segment_calibration_consistency,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CalibrationBenchmarkMetrics:
+        return cls(
+            status=data.get("status", "UNAVAILABLE"),
+            status_reason=data.get("statusReason"),
+            reprojection_error_px_mean=_optional_float(data.get("reprojectionErrorPxMean")),
+            reprojection_error_px_median=_optional_float(data.get("reprojectionErrorPxMedian")),
+            reprojection_error_px_p95=_optional_float(data.get("reprojectionErrorPxP95")),
+            court_position_error_m_mean=_optional_float(data.get("courtPositionErrorMMean")),
+            court_position_error_m_median=_optional_float(data.get("courtPositionErrorMMedian")),
+            court_position_error_m_p95=_optional_float(data.get("courtPositionErrorMP95")),
+            calibration_availability_pct=_optional_float(data.get("calibrationAvailabilityPct")),
+            false_valid_calibration_count=_optional_int(data.get("falseValidCalibrationCount")),
+            relock_latency_sec=_optional_float(data.get("relockLatencySec")),
+            camera_segment_calibration_consistency=_optional_float(data.get("cameraSegmentCalibrationConsistency")),
+        )
+
+
+@dataclass
+class GroundProvenanceSubMetrics:
+    sample_count: int = 0
+    pixel_error_mean: Optional[float] = None
+    pixel_error_median: Optional[float] = None
+    pixel_error_p95: Optional[float] = None
+    court_position_error_m_mean: Optional[float] = None
+    court_position_error_m_median: Optional[float] = None
+    court_position_error_m_p95: Optional[float] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sampleCount": self.sample_count,
+            "pixelErrorMean": self.pixel_error_mean,
+            "pixelErrorMedian": self.pixel_error_median,
+            "pixelErrorP95": self.pixel_error_p95,
+            "courtPositionErrorMMean": self.court_position_error_m_mean,
+            "courtPositionErrorMMedian": self.court_position_error_m_median,
+            "courtPositionErrorMP95": self.court_position_error_m_p95,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GroundProvenanceSubMetrics:
+        return cls(
+            sample_count=_optional_int(data.get("sampleCount")) or 0,
+            pixel_error_mean=_optional_float(data.get("pixelErrorMean")),
+            pixel_error_median=_optional_float(data.get("pixelErrorMedian")),
+            pixel_error_p95=_optional_float(data.get("pixelErrorP95")),
+            court_position_error_m_mean=_optional_float(data.get("courtPositionErrorMMean")),
+            court_position_error_m_median=_optional_float(data.get("courtPositionErrorMMedian")),
+            court_position_error_m_p95=_optional_float(data.get("courtPositionErrorMP95")),
+        )
+
+
+@dataclass
+class GroundPositionBenchmarkMetrics:
+    status: str = "UNAVAILABLE"  # 'MEASURED' | 'UNAVAILABLE' | 'FAILED_VALIDATION'
+    status_reason: Optional[str] = None
+    pixel_error_mean: Optional[float] = None
+    pixel_error_median: Optional[float] = None
+    pixel_error_p95: Optional[float] = None
+    court_position_error_m_mean: Optional[float] = None
+    court_position_error_m_median: Optional[float] = None
+    court_position_error_m_p95: Optional[float] = None
+    coverage_pct: Optional[float] = None
+    by_provenance: dict[str, GroundProvenanceSubMetrics] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "statusReason": self.status_reason,
+            "pixelErrorMean": self.pixel_error_mean,
+            "pixelErrorMedian": self.pixel_error_median,
+            "pixelErrorP95": self.pixel_error_p95,
+            "courtPositionErrorMMean": self.court_position_error_m_mean,
+            "courtPositionErrorMMedian": self.court_position_error_m_median,
+            "courtPositionErrorMP95": self.court_position_error_m_p95,
+            "coveragePct": self.coverage_pct,
+            "byProvenance": {k: v.to_dict() for k, v in self.by_provenance.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GroundPositionBenchmarkMetrics:
+        by_prov = {}
+        for k, v in data.get("byProvenance", {}).items():
+            if isinstance(v, dict):
+                by_prov[k] = GroundProvenanceSubMetrics.from_dict(v)
+        return cls(
+            status=data.get("status", "UNAVAILABLE"),
+            status_reason=data.get("statusReason"),
+            pixel_error_mean=_optional_float(data.get("pixelErrorMean")),
+            pixel_error_median=_optional_float(data.get("pixelErrorMedian")),
+            pixel_error_p95=_optional_float(data.get("pixelErrorP95")),
+            court_position_error_m_mean=_optional_float(data.get("courtPositionErrorMMean")),
+            court_position_error_m_median=_optional_float(data.get("courtPositionErrorMMedian")),
+            court_position_error_m_p95=_optional_float(data.get("courtPositionErrorMP95")),
+            coverage_pct=_optional_float(data.get("coveragePct")),
+            by_provenance=by_prov,
+        )
+
+
+@dataclass
+class TrackingIdentityBenchmarkMetrics:
+    status: str = "UNAVAILABLE"  # 'MEASURED' | 'UNAVAILABLE' | 'FAILED_VALIDATION'
+    status_reason: Optional[str] = None
+    id_switch_count: Optional[int] = None
+    id_switches_per_10_min: Optional[float] = None
+    idf1: Optional[float] = None
+    idtp: Optional[int] = None
+    idfp: Optional[int] = None
+    idfn: Optional[int] = None
+    hota_status: str = "UNAVAILABLE"
+    hota_reason: str = "insufficient implementation/GT"
+    hota: Optional[float] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "statusReason": self.status_reason,
+            "idSwitchCount": self.id_switch_count,
+            "idSwitchesPer10Min": self.id_switches_per_10_min,
+            "idf1": self.idf1,
+            "idtp": self.idtp,
+            "idfp": self.idfp,
+            "idfn": self.idfn,
+            "hotaStatus": self.hota_status,
+            "hotaReason": self.hota_reason,
+            "hota": self.hota,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TrackingIdentityBenchmarkMetrics:
+        return cls(
+            status=data.get("status", "UNAVAILABLE"),
+            status_reason=data.get("statusReason"),
+            id_switch_count=_optional_int(data.get("idSwitchCount")),
+            id_switches_per_10_min=_optional_float(data.get("idSwitchesPer10Min")),
+            idf1=_optional_float(data.get("idf1")),
+            idtp=_optional_int(data.get("idtp")),
+            idfp=_optional_int(data.get("idfp")),
+            idfn=_optional_int(data.get("idfn")),
+            hota_status=data.get("hotaStatus", "UNAVAILABLE"),
+            hota_reason=data.get("hotaReason", "insufficient implementation/GT"),
+            hota=_optional_float(data.get("hota")),
+        )
+
+
+@dataclass
+class Phase3BenchmarkProvenance:
+    manifest_version: int
+    dataset_id: str
+    clip_id: str
+    engine_version: str
+    detector_model: Optional[str] = None
+    tracker_model: Optional[str] = None
+    reid_model: Optional[str] = None
+    shuttle_model: Optional[str] = None
+    calibration_provider: Optional[str] = None
+    camera_segment_info: Optional[dict[str, Any]] = None
+    runtime: Optional[str] = None
+    device: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "manifestVersion": self.manifest_version,
+            "datasetId": self.dataset_id,
+            "clipId": self.clip_id,
+            "engineVersion": self.engine_version,
+            "detectorModel": self.detector_model,
+            "trackerModel": self.tracker_model,
+            "reidModel": self.reid_model,
+            "shuttleModel": self.shuttle_model,
+            "calibrationProvider": self.calibration_provider,
+            "cameraSegmentInfo": self.camera_segment_info,
+            "runtime": self.runtime,
+            "device": self.device,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Phase3BenchmarkProvenance:
+        return cls(
+            manifest_version=_positive_int(data.get("manifestVersion")) or 1,
+            dataset_id=data.get("datasetId", "unknown"),
+            clip_id=data.get("clipId", "unknown"),
+            engine_version=data.get("engineVersion", "1.0.0"),
+            detector_model=data.get("detectorModel"),
+            tracker_model=data.get("trackerModel"),
+            reid_model=data.get("reidModel"),
+            shuttle_model=data.get("shuttleModel"),
+            calibration_provider=data.get("calibrationProvider"),
+            camera_segment_info=data.get("cameraSegmentInfo"),
+            runtime=data.get("runtime"),
+            device=data.get("device"),
+        )
+
+
+@dataclass
+class Phase3BenchmarkReport:
+    provenance: Phase3BenchmarkProvenance
+    camera_cuts: CameraCutBenchmarkMetrics
+    calibration: CalibrationBenchmarkMetrics
+    ground_position: GroundPositionBenchmarkMetrics
+    identity: TrackingIdentityBenchmarkMetrics
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provenance": self.provenance.to_dict(),
+            "cameraCuts": self.camera_cuts.to_dict(),
+            "calibration": self.calibration.to_dict(),
+            "groundPosition": self.ground_position.to_dict(),
+            "identity": self.identity.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Phase3BenchmarkReport:
+        return cls(
+            provenance=Phase3BenchmarkProvenance.from_dict(data.get("provenance", {})),
+            camera_cuts=CameraCutBenchmarkMetrics.from_dict(data.get("cameraCuts", {})),
+            calibration=CalibrationBenchmarkMetrics.from_dict(data.get("calibration", {})),
+            ground_position=GroundPositionBenchmarkMetrics.from_dict(data.get("groundPosition", {})),
+            identity=TrackingIdentityBenchmarkMetrics.from_dict(data.get("identity", {})),
+        )
+
+    def format_text_summary(self) -> str:
+        lines = [
+            "=== PHASE 3.4 BENCHMARK REPORT ===",
+            f"Clip ID: {self.provenance.clip_id} (Dataset: {self.provenance.dataset_id})",
+            f"Engine: {self.provenance.engine_version} | Detector: {self.provenance.detector_model} | Tracker: {self.provenance.tracker_model}",
+            "",
+            "--- MEASURED METRICS ---",
+        ]
+        measured_found = False
+        if self.camera_cuts.status == "MEASURED":
+            measured_found = True
+            lines.append(f"[Camera Cuts] Precision: {self.camera_cuts.precision:.3f} | Recall: {self.camera_cuts.recall:.3f} | F1: {self.camera_cuts.f1:.3f} | TP: {self.camera_cuts.tp_cuts} | FP: {self.camera_cuts.fp_cuts} | FN: {self.camera_cuts.fn_cuts}")
+        if self.calibration.status == "MEASURED":
+            measured_found = True
+            lines.append(f"[Calibration] Reprojection Err Mean: {self.calibration.reprojection_error_px_mean}px | Availability: {self.calibration.calibration_availability_pct}%")
+        if self.ground_position.status == "MEASURED":
+            measured_found = True
+            lines.append(f"[Ground Position] Px Err Mean: {self.ground_position.pixel_error_mean}px | Meter Err Mean: {self.ground_position.court_position_error_m_mean}m")
+        if self.identity.status == "MEASURED":
+            measured_found = True
+            lines.append(f"[Tracking Identity] IDF1: {self.identity.idf1:.3f} | ID Switches: {self.identity.id_switch_count}")
+        if not measured_found:
+            lines.append("(None measured)")
+
+        lines.append("")
+        lines.append("--- UNAVAILABLE METRICS ---")
+        unavailable_found = False
+        if self.camera_cuts.status == "UNAVAILABLE":
+            unavailable_found = True
+            lines.append(f"[Camera Cuts] UNAVAILABLE: {self.camera_cuts.status_reason or 'No ground truth'}")
+        if self.calibration.status == "UNAVAILABLE":
+            unavailable_found = True
+            lines.append(f"[Calibration] UNAVAILABLE: {self.calibration.status_reason or 'No ground truth'}")
+        if self.ground_position.status == "UNAVAILABLE":
+            unavailable_found = True
+            lines.append(f"[Ground Position] UNAVAILABLE: {self.ground_position.status_reason or 'No ground truth'}")
+        if self.identity.status == "UNAVAILABLE":
+            unavailable_found = True
+            lines.append(f"[Tracking Identity] UNAVAILABLE: {self.identity.status_reason or 'No ground truth'}")
+        if self.identity.hota_status == "UNAVAILABLE":
+            unavailable_found = True
+            lines.append(f"[HOTA] UNAVAILABLE: {self.identity.hota_reason}")
+        if not unavailable_found:
+            lines.append("(None)")
+
+        lines.append("")
+        lines.append("--- FAILED VALIDATION ---")
+        failed = [
+            name for name, status in [
+                ("Camera Cuts", self.camera_cuts.status),
+                ("Calibration", self.calibration.status),
+                ("Ground Position", self.ground_position.status),
+                ("Tracking Identity", self.identity.status),
+            ] if status == "FAILED_VALIDATION"
+        ]
+        if failed:
+            for f_name in failed:
+                lines.append(f"[{f_name}] FAILED VALIDATION")
+        else:
+            lines.append("(None)")
+
+        return "\n".join(lines)
