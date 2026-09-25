@@ -618,6 +618,7 @@ export interface TrackingSessionStatus {
   calibrationId?: string | null;
   calibrationState?: import('./types/calibration').CalibrationState;
   calibrationConfidence?: number | null;
+  reprojectionErrorPx?: number | null;
   calibration?: import('./types/calibration').CalibrationProvenance | null;
   shuttle?: ShuttleProvenance | null;
   error: string | null;
@@ -679,6 +680,7 @@ export interface ProcessingConfig {
   runtime?: 'pytorch' | 'onnx' | 'tensorrt' | string;
   precision?: 'fp32' | 'fp16' | 'int8' | string;
   confidenceThreshold?: number;
+  autoCourtCalibrationEnabled?: boolean;
 
   // Shuttle configuration fields (Phase 2.9A)
   shuttleEnabled?: boolean;

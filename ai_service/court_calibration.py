@@ -454,12 +454,22 @@ class AutomaticCourtCalibrationProvider:
         # Defensibly measured confidence:
         # Based on interior cluster coverage (up to 6 interior lines), boundary line strength, and reprojection error
         interior_score = min(1.0, (len(interior_t_clusters) + len(interior_l_clusters)) / 4.0)
-        reproj_score = 1.0
         if reprojection_error_px is not None:
-            reproj_score = max(0.0, 1.0 - (reprojection_error_px / 10.0))
+            # Excessive reprojection error rejects candidate immediately (fail-closed, B4)
+            if reprojection_error_px > 25.0:
+                return None
+            reproj_score = max(0.0, 1.0 - (reprojection_error_px / 12.0))
+            confidence = round(float(0.55 * interior_score + 0.35 * reproj_score + 0.10), 3)
+        else:
+            # Reprojection unmeasured: do NOT convert unavailable to 1.0 (Part B3)
+            # Confidence represents strictly measured interior structural support
+            if (len(interior_t_clusters) + len(interior_l_clusters)) >= 2:
+                confidence = round(float(0.40 * interior_score + 0.20), 3)
+            else:
+                confidence = None
 
-        confidence = round(float(0.50 * interior_score + 0.35 * reproj_score + 0.15), 3)
-        confidence = float(np.clip(confidence, 0.0, 1.0))
+        if confidence is not None:
+            confidence = float(np.clip(confidence, 0.0, 1.0))
 
         corners_tuple = tuple(tuple(float(c) for c in pt) for pt in candidate_corners)
         return CourtCalibrationCandidate(
@@ -473,6 +483,44 @@ class AutomaticCourtCalibrationProvider:
         )
 
 
+def validate_automatic_candidate_acceptance(
+    candidate: CourtCalibrationCandidate | None,
+    max_reprojection_error_px: float = 12.0,
+    min_confidence: float = 0.55,
+    min_interior_clusters: int = 1,
+) -> tuple[bool, str | None]:
+    """
+    Strict fail-closed gate for automatic court calibration acceptance (Phase 3.5).
+    Guarantees that a stable candidate is not accepted as a valid court without verifiable evidence.
+    """
+    if candidate is None:
+        return False, "Candidate is None"
+    if candidate.source is not CalibrationSource.AUTOMATIC:
+        return False, f"Expected AUTOMATIC candidate, got {candidate.source}"
+
+    geom_valid, reason = validate_court_geometry(candidate.corners_px)
+    if not geom_valid:
+        return False, f"Geometry validation failed: {reason}"
+
+    evidence = candidate.supporting_evidence or {}
+    interior_t = int(evidence.get("interior_transverse_count", 0))
+    interior_l = int(evidence.get("interior_longitudinal_count", 0))
+    total_interior = interior_t + interior_l
+
+    if candidate.reprojection_error_px is not None:
+        if candidate.reprojection_error_px > max_reprojection_error_px:
+            return False, f"Reprojection error {candidate.reprojection_error_px:.2f}px exceeds {max_reprojection_error_px}px"
+    else:
+        # Reprojection unmeasured: require stronger alternative interior evidence (B4)
+        if total_interior < max(2, min_interior_clusters):
+            return False, f"Insufficient interior line evidence ({total_interior} lines, unmeasured reprojection)"
+
+    if candidate.confidence is None or candidate.confidence < min_confidence:
+        return False, f"Confidence {candidate.confidence} below acceptance threshold {min_confidence}"
+
+    return True, None
+
+
 class TemporalStabilityValidator:
     """
     Temporal confirmation buffer and anti-churn stabilizer.
@@ -483,9 +531,13 @@ class TemporalStabilityValidator:
         self,
         required_consecutive_frames: int = 3,
         max_corner_drift_px: float = 8.0,
+        max_reprojection_error_px: float = 12.0,
+        min_confidence: float = 0.55,
     ) -> None:
         self.required_consecutive_frames = max(1, required_consecutive_frames)
         self.max_corner_drift_px = float(max_corner_drift_px)
+        self.max_reprojection_error_px = float(max_reprojection_error_px)
+        self.min_confidence = float(min_confidence)
         self.current_segment_id: str | None = None
         self.streak: list[CourtCalibrationCandidate] = []
         self.is_locked: bool = False
@@ -520,6 +572,18 @@ class TemporalStabilityValidator:
 
         if candidate is None:
             # If already locked, do not drop lock on temporary single-frame glitch (Task 9)
+            if self.is_locked:
+                return self.locked_candidate
+            self.streak.clear()
+            return None
+
+        # Check candidate acceptance gate before accumulating temporal streak (Part B)
+        accepted, _ = validate_automatic_candidate_acceptance(
+            candidate,
+            max_reprojection_error_px=self.max_reprojection_error_px,
+            min_confidence=self.min_confidence,
+        )
+        if not accepted:
             if self.is_locked:
                 return self.locked_candidate
             self.streak.clear()

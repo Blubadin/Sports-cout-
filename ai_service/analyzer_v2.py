@@ -950,5 +950,6 @@ class BadmintonAnalyzerV2:
             "useCourtRoi": self.use_court_roi,
             "courtRoiMarginPx": self.court_roi_margin_px,
             "courtRoiMarginM": self.court_roi_margin_m,
+            "autoCourtCalibrationEnabled": self.auto_calibration_provider is not None,
             "device": self.device,
         }

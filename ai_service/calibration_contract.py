@@ -186,5 +186,6 @@ class CalibrationContext:
             "calibrationId": provenance.calibration_id if provenance else None,
             "calibrationState": self.state.value,
             "calibrationConfidence": provenance.confidence if provenance and self.is_metric_valid else None,
+            "reprojectionErrorPx": provenance.reprojection_error_px if provenance and self.is_metric_valid else None,
             "calibration": provenance.to_dict() if provenance else None,
         }

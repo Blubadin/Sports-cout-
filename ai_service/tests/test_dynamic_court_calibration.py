@@ -17,6 +17,7 @@ from court_calibration import (
     CourtCalibrationCandidate,
     ManualCourtCalibrationProvider,
     TemporalStabilityValidator,
+    validate_automatic_candidate_acceptance,
     validate_court_geometry,
 )
 
@@ -349,6 +350,96 @@ class TestDynamicCourtCalibrationFoundation(unittest.TestCase):
             dumped = json.dumps(result)
             self.assertNotIn("NaN", dumped)
             self.assertNotIn("Infinity", dumped)
+
+
+    # 17. strict candidate acceptance gate
+    def test_17_validate_automatic_candidate_acceptance(self):
+        # 1. Clean synthetic candidate with good reprojection error passes
+        valid_candidate = CourtCalibrationCandidate(
+            corners_px=((70.0, 35.0), (570.0, 35.0), (570.0, 445.0), (70.0, 445.0)),
+            source=CalibrationSource.AUTOMATIC,
+            confidence=0.85,
+            supporting_evidence={"interior_transverse_count": 2, "interior_longitudinal_count": 2},
+            reprojection_error_px=4.2,
+        )
+        ok, reason = validate_automatic_candidate_acceptance(valid_candidate)
+        self.assertTrue(ok, f"Expected acceptance but failed with {reason}")
+
+        # 2. Candidate with excessive reprojection error fails
+        high_reproj = CourtCalibrationCandidate(
+            corners_px=((70.0, 35.0), (570.0, 35.0), (570.0, 445.0), (70.0, 445.0)),
+            source=CalibrationSource.AUTOMATIC,
+            confidence=0.85,
+            supporting_evidence={"interior_transverse_count": 2, "interior_longitudinal_count": 2},
+            reprojection_error_px=22.5,
+        )
+        ok, reason = validate_automatic_candidate_acceptance(high_reproj)
+        self.assertFalse(ok)
+        self.assertIn("exceeds", reason)
+
+        # 3. Candidate with unmeasured reprojection error and < 2 interior lines fails
+        unmeasured_few_lines = CourtCalibrationCandidate(
+            corners_px=((70.0, 35.0), (570.0, 35.0), (570.0, 445.0), (70.0, 445.0)),
+            source=CalibrationSource.AUTOMATIC,
+            confidence=0.6,
+            supporting_evidence={"interior_transverse_count": 1, "interior_longitudinal_count": 0},
+            reprojection_error_px=None,
+        )
+        ok, reason = validate_automatic_candidate_acceptance(unmeasured_few_lines)
+        self.assertFalse(ok)
+        self.assertIn("Insufficient interior line evidence", reason)
+
+        # 4. Candidate with low confidence fails
+        low_conf = CourtCalibrationCandidate(
+            corners_px=((70.0, 35.0), (570.0, 35.0), (570.0, 445.0), (70.0, 445.0)),
+            source=CalibrationSource.AUTOMATIC,
+            confidence=0.45,
+            supporting_evidence={"interior_transverse_count": 2, "interior_longitudinal_count": 2},
+            reprojection_error_px=5.0,
+        )
+        ok, reason = validate_automatic_candidate_acceptance(low_conf)
+        self.assertFalse(ok)
+        self.assertIn("below acceptance threshold", reason)
+
+        # 5. Non-automatic source fails
+        manual_candidate = CourtCalibrationCandidate(
+            corners_px=((70.0, 35.0), (570.0, 35.0), (570.0, 445.0), (70.0, 445.0)),
+            source=CalibrationSource.MANUAL,
+            confidence=None,
+            supporting_evidence={"mode": "manual"},
+            reprojection_error_px=None,
+        )
+        ok, reason = validate_automatic_candidate_acceptance(manual_candidate)
+        self.assertFalse(ok)
+        self.assertIn("Expected AUTOMATIC candidate", reason)
+
+    # 18. production tracking session auto calibration wiring
+    def test_18_production_tracking_session_wiring(self):
+        from server import TrackingSession, resolve_processing_config
+
+        # 1. Default config has autoCourtCalibrationEnabled = False
+        default_cfg = resolve_processing_config(None)
+        self.assertFalse(default_cfg["autoCourtCalibrationEnabled"])
+
+        # 2. TrackingSession with default config has None auto_calibration_provider
+        default_session = TrackingSession(
+            session_id="test_court_cal_default",
+            game_type="singles",
+            tracked_player_count=2,
+        )
+        self.assertFalse(default_session.effective_processing_config["autoCourtCalibrationEnabled"])
+        self.assertIsNone(default_session.analyzer.auto_calibration_provider)
+
+        # 3. TrackingSession with autoCourtCalibrationEnabled=True enables provider
+        enabled_session = TrackingSession(
+            session_id="test_court_cal_enabled",
+            game_type="singles",
+            tracked_player_count=2,
+            processing_config={"autoCourtCalibrationEnabled": True},
+        )
+        self.assertTrue(enabled_session.effective_processing_config["autoCourtCalibrationEnabled"])
+        self.assertIsNotNone(enabled_session.analyzer.auto_calibration_provider)
+        self.assertIsInstance(enabled_session.analyzer.auto_calibration_provider, AutomaticCourtCalibrationProvider)
 
 
 if __name__ == "__main__":
