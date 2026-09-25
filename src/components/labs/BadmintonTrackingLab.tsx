@@ -227,6 +227,10 @@ export default function BadmintonTrackingLab() {
   const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [calibrating, setCalibrating] = useState(false);
+  const [recoverySelectionKey, setRecoverySelectionKey] = useState<string | null>(null);
+  const [recoveredKey, setRecoveredKey] = useState<string | null>(null);
+  const [recoveryPending, setRecoveryPending] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [time, setTime] = useState(0);
   const [shuttleMode, setShuttleMode] = useState<ShuttleMode>('off');
 
@@ -243,6 +247,13 @@ export default function BadmintonTrackingLab() {
   const trackedPlayerCount = state.trackedPlayerCount;
   const corners = state.corners;
   const frames = state.telemetry;
+  const latestFrame = frames.length ? frames[frames.length - 1] : null;
+  const latestLostSegmentId = state.status === 'PROCESSING' && latestFrame?.calibrationState === 'CALIBRATION_LOST'
+    ? latestFrame.cameraSegmentId ?? null : null;
+  const latestLostKey = state.sessionId && latestLostSegmentId
+    ? `${state.sessionId}:${latestLostSegmentId}` : null;
+  const lostSegmentId = latestLostKey !== recoveredKey ? latestLostSegmentId : null;
+  const lostSegmentKey = lostSegmentId && state.sessionId ? `${state.sessionId}:${lostSegmentId}` : null;
   const sessionStatus = state.sessionStatus;
   const analysis = state.analysis;
   const chunks = state.chunks;
@@ -777,6 +788,20 @@ export default function BadmintonTrackingLab() {
     !!file &&
     corners.length === 4 &&
     !processing;
+  const applyManualRecovery = async () => {
+    if (!state.sessionId || !lostSegmentId || recoverySelectionKey !== lostSegmentKey ||
+        corners.length !== 4 || recoveryPending) return;
+    setRecoveryPending(true);
+    setRecoveryError(null);
+    try {
+      await aiTrackingService.calibrateSession(state.sessionId, corners, gameType, lostSegmentId);
+      setRecoveredKey(lostSegmentKey);
+    } catch (cause) {
+      setRecoveryError(cause instanceof Error ? cause.message : 'Manual calibration failed');
+    } finally {
+      setRecoveryPending(false);
+    }
+  };
   const button =
     'rounded-lg border border-slate-600 px-3 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed';
 
@@ -1313,15 +1338,32 @@ export default function BadmintonTrackingLab() {
           <ShuttleDiagnostics frames={frames} time={time} />
           <button
             className={button}
-            disabled={processing || !dimensions.width}
+            disabled={(processing && !lostSegmentId) || !dimensions.width}
             onClick={() => {
               videoRef.current?.pause();
+              if (lostSegmentId && latestFrame) videoRef.current!.currentTime = latestFrame.timestampSec;
               update({ corners: [] });
+              setRecoverySelectionKey(lostSegmentKey);
+              setRecoveryError(null);
               setCalibrating(true);
             }}
           >
             {th ? 'เลือก 4 มุมสนามจากภาพวิดีโอ' : 'Calibrate four court corners'}
           </button>
+          {lostSegmentId && (
+            <div role="status" className="text-sm text-amber-300 space-y-2">
+              <p>{th ? 'การปรับเทียบสนามสูญหาย เลือกมุมสนาม 4 จุดจากภาพของช่วงกล้องปัจจุบัน' :
+                'Court calibration lost. Select four corners on the current camera segment.'}</p>
+              <button
+                className={button}
+                disabled={corners.length !== 4 || recoverySelectionKey !== lostSegmentKey || recoveryPending}
+                onClick={() => void applyManualRecovery()}
+              >
+                {th ? 'ใช้การปรับเทียบด้วยตนเอง' : 'Apply manual calibration'}
+              </button>
+              {recoveryError && <p role="alert" className="text-red-300">{recoveryError}</p>}
+            </div>
+          )}
           <p className="text-sm text-slate-400">
             {th
               ? 'เลือกมุมนอกสนามคู่: บนซ้าย → บนขวา → ล่างขวา → ล่างซ้าย'

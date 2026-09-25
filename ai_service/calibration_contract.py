@@ -67,9 +67,11 @@ class CalibrationProvenance:
 
 class CalibrationContext:
     def __init__(self) -> None:
-        self.camera_segment_id = f"segment-{uuid4().hex}"
+        self.camera_segment_index = 0
+        self.camera_segment_id = "segment-0"
         self.state = CalibrationState.UNCALIBRATED
         self.provenance: CalibrationProvenance | None = None
+        self.history: list[CalibrationProvenance] = []
 
     @property
     def is_metric_valid(self) -> bool:
@@ -91,6 +93,8 @@ class CalibrationContext:
             confidence=confidence,
             reprojection_error_px=reprojection_error_px,
         )
+        if self.provenance is not None:
+            self.history.append(self.provenance)
         self.provenance = provenance
         self.state = CalibrationState.CALIBRATED
         return provenance
@@ -106,7 +110,10 @@ class CalibrationContext:
             self.provenance = replace(self.provenance, state=self.state)
 
     def start_camera_segment(self) -> None:
-        self.camera_segment_id = f"segment-{uuid4().hex}"
+        if self.provenance is not None:
+            self.history.append(self.provenance)
+        self.camera_segment_index += 1
+        self.camera_segment_id = f"segment-{self.camera_segment_index}"
         self.state = CalibrationState.CALIBRATION_LOST
         self.provenance = None
 

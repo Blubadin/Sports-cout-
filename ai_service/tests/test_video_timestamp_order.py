@@ -1,4 +1,5 @@
 import unittest
+import threading
 from types import SimpleNamespace
 
 import cv2
@@ -59,6 +60,7 @@ class TestCapturedVideoTimestampOrder(unittest.TestCase):
             elapsed_sec=0.0,
             results=[],
             status="PROCESSING",
+            _state_lock=threading.RLock(),
         )
 
         _analyze_captured_frames(session, DuplicateTimestampCapture(), start_time=0.0)

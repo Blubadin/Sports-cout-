@@ -62,6 +62,7 @@ def public_metadata(value):
     return value
 
 from analyzer_v2 import BadmintonAnalyzerV2
+from calibration_contract import CalibrationState
 from pose_adapter import PoseArchitectureNotImplementedError
 from court_mapper import CourtMapper
 from device_runtime import capability_report, resolve_device
@@ -872,6 +873,7 @@ class SessionCalibrationRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     corners: list[list[float]]
     game_type: Literal['singles', 'doubles'] = "doubles"
+    camera_segment_id: str | None = None
 
 class SessionPlayerRequest(BaseModel):
     players: list[dict]
@@ -1027,7 +1029,8 @@ def _analyze_session_frames(session: TrackingSession):
                 break
             t = round(i * 0.033, 2)
             frame = np.zeros((720, 1280, 3), dtype=np.uint8)
-            telemetry = session.analyzer.process_frame(frame, timestamp_sec=t)
+            with session._state_lock:
+                telemetry = session.analyzer.process_frame(frame, timestamp_sec=t)
             telemetry["source"] = "synthetic_demo"
             telemetry["isSynthetic"] = True
             session.results.append(telemetry)
@@ -1094,7 +1097,8 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
                 session.current_frame = frame_idx
                 session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
                 continue
-            telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+            with session._state_lock:
+                telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
             telemetry["source"] = "real_tracking"
             telemetry["isSynthetic"] = False
             session.results.append(telemetry)
@@ -1308,8 +1312,15 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
         if session._uploading or session._deleting:
             raise HTTPException(status_code=409, detail='Session is busy')
         allowed = ALLOWED_CALIBRATION_STATES_DEMO if session.video_source == "demo" else ALLOWED_CALIBRATION_STATES_REAL
-        if session.status not in allowed:
+        recovering_during_processing = (
+            session.status == "PROCESSING"
+            and session.analyzer.calibration_context.state is CalibrationState.CALIBRATION_LOST
+            and req.game_type == session.game_type
+        )
+        if session.status not in allowed and not recovering_during_processing:
             raise HTTPException(status_code=409, detail=f"Cannot calibrate in {session.status} state")
+        if recovering_during_processing and req.camera_segment_id != session.analyzer.calibration_context.camera_segment_id:
+            raise HTTPException(status_code=409, detail="Camera segment changed; select corners on the current segment")
 
         try:
             session.analyzer.set_court_corners(req.corners)
@@ -1319,7 +1330,8 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
         session.game_type = req.game_type
         session.analyzer.game_type = req.game_type
         session.analyzer.mapper.game_type = req.game_type
-        session.status = "READY_TO_ANALYZE"
+        if not recovering_during_processing:
+            session.status = "READY_TO_ANALYZE"
         return {"status": "success", "sessionStatus": session.status, **session.analyzer.calibration_context.frame_fields()}
 
 

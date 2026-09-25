@@ -208,6 +208,7 @@ class DistanceTracker:
         self.fps = fps
         self.smooth_k = smooth_k
         self._data: dict[int, dict] = {}
+        self.metric_segment_index = 0
 
     def _get_or_create(self, player_id: int) -> dict:
         if player_id not in self._data:
@@ -230,6 +231,11 @@ class DistanceTracker:
 
     def pause_metric_tracking(self) -> None:
         """Keep accumulated distance but never bridge across an invalid interval."""
+        self.break_metric_segment()
+
+    def break_metric_segment(self) -> None:
+        """End the current metric trajectory without clearing accumulated totals."""
+        self.metric_segment_index += 1
         for data in self._data.values():
             data["prev_real"] = None
             data["prev_time"] = None

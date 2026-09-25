@@ -102,6 +102,17 @@ describe('calibration contract', () => {
     expect(saved.calibrationTimeline[0].provenance).toEqual(provenance);
   });
 
+  it('binds a manual recovery request to the observed camera segment', async () => {
+    const client = new TrackingSessionApiClient();
+    client.setBaseUrl('http://127.0.0.1:8000');
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) } as Response);
+    await client.calibrateSession('a1', [[1, 2], [3, 4], [5, 6], [7, 8]], 'singles', 'segment-1');
+    const request = vi.mocked(global.fetch).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      camera_segment_id: 'segment-1',
+    });
+  });
+
   it('does not infer a zero confidence or map meters from an unknown state', () => {
     const unknown = frame(1, { calibrationState: 'UNRECOGNIZED', calibrationConfidence: 0 });
     expect(unknown.calibrationState).toBe('UNCALIBRATED');

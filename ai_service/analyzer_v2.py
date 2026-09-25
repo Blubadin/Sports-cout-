@@ -17,6 +17,7 @@ from scipy.optimize import linear_sum_assignment
 
 from court_mapper import CourtMapper, DistanceTracker, COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M, COURT_WIDTH_SINGLES_M
 from calibration_contract import CalibrationContext, CalibrationSource
+from camera_cut_detector import CameraCutDetector
 from court_roi import calculate_court_roi, inverse_transform_bbox
 from device_runtime import resolve_device
 from engine_config import (
@@ -155,6 +156,7 @@ class BadmintonAnalyzerV2:
         self.mapper = CourtMapper(game_type=game_type)
         self.dist_tracker = DistanceTracker(self.mapper, fps=self.fps)
         self.calibration_context = CalibrationContext()
+        self.camera_cut_detector = CameraCutDetector()
         self.court_corners_px: np.ndarray | None = None
         self.frame_count = 0
 
@@ -318,6 +320,7 @@ class BadmintonAnalyzerV2:
         self.mapper.game_type = self.game_type
         self.court_corners_px = candidate
         self.dist_tracker.pause_metric_tracking()
+        self.camera_cut_detector.rearm_after_calibration()
         for profile in self.profiles.values():
             profile.last_real_pos = None
 
@@ -338,13 +341,25 @@ class BadmintonAnalyzerV2:
             profile.last_real_pos = None
 
     def start_camera_segment(self) -> None:
-        """Explicit invalidation hook; camera-cut detection is out of scope."""
+        """Invalidate calibration for an externally confirmed camera cut."""
+        self.camera_cut_detector.reset()
+        self._invalidate_for_camera_cut()
+
+    def _invalidate_for_camera_cut(self) -> None:
+        """Break all metric state before processing the first frame of a cut."""
         self.calibration_context.start_camera_segment()
         self.mapper.invalidate()
         self.court_corners_px = None
-        self.dist_tracker.pause_metric_tracking()
+        self.dist_tracker.break_metric_segment()
+        self.last_known_track_owners.clear()
         for profile in self.profiles.values():
             profile.last_real_pos = None
+            profile.last_bbox = None
+            profile.missed_frames = 30
+            profile.track_id = None
+            profile.detection_confidence = None
+            profile.last_pose = None
+            profile.last_pose_age = 0
 
     def assign_initial_players(self, frame: np.ndarray, assignments: list[dict]):
         """
@@ -458,6 +473,9 @@ class BadmintonAnalyzerV2:
         self.analyzed_frame_count += 1
         should_run_pose = (self.analyzed_frame_count % self.pose_stride == 0)
         t_sec = timestamp_sec if timestamp_sec is not None else (self.frame_count / self.fps)
+
+        if self.camera_cut_detector.observe(frame):
+            self._invalidate_for_camera_cut()
 
         raw_detections = self.detect_and_track(frame)
 

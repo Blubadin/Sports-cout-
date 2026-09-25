@@ -260,12 +260,13 @@ export class TrackingSessionApiClient {
   public async calibrateSession(
     sessionId: string,
     corners: number[][],
-    gameType: BadmintonGameType
+    gameType: BadmintonGameType,
+    cameraSegmentId?: string
   ): Promise<Pick<TrackingTelemetryV1, 'cameraSegmentId' | 'calibrationId' | 'calibrationState' | 'calibrationConfidence' | 'calibration'>> {
     const res = await this.request(`/api/tracking/sessions/${sessionId}/calibration`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ corners, game_type: gameType }),
+      body: JSON.stringify({ corners, game_type: gameType, ...(cameraSegmentId ? { camera_segment_id: cameraSegmentId } : {}) }),
     });
     return res.json();
   }
