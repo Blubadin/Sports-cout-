@@ -70,11 +70,15 @@ class TestDynamicPlayerCount(unittest.TestCase):
         # P2 -> D2 (top, x=4.0m)
         # P3 -> D3 (bottom, x=1.5m)
         # P4 -> D1 (bottom, x=5.0m)
+        def _mock_det(xm, ym, conf, tid):
+            cx, cy = analyzer.mapper.real_to_pixel((xm, ym))
+            return {"bbox": [cx - 20, cy - 40, cx + 20, cy], "center": (cx, cy), "conf": conf, "track_id": tid}
+
         mock_detections = [
-            {"bbox": [0, 0, 50, 50], "center": analyzer.mapper.real_to_pixel((5.0, 10.0)), "conf": 0.9, "track_id": 10},
-            {"bbox": [0, 0, 50, 50], "center": analyzer.mapper.real_to_pixel((4.0, 2.0)), "conf": 0.85, "track_id": 20},
-            {"bbox": [0, 0, 50, 50], "center": analyzer.mapper.real_to_pixel((1.5, 11.0)), "conf": 0.88, "track_id": 30},
-            {"bbox": [0, 0, 50, 50], "center": analyzer.mapper.real_to_pixel((1.0, 3.0)), "conf": 0.92, "track_id": 40},
+            _mock_det(5.0, 10.0, 0.9, 10),
+            _mock_det(4.0, 2.0, 0.85, 20),
+            _mock_det(1.5, 11.0, 0.88, 30),
+            _mock_det(1.0, 3.0, 0.92, 40),
         ]
         analyzer.detect_and_track = Mock(return_value=mock_detections)
 
