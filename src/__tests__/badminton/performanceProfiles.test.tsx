@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import TrackingLabInspector from '../../components/labs/TrackingLabInspector';
 import BadmintonTrackingLab from '../../components/labs/BadmintonTrackingLab';
 import { aiTrackingService } from '../../services/aiTrackingService';
+import { createDefaultProjectTrackingState, trackingSessionStore } from '../../services/trackingSessionStore';
 import type { TrackingSessionStatus } from '../../types';
 
 vi.mock('../../context/ScoutContext', () => ({
@@ -121,6 +122,7 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    trackingSessionStore.updateProjectState('proj_123', createDefaultProjectTrackingState('proj_123'));
     vi.mocked(aiTrackingService.checkBackendHealth).mockResolvedValue(true);
     vi.mocked(aiTrackingService.getCapabilities).mockResolvedValue({
       selectedDevice: 'cpu',
@@ -218,6 +220,35 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
       expect(screen.getByLabelText('Frame Stride')).toBeInTheDocument();
       expect(screen.getByLabelText('Pose Stride')).toBeInTheDocument();
       expect(screen.getByLabelText('Court ROI Cropping')).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: 'Enable Automatic Court Calibration' })).not.toBeChecked();
+    });
+
+    it('supports automatic calibration from video upload without manual corners', async () => {
+      render(<BadmintonTrackingLab />);
+      await waitFor(() => expect(aiTrackingService.checkBackendHealth).toHaveBeenCalled());
+      fireEvent.click(screen.getByRole('button', { name: /Advanced settings/i }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Enable Automatic Court Calibration' }));
+
+      const fileInput = screen.getByLabelText('Select video file');
+      fireEvent.change(fileInput, {
+        target: { files: [new File(['video'], 'auto.mp4', { type: 'video/mp4' })] },
+      });
+      const video = document.querySelector('video') as HTMLVideoElement;
+      Object.defineProperty(video, 'videoWidth', { configurable: true, value: 1280 });
+      Object.defineProperty(video, 'videoHeight', { configurable: true, value: 720 });
+      fireEvent.loadedMetadata(video);
+
+      const runButton = screen.getByRole('button', { name: /Run Movement Analysis/i });
+      expect(runButton).toBeEnabled();
+      fireEvent.click(runButton);
+
+      await waitFor(() => expect(aiTrackingService.createSession).toHaveBeenCalledWith(
+        'singles', 'upload', expect.objectContaining({
+          processingConfig: expect.objectContaining({ autoCourtCalibrationEnabled: true }),
+        }),
+      ));
+      await waitFor(() => expect(aiTrackingService.startSessionAnalysis).toHaveBeenCalledWith('session_perf_1'));
+      expect(aiTrackingService.calibrateSession).not.toHaveBeenCalled();
     });
 
     it('passes selected ProcessingConfig to aiTrackingService.createSession', async () => {
@@ -275,6 +306,7 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
             processingConfig: expect.objectContaining({
               profile: 'reference',
               requestedProfile: 'reference',
+              autoCourtCalibrationEnabled: false,
               device: 'auto',
               requestedDevice: 'auto',
               detectorInputSize: 640,
@@ -287,6 +319,9 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
           })
         );
       });
+      await waitFor(() => expect(aiTrackingService.calibrateSession).toHaveBeenCalledWith(
+        'session_perf_1', expect.any(Array), 'singles',
+      ));
     });
   });
 });

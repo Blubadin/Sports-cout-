@@ -262,6 +262,22 @@ describe('Phase 5 — TrackingLabInspector Tabs & Real Metadata Foundation', () 
     expect(container.textContent).not.toContain('Infinity');
   });
 
+  it('shows requested and effective automatic calibration separately and keeps missing segment unavailable', () => {
+    const status: TrackingSessionStatus = {
+      ...mockStatus,
+      cameraSegmentId: undefined,
+      processingConfig: { ...mockStatus.processingConfig!, autoCourtCalibrationEnabled: true },
+      effectiveProcessingConfig: { ...mockStatus.processingConfig!, autoCourtCalibrationEnabled: false },
+      runtimeProvenance: { ...mockStatus.runtimeProvenance!, autoCourtCalibrationEnabled: false },
+    };
+    render(<TrackingLabInspector status={status} isProcessing={false} language="en" />);
+
+    expect(screen.getByTestId('camera-segment-value')).toHaveTextContent('—');
+    expect(screen.getByTestId('auto-calibration-mode')).toHaveTextContent('Requested: Enabled');
+    expect(screen.getByTestId('auto-calibration-mode')).toHaveTextContent('Effective: Disabled');
+    expect(screen.queryByText('segment-0')).not.toBeInTheDocument();
+  });
+
   it('switches to Performance tab and compares matching benchmark runs', () => {
     const baselineRun: TrackingAnalysis = {
       id: 'session_baseline',

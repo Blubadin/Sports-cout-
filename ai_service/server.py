@@ -1405,7 +1405,11 @@ def start_session_analysis(session_id: str):
         if session.status == "ERROR":
             raise HTTPException(status_code=409, detail="Cannot start a session in ERROR state")
 
-        if session.status != "READY_TO_ANALYZE":
+        auto_calibration_start = (
+            session.status == "VIDEO_READY"
+            and session.effective_processing_config.get("autoCourtCalibrationEnabled") is True
+        )
+        if session.status != "READY_TO_ANALYZE" and not auto_calibration_start:
             raise HTTPException(status_code=409, detail=f"Cannot start analysis in {session.status} state")
 
         # Atomically transition to PROCESSING before creating the thread

@@ -6,6 +6,7 @@ import type {
   TrackingRuntimeProvenance,
   SourceVideoMetadata,
   CameraResearchMetadata,
+  TrackingPlayerV1,
 } from '../../types';
 import { isMetricCalibrationValid } from '../../types/calibration';
 import type { CalibrationProvenance, CalibrationState } from '../../types/calibration';
@@ -116,6 +117,8 @@ export interface TrackingAnalysis {
   effectiveDevice?: string;
   runtimeProvenance?: TrackingRuntimeProvenance;
   calibrationTimeline?: TrackingCalibrationEvent[];
+  /** Sparse image-space telemetry retained for faithful reload, including lost calibration intervals. */
+  imageObservations?: TrackingImageObservation[];
   videoMetadata?: SourceVideoMetadata;
   researchMetadata?: CameraResearchMetadata;
   localFileName?: string;
@@ -128,6 +131,21 @@ export interface TrackingAnalysis {
   quality?: TrackingQuality | null;
   summary: TrackingSummary;
 }
+
+export interface TrackingImageObservation {
+  frameIndex: number;
+  timestampSec: number;
+  cameraSegmentId?: string;
+  calibrationId?: string | null;
+  calibrationState?: CalibrationState;
+  players: TrackingImagePlayerObservation[];
+}
+
+export type TrackingImagePlayerObservation = Pick<TrackingPlayerV1,
+  | 'playerId' | 'state' | 'bboxPct' | 'groundPointPct' | 'groundPointProvenance'
+  | 'groundPositionM' | 'leftFootPx' | 'rightFootPx' | 'leftFootConfidence'
+  | 'rightFootConfidence' | 'leftFootCourtM' | 'rightFootCourtM' | 'leftFoot' | 'rightFoot'
+>;
 
 export interface TrackingSample {
   timestamp: number; // seconds
@@ -1066,6 +1084,7 @@ export function downsampleAndChunkTrackingSamples(
   summary: TrackingSummary;
   quality: TrackingQuality;
   calibrationTimeline: TrackingCalibrationEvent[];
+  imageObservations: TrackingImageObservation[];
 } {
   if (frames.length === 0) {
     return {
@@ -1073,6 +1092,7 @@ export function downsampleAndChunkTrackingSamples(
       summary: { durationSeconds: 0, sampleCount: 0, players: {} },
       quality: computeTrackingQuality([], canonicalPlayerMetrics ? Object.keys(canonicalPlayerMetrics) : undefined),
       calibrationTimeline: [],
+      imageObservations: [],
     };
   }
 
@@ -1104,8 +1124,50 @@ export function downsampleAndChunkTrackingSamples(
   // 1. Full-Rate Processing for Canonical Movement Metrics
   const fullRatePlayerSamples = new Map<string, TrackingSample[]>();
   const lastTotalDistances = new Map<string, number>();
+  const imageObservations: TrackingImageObservation[] = [];
+  let lastImageObservationTimestamp = -1;
+  const imageObservationInterval = 1 / targetHz;
 
   for (const frame of frames) {
+    if (lastImageObservationTimestamp < 0 ||
+        frame.timestampSec - lastImageObservationTimestamp >= imageObservationInterval * 0.95) {
+      const metricValid = isMetricCalibrationValid(frame);
+      imageObservations.push({
+        frameIndex: frame.frameIndex,
+        timestampSec: frame.timestampSec,
+        cameraSegmentId: frame.cameraSegmentId,
+        calibrationId: frame.calibrationId,
+        calibrationState: frame.calibrationState,
+        players: frame.players.map(player => {
+          const observation: TrackingImagePlayerObservation = {
+            playerId: player.playerId,
+            state: player.state,
+            bboxPct: player.bboxPct,
+            groundPointPct: player.groundPointPct,
+            groundPointProvenance: player.groundPointProvenance,
+            groundPositionM: player.groundPositionM,
+            leftFootPx: player.leftFootPx,
+            rightFootPx: player.rightFootPx,
+            leftFootConfidence: player.leftFootConfidence,
+            rightFootConfidence: player.rightFootConfidence,
+            leftFootCourtM: player.leftFootCourtM,
+            rightFootCourtM: player.rightFootCourtM,
+            leftFoot: player.leftFoot,
+            rightFoot: player.rightFoot,
+          };
+          return metricValid ? observation : {
+            ...observation,
+            groundPositionM: null,
+            leftFootCourtM: null,
+            rightFootCourtM: null,
+            leftFoot: observation.leftFoot ? { ...observation.leftFoot, courtPositionM: null } : observation.leftFoot,
+            rightFoot: observation.rightFoot ? { ...observation.rightFoot, courtPositionM: null } : observation.rightFoot,
+          };
+        }),
+      });
+      lastImageObservationTimestamp = frame.timestampSec;
+    }
+
     if (!isMetricCalibrationValid(frame)) continue;
     for (const p of frame.players) {
       if (typeof p.totalDistanceM === 'number') {
@@ -1230,7 +1292,7 @@ export function downsampleAndChunkTrackingSamples(
     }
   }
 
-  return { chunks, summary, quality, calibrationTimeline };
+  return { chunks, summary, quality, calibrationTimeline, imageObservations };
 }
 
 // -------------------------------------------------------------

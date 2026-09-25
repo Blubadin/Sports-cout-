@@ -668,7 +668,7 @@ export default function BadmintonTrackingLab() {
     if (
       !file ||
       online !== true ||
-      corners.length !== 4 ||
+      (corners.length !== 4 && state.processingConfig?.autoCourtCalibrationEnabled !== true) ||
       processing ||
       matchInfo.sportType !== 'badminton'
     )
@@ -704,6 +704,7 @@ export default function BadmintonTrackingLab() {
         courtRoiMarginM: 0.5,
         frameStride: effectiveFrameStride,
         poseStride,
+        autoCourtCalibrationEnabled: state.processingConfig?.autoCourtCalibrationEnabled ?? false,
         shuttleEnabled: shuttleTrackingEnabled,
         ...(shuttleTrackingEnabled
           ? {
@@ -767,8 +768,12 @@ export default function BadmintonTrackingLab() {
       const activeStatus = store.getProjectState(activeProjectId!)?.status || 'VIDEO_READY';
 
       if (activeStatus === 'VIDEO_READY' || activeStatus === 'IDLE' || activeStatus === 'CREATED') {
-        await aiTrackingService.calibrateSession(id!, corners, gameType);
-        if (!current()) return;
+        if (corners.length === 4) {
+          await aiTrackingService.calibrateSession(id!, corners, gameType);
+          if (!current()) return;
+        } else if (processingConfig.autoCourtCalibrationEnabled !== true) {
+          return;
+        }
         update({ status: 'READY_TO_ANALYZE' });
       }
 
@@ -789,7 +794,7 @@ export default function BadmintonTrackingLab() {
     matchInfo.sportType === 'badminton' &&
     online === true &&
     !!file &&
-    corners.length === 4 &&
+    (corners.length === 4 || state.processingConfig?.autoCourtCalibrationEnabled === true) &&
     !processing;
   const applyManualRecovery = async () => {
     if (!state.sessionId || !lostSegmentId || recoverySelectionKey !== lostSegmentKey ||
@@ -979,6 +984,23 @@ export default function BadmintonTrackingLab() {
             </label>
           </div>
           <div className="flex items-center gap-4 pt-1">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                aria-label="Enable Automatic Court Calibration"
+                disabled={processing}
+                checked={state.processingConfig?.autoCourtCalibrationEnabled ?? false}
+                onChange={(e) => {
+                  update({ processingConfig: {
+                    ...state.processingConfig,
+                    autoCourtCalibrationEnabled: e.target.checked,
+                  } });
+                  setProfile('custom');
+                }}
+                className="rounded bg-slate-800 border-slate-700 text-sky-500"
+              />
+              <span>{th ? 'ปรับเทียบสนามอัตโนมัติ' : 'Enable Automatic Court Calibration'}</span>
+            </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"

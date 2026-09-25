@@ -434,6 +434,7 @@ class TrackingSessionStore {
         effectiveDevice: state.sessionStatus?.effectiveDevice || state.sessionStatus?.device,
         runtimeProvenance: state.sessionStatus?.runtimeProvenance,
         calibrationTimeline: saved.calibrationTimeline,
+        imageObservations: saved.imageObservations,
         videoMetadata: state.sessionStatus?.videoMetadata,
         researchMetadata: state.sessionStatus?.researchMetadata,
         localFileName: state.localFileName ?? undefined,

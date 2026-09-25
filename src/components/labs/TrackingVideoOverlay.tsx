@@ -129,7 +129,10 @@ export function resolveFeetPosition(player: TrackingPlayerV1): FeetPositionProxy
 
   // Legacy fallback for stored/unannotated sessions
   const kps = player.pose?.keypoints;
-  if (kps && kps.length >= 17) {
+  const legacyPoseUnitsArePercent = player.pose?.keypointCoordinateSpace == null;
+  const poseCoordinatesArePercent = player.pose?.keypointCoordinateSpace === 'normalized_percent'
+    || legacyPoseUnitsArePercent;
+  if (poseCoordinatesArePercent && kps && kps.length >= 17) {
     const la = kps[15];
     const ra = kps[16];
     const laValid = isPointReliable(la);
@@ -209,6 +212,7 @@ function interpolateDisplayPlayer(
   const canInterpolateGroundPoint = !!from.groundPointPct && !!to.groundPointPct;
   const canInterpolatePose = !!from.pose
     && !!to.pose
+    && from.pose.keypointCoordinateSpace === to.pose.keypointCoordinateSpace
     && from.pose.keypoints.length === to.pose.keypoints.length;
   if (!canInterpolateBbox && !canInterpolateGroundPoint && !canInterpolatePose) return null;
 
@@ -282,8 +286,19 @@ export function resolveOverlayAtTime(
   }
 
   const next = frames[lo];
+  if (next && ageSec > TIME_EPSILON_SEC && next.cameraSegmentId !== previous.cameraSegmentId) {
+    return {
+      status: 'unavailable',
+      players: [],
+      freshnessToleranceSec,
+      sourceTimestampSec: previous.timestampSec,
+      nextTimestampSec: next.timestampSec,
+      ageSec,
+    };
+  }
   const canInterpolate = !!next
     && ageSec > TIME_EPSILON_SEC
+    && next.cameraSegmentId === previous.cameraSegmentId
     && next.timestampSec - time <= freshnessToleranceSec + TIME_EPSILON_SEC;
   const nextPlayers = canInterpolate
     ? new Map(next.players.map((candidate) => [candidate.playerId, candidate]))
@@ -371,6 +386,8 @@ export default function TrackingVideoOverlay({
       {resolution.players.filter(({ provenance }) => provenance !== 'lost').map(({ player: p, provenance }) => {
         const bodyCenter = effectiveMode === 'center' ? resolveBodyCenterProxy(p) : null;
         const feet = effectiveMode === 'feet' ? resolveFeetPosition(p) : null;
+        const poseUsesPercentCoordinates = p.pose?.keypointCoordinateSpace == null
+          || p.pose.keypointCoordinateSpace === 'normalized_percent';
         const opacity = provenance === 'predicted' ? 0.65 : provenance === 'interpolated' ? 0.85 : 1;
 
         return (
@@ -407,7 +424,7 @@ export default function TrackingVideoOverlay({
             )}
 
             {/* Skeleton Mode */}
-            {effectiveMode === 'skeleton' && p.pose && (
+            {effectiveMode === 'skeleton' && p.pose && poseUsesPercentCoordinates && (
               <g
                 data-testid={p.pose.isReused ? 'pose-reused' : 'pose-fresh'}
                 stroke={p.pose.isReused ? '#fbbf24' : '#4ade80'}

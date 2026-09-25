@@ -513,14 +513,30 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
               yPct: posPct.y,
             }
           : null);
-      const groundPoint =
-        p.groundPointPct ||
-        (p.video_bbox_pct
+      const hasCanonicalGroundPoint = Object.prototype.hasOwnProperty.call(p, 'groundPointPct');
+      const groundPoint = hasCanonicalGroundPoint
+        ? p.groundPointPct
+        : (p.video_bbox_pct
           ? {
               x: Number((p.video_bbox_pct.x + p.video_bbox_pct.width / 2).toFixed(2)),
               y: Number((p.video_bbox_pct.y + p.video_bbox_pct.height).toFixed(2)),
             }
           : undefined);
+      const normalizeFoot = (foot: any) => foot && typeof foot === 'object'
+        ? { ...foot, ...(metricValid ? {} : { courtPositionM: null }) }
+        : foot;
+      const pose = p.pose && typeof p.pose === 'object'
+        ? { ...p.pose, keypointCoordinateSpace: p.pose.keypointCoordinateSpace ?? 'normalized_percent' }
+        : p.pose;
+      const groundPositionM = metricValid
+        ? (p.groundPositionM !== undefined ? p.groundPositionM : p.courtPositionM)
+        : null;
+      const leftFootCourtM = metricValid
+        ? (p.leftFootCourtM !== undefined ? p.leftFootCourtM : p.leftFoot?.courtPositionM)
+        : null;
+      const rightFootCourtM = metricValid
+        ? (p.rightFootCourtM !== undefined ? p.rightFootCourtM : p.rightFoot?.courtPositionM)
+        : null;
 
       return {
         playerId: p.playerId || `P${p.id}`,
@@ -528,14 +544,27 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         teamCode: p.teamCode || (p.team ? `team${p.team}` : undefined),
         bboxPct: p.bboxPct || p.video_bbox_pct,
         groundPointPct: groundPoint,
+        groundPointProvenance: p.groundPointProvenance ?? null,
+        groundPositionM,
+        courtPositionM: metricValid
+          ? (p.courtPositionM !== undefined ? p.courtPositionM : posM ?? null)
+          : null,
+        leftFootPx: p.leftFootPx !== undefined ? p.leftFootPx : p.leftFoot?.positionPx ?? null,
+        rightFootPx: p.rightFootPx !== undefined ? p.rightFootPx : p.rightFoot?.positionPx ?? null,
+        leftFootConfidence: p.leftFootConfidence !== undefined ? p.leftFootConfidence : p.leftFoot?.confidence ?? null,
+        rightFootConfidence: p.rightFootConfidence !== undefined ? p.rightFootConfidence : p.rightFoot?.confidence ?? null,
+        leftFootCourtM,
+        rightFootCourtM,
+        leftFoot: normalizeFoot(p.leftFoot),
+        rightFoot: normalizeFoot(p.rightFoot),
         courtPosition: metricValid ? courtPos : null,
         absoluteZone: metricValid ? (p.absoluteZone ?? p.zone) : null,
         playerRelativeZone: metricValid ? (p.playerRelativeZone ?? p.zone) : null,
         speedMps: metricValid ? (p.speedMps ?? p.speed_ms) : null,
-        totalDistanceM: p.totalDistanceM ?? p.total_dist_m,
+        totalDistanceM: metricValid ? (p.totalDistanceM ?? p.total_dist_m ?? null) : null,
         detectionConfidence: typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null,
         state: p.state || (p.is_active ? 'observed' : 'lost'),
-        pose: p.pose,
+        pose,
       };
     }),
     shuttle: frame.shuttle

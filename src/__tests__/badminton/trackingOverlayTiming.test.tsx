@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import TrackingVideoOverlay, {
   deriveOverlayFreshnessToleranceSec,
   frameAtTime,
+  resolveFeetPosition,
   resolveOverlayAtTime,
 } from '../../components/labs/TrackingVideoOverlay';
 import type { TrackingPlayerV1, TrackingTelemetryV1 } from '../../types';
@@ -83,6 +84,39 @@ describe('Phase 0.4 overlay time resolver', () => {
     expect(result.players[0].player.totalDistanceM).toBe(4);
     expect(before.players[0].bboxPct?.x).toBe(10);
     expect(after.players[0].bboxPct?.x).toBe(20);
+  });
+
+  it('does not interpolate any image geometry across camera segments', () => {
+    const before = frame(1, [{
+      ...player('observed', 10),
+      leftFootPx: { x: 12, y: 8 },
+      groundPointPct: { x: 15, y: 40 },
+      pose: { keypoints: [{ x: 10, y: 20, score: 0.8 }], keypointCoordinateSpace: 'normalized_percent' },
+    }]);
+    const after = frame(1.1, [{
+      ...player('observed', 30),
+      leftFootPx: { x: 300, y: 200 },
+      groundPointPct: { x: 35, y: 40 },
+      pose: { keypoints: [{ x: 30, y: 20, score: 0.9 }], keypointCoordinateSpace: 'normalized_percent' },
+    }]);
+    before.cameraSegmentId = 'segment-a';
+    after.cameraSegmentId = 'segment-b';
+
+    const result = resolveOverlayAtTime([before, after], 1.05);
+
+    expect(result.status).toBe('unavailable');
+    expect(result.players).toEqual([]);
+  });
+
+  it('does not treat explicitly pixel-based keypoints as normalized percentages', () => {
+    const pixelPosePlayer: TrackingPlayerV1 = {
+      playerId: 'P1', state: 'observed', bboxPct: null,
+      pose: {
+        keypointCoordinateSpace: 'pixel',
+        keypoints: Array.from({ length: 17 }, (_, index) => ({ x: index === 15 ? 4 : 8, y: index === 15 ? 8 : 12, score: 0.9 })),
+      },
+    };
+    expect(resolveFeetPosition(pixelPosePlayer)).toBeNull();
   });
 
   it('does not label a player interpolated when no display geometry is compatible', () => {

@@ -208,6 +208,9 @@ class TestTrackingLifecycle(unittest.TestCase):
         # upload -> VIDEO_READY
         self._upload(session_id, mock_cv2.return_value)
         self.assertEqual(tracking_sessions[session_id].status, "VIDEO_READY")
+        # Without the auto-calibration opt-in, manual calibration remains required.
+        res = self.client.post(f"/api/tracking/sessions/{session_id}/start")
+        self.assertEqual(res.status_code, 409)
 
         # calibration -> READY_TO_ANALYZE
         res = self._calibrate(session_id)
@@ -231,6 +234,22 @@ class TestTrackingLifecycle(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()["status"], "started")
         self.assertEqual(tracking_sessions[session_id].status, "PROCESSING")
+
+    @patch("server.cv2.VideoCapture")
+    def test_auto_calibration_session_can_start_from_video_ready_without_manual_corners(self, mock_cv2):
+        mock_cv2.return_value = _mock_cv2_cap()
+        session_id = self._create_session(processing_config={"autoCourtCalibrationEnabled": True})
+        self._upload(session_id, mock_cv2.return_value)
+        session = tracking_sessions[session_id]
+        self.assertEqual(session.status, "VIDEO_READY")
+        self.assertIsNotNone(session.analyzer.auto_calibration_provider)
+        self.assertIsNone(session.analyzer.mapper.H)
+
+        with patch("server._run_session_analysis"):
+            response = self.client.post(f"/api/tracking/sessions/{session_id}/start")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(session.status, "PROCESSING")
 
     def test_double_start_creates_one_worker(self):
         """Use true concurrency to test double /start race protection without TestClient deadlock."""

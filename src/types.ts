@@ -439,6 +439,8 @@ export interface TrackingPoseV1 {
     isReused?: boolean;
     ageFrames?: number;
   }[];
+  /** Coordinate units for x/y. API-normalized legacy poses are explicitly marked at ingestion. */
+  keypointCoordinateSpace?: 'normalized_percent' | 'pixel';
   metrics?: PoseMetrics2D;
   action?: string;
   confidence?: number | null;
@@ -810,6 +812,7 @@ export interface TrackingRuntimeProvenance {
   runtime?: string;
   precision?: string;
   confidenceThreshold?: number;
+  autoCourtCalibrationEnabled?: boolean;
   shuttle?: ShuttleProvenance | null;
 }
 
