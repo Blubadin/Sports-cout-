@@ -261,12 +261,21 @@ export class TrackingSessionApiClient {
     sessionId: string,
     corners: number[][],
     gameType: BadmintonGameType,
-    cameraSegmentId?: string
+    cameraSegmentId?: string,
+    selectedFrame?: { frameIndex: number; timestampSec: number },
   ): Promise<Pick<TrackingTelemetryV1, 'cameraSegmentId' | 'calibrationId' | 'calibrationState' | 'calibrationConfidence' | 'calibration'>> {
     const res = await this.request(`/api/tracking/sessions/${sessionId}/calibration`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ corners, game_type: gameType, ...(cameraSegmentId ? { camera_segment_id: cameraSegmentId } : {}) }),
+      body: JSON.stringify({
+        corners,
+        game_type: gameType,
+        ...(cameraSegmentId ? { camera_segment_id: cameraSegmentId } : {}),
+        ...(selectedFrame ? {
+          selected_at_frame_index: selectedFrame.frameIndex,
+          selected_at_timestamp_sec: selectedFrame.timestampSec,
+        } : {}),
+      }),
     });
     return res.json();
   }

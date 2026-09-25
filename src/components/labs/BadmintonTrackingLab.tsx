@@ -228,6 +228,8 @@ export default function BadmintonTrackingLab() {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [calibrating, setCalibrating] = useState(false);
   const [recoverySelectionKey, setRecoverySelectionKey] = useState<string | null>(null);
+  const [recoverySelectionFrame, setRecoverySelectionFrame] = useState<{ frameIndex: number; timestampSec: number } | null>(null);
+  const [recoveryViewReady, setRecoveryViewReady] = useState(false);
   const [recoveredKey, setRecoveredKey] = useState<string | null>(null);
   const [recoveryPending, setRecoveryPending] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
@@ -248,7 +250,8 @@ export default function BadmintonTrackingLab() {
   const corners = state.corners;
   const frames = state.telemetry;
   const latestFrame = frames.length ? frames[frames.length - 1] : null;
-  const latestLostSegmentId = state.status === 'PROCESSING' && latestFrame?.calibrationState === 'CALIBRATION_LOST'
+  const latestLostSegmentId = state.status === 'PROCESSING' &&
+    (latestFrame?.calibrationState === 'CALIBRATION_LOST' || latestFrame?.calibrationState === 'RECALIBRATING')
     ? latestFrame.cameraSegmentId ?? null : null;
   const latestLostKey = state.sessionId && latestLostSegmentId
     ? `${state.sessionId}:${latestLostSegmentId}` : null;
@@ -790,11 +793,17 @@ export default function BadmintonTrackingLab() {
     !processing;
   const applyManualRecovery = async () => {
     if (!state.sessionId || !lostSegmentId || recoverySelectionKey !== lostSegmentKey ||
-        corners.length !== 4 || recoveryPending) return;
+        !recoverySelectionFrame || !recoveryViewReady || corners.length !== 4 || recoveryPending) return;
+    const viewedTime = videoRef.current?.currentTime;
+    if (viewedTime === undefined || !Number.isFinite(viewedTime) ||
+        Math.abs(viewedTime - recoverySelectionFrame.timestampSec) > 0.05) {
+      setRecoveryError('Video view changed. Select four corners on the current segment frame again.');
+      return;
+    }
     setRecoveryPending(true);
     setRecoveryError(null);
     try {
-      await aiTrackingService.calibrateSession(state.sessionId, corners, gameType, lostSegmentId);
+      await aiTrackingService.calibrateSession(state.sessionId, corners, gameType, lostSegmentId, recoverySelectionFrame);
       setRecoveredKey(lostSegmentKey);
     } catch (cause) {
       setRecoveryError(cause instanceof Error ? cause.message : 'Manual calibration failed');
@@ -1277,7 +1286,10 @@ export default function BadmintonTrackingLab() {
                 const cur = e.currentTarget.currentTime;
                 setTime(cur);
                 setUIPreference('videoCurrentTime', cur);
+                setRecoveryViewReady(Boolean(recoverySelectionFrame &&
+                  Math.abs(cur - recoverySelectionFrame.timestampSec) <= 0.05));
               }}
+              onSeeking={() => setRecoveryViewReady(false)}
             />
             <TrackingVideoOverlay
               frames={frames}
@@ -1294,7 +1306,7 @@ export default function BadmintonTrackingLab() {
                   calibrating ? 'cursor-crosshair' : 'pointer-events-none'
                 }`}
                 onClick={(e) => {
-                  if (!calibrating || corners.length >= 4) return;
+                  if (!calibrating || corners.length >= 4 || (lostSegmentId && !recoveryViewReady)) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   if (!rect.width || !rect.height) return;
                   const next = [
@@ -1344,6 +1356,11 @@ export default function BadmintonTrackingLab() {
               if (lostSegmentId && latestFrame) videoRef.current!.currentTime = latestFrame.timestampSec;
               update({ corners: [] });
               setRecoverySelectionKey(lostSegmentKey);
+              setRecoveryViewReady(false);
+              setRecoverySelectionFrame(lostSegmentId && latestFrame ? {
+                frameIndex: latestFrame.frameIndex,
+                timestampSec: latestFrame.timestampSec,
+              } : null);
               setRecoveryError(null);
               setCalibrating(true);
             }}
@@ -1352,11 +1369,11 @@ export default function BadmintonTrackingLab() {
           </button>
           {lostSegmentId && (
             <div role="status" className="text-sm text-amber-300 space-y-2">
-              <p>{th ? 'การปรับเทียบสนามสูญหาย เลือกมุมสนาม 4 จุดจากภาพของช่วงกล้องปัจจุบัน' :
-                'Court calibration lost. Select four corners on the current camera segment.'}</p>
+              <p>{th ? 'ต้องปรับเทียบสนามใหม่ เลือกมุมสนาม 4 จุดจากภาพของช่วงกล้องปัจจุบัน' :
+                'Court calibration unavailable. Select four corners on the current camera segment.'}</p>
               <button
                 className={button}
-                disabled={corners.length !== 4 || recoverySelectionKey !== lostSegmentKey || recoveryPending}
+                disabled={corners.length !== 4 || recoverySelectionKey !== lostSegmentKey || !recoverySelectionFrame || !recoveryViewReady || recoveryPending}
                 onClick={() => void applyManualRecovery()}
               >
                 {th ? 'ใช้การปรับเทียบด้วยตนเอง' : 'Apply manual calibration'}

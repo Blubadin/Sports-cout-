@@ -157,16 +157,43 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       left: 0, top: 0, width: 640, height: 480, right: 640, bottom: 480,
       x: 0, y: 0, toJSON: () => ({}),
     });
+    fireEvent.click(canvas, { clientX: 70, clientY: 35 });
+    expect(trackingSessionStore.getProjectState('project-1')?.corners).toEqual([]);
+    fireEvent.seeked(video);
     for (const [x, y] of [[70, 35], [570, 35], [570, 445], [70, 445]]) {
       fireEvent.click(canvas, { clientX: x, clientY: y });
     }
     fireEvent.click(screen.getByRole('button', { name: 'Apply manual calibration' }));
     await waitFor(() => expect(aiTrackingService.calibrateSession).toHaveBeenCalledWith(
       'session-123', [[70, 35], [570, 35], [570, 445], [70, 445]], 'singles', 'segment-1',
+      { frameIndex: 5, timestampSec: 0.2 },
     ));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Apply manual calibration' })).not.toBeInTheDocument());
     trackingSessionStore.updateProjectState('project-1', { sessionId: 'session-456', status: 'PROCESSING' });
     expect(await screen.findByRole('button', { name: 'Apply manual calibration' })).toBeInTheDocument();
+  });
+
+  it('keeps manual recovery available while automatic calibration is recalibrating', async () => {
+    const mockFile = new File(['dummy'], 'video.mp4', { type: 'video/mp4' });
+    setupStoreWithSession('PROCESSING');
+    trackingSessionStore.setFile('project-1', mockFile);
+    trackingSessionStore.updateProjectState('project-1', {
+      gameType: 'singles',
+      telemetry: [{
+        schemaVersion: 1, analysisId: 'a1', frameIndex: 8, timestampSec: 0.267,
+        cameraSegmentId: 'segment-1', calibrationId: null,
+        calibrationState: 'RECALIBRATING', players: [],
+      } as any],
+    });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockStatus('PROCESSING') as any);
+
+    render(<BadmintonTrackingLab />);
+    const video = await waitFor(() => document.querySelector('video') as HTMLVideoElement);
+    Object.defineProperty(video, 'videoWidth', { configurable: true, value: 640 });
+    Object.defineProperty(video, 'videoHeight', { configurable: true, value: 480 });
+    fireEvent.loadedMetadata(video);
+    expect(await screen.findByRole('button', { name: 'Calibrate four court corners' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Apply manual calibration' })).toBeInTheDocument();
   });
 
   it('D. local state PROCESSING but backend is ERROR -> displays ERROR', async () => {

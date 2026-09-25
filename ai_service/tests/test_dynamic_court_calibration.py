@@ -2,6 +2,7 @@ import json
 import math
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -42,9 +43,69 @@ def non_court_replay_frame() -> np.ndarray:
     return frame
 
 
+def non_court_geometry_frames() -> dict[str, np.ndarray]:
+    """Stable visual lookalikes that do not establish badminton court landmarks."""
+    def canvas() -> np.ndarray:
+        return np.full((480, 640, 3), (55, 105, 40), dtype=np.uint8)
+
+    generic_grid = canvas()
+    for x in (70, 195, 320, 445, 570):
+        cv2.line(generic_grid, (x, 35), (x, 445), (235, 235, 235), 3)
+    for y in (35, 137, 240, 343, 445):
+        cv2.line(generic_grid, (70, y), (570, y), (235, 235, 235), 3)
+
+    rectangle = canvas()
+    cv2.rectangle(rectangle, (70, 35), (570, 445), (235, 235, 235), 3)
+
+    floor_seams = canvas()
+    for x in (45, 190, 335, 480, 625):
+        cv2.line(floor_seams, (x, 0), (x, 479), (190, 190, 190), 2)
+    for y in (30, 150, 270, 390):
+        cv2.line(floor_seams, (0, y), (639, y), (190, 190, 190), 2)
+
+    advertising_board = canvas()
+    cv2.rectangle(advertising_board, (40, 45), (600, 180), (235, 235, 235), 4)
+    cv2.rectangle(advertising_board, (75, 70), (565, 155), (235, 235, 235), 3)
+
+    parallel_lines = canvas()
+    for x in (70, 130, 320, 510, 570):
+        cv2.line(parallel_lines, (x, 35), (x, 445), (235, 235, 235), 3)
+
+    wrong_quadrilateral = synthetic_court_frame()
+    cv2.rectangle(wrong_quadrilateral, (10, 10), (630, 470), (235, 235, 235), 3)
+
+    missing_evidence = canvas()
+    for x in (70, 130, 320, 510, 570):
+        cv2.line(missing_evidence, (x, 35), (x, 445), (235, 235, 235), 3)
+    for y in (35, 240, 445):
+        cv2.line(missing_evidence, (70, y), (570, y), (235, 235, 235), 3)
+
+    return {
+        "generic_5x5_grid": generic_grid,
+        "generic_rectangle": rectangle,
+        "floor_seams": floor_seams,
+        "advertising_board_rectangle": advertising_board,
+        "parallel_line_pattern": parallel_lines,
+        "stable_wrong_quadrilateral": wrong_quadrilateral,
+        "court_like_missing_service_lines": missing_evidence,
+    }
+
+
 class TestDynamicCourtCalibrationFoundation(unittest.TestCase):
     def setUp(self):
         self.court_corners = [[70, 35], [570, 35], [570, 445], [70, 445]]
+
+    def test_non_court_geometry_never_locks_automatic_calibration(self):
+        for name, image in non_court_geometry_frames().items():
+            with self.subTest(name=name):
+                analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1, auto_calibrate=True)
+                analyzer._detector = "dummy"
+                analyzer.detect_and_track = lambda _: []
+                for index in range(4):
+                    result = analyzer.process_frame(image, timestamp_sec=index / 30)
+                    self.assertIn(result["calibrationState"], ("UNCALIBRATED", "RECALIBRATING"))
+                    self.assertIsNone(result["calibrationId"])
+                    self.assertIsNone(analyzer.mapper.H)
 
     # 1. clean synthetic court -> valid candidate
     def test_1_clean_synthetic_court_produces_valid_candidate(self):
@@ -354,49 +415,25 @@ class TestDynamicCourtCalibrationFoundation(unittest.TestCase):
 
     # 17. strict candidate acceptance gate
     def test_17_validate_automatic_candidate_acceptance(self):
-        # 1. Clean synthetic candidate with good reprojection error passes
-        valid_candidate = CourtCalibrationCandidate(
-            corners_px=((70.0, 35.0), (570.0, 35.0), (570.0, 445.0), (70.0, 445.0)),
-            source=CalibrationSource.AUTOMATIC,
-            confidence=0.85,
-            supporting_evidence={"interior_transverse_count": 2, "interior_longitudinal_count": 2},
-            reprojection_error_px=4.2,
-        )
+        # The gate must consume measured provider evidence, not caller-supplied line counts.
+        valid_candidate = AutomaticCourtCalibrationProvider().get_candidate(synthetic_court_frame())
+        self.assertIsNotNone(valid_candidate)
         ok, reason = validate_automatic_candidate_acceptance(valid_candidate)
         self.assertTrue(ok, f"Expected acceptance but failed with {reason}")
 
-        # 2. Candidate with excessive reprojection error fails
-        high_reproj = CourtCalibrationCandidate(
-            corners_px=((70.0, 35.0), (570.0, 35.0), (570.0, 445.0), (70.0, 445.0)),
-            source=CalibrationSource.AUTOMATIC,
-            confidence=0.85,
-            supporting_evidence={"interior_transverse_count": 2, "interior_longitudinal_count": 2},
-            reprojection_error_px=22.5,
-        )
+        high_reproj = replace(valid_candidate, reprojection_error_px=55.0)
         ok, reason = validate_automatic_candidate_acceptance(high_reproj)
         self.assertFalse(ok)
         self.assertIn("exceeds", reason)
 
-        # 3. Candidate with unmeasured reprojection error and < 2 interior lines fails
-        unmeasured_few_lines = CourtCalibrationCandidate(
-            corners_px=((70.0, 35.0), (570.0, 35.0), (570.0, 445.0), (70.0, 445.0)),
-            source=CalibrationSource.AUTOMATIC,
-            confidence=0.6,
-            supporting_evidence={"interior_transverse_count": 1, "interior_longitudinal_count": 0},
-            reprojection_error_px=None,
-        )
+        unmeasured_few_lines = replace(valid_candidate, supporting_evidence={
+            "interior_transverse_count": 1, "interior_longitudinal_count": 0,
+        }, reprojection_error_px=None)
         ok, reason = validate_automatic_candidate_acceptance(unmeasured_few_lines)
         self.assertFalse(ok)
-        self.assertIn("Insufficient interior line evidence", reason)
+        self.assertIsNotNone(reason)
 
-        # 4. Candidate with low confidence fails
-        low_conf = CourtCalibrationCandidate(
-            corners_px=((70.0, 35.0), (570.0, 35.0), (570.0, 445.0), (70.0, 445.0)),
-            source=CalibrationSource.AUTOMATIC,
-            confidence=0.45,
-            supporting_evidence={"interior_transverse_count": 2, "interior_longitudinal_count": 2},
-            reprojection_error_px=5.0,
-        )
+        low_conf = replace(valid_candidate, confidence=0.45)
         ok, reason = validate_automatic_candidate_acceptance(low_conf)
         self.assertFalse(ok)
         self.assertIn("below acceptance threshold", reason)

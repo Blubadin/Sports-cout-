@@ -224,17 +224,29 @@ class TestCutCalibrationSafety(unittest.TestCase):
             session.analyzer.set_court_corners(self.corners)
             session.analyzer.start_camera_segment()
             session.status = "PROCESSING"
+            session.results.append({
+                "frameIndex": 1, "timestampSec": 0.1,
+                "cameraSegmentId": "segment-1", "calibrationState": "CALIBRATION_LOST",
+            })
             stale = client.post(
                 f'/api/tracking/sessions/{session_id}/calibration',
                 json={"corners": self.corners, "game_type": "singles",
-                      "camera_segment_id": "segment-0"},
+                      "camera_segment_id": "segment-0",
+                      "selected_at_frame_index": 1, "selected_at_timestamp_sec": 0.1},
             )
             self.assertEqual(stale.status_code, 409)
             self.assertEqual(session.analyzer.calibration_context.state.value, "CALIBRATION_LOST")
-            response = client.post(
+            missing_frame = client.post(
                 f'/api/tracking/sessions/{session_id}/calibration',
                 json={"corners": self.corners, "game_type": "singles",
                       "camera_segment_id": "segment-1"},
+            )
+            self.assertEqual(missing_frame.status_code, 409)
+            response = client.post(
+                f'/api/tracking/sessions/{session_id}/calibration',
+                json={"corners": self.corners, "game_type": "singles",
+                      "camera_segment_id": "segment-1",
+                      "selected_at_frame_index": 1, "selected_at_timestamp_sec": 0.1},
             )
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["calibrationState"], "CALIBRATED")
@@ -242,6 +254,77 @@ class TestCutCalibrationSafety(unittest.TestCase):
             self.assertEqual(session.status, "PROCESSING")
         finally:
             tracking_sessions.clear()
+
+    def test_manual_api_recovers_recalibrating_segment_and_rejects_stale_view(self):
+        tracking_sessions.clear()
+        client = TestClient(app)
+        try:
+            session_id = client.post('/api/tracking/sessions', json={
+                "video_source": "demo", "game_type": "singles",
+                "processing_config": {"autoCourtCalibrationEnabled": True},
+            }).json()["sessionId"]
+            session = tracking_sessions[session_id]
+            session.analyzer.set_court_corners(self.corners)
+            old_id = session.analyzer.calibration_context.provenance.calibration_id
+            session.analyzer.start_camera_segment()
+            session.analyzer.calibration_context.begin_recalibration()
+            session.status = "PROCESSING"
+            session.results.append({
+                "frameIndex": 7, "timestampSec": 0.233,
+                "cameraSegmentId": "segment-0", "calibrationState": "CALIBRATED",
+            })
+            session.results.append({
+                "frameIndex": 8, "timestampSec": 0.267,
+                "cameraSegmentId": "segment-1", "calibrationState": "RECALIBRATING",
+            })
+            endpoint = f'/api/tracking/sessions/{session_id}/calibration'
+            request = {
+                "corners": self.corners, "game_type": "singles",
+                "camera_segment_id": "segment-1",
+                "selected_at_frame_index": 8, "selected_at_timestamp_sec": 0.267,
+            }
+            stale = client.post(endpoint, json={**request, "camera_segment_id": "segment-0"})
+            self.assertEqual(stale.status_code, 409)
+            wrong_frame = client.post(endpoint, json={
+                **request, "selected_at_frame_index": 7, "selected_at_timestamp_sec": 0.233,
+            })
+            self.assertEqual(wrong_frame.status_code, 409)
+            wrong_time = client.post(endpoint, json={**request, "selected_at_timestamp_sec": 0.5})
+            self.assertEqual(wrong_time.status_code, 409)
+            self.assertEqual(session.analyzer.calibration_context.state.value, "RECALIBRATING")
+
+            response = client.post(endpoint, json=request)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["calibrationState"], "CALIBRATED")
+            self.assertEqual(response.json()["cameraSegmentId"], "segment-1")
+            self.assertNotEqual(response.json()["calibrationId"], old_id)
+            self.assertEqual(session.status, "PROCESSING")
+        finally:
+            tracking_sessions.clear()
+
+    def test_manual_override_clears_pending_automatic_streak_and_breaks_distance(self):
+        analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1, auto_calibrate=True)
+        analyzer._detector = "dummy"
+        analyzer.detect_and_track = lambda frame: [{
+            "bbox": [150, 150, 190, 260], "center": (170, 260),
+            "conf": 0.9, "track_id": 42,
+        }]
+        analyzer.set_court_corners(self.corners)
+        before = analyzer.process_frame(court_frame(), timestamp_sec=0.0)
+        old_id = before["calibrationId"]
+        analyzer.start_camera_segment()
+        analyzer.begin_recalibration()
+        pending = analyzer.auto_calibration_provider.get_candidate(court_frame())
+        self.assertIsNotNone(pending)
+        self.assertIsNone(analyzer.temporal_stability_validator.observe(pending, "segment-1"))
+        self.assertEqual(len(analyzer.temporal_stability_validator.streak), 1)
+        analyzer.set_court_corners(self.corners)
+        self.assertEqual(analyzer.temporal_stability_validator.streak, [])
+        restored = analyzer.process_frame(court_frame(), timestamp_sec=0.1)
+        self.assertEqual(restored["calibrationState"], "CALIBRATED")
+        self.assertEqual(restored["cameraSegmentId"], "segment-1")
+        self.assertNotEqual(restored["calibrationId"], old_id)
+        self.assertEqual(restored["players"][0]["totalDistanceM"], before["players"][0]["totalDistanceM"])
 
 
 if __name__ == "__main__":

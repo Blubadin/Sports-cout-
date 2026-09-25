@@ -352,6 +352,7 @@ class BadmintonAnalyzerV2:
         self.dist_tracker.pause_metric_tracking()
         self.camera_cut_detector.rearm_after_calibration()
         self.manual_calibration_provider.set_corners(candidate, self.calibration_context.camera_segment_id)
+        self.temporal_stability_validator.invalidate()
         cand_tuple = tuple(tuple(float(c) for c in pt) for pt in candidate)
         self.temporal_stability_validator.is_locked = True
         self.temporal_stability_validator.locked_candidate = CourtCalibrationCandidate(

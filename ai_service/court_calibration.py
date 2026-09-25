@@ -19,7 +19,11 @@ import cv2
 import numpy as np
 
 from calibration_contract import CalibrationSource
-from court_mapper import COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M
+from court_mapper import (
+    COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M, SINGLES_SIDE_ALLEY_M,
+    NET_Y_M, FRONT_BOUNDARY_TOP_M, FRONT_BOUNDARY_BOT_M,
+    DOUBLES_LONG_SERVICE_OFFSET_M,
+)
 
 # Standard real-world outer court corners: [TL, TR, BR, BL]
 STANDARD_REAL_CORNERS = np.array([
@@ -192,6 +196,56 @@ def intersect_lines(l1: tuple[float, float, float], l2: tuple[float, float, floa
     if not (isfinite(x) and isfinite(y)):
         return None
     return float(x), float(y)
+
+
+def _segment_coverage(cluster: list, start: np.ndarray, end: np.ndarray) -> float:
+    """Fraction of a candidate boundary supported by observed Hough segments."""
+    direction = end - start
+    length_sq = float(np.dot(direction, direction))
+    if length_sq <= 0:
+        return 0.0
+    intervals: list[tuple[float, float]] = []
+    for _, (x1, y1, x2, y2) in cluster:
+        first = float(np.dot(np.array((x1, y1)) - start, direction) / length_sq)
+        second = float(np.dot(np.array((x2, y2)) - start, direction) / length_sq)
+        lo, hi = max(0.0, min(first, second)), min(1.0, max(first, second))
+        if hi > lo:
+            intervals.append((lo, hi))
+    covered = 0.0
+    right = 0.0
+    for lo, hi in sorted(intervals):
+        covered += max(0.0, hi - max(lo, right))
+        right = max(right, hi)
+    return min(1.0, covered)
+
+
+def _match_landmark_lines(
+    samples: list[tuple[float, float, tuple[float, float, float], float]],
+    required: dict[str, float],
+    tolerance_m: float,
+    allowed_extra: tuple[float, ...] = (),
+) -> dict[str, tuple[int, float, float]] | None:
+    """Match distinct measured lines to court landmarks; reject unexplained strong lines."""
+    selected: dict[str, tuple[int, float, float]] = {}
+    used: set[int] = set()
+    for name, expected in required.items():
+        options = sorted(
+            (abs(position - expected), index)
+            for index, (position, drift, _, coverage) in enumerate(samples)
+            if index not in used and drift <= 0.45 and coverage >= 0.45
+            and abs(position - expected) <= tolerance_m
+        )
+        if len(options) != 1:
+            return None
+        error, index = options[0]
+        used.add(index)
+        selected[name] = (index, expected, error)
+    for index, (position, drift, _, coverage) in enumerate(samples):
+        if index in used or coverage < 0.45:
+            continue
+        if drift > 0.45 or not any(abs(position - value) <= tolerance_m for value in allowed_extra):
+            return None
+    return selected
 
 
 @runtime_checkable
@@ -415,61 +469,98 @@ class AutomaticCourtCalibrationProvider:
         if h_mat is None or h_inv is None:
             return None
 
-        # Evaluate supporting evidence & internal correspondences
-        # Interior transverse lines: service lines, net line
-        # Interior longitudinal lines: singles sidelines, center line
-        interior_t_clusters = t_clusters[1:-1]
-        interior_l_clusters = l_clusters[1:-1]
+        # A generic grid has a convincing outer rectangle and a perfect center
+        # intersection. Require independent badminton width and length structure.
+        boundary_coverage = min(
+            _segment_coverage(t_clusters[0], candidate_corners[0], candidate_corners[1]),
+            _segment_coverage(t_clusters[-1], candidate_corners[3], candidate_corners[2]),
+            _segment_coverage(l_clusters[0], candidate_corners[0], candidate_corners[3]),
+            _segment_coverage(l_clusters[-1], candidate_corners[1], candidate_corners[2]),
+        )
+        if boundary_coverage < 0.65:
+            return None
 
-        reprojection_error_px: float | None = None
+        def projected_line_samples(
+            clusters: list[list], lines: list[tuple[tuple[float, float, float], float]],
+            boundary_a: tuple[float, float, float], boundary_b: tuple[float, float, float],
+            coordinate: int, edge_start: np.ndarray, edge_end: np.ndarray,
+        ) -> list[tuple[float, float, tuple[float, float, float], float]] | None:
+            samples = []
+            for cluster, (line, _) in zip(clusters[1:-1], lines[1:-1]):
+                p1 = intersect_lines(line, boundary_a)
+                p2 = intersect_lines(line, boundary_b)
+                if p1 is None or p2 is None:
+                    return None
+                projected = cv2.perspectiveTransform(
+                    np.asarray([[p1, p2]], dtype=np.float32), h_mat
+                )[0]
+                values = projected[:, coordinate]
+                coverage = _segment_coverage(cluster, edge_start, edge_end)
+                samples.append((float(np.mean(values)), float(abs(values[0] - values[1])), line, coverage))
+            return samples
+
+        vertical = projected_line_samples(
+            l_clusters, l_lines, top_line, bot_line, 0,
+            candidate_corners[0], candidate_corners[3],
+        )
+        horizontal = projected_line_samples(
+            t_clusters, t_lines, left_line, right_line, 1,
+            candidate_corners[0], candidate_corners[1],
+        )
+        if vertical is None or horizontal is None:
+            return None
+        width_landmarks = {
+            "singles_left": SINGLES_SIDE_ALLEY_M,
+            "center": COURT_WIDTH_DOUBLES_M / 2.0,
+            "singles_right": COURT_WIDTH_DOUBLES_M - SINGLES_SIDE_ALLEY_M,
+        }
+        length_landmarks = {
+            "far_short_service": FRONT_BOUNDARY_TOP_M,
+            "net": NET_Y_M,
+            "near_short_service": FRONT_BOUNDARY_BOT_M,
+        }
+        matched_width = _match_landmark_lines(vertical, width_landmarks, 0.40)
+        matched_length = _match_landmark_lines(
+            horizontal, length_landmarks, 0.90,
+            allowed_extra=(DOUBLES_LONG_SERVICE_OFFSET_M,
+                           COURT_LENGTH_M - DOUBLES_LONG_SERVICE_OFFSET_M),
+        )
+        if matched_width is None or matched_length is None:
+            return None
+
+        expected_points = []
+        detected_points = []
+        for x_index, x_m, _ in matched_width.values():
+            x_line = vertical[x_index][2]
+            for y_index, y_m, _ in matched_length.values():
+                y_line = horizontal[y_index][2]
+                point = intersect_lines(x_line, y_line)
+                if point is None:
+                    return None
+                expected_points.append((x_m, y_m))
+                detected_points.append(point)
+        projected_expected = cv2.perspectiveTransform(
+            np.asarray(expected_points, dtype=np.float32).reshape(-1, 1, 2), h_inv
+        ).reshape(-1, 2)
+        errors = np.linalg.norm(projected_expected - np.asarray(detected_points), axis=1)
+        reprojection_error_px = round(float(np.mean(errors)), 2)
+        if not isfinite(reprojection_error_px) or reprojection_error_px > 35.0:
+            return None
+        confidence = round(float(
+            0.5 * boundary_coverage + 0.5 * max(0.0, 1.0 - reprojection_error_px / 70.0)
+        ), 3)
         evidence = {
             "num_transverse_clusters": len(t_clusters),
             "num_longitudinal_clusters": len(l_clusters),
-            "interior_transverse_count": len(interior_t_clusters),
-            "interior_longitudinal_count": len(interior_l_clusters),
+            "interior_transverse_count": len(horizontal),
+            "interior_longitudinal_count": len(vertical),
+            "badminton_landmark_count": 6,
+            "reprojection_points_count": len(errors),
+            "outer_boundary_coverage_min": round(float(boundary_coverage), 3),
+            "max_line_drift_m": round(max([item[1] for item in vertical + horizontal]), 3),
+            "width_landmark_error_m_max": round(max(v[2] for v in matched_width.values()), 3),
+            "length_landmark_error_m_max": round(max(v[2] for v in matched_length.values()), 3),
         }
-
-        # If interior lines exist, measure reprojection error against standard court landmarks
-        # Known landmarks: net line y=6.70m, service lines y=4.72m / 8.68m, center line x=3.05m
-        if interior_t_clusters and interior_l_clusters:
-            internal_pts_detected = []
-            internal_pts_expected = []
-
-            # Match center-line cluster (closest to width / 2) with net cluster (closest to length / 2)
-            c_line = l_lines[len(l_lines) // 2][0]
-            net_line = t_lines[len(t_lines) // 2][0]
-            net_center_det = intersect_lines(net_line, c_line)
-            if net_center_det is not None:
-                internal_pts_detected.append(net_center_det)
-                internal_pts_expected.append((COURT_WIDTH_DOUBLES_M / 2.0, COURT_LENGTH_M / 2.0))
-
-            if internal_pts_detected:
-                exp_arr = np.array(internal_pts_expected, dtype=np.float32).reshape(-1, 1, 2)
-                proj = cv2.perspectiveTransform(exp_arr, h_inv).reshape(-1, 2)
-                det_arr = np.array(internal_pts_detected, dtype=np.float32)
-                diffs = np.linalg.norm(proj - det_arr, axis=1)
-                reprojection_error_px = round(float(np.mean(diffs)), 2)
-                evidence["reprojection_points_count"] = len(diffs)
-
-        # Defensibly measured confidence:
-        # Based on interior cluster coverage (up to 6 interior lines), boundary line strength, and reprojection error
-        interior_score = min(1.0, (len(interior_t_clusters) + len(interior_l_clusters)) / 4.0)
-        if reprojection_error_px is not None:
-            # Excessive reprojection error rejects candidate immediately (fail-closed, B4)
-            if reprojection_error_px > 25.0:
-                return None
-            reproj_score = max(0.0, 1.0 - (reprojection_error_px / 12.0))
-            confidence = round(float(0.55 * interior_score + 0.35 * reproj_score + 0.10), 3)
-        else:
-            # Reprojection unmeasured: do NOT convert unavailable to 1.0 (Part B3)
-            # Confidence represents strictly measured interior structural support
-            if (len(interior_t_clusters) + len(interior_l_clusters)) >= 2:
-                confidence = round(float(0.40 * interior_score + 0.20), 3)
-            else:
-                confidence = None
-
-        if confidence is not None:
-            confidence = float(np.clip(confidence, 0.0, 1.0))
 
         corners_tuple = tuple(tuple(float(c) for c in pt) for pt in candidate_corners)
         return CourtCalibrationCandidate(
@@ -485,7 +576,7 @@ class AutomaticCourtCalibrationProvider:
 
 def validate_automatic_candidate_acceptance(
     candidate: CourtCalibrationCandidate | None,
-    max_reprojection_error_px: float = 12.0,
+    max_reprojection_error_px: float = 35.0,
     min_confidence: float = 0.55,
     min_interior_clusters: int = 1,
 ) -> tuple[bool, str | None]:
@@ -503,17 +594,20 @@ def validate_automatic_candidate_acceptance(
         return False, f"Geometry validation failed: {reason}"
 
     evidence = candidate.supporting_evidence or {}
-    interior_t = int(evidence.get("interior_transverse_count", 0))
-    interior_l = int(evidence.get("interior_longitudinal_count", 0))
-    total_interior = interior_t + interior_l
-
-    if candidate.reprojection_error_px is not None:
-        if candidate.reprojection_error_px > max_reprojection_error_px:
-            return False, f"Reprojection error {candidate.reprojection_error_px:.2f}px exceeds {max_reprojection_error_px}px"
-    else:
-        # Reprojection unmeasured: require stronger alternative interior evidence (B4)
-        if total_interior < max(2, min_interior_clusters):
-            return False, f"Insufficient interior line evidence ({total_interior} lines, unmeasured reprojection)"
+    if evidence.get("badminton_landmark_count") != 6 or evidence.get("reprojection_points_count", 0) < 9:
+        return False, "Insufficient independent badminton landmark evidence"
+    required_lines_per_axis = max(3, min_interior_clusters)
+    if (evidence.get("interior_transverse_count", 0) < required_lines_per_axis
+            or evidence.get("interior_longitudinal_count", 0) < required_lines_per_axis):
+        return False, "Service lines, net, singles sidelines and center line are required"
+    if evidence.get("outer_boundary_coverage_min", 0) < 0.65:
+        return False, "Outer court boundaries lack measured line support"
+    if evidence.get("max_line_drift_m", float("inf")) > 0.45:
+        return False, "Internal lines are inconsistent with the court homography"
+    if candidate.reprojection_error_px is None:
+        return False, "Reprojection error requires nine independent landmark intersections"
+    if candidate.reprojection_error_px > max_reprojection_error_px:
+        return False, f"Reprojection error {candidate.reprojection_error_px:.2f}px exceeds {max_reprojection_error_px}px"
 
     if candidate.confidence is None or candidate.confidence < min_confidence:
         return False, f"Confidence {candidate.confidence} below acceptance threshold {min_confidence}"
@@ -531,7 +625,7 @@ class TemporalStabilityValidator:
         self,
         required_consecutive_frames: int = 3,
         max_corner_drift_px: float = 8.0,
-        max_reprojection_error_px: float = 12.0,
+        max_reprojection_error_px: float = 35.0,
         min_confidence: float = 0.55,
     ) -> None:
         self.required_consecutive_frames = max(1, required_consecutive_frames)

@@ -879,6 +879,8 @@ class SessionCalibrationRequest(BaseModel):
     corners: list[list[float]]
     game_type: Literal['singles', 'doubles'] = "doubles"
     camera_segment_id: str | None = None
+    selected_at_frame_index: int | None = Field(default=None, strict=True, ge=0)
+    selected_at_timestamp_sec: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 class SessionPlayerRequest(BaseModel):
     players: list[dict]
@@ -1321,13 +1323,32 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
         allowed = ALLOWED_CALIBRATION_STATES_DEMO if session.video_source == "demo" else ALLOWED_CALIBRATION_STATES_REAL
         recovering_during_processing = (
             session.status == "PROCESSING"
-            and session.analyzer.calibration_context.state is CalibrationState.CALIBRATION_LOST
+            and session.analyzer.calibration_context.state in (
+                CalibrationState.CALIBRATION_LOST, CalibrationState.RECALIBRATING
+            )
             and req.game_type == session.game_type
         )
         if session.status not in allowed and not recovering_during_processing:
             raise HTTPException(status_code=409, detail=f"Cannot calibrate in {session.status} state")
-        if recovering_during_processing and req.camera_segment_id != session.analyzer.calibration_context.camera_segment_id:
+        active_segment_id = session.analyzer.calibration_context.camera_segment_id
+        if req.camera_segment_id is not None and req.camera_segment_id != active_segment_id:
             raise HTTPException(status_code=409, detail="Camera segment changed; select corners on the current segment")
+        if recovering_during_processing:
+            if req.camera_segment_id != active_segment_id or req.selected_at_frame_index is None or req.selected_at_timestamp_sec is None:
+                raise HTTPException(status_code=409, detail="Select a frame on the current camera segment before recalibrating")
+            selected_frame = next(
+                (frame for frame in reversed(session.results)
+                 if frame.get("frameIndex") == req.selected_at_frame_index),
+                None,
+            )
+            timestamp_tolerance = max(0.05, 1.0 / session.source_fps) if session.source_fps > 0 else 0.05
+            if (
+                selected_frame is None
+                or selected_frame.get("cameraSegmentId") != active_segment_id
+                or not isinstance(selected_frame.get("timestampSec"), (int, float))
+                or abs(selected_frame["timestampSec"] - req.selected_at_timestamp_sec) > timestamp_tolerance
+            ):
+                raise HTTPException(status_code=409, detail="Selected video frame is not on the current camera segment")
 
         try:
             session.analyzer.set_court_corners(req.corners)
