@@ -227,10 +227,11 @@ class CourtMapper:
 
 
 class DistanceTracker:
-    def __init__(self, mapper: CourtMapper, fps: float = 30.0, smooth_k: int = 5):
+    def __init__(self, mapper: CourtMapper, fps: float = 30.0, smooth_k: int = 5, max_tracking_gap: float = 1.5):
         self.mapper = mapper
         self.fps = fps
         self.smooth_k = smooth_k
+        self.max_tracking_gap = max_tracking_gap
         self._data: dict[int, dict] = {}
         self.metric_segment_index = 0
 
@@ -277,8 +278,44 @@ class DistanceTracker:
         player_id: int,
         center_px: tuple[float, float],
         timestamp_sec: float | None = None,
+        camera_segment_id: str | None = None,
+        calibration_id: str | None = None,
+        provenance: str | None = None,
     ) -> dict:
         d = self._get_or_create(player_id)
+        if not self.mapper.is_calibrated:
+            self.break_metric_segment()
+            return d
+
+        if center_px is None or not (np.isfinite(center_px[0]) and np.isfinite(center_px[1])):
+            d["prev_real"] = None
+            d["prev_time"] = None
+            d["current_speed_ms"] = 0.0
+            return d
+
+        # Segment continuity checks (Task 5: never connect across cut or calibration change)
+        last_segment = d.get("last_camera_segment_id")
+        if last_segment is not None and camera_segment_id is not None and last_segment != camera_segment_id:
+            d["prev_real"] = None
+            d["prev_time"] = None
+            d["current_speed_ms"] = 0.0
+        d["last_camera_segment_id"] = camera_segment_id
+
+        last_cal = d.get("last_calibration_id")
+        if last_cal is not None and calibration_id is not None and last_cal != calibration_id:
+            d["prev_real"] = None
+            d["prev_time"] = None
+            d["current_speed_ms"] = 0.0
+        d["last_calibration_id"] = calibration_id
+
+        # Long tracking loss continuity check (Task 5: long gap breaks distance continuity)
+        if d["prev_real"] is not None and timestamp_sec is not None and d.get("prev_time") is not None:
+            gap = timestamp_sec - d["prev_time"]
+            if gap > self.max_tracking_gap:
+                d["prev_real"] = None
+                d["prev_time"] = None
+                d["current_speed_ms"] = 0.0
+
         real = self.mapper.pixel_to_real(center_px)
         pct = self.mapper.real_to_percent(real)
         zone = self.mapper.get_zone_2d(real)
@@ -289,15 +326,16 @@ class DistanceTracker:
         d["current_zone"] = zone
 
         if d["prev_real"] is None:
-            # Initial assignment establishes position with 0 speed
+            # Initial observation establishes position without distance increment
             d["prev_real"] = real
             d["prev_time"] = timestamp_sec
+            d["last_provenance"] = provenance
             d["speeds_ms"].append(0.0)
             d["current_speed_ms"] = 0.0
             return d
 
         # Compute deltaTime
-        if timestamp_sec is not None and d["prev_time"] is not None:
+        if timestamp_sec is not None and d.get("prev_time") is not None:
             delta_t = timestamp_sec - d["prev_time"]
         elif self.fps > 0:
             delta_t = 1.0 / self.fps
@@ -309,12 +347,27 @@ class DistanceTracker:
             d["speeds_ms"].append(0.0)
             d["current_speed_ms"] = 0.0
             d["prev_real"] = real
+            d["last_provenance"] = provenance
             if timestamp_sec is not None:
                 d["prev_time"] = timestamp_sec
             return d
 
         dist = CourtMapper.euclidean_distance(d["prev_real"], real)
         speed_ms = dist / delta_t
+
+        # Task 6: Provenance change continuity check (suppress fake spikes from anchor shifts)
+        last_prov = d.get("last_provenance")
+        if last_prov is not None and provenance is not None and last_prov != provenance:
+            is_implausible_jump = (dist > 0.35 and speed_ms > 7.0) or (speed_ms > 10.0)
+            if is_implausible_jump:
+                d["prev_real"] = real
+                d["prev_time"] = timestamp_sec
+                d["last_provenance"] = provenance
+                d["speeds_ms"].append(0.0)
+                d["current_speed_ms"] = 0.0
+                return d
+
+        d["last_provenance"] = provenance
 
         # Filter spatial jitter (< 0.03m / 3cm) and impossible speeds (> 11.0 m/s)
         if dist >= 0.03 and speed_ms <= 11.0:
@@ -337,7 +390,7 @@ class DistanceTracker:
         d["prev_real"] = real
         if timestamp_sec is not None:
             d["prev_time"] = timestamp_sec
-        elif d["prev_time"] is not None:
+        elif d.get("prev_time") is not None:
             d["prev_time"] += delta_t
         else:
             d["prev_time"] = 0.0

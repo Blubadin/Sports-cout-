@@ -40,6 +40,13 @@ from pose_adapter import BasePoseAdapter, create_pose_provider, FullFramePoseCan
 from pose_association import associate_poses_to_athletes
 from reid_adapter import BaseReIDAdapter, create_reid_provider
 from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts
+from ground_position import (
+    resolve_canonical_ground_point,
+    CANONICAL_PROVENANCE_BOTH_ANKLES,
+    CANONICAL_PROVENANCE_LEFT_ANKLE,
+    CANONICAL_PROVENANCE_RIGHT_ANKLE,
+    CANONICAL_PROVENANCE_BBOX,
+)
 try:
     from ai_service.shuttle_pipeline import ProductionShuttlePipeline
 except ImportError:
@@ -600,12 +607,99 @@ class BadmintonAnalyzerV2:
         # Build telemetry frame (TrackingTelemetryV1 compliant, PDF §45-47)
         h, w = frame.shape[:2] if frame is not None else (720, 1280)
         player_telemetry = []
+        metric_valid = bool(self.calibration_context.is_metric_valid and self.mapper.is_calibrated)
         for pid, p in self.profiles.items():
-            stats = self.dist_tracker.get_stats(pid)
+            pose_obj = None
+            if self.pose_architecture == "full_frame_pose":
+                if pid in matched_players:
+                    if should_run_pose:
+                        if pid in assigned_full_frame_poses and assigned_full_frame_poses[pid].keypoints:
+                            cand = assigned_full_frame_poses[pid]
+                            pose_obj = {
+                                "keypoints": [
+                                    {"x": float(x) / w * 100.0, "y": float(y) / h * 100.0, "score": float(score)}
+                                    for x, y, score in cand.keypoints
+                                ],
+                                "metrics": cand.metrics,
+                                "isReused": False,
+                                "ageFrames": 0,
+                            }
+                            p.last_pose = pose_obj
+                            p.last_pose_age = 0
+                        else:
+                            # Athlete matched to track, but no pose candidate matched
+                            if p.last_pose is not None and p.missed_frames < 15:
+                                p.last_pose_age += 1
+                                reused_pose = dict(p.last_pose)
+                                reused_pose["isReused"] = True
+                                reused_pose["ageFrames"] = p.last_pose_age
+                                pose_obj = reused_pose
+                    else:
+                        if p.last_pose is not None and p.missed_frames < 15:
+                            p.last_pose_age += 1
+                            reused_pose = dict(p.last_pose)
+                            reused_pose["isReused"] = True
+                            reused_pose["ageFrames"] = p.last_pose_age
+                            pose_obj = reused_pose
+                else:
+                    if p.missed_frames >= 15:
+                        p.last_pose = None
+                        p.last_pose_age = 0
+            else:
+                if pid in matched_players:
+                    if should_run_pose:
+                        pose = self._estimate_pose(frame, matched_players[pid]["bbox"])
+                        if pose and pose.get("keypoints"):
+                            pose_obj = {
+                                "keypoints": [
+                                    {"x": float(x) / w * 100.0, "y": float(y) / h * 100.0, "score": float(score)}
+                                    for x, y, score in pose["keypoints"]
+                                ],
+                                "metrics": pose.get("metrics", {}),
+                                "isReused": False,
+                                "ageFrames": 0,
+                            }
+                            p.last_pose = pose_obj
+                            p.last_pose_age = 0
+                    else:
+                        if p.last_pose is not None and p.missed_frames < 15:
+                            p.last_pose_age += 1
+                            reused_pose = dict(p.last_pose)
+                            reused_pose["isReused"] = True
+                            reused_pose["ageFrames"] = p.last_pose_age
+                            pose_obj = reused_pose
+                else:
+                    if p.missed_frames >= 15:
+                        p.last_pose = None
+                        p.last_pose_age = 0
+
             bbox = p.last_bbox if p.missed_frames < 30 else None
-            pos_m = stats.get("court_pos_m")
-            pos_pct = stats.get("court_pos_pct")
-            metric_valid = self.calibration_context.is_metric_valid and self.mapper.is_calibrated
+            ground_pt = None
+            if bbox is not None:
+                pose_kps = pose_obj.get("keypoints") if pose_obj is not None else None
+                is_reused = pose_obj.get("isReused", False) if pose_obj is not None else False
+                ground_pt = resolve_canonical_ground_point(
+                    bbox=bbox,
+                    frame_width=w,
+                    frame_height=h,
+                    pose_keypoints=pose_kps,
+                    is_pose_reused=is_reused,
+                    court_mapper=self.mapper,
+                    is_metric_valid=metric_valid,
+                )
+                if pid in matched_players:
+                    self.dist_tracker.update(
+                        player_id=pid,
+                        center_px=ground_pt.ground_px,
+                        timestamp_sec=t_sec,
+                        camera_segment_id=self.calibration_context.camera_segment_id,
+                        calibration_id=self.calibration_context.provenance.calibration_id if metric_valid else None,
+                        provenance=ground_pt.provenance,
+                    )
+
+            stats = self.dist_tracker.get_stats(pid)
+            pos_m = stats.get("court_pos_m") if metric_valid else None
+            pos_pct = stats.get("court_pos_pct") if metric_valid else None
             abs_zone = stats.get("current_zone") if metric_valid else None
             rel_zone = (
                 self.mapper.get_relative_zone_2d((pos_m["x"], pos_m["y"]), p.team)
@@ -624,25 +718,33 @@ class BadmintonAnalyzerV2:
                 tracking_state = "lost"
 
             bbox_pct = None
-            ground_pt_pct = None
             if bbox is not None:
                 bx = round((bbox[0] / w) * 100.0, 2)
                 by = round((bbox[1] / h) * 100.0, 2)
                 bw = round(((bbox[2] - bbox[0]) / w) * 100.0, 2)
                 bh = round(((bbox[3] - bbox[1]) / h) * 100.0, 2)
                 bbox_pct = {"x": bx, "y": by, "width": bw, "height": bh}
-                cx_pct = round(((bbox[0] + bbox[2]) / (2.0 * w)) * 100.0, 2)
-                cy_pct = round((bbox[3] / h) * 100.0, 2)
-                ground_pt_pct = {"x": cx_pct, "y": cy_pct}
 
+            ground_pt_pct = None
+            if ground_pt is not None:
+                ground_pt_pct = {"x": ground_pt.ground_pct[0], "y": ground_pt.ground_pct[1]}
+
+            ground_pos_m = None
             court_position = None
-            if metric_valid and pos_m is not None and pos_pct is not None and p.last_real_pos is not None:
+            if metric_valid and ground_pt is not None and ground_pt.ground_position_m is not None:
+                gx_m, gy_m = ground_pt.ground_position_m
+                ground_pos_m = {"xM": gx_m, "yM": gy_m}
+                p.last_real_pos = (gx_m, gy_m)
+                x_pct = pos_pct["x"] if pos_pct is not None else ground_pt.ground_pct[0]
+                y_pct = pos_pct["y"] if pos_pct is not None else ground_pt.ground_pct[1]
                 court_position = {
-                    "xM": round(pos_m["x"], 2),
-                    "yM": round(pos_m["y"], 2),
-                    "xPct": round(pos_pct["x"], 2),
-                    "yPct": round(pos_pct["y"], 2),
+                    "xM": gx_m,
+                    "yM": gy_m,
+                    "xPct": round(x_pct, 2),
+                    "yPct": round(y_pct, 2),
                 }
+            elif not metric_valid:
+                p.last_real_pos = None
 
             confidence = (
                 round(float(p.detection_confidence), 3)
@@ -650,21 +752,35 @@ class BadmintonAnalyzerV2:
                 else None
             )
 
-            player_telemetry.append({
+            left_foot_dict = ground_pt.left_foot.to_dict() if ground_pt is not None else None
+            right_foot_dict = ground_pt.right_foot.to_dict() if ground_pt is not None else None
+
+            player_data = {
                 # Canonical V1 Tracking Protocol (PDF §45)
                 "playerId": f"P{pid}",
                 "trackId": p.track_id,
                 "teamCode": f"team{p.team}" if p.team in (1, 2) else "unknown",
                 "bboxPct": bbox_pct,
                 "groundPointPct": ground_pt_pct,
+                "groundPointProvenance": ground_pt.provenance if ground_pt is not None else None,
+                "groundPositionM": ground_pos_m,
+                "courtPositionM": ground_pos_m,
                 "courtPosition": court_position,
                 "absoluteZone": abs_zone,
                 "playerRelativeZone": rel_zone,
-                "speedMps": stats.get("current_speed_ms") if metric_valid and court_position is not None else None,
+                "speedMps": stats.get("current_speed_ms") if (metric_valid and court_position is not None) else None,
                 "totalDistanceM": stats.get("total_dist_m") if self.dist_tracker.has_metric_observation(pid) else None,
                 "detectionConfidence": confidence,
                 "state": tracking_state,
                 "identityCosts": self._last_cost_breakdowns.get(pid).to_dict() if (hasattr(self, "_last_cost_breakdowns") and pid in self._last_cost_breakdowns) else None,
+                "leftFootPx": left_foot_dict["positionPx"] if left_foot_dict else None,
+                "rightFootPx": right_foot_dict["positionPx"] if right_foot_dict else None,
+                "leftFootConfidence": left_foot_dict["confidence"] if left_foot_dict else None,
+                "rightFootConfidence": right_foot_dict["confidence"] if right_foot_dict else None,
+                "leftFootCourtM": left_foot_dict["courtPositionM"] if left_foot_dict else None,
+                "rightFootCourtM": right_foot_dict["courtPositionM"] if right_foot_dict else None,
+                "leftFoot": left_foot_dict,
+                "rightFoot": right_foot_dict,
 
                 # Backward compatibility aliases
                 "id": pid,
@@ -674,76 +790,14 @@ class BadmintonAnalyzerV2:
                 "court_pos_pct": pos_pct if metric_valid else None,
                 "court_pos_m": pos_m if metric_valid else None,
                 "zone": abs_zone,
-                "speed_ms": stats.get("current_speed_ms") if metric_valid and court_position is not None else None,
+                "speed_ms": stats.get("current_speed_ms") if (metric_valid and court_position is not None) else None,
                 "total_dist_m": stats.get("total_dist_m") if self.dist_tracker.has_metric_observation(pid) else None,
                 "is_active": p.missed_frames < 10,
                 "video_bbox_pct": bbox_pct,
-            })
-
-            if self.pose_architecture == "full_frame_pose":
-                if pid in matched_players:
-                    if should_run_pose:
-                        if pid in assigned_full_frame_poses and assigned_full_frame_poses[pid].keypoints:
-                            cand = assigned_full_frame_poses[pid]
-                            pose_obj = {
-                                "keypoints": [
-                                    {"x": float(x) / w * 100.0, "y": float(y) / h * 100.0, "score": float(score)}
-                                    for x, y, score in cand.keypoints
-                                ],
-                                "metrics": cand.metrics,
-                                "isReused": False,
-                                "ageFrames": 0,
-                            }
-                            p.last_pose = pose_obj
-                            p.last_pose_age = 0
-                            player_telemetry[-1]["pose"] = pose_obj
-                        else:
-                            # Athlete matched to track, but no pose candidate matched
-                            if p.last_pose is not None and p.missed_frames < 15:
-                                p.last_pose_age += 1
-                                reused_pose = dict(p.last_pose)
-                                reused_pose["isReused"] = True
-                                reused_pose["ageFrames"] = p.last_pose_age
-                                player_telemetry[-1]["pose"] = reused_pose
-                    else:
-                        if p.last_pose is not None and p.missed_frames < 15:
-                            p.last_pose_age += 1
-                            reused_pose = dict(p.last_pose)
-                            reused_pose["isReused"] = True
-                            reused_pose["ageFrames"] = p.last_pose_age
-                            player_telemetry[-1]["pose"] = reused_pose
-                else:
-                    if p.missed_frames >= 15:
-                        p.last_pose = None
-                        p.last_pose_age = 0
-            else:
-                if pid in matched_players:
-                    if should_run_pose:
-                        pose = self._estimate_pose(frame, matched_players[pid]["bbox"])
-                        if pose["keypoints"]:
-                            pose_obj = {
-                                "keypoints": [
-                                    {"x": float(x) / w * 100, "y": float(y) / h * 100, "score": float(score)}
-                                    for x, y, score in pose["keypoints"]
-                                ],
-                                "metrics": pose["metrics"],
-                                "isReused": False,
-                                "ageFrames": 0,
-                            }
-                            p.last_pose = pose_obj
-                            p.last_pose_age = 0
-                            player_telemetry[-1]["pose"] = pose_obj
-                    else:
-                        if p.last_pose is not None and p.missed_frames < 15:
-                            p.last_pose_age += 1
-                            reused_pose = dict(p.last_pose)
-                            reused_pose["isReused"] = True
-                            reused_pose["ageFrames"] = p.last_pose_age
-                            player_telemetry[-1]["pose"] = reused_pose
-                else:
-                    if p.missed_frames >= 15:
-                        p.last_pose = None
-                        p.last_pose_age = 0
+            }
+            if pose_obj is not None:
+                player_data["pose"] = pose_obj
+            player_telemetry.append(player_data)
 
         shuttle_obs = None
         if self.shuttle_pipeline is not None:
@@ -833,7 +887,7 @@ class BadmintonAnalyzerV2:
             profiles=self.profiles,
             detections=detections,
             frame=frame,
-            dist_tracker=self.dist_tracker,
+            dist_tracker=None,
             reid_adapter=self.reid_adapter,
             timestamp_sec=timestamp_sec,
             last_known_track_owners=self.last_known_track_owners,

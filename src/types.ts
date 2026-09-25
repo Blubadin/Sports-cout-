@@ -446,6 +446,19 @@ export interface TrackingPoseV1 {
   ageFrames?: number;
 }
 
+export type GroundPointProvenance =
+  | 'pose_both_ankles'
+  | 'pose_left_ankle'
+  | 'pose_right_ankle'
+  | 'bbox_bottom_center';
+
+export interface FootTelemetryV1 {
+  positionPx?: { x: number; y: number } | null;
+  positionPct?: { x: number; y: number } | null;
+  confidence?: number | null;
+  courtPositionM?: { xM: number; yM: number } | null;
+}
+
 export interface TrackingPlayerV1 {
   playerId: string;
   trackId?: number | null;
@@ -460,6 +473,17 @@ export interface TrackingPlayerV1 {
     x: number;
     y: number;
   } | null;
+  groundPointProvenance?: GroundPointProvenance | null;
+  groundPositionM?: { xM: number; yM: number } | null;
+  courtPositionM?: { xM: number; yM: number } | null;
+  leftFootPx?: { x: number; y: number } | null;
+  rightFootPx?: { x: number; y: number } | null;
+  leftFootConfidence?: number | null;
+  rightFootConfidence?: number | null;
+  leftFootCourtM?: { xM: number; yM: number } | null;
+  rightFootCourtM?: { xM: number; yM: number } | null;
+  leftFoot?: FootTelemetryV1 | null;
+  rightFoot?: FootTelemetryV1 | null;
   courtPosition?: {
     xM: number;
     yM: number;
@@ -536,7 +560,7 @@ export interface BodyCenterProxy {
 export interface FeetPositionProxy {
   xPct: number;
   yPct: number;
-  provenance: 'pose_ankles' | 'pose_single_ankle' | 'bbox_ground';
+  provenance: 'pose_ankles' | 'pose_single_ankle' | 'bbox_ground' | GroundPointProvenance;
 }
 
 export interface TrackingLivePlayerStatus {
