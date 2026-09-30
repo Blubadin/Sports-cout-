@@ -116,14 +116,15 @@ class TestTrackingSessionAPI(unittest.TestCase):
         self.assertEqual(payload["sessions"][0]["sessionId"], session_id)
         self.assertEqual(payload["sessions"][0]["videoFingerprint"], "rally.mp4:123:456")
 
-    def test_unavailable_gpu_request_is_rejected_explicitly(self):
+    def test_unavailable_gpu_request_retains_request_and_uses_cpu(self):
         res = self.client.post("/api/tracking/sessions", json={
             "video_source": "demo",
             "game_type": "singles",
             "device": "cuda",
         })
-        self.assertEqual(res.status_code, 422)
-        self.assertIn("cuda", res.json()["detail"])
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['requestedDevice'], 'cuda')
+        self.assertEqual(res.json()['effectiveDevice'], 'cpu')
 
 
 if __name__ == "__main__":

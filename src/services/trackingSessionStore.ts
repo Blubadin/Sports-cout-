@@ -68,8 +68,8 @@ export function getDefaultProcessingConfig(): ProcessingConfig {
   return {
     profile: 'auto',
     device: 'auto',
-    detectorInputSize: 512,
-    useCourtRoi: true,
+    detectorInputSize: 640,
+    useCourtRoi: false,
     courtRoiMarginPx: 60,
     frameStride: 2,
     poseStride: 1,

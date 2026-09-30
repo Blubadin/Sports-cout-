@@ -143,7 +143,8 @@ class BadmintonAnalyzerV2:
         self.max_players = resolved_max
 
         self.fps = fps
-        self.device = resolve_device(device if device is not None else (engine_config.device if engine_config else "auto"))
+        self.requested_device = device if device is not None else (engine_config.device if engine_config else 'auto')
+        self.device = resolve_device(self.requested_device)
 
         if engine_config is not None:
             self.engine_config = engine_config
@@ -223,7 +224,7 @@ class BadmintonAnalyzerV2:
                 architecture=self.pose_architecture,
                 model_path=self.engine_config.pose_model,
                 conf_threshold=0.4,
-                device=self.device,
+                device=self.requested_device,
             )
 
     def _lazy_init_ai(self):
@@ -241,7 +242,7 @@ class BadmintonAnalyzerV2:
         if self.detector_adapter is None:
             self.detector_adapter = UltralyticsDetectorAdapter(
                 model_path=self.engine_config.detector_model,
-                device=self.device,
+                device=self.requested_device,
                 runtime=self.engine_config.runtime,
                 precision=self.engine_config.precision,
                 model_artifact_reference=self.engine_config.model_artifact_reference,
@@ -260,7 +261,7 @@ class BadmintonAnalyzerV2:
         if self._pose_detector == "dummy":
             return {"keypoints": [], "metrics": {}}
 
-        if self._pose_detector is not None:
+        if self._pose_detector is not None and self.pose_adapter is None:
             self.pose_inference_calls += 1
             return self._pose_detector.estimate_pose_in_roi(frame, bbox)
 
@@ -283,7 +284,7 @@ class BadmintonAnalyzerV2:
             architecture=self.pose_architecture,
             model_path=self.engine_config.pose_model,
             conf_threshold=0.4,
-            device=self.device,
+            device=self.requested_device,
         )
         self.pose_inference_calls += 1
         res = self.pose_adapter.estimate_pose_in_roi(frame, bbox)
@@ -317,7 +318,7 @@ class BadmintonAnalyzerV2:
             architecture=self.pose_architecture,
             model_path=self.engine_config.pose_model,
             conf_threshold=0.4,
-            device=self.device,
+            device=self.requested_device,
         )
         self.pose_inference_calls += 1
         res = self.pose_adapter.estimate_full_frame(frame)
@@ -518,7 +519,7 @@ class BadmintonAnalyzerV2:
         if self.detector_adapter is not None:
             if self._detector is not None and hasattr(self.detector_adapter, "_model"):
                 self.detector_adapter._model = self._detector
-            return self.detector_adapter.detect_and_track(
+            detections = self.detector_adapter.detect_and_track(
                 inference_frame,
                 conf=self.conf,
                 imgsz=self.detector_input_size,
@@ -532,45 +533,12 @@ class BadmintonAnalyzerV2:
                 offset_x=offset_x,
                 offset_y=offset_y,
             )
+            execution = getattr(self.detector_adapter, 'execution', None)
+            if execution is not None:
+                self.device = execution.device
+            return detections
 
-        detections = []
-        if self._detector != "dummy" and self._detector is not None:
-            tracker_cfg = resolve_tracker_config(
-                self.engine_config.tracker_name,
-                self.engine_config.tracker_config_path or self.engine_config.tracker_config,
-            )
-            tracker_provenance = TrackerProvenance(
-                self.engine_config.tracker_name,
-                self.engine_config.tracker_config or self.engine_config.tracker_config_path,
-                self.engine_config.reid_enabled,
-                self.engine_config.reid_model,
-            )
-            results = self._detector.track(
-                inference_frame,
-                persist=True,
-                tracker=tracker_cfg,
-                classes=[0],  # Person class
-                conf=self.conf,
-                device=self.device,
-                imgsz=self.detector_input_size,
-                verbose=False,
-            )
-            for r in results:
-                boxes = r.boxes.xyxy.cpu().numpy()
-                confs = r.boxes.conf.cpu().numpy()
-                track_ids = r.boxes.id.cpu().numpy() if r.boxes.id is not None else [None] * len(boxes)
-                for box, conf, track_id in zip(boxes, confs, track_ids):
-                    x1, y1, x2, y2 = box.tolist()
-                    src_x1, src_y1, src_x2, src_y2 = inverse_transform_bbox(
-                        [x1, y1, x2, y2], offset_x, offset_y
-                    )
-                    detections.append(NormalizedTrackResult(
-                        bbox=(src_x1, src_y1, src_x2, src_y2),
-                        confidence=float(conf),
-                        raw_track_id=int(track_id) if track_id is not None else None,
-                        provenance=tracker_provenance,
-                    ).to_detection())
-        return detections
+        return []
 
     def process_frame(self, frame: np.ndarray, timestamp_sec: float | None = None) -> dict:
         """Process a single frame and generate structured telemetry."""
@@ -1021,6 +989,9 @@ class BadmintonAnalyzerV2:
 
     def get_provenance(self) -> dict[str, Any]:
         """Return truthful runtime provenance matching the configured vision engine seams."""
+        execution = getattr(self.detector_adapter, 'execution', None)
+        if execution is not None:
+            self.device = execution.device
         det_m = self.detector_adapter.model_name if self.detector_adapter is not None else self.engine_config.detector_model
         actual_m = getattr(self.detector_adapter, "actual_model", None) or self.engine_config.model_artifact_reference or det_m
         pose_m = self.pose_adapter.model_name if self.pose_adapter is not None else self.engine_config.pose_model
@@ -1054,4 +1025,8 @@ class BadmintonAnalyzerV2:
             "courtRoiMarginM": self.court_roi_margin_m,
             "autoCourtCalibrationEnabled": self.auto_calibration_provider is not None,
             "device": self.device,
+            "inferenceProviders": {
+                'detector': self.detector_adapter.get_provenance() if hasattr(self.detector_adapter, 'get_provenance') else None,
+                'pose': self.pose_adapter.get_provenance() if hasattr(self.pose_adapter, 'get_provenance') else None,
+            },
         }

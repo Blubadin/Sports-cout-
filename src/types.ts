@@ -684,6 +684,7 @@ export interface CameraResearchMetadata {
 export type ProcessingProfile = 'auto' | 'reference' | 'fast' | 'balanced' | 'quality' | 'custom';
 
 export interface ProcessingConfig {
+  fallbackReason?: string | null;
   profile?: ProcessingProfile;
   requestedProfile?: ProcessingProfile;
   effectiveProfile?: ProcessingProfile;
@@ -763,6 +764,7 @@ export interface TrackingQualityStats {
 }
 
 export type ShuttleTrackingStatus =
+  | 'ERROR'
   | 'DISABLED'
   | 'REQUESTED'
   | 'MODEL_UNAVAILABLE'
@@ -771,7 +773,24 @@ export type ShuttleTrackingStatus =
   | 'INITIALIZATION_ERROR'
   | string;
 
-export interface ShuttleProvenance {
+export interface InferenceProviderProvenance {
+  requestedDevice?: string;
+  effectiveDevice?: string;
+  backend?: string;
+  provider?: string;
+  runtime?: string;
+  runtimeVersion?: string | null;
+  providerVersion?: string | null;
+  precision?: string;
+  modelVersion?: string | null;
+  modelSha256?: string | null;
+  preprocessVersion?: string;
+  postprocessVersion?: string;
+  fallbackReason?: string | null;
+  executionStatus?: 'PENDING' | 'READY' | 'ERROR';
+}
+
+export interface ShuttleProvenance extends InferenceProviderProvenance {
   enabled: boolean;
   requested: boolean;
   active: boolean;
@@ -814,6 +833,11 @@ export interface ShuttleProvenance {
 }
 
 export interface TrackingRuntimeProvenance {
+  fallbackReason?: string | null;
+  inferenceProviders?: {
+    detector?: InferenceProviderProvenance | null;
+    pose?: InferenceProviderProvenance | null;
+  };
   detectorModel: string;
   trackerModel: string;
   poseModel: string;

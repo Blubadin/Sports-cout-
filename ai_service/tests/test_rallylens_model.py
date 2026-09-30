@@ -25,7 +25,7 @@ class RallyLensContractTests(unittest.TestCase):
     def test_incompatible_explicit_contract_is_rejected(self):
         for key, value in [('shuttle_window_size', 3), ('shuttle_input_width', 640),
                            ('shuttle_input_height', 512), ('shuttle_precision', 'fp16'),
-                           ('shuttle_runtime', 'opencv_dnn'), ('shuttle_device', 'cuda')]:
+                           ('shuttle_runtime', 'opencv_dnn'), ('shuttle_device', 'mps')]:
             with self.subTest(key=key), self.assertRaises(ValueError):
                 ShuttlePipelineConfig.from_dict({'shuttle_provider': 'rallylens_tracknet', key: value})
 

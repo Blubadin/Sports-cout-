@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
+from device_runtime import InferenceExecutionError
 
 try:
     from ai_service.shuttle_telemetry import (
@@ -133,9 +134,11 @@ class ShuttlePipelineConfig:
         ):
             raise ValueError("trajectory_history_limit must be a positive integer")
         if self.provider == 'rallylens_tracknet' and (
-            self.window_size, self.input_width, self.input_height, self.runtime, self.precision, self.device
-        ) != (9, 512, 288, 'pytorch', 'fp32', 'cpu'):
-            raise ValueError('rallylens_tracknet requires 9 frames, 512x288, pytorch/fp32/cpu')
+            self.window_size, self.input_width, self.input_height, self.runtime, self.precision
+        ) != (9, 512, 288, 'pytorch', 'fp32'):
+            raise ValueError('rallylens_tracknet requires 9 frames, 512x288, pytorch/fp32')
+        if self.provider == 'rallylens_tracknet' and self.device not in ('cpu', 'cuda', 'auto'):
+            raise ValueError('rallylens_tracknet device must be auto, cpu or cuda')
 
     @classmethod
     def from_dict(
@@ -330,6 +333,11 @@ class ProductionShuttlePipeline:
             observation = active_tracker.process_frame(image, timestamp_sec, frame_index)
             self.last_failure = None
             return self._record_observation(observation)
+        except InferenceExecutionError:
+            self.status = 'ERROR'
+            self.failure_reason = 'Shuttle CPU execution failed; analysis job stopped'
+            self.last_failure = self.failure_reason
+            raise
         except ModelUnavailableError:
             logger.error('Shuttle model unavailable')
             self.status = STATUS_MODEL_UNAVAILABLE
@@ -518,7 +526,7 @@ def create_shuttle_pipeline(
                 from ai_service.rallylens_adapter import RallyLensTemporalModelAdapter
             except ImportError:
                 from rallylens_adapter import RallyLensTemporalModelAdapter
-            provider = RallyLensTemporalModelAdapter(cfg.model_path)
+            provider = RallyLensTemporalModelAdapter(cfg.model_path, device=cfg.device)
             provider.availability()
             return ProductionShuttlePipeline(cfg, provider=provider)
         except Exception as error:

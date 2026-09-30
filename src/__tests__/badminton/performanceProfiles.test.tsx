@@ -198,6 +198,19 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
   });
 
   describe('BadmintonTrackingLab Performance Controls', () => {
+    it('keeps the reference workload when auto is selected without CUDA', async () => {
+      render(<BadmintonTrackingLab />);
+      await waitFor(() => expect(aiTrackingService.checkBackendHealth).toHaveBeenCalled());
+      const profileSelect = screen.getByLabelText('Performance profile');
+      fireEvent.change(profileSelect, { target: { value: 'fast' } });
+      fireEvent.change(profileSelect, { target: { value: 'auto' } });
+      fireEvent.click(screen.getByText(/Advanced settings/i));
+      expect(screen.getByLabelText('Detector Input Size')).toHaveValue('640');
+      expect(screen.getByLabelText('Frame Stride')).toHaveValue('2');
+      expect(screen.getByLabelText('Pose Stride')).toHaveValue('1');
+      expect(screen.getByLabelText('Court ROI Cropping')).not.toBeChecked();
+    });
+
     it('renders profile selector and toggles advanced settings drawer', async () => {
       render(<BadmintonTrackingLab />);
 

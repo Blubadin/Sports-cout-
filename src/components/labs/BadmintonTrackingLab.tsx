@@ -349,7 +349,7 @@ export default function BadmintonTrackingLab() {
   // 2. Profile configuration helper
   const selectProfile = (nextProfile: ProcessingProfile) => {
     setProfile(nextProfile);
-    if (nextProfile === 'reference') {
+    if (nextProfile === 'reference' || nextProfile === 'auto') {
       setDetectorInputSize(640);
       setUseCourtRoi(false);
       setCourtRoiMarginPx(60);
@@ -373,21 +373,6 @@ export default function BadmintonTrackingLab() {
       setCourtRoiMarginPx(60);
       setFrameStride(3);
       setPoseStride(2);
-    } else if (nextProfile === 'auto') {
-      const isCuda = capabilities?.cudaAvailable;
-      if (isCuda) {
-        setDetectorInputSize(512);
-        setUseCourtRoi(true);
-        setCourtRoiMarginPx(60);
-        setFrameStride(2);
-        setPoseStride(1);
-      } else {
-        setDetectorInputSize(416);
-        setUseCourtRoi(true);
-        setCourtRoiMarginPx(60);
-        setFrameStride(3);
-        setPoseStride(2);
-      }
     }
   };
 

@@ -212,7 +212,7 @@ class TestTemporalShuttleTracker(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             model_path = Path(temp_dir) / "tracknet.onnx"
             model_path.touch()
-            provider = OpenCvOnnxShuttleTrackerProvider(model_path, device="cuda")
+            provider = OpenCvOnnxShuttleTrackerProvider(model_path, device="mps")
             subject = tracker(provider)
             subject.process_frame(frame(), 0.0, 0)
             subject.process_frame(frame(), 0.04, 1)

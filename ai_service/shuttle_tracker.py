@@ -11,6 +11,7 @@ loads an explicitly configured local ONNX artifact and reports
 """
 
 from __future__ import annotations
+from device_runtime import InferenceExecutionError, artifact_sha256, package_version
 
 from abc import ABC, abstractmethod
 from collections import deque
@@ -166,7 +167,10 @@ class OpenCvOnnxShuttleTrackerProvider(ShuttleTrackerProvider):
         self.input_height = input_height
         self.scale = scale
         self.swap_rb = swap_rb
-        self.device = device
+        self.requested_device = device
+        self.device = 'cpu' if device in ('auto', 'cuda') else device
+        self.fallback_reason = 'OpenCV DNN adapter supports CPU only' if device in ('auto', 'cuda') else None
+        self._artifact_hash = None
         self.precision = precision
         self._network = None
 
@@ -207,8 +211,9 @@ class OpenCvOnnxShuttleTrackerProvider(ShuttleTrackerProvider):
             self._network = cv2.dnn.readNetFromONNX(str(self.model_path))
             self._network.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
             self._network.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+            self._artifact_hash = artifact_sha256(self.model_path)
         except Exception as error:
-            raise RuntimeUnavailableError(f"RUNTIME UNAVAILABLE: failed to load local ONNX model: {error}") from error
+            raise InferenceExecutionError('OpenCV CPU model initialization failed') from error
         return self._network
 
     def infer(self, frames: Sequence[TemporalFrame]) -> TemporalModelOutput:
@@ -236,7 +241,17 @@ class OpenCvOnnxShuttleTrackerProvider(ShuttleTrackerProvider):
         except ShuttleTrackerError:
             raise
         except Exception as error:
-            raise ShuttleInferenceError(f"Temporal ONNX inference failed: {error}") from error
+            raise InferenceExecutionError('OpenCV CPU temporal inference failed') from error
+
+    def get_provenance(self):
+        return {
+            'requestedDevice': self.requested_device, 'effectiveDevice': self.device, 'device': self.device,
+            'backend': 'opencv_dnn', 'provider': 'opencv_onnx', 'runtime': 'opencv_dnn',
+            'runtimeVersion': package_version('opencv-python') or package_version('opencv-python-headless'),
+            'precision': self.precision, 'modelSha256': self._artifact_hash, 'modelVersion': self._artifact_hash,
+            'preprocessVersion': 'opencv-linear-chronological-chw-v1',
+            'postprocessVersion': 'shuttle-candidate-source-scaling-v1', 'fallbackReason': self.fallback_reason,
+        }
 
 
 def _raise_availability_error(availability: ProviderAvailability) -> None:

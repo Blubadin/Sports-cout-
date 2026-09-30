@@ -657,23 +657,8 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         frame_stride = 3
         pose_stride = 2
     elif requested_profile == "auto":
-        is_cuda = (effective_device == "cuda")
-        if is_cuda:
-            detector_input_size = 512
-            use_court_roi = True
-            court_roi_margin_px = 60
-            court_roi_margin_m = 0.5
-            frame_stride = 2
-            pose_stride = 1
-            effective_profile = "balanced"
-        else:
-            detector_input_size = 416
-            use_court_roi = True
-            court_roi_margin_px = 60
-            court_roi_margin_m = 0.5
-            frame_stride = 3
-            pose_stride = 2
-            effective_profile = "fast"
+        # Hardware selection must not change the analysis workload.
+        effective_profile = "reference"
     elif requested_profile == "custom":
         detector_input_size = cfg.get("detector_input_size", cfg.get("detectorInputSize", 640))
         use_court_roi = cfg.get("use_court_roi", cfg.get("useCourtRoi", False))
@@ -722,6 +707,7 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
         "device": requested_device,
         "requestedDevice": requested_device,
         "effectiveDevice": effective_device,
+        "fallbackReason": 'CUDA unavailable; CPU selected' if effective_device == 'cpu' and requested_device in ('auto', 'cuda') else None,
         "detectorInputSize": int(detector_input_size),
         "useCourtRoi": bool(use_court_roi),
         "courtRoiMarginPx": int(court_roi_margin_px),
@@ -967,7 +953,7 @@ class TrackingSession:
         self.analyzer = BadmintonAnalyzerV2(
             game_type=game_type,
             max_players=self.tracked_player_count,
-            device=self.effective_device,
+            device=self.requested_device,
             engine_config=engine_cfg,
             shuttle_pipeline=self.shuttle_pipeline,
             auto_calibrate=bool(resolved_cfg.get("autoCourtCalibrationEnabled", False)),
@@ -1479,6 +1465,12 @@ def _build_session_metrics(session: TrackingSession):
     quality = compute_session_quality_metrics(session.results, session.tracked_player_count)
 
     analyzer_prov = session.analyzer.get_provenance() if hasattr(session.analyzer, "get_provenance") else {}
+    session.effective_device = analyzer_prov.get("device", session.effective_device)
+    session.device = session.effective_device
+    session.processing_config["effectiveDevice"] = session.effective_device
+    providers = analyzer_prov.get('inferenceProviders', {})
+    detector_execution = providers.get('detector') or {}
+    session.processing_config['fallbackReason'] = detector_execution.get('fallbackReason', session.processing_config.get('fallbackReason'))
     tracker_name = analyzer_prov.get("trackerName") or analyzer_prov.get("trackerModel") or "bytetrack"
     provenance = {
         "detectorModel": analyzer_prov.get("detectorModel", session.analyzer.model_path),
@@ -1492,6 +1484,8 @@ def _build_session_metrics(session: TrackingSession):
         "poseModel": analyzer_prov.get("poseModel", "yolov8n-pose.pt"),
         "poseFamily": analyzer_prov.get("poseFamily", "yolov8"),
         "poseArchitecture": analyzer_prov.get("poseArchitecture", "roi_pose"),
+        "inferenceProviders": analyzer_prov.get("inferenceProviders", {}),
+        "fallbackReason": session.processing_config.get('fallbackReason'),
         "runtime": analyzer_prov.get("runtime", "pytorch"),
         "precision": analyzer_prov.get("precision", "fp32"),
         "actualModel": analyzer_prov.get("actualModel", analyzer_prov.get("detectorModel", session.analyzer.model_path)),

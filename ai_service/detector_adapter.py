@@ -26,6 +26,8 @@ from engine_config import (
     RuntimeInferenceError,
 )
 from tracker_adapter import NormalizedTrackResult, TrackerProvenance
+from device_runtime import InferenceExecution, artifact_sha256, package_version
+from ultralytics_runtime import runtime_predictor, precision_options
 
 
 class BaseDetectorAdapter(ABC):
@@ -79,6 +81,8 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
         self._precision = precision
         self._model_artifact_reference = model_artifact_reference
         self._model = None
+        self.execution = InferenceExecution(device or 'auto', backend=runtime, precision=precision)
+        self._artifact_hash = None
 
     @property
     def model_name(self) -> str:
@@ -143,6 +147,7 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
         try:
             target = resolved_path if resolved_path else target_path
             self._model = YOLO(target)
+            self._artifact_hash = artifact_sha256(target)
         except Exception as e:
             if self._runtime == "tensorrt":
                 raise EngineLoadError(
@@ -172,6 +177,11 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
         provenance = TrackerProvenance(tracker_name, tracker_config or tracker_config_path, reid_enabled, reid_model)
         target_classes = classes if classes is not None else [0]  # Person class
 
+        options = {}
+        if self._runtime == 'pytorch':
+            from ultralytics.models.yolo.detect import DetectionPredictor
+            options['predictor'] = runtime_predictor(DetectionPredictor, self.execution)
+            options.update(precision_options(self._precision))
         try:
             results = self._model.track(
                 frame,
@@ -179,9 +189,10 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
                 tracker=tracker_cfg,
                 classes=target_classes,
                 conf=conf,
-                device=device,
+                device=self.execution.device if self._runtime == 'pytorch' else device,
                 imgsz=imgsz,
                 verbose=False,
+                **options,
             )
         except Exception as e:
             if self._runtime == "tensorrt":
@@ -209,3 +220,13 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
                     provenance=provenance,
                 ).to_detection())
         return detections
+
+    def get_provenance(self):
+        return {
+            **self.execution.provenance(), 'provider': 'ultralytics',
+            'runtime': self._runtime, 'runtimeVersion': package_version('torch' if self._runtime == 'pytorch' else 'tensorrt'),
+            'providerVersion': package_version('ultralytics'),
+            'modelVersion': self._artifact_hash, 'modelSha256': self._artifact_hash,
+            'preprocessVersion': 'ultralytics-letterbox-bgr-rgb-v1',
+            'postprocessVersion': 'ultralytics-nms-bytetrack-source-bbox-v1',
+        }
