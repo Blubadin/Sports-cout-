@@ -76,19 +76,77 @@ class RuntimeBoundaryTests(unittest.TestCase):
         predictor.args = SimpleNamespace(device='cuda')
         predictor.trackers = [SimpleNamespace(frame_id=0, track_id=71)]
         tracker = predictor.trackers[0]
-        predictor.setup_model('local-model')
-        for index in range(3):
-            predictor.frame = index
-            tensor = predictor.preprocess([index])
-            predictor.model.warmup(im=tensor)
-            output = predictor.inference(tensor)
-            predictor.postprocess(output, tensor, [index])
-            # Vendor callback runs after all retryable computation.
-            tracker.frame_id += 1
+        with patch('ultralytics_runtime._synchronize_device'):
+            predictor.setup_model('local-model')
+            for index in range(3):
+                predictor.frame = index
+                tensor = predictor.preprocess([index])
+                predictor.model.warmup(im=tensor)
+                output = predictor.inference(tensor)
+                predictor.postprocess(output, tensor, [index])
+                # Vendor callback runs after all retryable computation.
+                tracker.frame_id += 1
         self.assertIs(predictor.trackers[0], tracker)
         self.assertEqual(tracker.frame_id, 3)
         self.assertEqual(tracker.track_id, 71)
         self.assertEqual(attempts, [('cuda', 0), ('cuda', 1), ('cpu', 1), ('cpu', 2)])
+
+    def test_cuda_synchronize_failure_retries_before_tracking_callback(self):
+        from ultralytics_runtime import runtime_predictor
+        import torch
+        with patch('device_runtime.resolve_device', return_value='cuda'):
+            runtime = InferenceExecution('auto')
+        attempts = []
+        sync_devices = []
+
+        class Tensor:
+            def to(self, device):
+                return self
+            def cpu(self):
+                return self
+            def detach(self):
+                return self
+
+        class Predictor:
+            def setup_model(self, model, verbose=True):
+                self.model = SimpleNamespace(warmup=lambda **kw: None)
+            def preprocess(self, images):
+                return Tensor()
+            def inference(self, tensor):
+                attempts.append((self.args.device, self.frame))
+                return tensor
+            def postprocess(self, predictions, tensor, originals):
+                return predictions
+
+        def synchronize(device):
+            sync_devices.append(str(device))
+            # setup and warmup syncs pass; the first inference sync reports the
+            # asynchronous CUDA failure before Ultralytics' tracker callback.
+            if str(device).startswith('cuda') and sync_devices.count(str(device)) == 3:
+                raise RuntimeError('injected CUDA profiler synchronization failure')
+
+        predictor = runtime_predictor(Predictor, runtime)()
+        predictor.args = SimpleNamespace(device='cuda')
+        predictor.frame = 0
+        predictor.trackers = [SimpleNamespace(frame_id=0, track_id=71)]
+        tracker = predictor.trackers[0]
+        with patch('ultralytics_runtime._synchronize_device', side_effect=synchronize, create=True):
+            predictor.setup_model('local-model')
+            self.assertEqual(predictor.device.type, 'cpu')
+            tensor = predictor.preprocess([0])
+            predictor.model.warmup(im=tensor)
+            output = predictor.inference(tensor)
+            predictor.postprocess(output, tensor, [0])
+            # Ultralytics advances MOT once, only after all guarded stages pass.
+            tracker.frame_id += 1
+
+        self.assertEqual(attempts, [('cuda', 0), ('cpu', 0)])
+        self.assertEqual(runtime.device, 'cpu')
+        self.assertEqual(runtime.provenance()['executionStatus'], 'READY')
+        self.assertIn('RuntimeError', runtime.provenance()['fallbackReason'])
+        self.assertEqual(tracker.frame_id, 1)
+        self.assertEqual(tracker.track_id, 71)
+        self.assertEqual(sync_devices, ['cuda', 'cuda', 'cuda', 'cpu', 'cpu', 'cpu'])
 
     def test_temporal_retry_does_not_duplicate_or_skip_observations(self):
         from ai_service.shuttle_tracker import ShuttleTrackerProvider, TemporalModelOutput

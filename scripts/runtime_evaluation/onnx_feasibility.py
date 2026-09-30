@@ -264,7 +264,7 @@ def evaluate_shuttle(weights, frames, artifact_dir):
         passed = all(v["passed"] for c in checks for v in c.values()) and report["downstream"]["passed"]
         report.update(status="VALIDATED" if passed else "FAILED",
                       reason="Bounded real-window CPU tensor/candidate checks passed" if passed else "Preregistered tolerance/temporal contract failed",
-                      scope="four consecutive temporal windows; production ONNX adoption deferred")
+                      scope="52 consecutive overlapping temporal windows; production ONNX adoption deferred")
     except Exception as error:
         report.update(status="FAILED", reason=f"{type(error).__name__}: {error}", traceback=traceback.format_exc())
     return report

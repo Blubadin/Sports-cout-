@@ -7,6 +7,14 @@ CPU backend retains the SAME predictor and its tracker objects/counters.
 from copy import deepcopy
 
 
+def _synchronize_device(device):
+    """Surface asynchronous accelerator faults inside a retryable provider stage."""
+    device_type = getattr(device, 'type', str(device).split(':')[0])
+    if device_type == 'cuda':
+        import torch
+        torch.cuda.synchronize(device)
+
+
 def precision_options(precision):
     from ultralytics.cfg import DEFAULT_CFG_DICT
     if 'quantize' in DEFAULT_CFG_DICT:
@@ -26,7 +34,13 @@ def runtime_predictor(base, execution):
                 super(RuntimePredictor, self).setup_model(self._runtime_source, verbose=verbose)
                 if hasattr(self.model, 'fp16') and bool(self.model.fp16) != (execution.precision == 'fp16'):
                     raise ValueError('Provider changed requested precision')
+                # Complete setup transfers here so initialization faults stay inside
+                # the retry boundary. Keep Ultralytics' own Profile contexts on CPU;
+                # guarded stages below synchronize CUDA explicitly before callbacks.
+                _synchronize_device(device)
                 self._backend_device = device
+                import torch
+                self.device = torch.device('cpu')
                 # Warmup is also inference and occurs before MOT observations.
                 warmup = self.model.warmup
 
@@ -34,10 +48,12 @@ def runtime_predictor(base, execution):
                     def run(target):
                         if target != self._backend_device:
                             self._cpu_backend()
-                            if 'im' in kwargs:
-                                kwargs['im'] = self._canonical_tensor
-                            return self.model.warmup(*args, **_move(kwargs, target))
-                        return warmup(*args, **kwargs)
+                            current_warmup = self.model.warmup
+                        else:
+                            current_warmup = warmup
+                        result = current_warmup(*args, **_move(kwargs, target))
+                        _synchronize_device(target)
+                        return result
                     return execution.run(run, stage='warmup')
                 self.model.warmup = guarded_warmup
 
@@ -64,7 +80,9 @@ def runtime_predictor(base, execution):
             canonical = self._canonical_tensor
             def run(device):
                 self._on_device(device)
-                return super(RuntimePredictor, self).inference(canonical.to(device), *args, **kwargs)
+                result = super(RuntimePredictor, self).inference(canonical.to(device), *args, **kwargs)
+                _synchronize_device(device)
+                return result
             return execution.run(run)
 
         def postprocess(self, predictions, tensor, originals, **kwargs):
@@ -74,8 +92,10 @@ def runtime_predictor(base, execution):
                 current = predictions
                 if device != original_device:
                     current = self.inference(self._canonical_tensor)
-                return super(RuntimePredictor, self).postprocess(
+                result = super(RuntimePredictor, self).postprocess(
                     _move(current, device), self._canonical_tensor.to(device), originals, **kwargs)
+                _synchronize_device(device)
+                return result
             return execution.run(run, stage='postprocessing')
 
     return RuntimePredictor
