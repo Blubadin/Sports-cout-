@@ -165,6 +165,8 @@ export interface TrackingSample {
   metricRunId?: number;
   normalizedX?: number; // 0..1
   normalizedY?: number; // 0..1
+  canBuildHeatmap?: boolean;
+  canUseCourtMetric?: boolean;
 }
 
 export interface TrackingSampleChunk {
@@ -1128,12 +1130,21 @@ export function downsampleAndChunkTrackingSamples(
   const lastTotalDistances = new Map<string, number>();
 
   for (const frame of frames) {
-    if (!isMetricCalibrationValid(frame)) continue;
+    if (!isMetricCalibrationValid(frame) || frame.canUseCourtMetric === false) continue;
     for (const p of frame.players) {
       if (typeof p.totalDistanceM === 'number') {
         lastTotalDistances.set(p.playerId, p.totalDistanceM);
       }
-      if (!p.courtPosition) continue;
+      if (
+        !p.courtPosition ||
+        p.courtPosition.xM == null ||
+        p.courtPosition.yM == null ||
+        !Number.isFinite(p.courtPosition.xM) ||
+        !Number.isFinite(p.courtPosition.yM) ||
+        (p.courtPosition.xM === 0 && p.courtPosition.yM === 0)
+      ) {
+        continue;
+      }
 
       const sample: TrackingSample = {
         timestamp: frame.timestampSec,
@@ -1148,6 +1159,8 @@ export function downsampleAndChunkTrackingSamples(
         metricRunId: runIds.get(frame),
         normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
         normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
+        canBuildHeatmap: frame.canBuildHeatmap !== false,
+        canUseCourtMetric: true,
       };
 
       if (!fullRatePlayerSamples.has(p.playerId)) {
@@ -1163,14 +1176,23 @@ export function downsampleAndChunkTrackingSamples(
   let lastTimestamp = -1;
 
   for (const frame of frames) {
-    if (!isMetricCalibrationValid(frame)) continue;
+    if (!isMetricCalibrationValid(frame) || frame.canUseCourtMetric === false) continue;
     if (lastTimestamp >= 0 && frame.timestampSec - lastTimestamp < sampleInterval * 0.95) {
       continue;
     }
     lastTimestamp = frame.timestampSec;
 
     for (const p of frame.players) {
-      if (!p.courtPosition) continue;
+      if (
+        !p.courtPosition ||
+        p.courtPosition.xM == null ||
+        p.courtPosition.yM == null ||
+        !Number.isFinite(p.courtPosition.xM) ||
+        !Number.isFinite(p.courtPosition.yM) ||
+        (p.courtPosition.xM === 0 && p.courtPosition.yM === 0)
+      ) {
+        continue;
+      }
       const sample: TrackingSample = {
         timestamp: frame.timestampSec,
         playerId: p.playerId,
@@ -1184,6 +1206,8 @@ export function downsampleAndChunkTrackingSamples(
         metricRunId: runIds.get(frame),
         normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
         normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
+        canBuildHeatmap: frame.canBuildHeatmap !== false,
+        canUseCourtMetric: true,
       };
       downsampledSamples.push(sample);
     }

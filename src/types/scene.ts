@@ -30,6 +30,8 @@ export interface SceneEvidence {
   notes?: string | null;
 }
 
+import { SegmentCapabilities, parseSegmentCapabilities } from './capabilities';
+
 export interface SceneStateTransition {
   transitionId: string;
   cameraSegmentId: string;
@@ -42,6 +44,13 @@ export interface SceneStateTransition {
   evidence: SceneEvidence;
   isMetricValid: boolean;
   allowCanonicalWrites: boolean;
+  capabilities?: SegmentCapabilities | null;
+  canTrackPlayer?: boolean;
+  canTrackShuttle?: boolean;
+  canUseCourtMetric?: boolean;
+  canBuildHeatmap?: boolean;
+  canEstimateHit?: boolean;
+  canWriteCanonicalMatchData?: boolean;
 }
 
 export function isSceneState(value: unknown): value is SceneState {
@@ -110,5 +119,12 @@ export function parseSceneTransition(value: unknown): SceneStateTransition | nul
     },
     isMetricValid: Boolean(tr.isMetricValid ?? tr.is_metric_valid),
     allowCanonicalWrites: Boolean(tr.allowCanonicalWrites ?? tr.allow_canonical_writes),
+    capabilities: parseSegmentCapabilities(tr.capabilities),
+    canTrackPlayer: typeof tr.canTrackPlayer === 'boolean' ? tr.canTrackPlayer : undefined,
+    canTrackShuttle: typeof tr.canTrackShuttle === 'boolean' ? tr.canTrackShuttle : undefined,
+    canUseCourtMetric: typeof tr.canUseCourtMetric === 'boolean' ? tr.canUseCourtMetric : undefined,
+    canBuildHeatmap: typeof tr.canBuildHeatmap === 'boolean' ? tr.canBuildHeatmap : undefined,
+    canEstimateHit: typeof tr.canEstimateHit === 'boolean' ? tr.canEstimateHit : undefined,
+    canWriteCanonicalMatchData: typeof tr.canWriteCanonicalMatchData === 'boolean' ? tr.canWriteCanonicalMatchData : undefined,
   };
 }

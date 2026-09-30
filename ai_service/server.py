@@ -882,6 +882,9 @@ class SessionCalibrationRequest(BaseModel):
     corners: list[list[float]]
     game_type: Literal['singles', 'doubles'] = "doubles"
     camera_segment_id: str | None = None
+    frame_index: int | None = None
+    timestamp_sec: float | None = None
+    calibration_version: str | None = None
 
 class SessionPlayerRequest(BaseModel):
     players: list[dict]
@@ -1322,18 +1325,36 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
         if session._uploading or session._deleting:
             raise HTTPException(status_code=409, detail='Session is busy')
         allowed = ALLOWED_CALIBRATION_STATES_DEMO if session.video_source == "demo" else ALLOWED_CALIBRATION_STATES_REAL
+        active_segment = session.analyzer.calibration_context.camera_segment_id
         recovering_during_processing = (
             session.status == "PROCESSING"
-            and session.analyzer.calibration_context.state is CalibrationState.CALIBRATION_LOST
+            and session.analyzer.calibration_context.state in (CalibrationState.CALIBRATION_LOST, CalibrationState.RECALIBRATING)
             and req.game_type == session.game_type
         )
         if session.status not in allowed and not recovering_during_processing:
             raise HTTPException(status_code=409, detail=f"Cannot calibrate in {session.status} state")
-        if recovering_during_processing and req.camera_segment_id != session.analyzer.calibration_context.camera_segment_id:
-            raise HTTPException(status_code=409, detail="Camera segment changed; select corners on the current segment")
+        if recovering_during_processing and req.camera_segment_id is not None and req.camera_segment_id != active_segment:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Stale calibration correction: target segment '{req.camera_segment_id}' does not match active segment '{active_segment}'",
+            )
+        if req.frame_index is not None:
+            if req.frame_index < 0:
+                raise HTTPException(status_code=400, detail="frameIndex must be non-negative")
+            if session.status == "PROCESSING" and req.frame_index > session.analyzer.frame_count:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Stale calibration correction: frameIndex {req.frame_index} exceeds currently analyzed frame {session.analyzer.frame_count}",
+                )
 
         try:
-            session.analyzer.set_court_corners(req.corners)
+            session.analyzer.set_court_corners(
+                req.corners,
+                camera_segment_id=req.camera_segment_id,
+                calibration_version=req.calibration_version,
+                created_at_frame=req.frame_index,
+                created_at_timestamp_sec=req.timestamp_sec,
+            )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -1512,15 +1533,38 @@ def _build_session_metrics(session: TrackingSession):
     )
     provenance["shuttle"] = shuttle_prov
     calib_prov = session.analyzer.calibration_context.provenance
+    cal_state = session.analyzer.calibration_context.state
+    unavailable_reason = None
+    if cal_state == CalibrationState.RECALIBRATING:
+        unavailable_reason = "Camera cut or motion drift detected: searching for court lines or awaiting manual recovery"
+    elif cal_state == CalibrationState.CALIBRATION_LOST:
+        unavailable_reason = "Court calibration lost: awaiting automatic line relock or manual calibration"
+    elif cal_state == CalibrationState.UNCALIBRATED:
+        unavailable_reason = "Court uncalibrated: four court corners required"
+
+    suggested_corners = None
+    suggested_confidence = None
+    if cal_state in (CalibrationState.CALIBRATION_LOST, CalibrationState.RECALIBRATING, CalibrationState.UNCALIBRATED):
+        tsv = getattr(session.analyzer, "temporal_stability_validator", None)
+        if tsv and tsv.streak:
+            latest_cand = tsv.streak[-1]
+            if latest_cand.corners_px:
+                suggested_corners = [list(pt) for pt in latest_cand.corners_px]
+                suggested_confidence = latest_cand.confidence
+
     provenance["autoCourtCalibrationEnabled"] = session.analyzer.auto_calibration_provider is not None
     provenance["calibration"] = {
         "autoCalibrationEnabled": session.analyzer.auto_calibration_provider is not None,
         "cameraSegmentId": session.analyzer.calibration_context.camera_segment_id,
         "calibrationId": calib_prov.calibration_id if calib_prov else None,
-        "state": session.analyzer.calibration_context.state.value,
+        "calibrationVersion": (calib_prov.calibration_version or calib_prov.calibration_id) if calib_prov else None,
+        "state": cal_state.value,
         "source": calib_prov.source.value if calib_prov else None,
         "confidence": calib_prov.confidence if calib_prov else None,
         "reprojectionErrorPx": calib_prov.reprojection_error_px if calib_prov else None,
+        "unavailableReason": unavailable_reason,
+        "suggestedCorners": suggested_corners,
+        "suggestedConfidence": suggested_confidence,
     }
 
     return performance, quality, public_metadata(provenance)

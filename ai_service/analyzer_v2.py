@@ -330,8 +330,13 @@ class BadmintonAnalyzerV2:
         source: str = "manual", created_at_frame: int | None = None,
         created_at_timestamp_sec: float | None = None,
         confidence: float | None = None, reprojection_error_px: float | None = None,
+        camera_segment_id: str | None = None, calibration_version: str | None = None,
     ):
         """Set court corners for perspective calibration."""
+        if camera_segment_id is not None and camera_segment_id != self.calibration_context.camera_segment_id:
+            raise ValueError(
+                f"Stale calibration correction: target segment '{camera_segment_id}' does not match active segment '{self.calibration_context.camera_segment_id}'"
+            )
         source_kind = CalibrationSource(source)
         if source_kind is CalibrationSource.MANUAL and (confidence is not None or reprojection_error_px is not None):
             raise ValueError("Manual four-corner calibration has no measured confidence or reprojection error")
@@ -347,6 +352,7 @@ class BadmintonAnalyzerV2:
             timestamp_sec=self.frame_count / self.fps if created_at_timestamp_sec is None else created_at_timestamp_sec,
             confidence=confidence,
             reprojection_error_px=reprojection_error_px,
+            calibration_version=calibration_version,
             corners=candidate.tolist(),
             h_matrix=candidate_mapper.H.tolist(),
             h_inv_matrix=candidate_mapper.H_inv.tolist(),
@@ -894,6 +900,13 @@ class BadmintonAnalyzerV2:
             "sceneState": transition.to_state.value,
             "sceneTransition": transition.to_dict(),
             "sceneEvidence": transition.evidence.to_dict(),
+            "capabilities": transition.capabilities.to_dict() if transition.capabilities is not None else None,
+            "canTrackPlayer": transition.capabilities.can_track_player.enabled if transition.capabilities is not None else True,
+            "canTrackShuttle": transition.capabilities.can_track_shuttle.enabled if transition.capabilities is not None else True,
+            "canUseCourtMetric": transition.capabilities.can_use_court_metric.enabled if transition.capabilities is not None else metric_valid,
+            "canBuildHeatmap": transition.capabilities.can_build_heatmap.enabled if transition.capabilities is not None else metric_valid,
+            "canEstimateHit": transition.capabilities.can_estimate_hit.enabled if transition.capabilities is not None else False,
+            "canWriteCanonicalMatchData": transition.capabilities.can_write_canonical_match_data.enabled if transition.capabilities is not None else transition.allow_canonical_writes,
             "isMetricValid": metric_valid,
             "allowCanonicalWrites": transition.allow_canonical_writes,
             "engineVersion": "1.0.0",

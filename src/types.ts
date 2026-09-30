@@ -513,8 +513,16 @@ export interface TrackingTelemetryV1 {
   sceneState?: import('./types/scene').SceneState | string | null;
   sceneTransition?: import('./types/scene').SceneStateTransition | null;
   sceneEvidence?: import('./types/scene').SceneEvidence | null;
+  capabilities?: import('./types/capabilities').SegmentCapabilities | null;
+  canTrackPlayer?: boolean;
+  canTrackShuttle?: boolean;
+  canUseCourtMetric?: boolean;
+  canBuildHeatmap?: boolean;
+  canEstimateHit?: boolean;
+  canWriteCanonicalMatchData?: boolean;
   isMetricValid?: boolean;
   allowCanonicalWrites?: boolean;
+  calibrationUnavailableReason?: string | null;
   engineVersion?: string;
   modelVersion?: string;
   modelArtifactHash?: string | null;
@@ -832,6 +840,19 @@ export interface TrackingRuntimeProvenance {
   precision?: string;
   confidenceThreshold?: number;
   shuttle?: ShuttleProvenance | null;
+  calibration?: {
+    autoCalibrationEnabled: boolean;
+    cameraSegmentId: string;
+    calibrationId?: string | null;
+    calibrationVersion?: string | null;
+    state: string;
+    source?: string | null;
+    confidence?: number | null;
+    reprojectionErrorPx?: number | null;
+    unavailableReason?: string | null;
+    suggestedCorners?: number[][] | null;
+    suggestedConfidence?: number | null;
+  } | null;
 }
 
 export * from './types/benchmark';

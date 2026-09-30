@@ -119,6 +119,7 @@ class CalibrationContext:
         timestamp_sec: float,
         confidence: float | None = None,
         reprojection_error_px: float | None = None,
+        calibration_version: str | None = None,
         corners: tuple[tuple[float, float], ...] | list[list[float]] | np.ndarray | None = None,
         h_matrix: tuple[tuple[float, ...], ...] | list[list[float]] | np.ndarray | None = None,
         h_inv_matrix: tuple[tuple[float, ...], ...] | list[list[float]] | np.ndarray | None = None,
@@ -142,6 +143,7 @@ class CalibrationContext:
             created_at_timestamp_sec=timestamp_sec,
             confidence=confidence,
             reprojection_error_px=reprojection_error_px,
+            calibration_version=calibration_version,
             corners=corners_tuple,
             h_matrix=h_tuple,
             h_inv_matrix=h_inv_tuple,
@@ -183,6 +185,14 @@ class CalibrationContext:
 
     def frame_fields(self) -> dict:
         provenance = self.provenance if self.provenance and self.provenance.camera_segment_id == self.camera_segment_id else None
+        unavailable_reason = None
+        if self.state is CalibrationState.RECALIBRATING:
+            unavailable_reason = "Camera cut or motion drift detected: searching for court lines or awaiting manual recovery"
+        elif self.state is CalibrationState.CALIBRATION_LOST:
+            unavailable_reason = "Court calibration lost: metric tracking suspended awaiting recovery"
+        elif self.state is CalibrationState.UNCALIBRATED:
+            unavailable_reason = "Court uncalibrated: physical metric tracking disabled"
+
         return {
             "cameraSegmentId": self.camera_segment_id,
             "calibrationId": provenance.calibration_id if provenance else None,
@@ -190,5 +200,6 @@ class CalibrationContext:
             "calibrationState": self.state.value,
             "calibrationConfidence": provenance.confidence if provenance and self.is_metric_valid else None,
             "reprojectionErrorPx": provenance.reprojection_error_px if provenance and self.is_metric_valid else None,
+            "calibrationUnavailableReason": unavailable_reason,
             "calibration": provenance.to_dict() if provenance else None,
         }

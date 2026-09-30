@@ -266,6 +266,16 @@ export default function BadmintonMovementDashboard({
 
       for (const s of filteredSamples) {
         if (s.trackingState !== 'tracked') continue;
+        if (
+          s.courtX == null ||
+          s.courtY == null ||
+          !Number.isFinite(s.courtX) ||
+          !Number.isFinite(s.courtY) ||
+          (s.courtX === 0 && s.courtY === 0) ||
+          s.canBuildHeatmap === false
+        ) {
+          continue;
+        }
         const col = Math.min(binCols - 1, Math.max(0, Math.floor((s.courtX / COURT_W_M) * binCols)));
         const row = Math.min(binRows - 1, Math.max(0, Math.floor((s.courtY / COURT_H_M) * binRows)));
         bins[row][col]++;
@@ -310,6 +320,16 @@ export default function BadmintonMovementDashboard({
           const prev = sorted[i - 1];
           const curr = sorted[i];
           if (prev.trackingState !== 'tracked' || curr.trackingState !== 'tracked') continue;
+          if (
+            prev.courtX == null || prev.courtY == null || curr.courtX == null || curr.courtY == null ||
+            !Number.isFinite(prev.courtX) || !Number.isFinite(prev.courtY) ||
+            !Number.isFinite(curr.courtX) || !Number.isFinite(curr.courtY) ||
+            (prev.courtX === 0 && prev.courtY === 0) ||
+            (curr.courtX === 0 && curr.courtY === 0) ||
+            prev.canBuildHeatmap === false || curr.canBuildHeatmap === false
+          ) {
+            continue;
+          }
 
           // Teleport filter: badminton players can't move > 12 m/s
           const dx = curr.courtX - prev.courtX;

@@ -20,6 +20,7 @@ import type {
 } from '../types';
 import { isCalibrationState, isMetricCalibrationValid, parseCalibrationProvenance } from '../types/calibration';
 import { parseSceneEvidence, parseSceneTransition } from '../types/scene';
+import { parseSegmentCapabilities } from '../types/capabilities';
 import {
   AIConnectionError,
   type AIConnectionCode,
@@ -262,12 +263,27 @@ export class TrackingSessionApiClient {
     sessionId: string,
     corners: number[][],
     gameType: BadmintonGameType,
-    cameraSegmentId?: string
+    cameraSegmentIdOrOptions?: string | {
+      cameraSegmentId?: string;
+      frameIndex?: number;
+      timestampSec?: number;
+      calibrationVersion?: string;
+    }
   ): Promise<Pick<TrackingTelemetryV1, 'cameraSegmentId' | 'calibrationId' | 'calibrationState' | 'calibrationConfidence' | 'calibration'>> {
+    const opts = typeof cameraSegmentIdOrOptions === 'string'
+      ? { camera_segment_id: cameraSegmentIdOrOptions }
+      : cameraSegmentIdOrOptions
+        ? {
+            camera_segment_id: cameraSegmentIdOrOptions.cameraSegmentId,
+            frame_index: cameraSegmentIdOrOptions.frameIndex,
+            timestamp_sec: cameraSegmentIdOrOptions.timestampSec,
+            calibration_version: cameraSegmentIdOrOptions.calibrationVersion,
+          }
+        : {};
     const res = await this.request(`/api/tracking/sessions/${sessionId}/calibration`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ corners, game_type: gameType, ...(cameraSegmentId ? { camera_segment_id: cameraSegmentId } : {}) }),
+      body: JSON.stringify({ corners, game_type: gameType, ...opts }),
     });
     return res.json();
   }
@@ -474,6 +490,11 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     ? parsedCalibration : null;
   const metricValid = isMetricCalibrationValid({ calibrationState, cameraSegmentId, calibrationId, calibration });
 
+  const sceneTransition = parseSceneTransition(frame.sceneTransition || frame.scene_transition);
+  const capabilities = parseSegmentCapabilities(frame.capabilities || frame.sceneTransition?.capabilities || sceneTransition?.capabilities);
+  const isMetricValid = frame.isMetricValid ?? frame.is_metric_valid ?? capabilities?.canUseCourtMetric.enabled ?? metricValid;
+  const allowCanonicalWrites = frame.allowCanonicalWrites ?? frame.allow_canonical_writes ?? capabilities?.canWriteCanonicalMatchData.enabled ?? (metricValid && (frame.sceneState === 'COURT_PLAY' || !frame.sceneState));
+
   return {
     schemaVersion: 1,
     analysisId: frame.analysisId || 'tracking_session',
@@ -482,10 +503,30 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     frameIndex: frame.frameIndex ?? frame.frame_idx,
     timebase: frame.timebase ?? null,
     sceneState: frame.sceneState || frame.scene_state || null,
-    sceneTransition: parseSceneTransition(frame.sceneTransition || frame.scene_transition),
+    sceneTransition,
     sceneEvidence: parseSceneEvidence(frame.sceneEvidence || frame.scene_evidence),
-    isMetricValid: frame.isMetricValid ?? frame.is_metric_valid ?? metricValid,
-    allowCanonicalWrites: frame.allowCanonicalWrites ?? frame.allow_canonical_writes ?? (metricValid && (frame.sceneState === 'COURT_PLAY' || !frame.sceneState)),
+    capabilities,
+    canTrackPlayer: typeof frame.canTrackPlayer === 'boolean'
+      ? frame.canTrackPlayer
+      : capabilities?.canTrackPlayer.enabled ?? true,
+    canTrackShuttle: typeof frame.canTrackShuttle === 'boolean'
+      ? frame.canTrackShuttle
+      : capabilities?.canTrackShuttle.enabled ?? true,
+    canUseCourtMetric: typeof frame.canUseCourtMetric === 'boolean'
+      ? frame.canUseCourtMetric
+      : capabilities?.canUseCourtMetric.enabled ?? isMetricValid,
+    canBuildHeatmap: typeof frame.canBuildHeatmap === 'boolean'
+      ? frame.canBuildHeatmap
+      : capabilities?.canBuildHeatmap.enabled ?? isMetricValid,
+    canEstimateHit: typeof frame.canEstimateHit === 'boolean'
+      ? frame.canEstimateHit
+      : capabilities?.canEstimateHit.enabled ?? false,
+    canWriteCanonicalMatchData: typeof frame.canWriteCanonicalMatchData === 'boolean'
+      ? frame.canWriteCanonicalMatchData
+      : capabilities?.canWriteCanonicalMatchData.enabled ?? allowCanonicalWrites,
+    isMetricValid,
+    allowCanonicalWrites,
+    calibrationUnavailableReason: frame.calibrationUnavailableReason || frame.calibration_unavailable_reason || null,
     engineVersion: frame.engineVersion || '1.0.0',
     modelVersion: frame.modelVersion || 'badminton-tracking-v1',
     modelArtifactHash: frame.modelArtifactHash || frame.model_artifact_hash || null,

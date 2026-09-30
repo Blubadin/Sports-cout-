@@ -162,7 +162,9 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: 'Apply manual calibration' }));
     await waitFor(() => expect(aiTrackingService.calibrateSession).toHaveBeenCalledWith(
-      'session-123', [[70, 35], [570, 35], [570, 445], [70, 445]], 'singles', 'segment-1',
+      'session-123', [[70, 35], [570, 35], [570, 445], [70, 445]], 'singles', expect.objectContaining({
+        cameraSegmentId: 'segment-1',
+      }),
     ));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Apply manual calibration' })).not.toBeInTheDocument());
     trackingSessionStore.updateProjectState('project-1', { sessionId: 'session-456', status: 'PROCESSING' });

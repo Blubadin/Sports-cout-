@@ -794,7 +794,12 @@ export default function BadmintonTrackingLab() {
     setRecoveryPending(true);
     setRecoveryError(null);
     try {
-      await aiTrackingService.calibrateSession(state.sessionId, corners, gameType, lostSegmentId);
+      await aiTrackingService.calibrateSession(state.sessionId, corners, gameType, {
+        cameraSegmentId: lostSegmentId,
+        frameIndex: latestFrame?.frameIndex,
+        timestampSec: latestFrame?.timestampSec,
+        calibrationVersion: latestFrame?.calibrationVersion ?? undefined,
+      });
       setRecoveredKey(lostSegmentKey);
     } catch (cause) {
       setRecoveryError(cause instanceof Error ? cause.message : 'Manual calibration failed');
@@ -803,7 +808,7 @@ export default function BadmintonTrackingLab() {
     }
   };
   const button =
-    'rounded-lg border border-slate-600 px-3 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed';
+    'rounded-lg border border-slate-600 px-3 py-2 text-sm transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 motion-reduce:transform-none motion-reduce:transition-none disabled:opacity-40 disabled:cursor-not-allowed';
 
   return (
     <div className="h-full overflow-y-auto bg-[#0c1721] text-slate-200 p-4 space-y-4">
@@ -1312,9 +1317,48 @@ export default function BadmintonTrackingLab() {
                   <span className={`px-2 py-0.5 rounded border ${
                     latestFrame.calibrationState === 'CALIBRATED'
                       ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-                      : 'bg-amber-950/80 border-amber-500/50 text-amber-300'
-                  }`}>
+                      : latestFrame.calibrationState === 'RECALIBRATING'
+                        ? 'bg-amber-950/90 border-amber-500 text-amber-200 animate-pulse motion-reduce:animate-none'
+                        : 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                  }`}
+                  title={latestFrame.calibrationUnavailableReason || latestFrame.calibrationState}>
                     {latestFrame.calibrationState}
+                  </span>
+                )}
+                {latestFrame.canTrackPlayer !== undefined && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded border ${
+                      latestFrame.canTrackPlayer
+                        ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                        : 'bg-slate-900/80 border-slate-700 text-slate-500 line-through'
+                    }`}
+                    title={latestFrame.capabilities?.canTrackPlayer?.reason || 'Player tracking'}
+                  >
+                    2D
+                  </span>
+                )}
+                {latestFrame.canUseCourtMetric !== undefined && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded border ${
+                      latestFrame.canUseCourtMetric
+                        ? 'bg-sky-950/80 border-sky-500/40 text-sky-300'
+                        : 'bg-slate-900/80 border-slate-700 text-slate-500 line-through'
+                    }`}
+                    title={latestFrame.capabilities?.canUseCourtMetric?.reason || 'Court metric'}
+                  >
+                    METRIC
+                  </span>
+                )}
+                {latestFrame.canWriteCanonicalMatchData !== undefined && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded border ${
+                      latestFrame.canWriteCanonicalMatchData
+                        ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                        : 'bg-slate-900/80 border-slate-700 text-slate-500 line-through'
+                    }`}
+                    title={latestFrame.capabilities?.canWriteCanonicalMatchData?.reason || 'Canonical writes'}
+                  >
+                    CANONICAL
                   </span>
                 )}
               </div>
@@ -1383,18 +1427,57 @@ export default function BadmintonTrackingLab() {
           >
             {th ? 'เลือก 4 มุมสนามจากภาพวิดีโอ' : 'Calibrate four court corners'}
           </button>
+          {latestFrame?.calibrationState === 'RECALIBRATING' && (
+            <div role="status" className="p-3 rounded-lg border border-amber-500/40 bg-amber-950/30 text-amber-200 text-xs space-y-1">
+              <p className="font-semibold text-amber-300">
+                {th ? 'กำลังปรับเทียบสนามใหม่ (Recalibrating)' : 'Court Recalibration In Progress'}
+              </p>
+              <p className="text-slate-300">
+                {latestFrame.calibrationUnavailableReason ||
+                  (th
+                    ? 'ตรวจพบการตัดภาพหรือการเคลื่อนไหวของกล้อง กำลังค้นหาเส้นสนามหรือรอการกู้คืนด้วยตนเอง'
+                    : 'Camera cut or motion drift detected. System is searching for court lines or awaiting manual recovery.')}
+              </p>
+            </div>
+          )}
           {lostSegmentId && (
-            <div role="status" className="text-sm text-amber-300 space-y-2">
+            <div role="status" className="text-sm text-amber-300 space-y-2 p-3 rounded-lg border border-amber-600/40 bg-amber-950/20">
               <p>{th ? 'การปรับเทียบสนามสูญหาย เลือกมุมสนาม 4 จุดจากภาพของช่วงกล้องปัจจุบัน' :
                 'Court calibration lost. Select four corners on the current camera segment.'}</p>
+              {(() => {
+                const suggested = (state.sessionStatus?.runtimeProvenance?.calibration as any)?.suggestedCorners;
+                const suggestedConf = (state.sessionStatus?.runtimeProvenance?.calibration as any)?.suggestedConfidence;
+                if (!suggested || !Array.isArray(suggested) || suggested.length !== 4) return null;
+                return (
+                  <div className="flex items-center justify-between gap-2 text-xs text-sky-300 bg-sky-950/40 p-2 rounded border border-sky-800/50">
+                    <span>
+                      {th
+                        ? `ข้อเสนอ Hybrid: ตรวจพบจุดสนาม (${Math.round((suggestedConf || 0) * 100)}% ความมั่นใจ)`
+                        : `Hybrid Proposal: Candidate corners detected (${Math.round((suggestedConf || 0) * 100)}% conf)`}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-medium transition-transform active:scale-95 motion-reduce:transform-none"
+                      onClick={() => {
+                        update({ corners: suggested });
+                        setRecoverySelectionKey(lostSegmentKey);
+                      }}
+                    >
+                      {th ? 'ใช้จุดแนะนำ' : 'Use suggested corners'}
+                    </button>
+                  </div>
+                );
+              })()}
               <button
                 className={button}
                 disabled={corners.length !== 4 || recoverySelectionKey !== lostSegmentKey || recoveryPending}
                 onClick={() => void applyManualRecovery()}
               >
-                {th ? 'ใช้การปรับเทียบด้วยตนเอง' : 'Apply manual calibration'}
+                {recoveryPending
+                  ? (th ? 'กำลังบันทึก...' : 'Applying...')
+                  : (th ? 'ใช้การปรับเทียบด้วยตนเอง' : 'Apply manual calibration')}
               </button>
-              {recoveryError && <p role="alert" className="text-red-300">{recoveryError}</p>}
+              {recoveryError && <p role="alert" className="text-red-300 text-xs">{recoveryError}</p>}
             </div>
           )}
           <p className="text-sm text-slate-400">

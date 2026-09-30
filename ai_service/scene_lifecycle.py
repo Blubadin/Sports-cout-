@@ -54,6 +54,258 @@ class SceneEvidence:
 
 
 @dataclass
+class CapabilityGate:
+    """Explicit capability gate evaluated from scene, calibration, and observation quality."""
+    enabled: bool
+    reason: str
+    confidence: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "reason": self.reason,
+            "confidence": round(float(self.confidence), 3),
+        }
+
+
+@dataclass
+class SegmentCapabilities:
+    """Canonical 6 consumer capability gates per camera segment/frame."""
+    can_track_player: CapabilityGate
+    can_track_shuttle: CapabilityGate
+    can_use_court_metric: CapabilityGate
+    can_build_heatmap: CapabilityGate
+    can_estimate_hit: CapabilityGate
+    can_write_canonical_match_data: CapabilityGate
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "canTrackPlayer": self.can_track_player.to_dict(),
+            "canTrackShuttle": self.can_track_shuttle.to_dict(),
+            "canUseCourtMetric": self.can_use_court_metric.to_dict(),
+            "canBuildHeatmap": self.can_build_heatmap.to_dict(),
+            "canEstimateHit": self.can_estimate_hit.to_dict(),
+            "canWriteCanonicalMatchData": self.can_write_canonical_match_data.to_dict(),
+        }
+
+
+def compute_capabilities(
+    target_state: SceneState,
+    calibration_context: CalibrationContext,
+    evidence: SceneEvidence,
+    has_valid_ground_measurement: bool = True,
+) -> SegmentCapabilities:
+    """Unified source of truth deriving the 6 consumer capability gates.
+
+    Never concludes capability from scene state name alone. Evaluates calibration validity,
+    visual observation feasibility, optical flow/motion continuity, and canonical write rules.
+    """
+    # 1. canTrackPlayer: 2D player and pose tracking
+    # Rule: calibration invalid != disable player/shuttle/pose.
+    # Player tracking is active across court play, court idle, side play, close-up, and replay.
+    # It is suspended only during camera cut / transition or empty frames.
+    if target_state is SceneState.CAMERA_TRANSITION or evidence.camera_cut_detected:
+        can_track_player = CapabilityGate(
+            enabled=False,
+            reason="Camera cut or transition active; 2D athlete tracking temporarily suspended",
+            confidence=0.0,
+        )
+    elif target_state is SceneState.UNKNOWN and evidence.player_count == 0:
+        can_track_player = CapabilityGate(
+            enabled=False,
+            reason="Ambiguous non-court scene without detected athletes",
+            confidence=0.30,
+        )
+    else:
+        player_conf = 0.95 if evidence.player_count > 0 else 0.85
+        can_track_player = CapabilityGate(
+            enabled=True,
+            reason="2D player detection and pose tracking active in camera view",
+            confidence=player_conf,
+        )
+
+    # 2. canTrackShuttle: 2D shuttle detection and trajectory tracking
+    # Feasible when wide court or playing field is visible (court play, idle, side play, replay).
+    # In close-up, field of view is too narrow to observe shuttle trajectory.
+    if target_state is SceneState.CLOSE_UP:
+        can_track_shuttle = CapabilityGate(
+            enabled=False,
+            reason="Close-up athlete view: field of play too narrow for shuttle trajectory",
+            confidence=0.0,
+        )
+    elif target_state is SceneState.CAMERA_TRANSITION or evidence.camera_cut_detected:
+        can_track_shuttle = CapabilityGate(
+            enabled=False,
+            reason="Camera cut or transition active: visual discontinuity across frame",
+            confidence=0.0,
+        )
+    elif target_state is SceneState.UNKNOWN:
+        can_track_shuttle = CapabilityGate(
+            enabled=False,
+            reason="Ambiguous or non-court scene: shuttle tracking unavailable",
+            confidence=0.0,
+        )
+    else:
+        can_track_shuttle = CapabilityGate(
+            enabled=True,
+            reason="Court field in view for shuttle detection and trajectory tracking",
+            confidence=0.90,
+        )
+
+    # 3. canUseCourtMetric: physical metric court coordinates (meters/zones/speeds)
+    # Strictly requires:
+    #   - calibration_context.is_metric_valid
+    #   - scene state in (COURT_PLAY, COURT_IDLE)
+    #   - not pan/tilt/zoom drift
+    #   - not camera cut
+    #   - not side play, close up, replay, transition, unknown
+    if target_state is SceneState.CAMERA_TRANSITION or evidence.camera_cut_detected:
+        can_use_court_metric = CapabilityGate(
+            enabled=False,
+            reason="Camera cut or transition in progress: metric coordinates unavailable",
+            confidence=0.0,
+        )
+    elif evidence.is_pan_tilt_zoom:
+        can_use_court_metric = CapabilityGate(
+            enabled=False,
+            reason="Camera motion drift detected: metric homography suspended",
+            confidence=0.0,
+        )
+    elif target_state is SceneState.CLOSE_UP:
+        can_use_court_metric = CapabilityGate(
+            enabled=False,
+            reason="Close-up perspective: court surface obscured or zoomed; metric mapping disabled",
+            confidence=0.0,
+        )
+    elif target_state is SceneState.SIDE_PLAY:
+        can_use_court_metric = CapabilityGate(
+            enabled=False,
+            reason="Unsupported side view: court homography not calibrated for side angle",
+            confidence=0.0,
+        )
+    elif target_state is SceneState.REPLAY:
+        can_use_court_metric = CapabilityGate(
+            enabled=False,
+            reason="Replay footage: metric court tracking suspended for review footage",
+            confidence=0.0,
+        )
+    elif target_state is SceneState.UNKNOWN:
+        can_use_court_metric = CapabilityGate(
+            enabled=False,
+            reason="Unknown scene state: metric coordinates unavailable",
+            confidence=0.0,
+        )
+    elif not calibration_context.is_metric_valid:
+        cal_state = calibration_context.state
+        if cal_state is CalibrationState.RECALIBRATING:
+            reason = "Court recalibration in progress: metric coordinates suspended"
+        elif cal_state is CalibrationState.CALIBRATION_LOST:
+            reason = "Court calibration lost: metric coordinates suspended awaiting recovery"
+        else:
+            reason = "Court uncalibrated: metric coordinates suspended"
+        can_use_court_metric = CapabilityGate(
+            enabled=False,
+            reason=reason,
+            confidence=0.0,
+        )
+    else:
+        metric_conf = evidence.calibration_confidence if evidence.calibration_confidence is not None else 0.95
+        can_use_court_metric = CapabilityGate(
+            enabled=True,
+            reason="Calibrated court view with locked homography and valid physical projection",
+            confidence=metric_conf,
+        )
+
+    # 4. canBuildHeatmap: occupancy density accumulation
+    # Requires valid court metric AND actual valid ground measurement.
+    # Strictly prohibited from backfilling (0, 0) or repeating last-known position.
+    if not can_use_court_metric.enabled:
+        can_build_heatmap = CapabilityGate(
+            enabled=False,
+            reason="Heatmap accumulation requires locked court metric calibration (zero/last-known fill prohibited)",
+            confidence=0.0,
+        )
+    elif not has_valid_ground_measurement:
+        can_build_heatmap = CapabilityGate(
+            enabled=False,
+            reason="Ground point projection unresolved; skipping heatmap binning to prevent zero-coordinate artifact",
+            confidence=0.0,
+        )
+    else:
+        can_build_heatmap = CapabilityGate(
+            enabled=True,
+            reason="Locked court calibration with valid ground position mapping for heatmap binning",
+            confidence=can_use_court_metric.confidence,
+        )
+
+    # 5. canEstimateHit: Contract readiness gate for downstream hit/stroke engine
+    # Contract readiness only: verifies player, shuttle, and court metrics are all available.
+    if can_track_player.enabled and can_track_shuttle.enabled and can_use_court_metric.enabled:
+        hit_conf = min(can_track_player.confidence, can_track_shuttle.confidence, can_use_court_metric.confidence)
+        can_estimate_hit = CapabilityGate(
+            enabled=True,
+            reason="Hit estimation contract ready (player, shuttle, and court metrics available)",
+            confidence=round(hit_conf, 3),
+        )
+    else:
+        missing = []
+        if not can_track_player.enabled:
+            missing.append("player tracking")
+        if not can_track_shuttle.enabled:
+            missing.append("shuttle tracking")
+        if not can_use_court_metric.enabled:
+            missing.append("court metric calibration")
+        can_estimate_hit = CapabilityGate(
+            enabled=False,
+            reason=f"Hit estimation contract unavailable: requires {', '.join(missing)}",
+            confidence=0.0,
+        )
+
+    # 6. canWriteCanonicalMatchData: authority to commit permanent match statistics
+    # Strictly separated from raw/image-space observation storage.
+    # Allowed ONLY during live COURT_PLAY on a calibrated court without replay/cut/drift.
+    if target_state is SceneState.REPLAY or evidence.is_replay_cue:
+        can_write_canonical_match_data = CapabilityGate(
+            enabled=False,
+            reason="Replay segment: canonical match writes prohibited to prevent duplicate statistics",
+            confidence=0.0,
+        )
+    elif target_state is SceneState.COURT_IDLE:
+        can_write_canonical_match_data = CapabilityGate(
+            enabled=False,
+            reason="Court idle interval: excluded from live canonical match rally statistics",
+            confidence=0.0,
+        )
+    elif not can_use_court_metric.enabled:
+        can_write_canonical_match_data = CapabilityGate(
+            enabled=False,
+            reason=f"Canonical match writes suspended: {can_use_court_metric.reason}",
+            confidence=0.0,
+        )
+    elif target_state is not SceneState.COURT_PLAY:
+        can_write_canonical_match_data = CapabilityGate(
+            enabled=False,
+            reason=f"Canonical match writes prohibited in {target_state.value} scene state",
+            confidence=0.0,
+        )
+    else:
+        can_write_canonical_match_data = CapabilityGate(
+            enabled=True,
+            reason="Live match play on calibrated court: authorized for canonical match statistics",
+            confidence=0.95,
+        )
+
+    return SegmentCapabilities(
+        can_track_player=can_track_player,
+        can_track_shuttle=can_track_shuttle,
+        can_use_court_metric=can_use_court_metric,
+        can_build_heatmap=can_build_heatmap,
+        can_estimate_hit=can_estimate_hit,
+        can_write_canonical_match_data=can_write_canonical_match_data,
+    )
+
+
+@dataclass
 class SceneStateTransition:
     """State transition contract with explicit metric validity and write permissions."""
     transition_id: str
@@ -67,9 +319,10 @@ class SceneStateTransition:
     evidence: SceneEvidence
     is_metric_valid: bool
     allow_canonical_writes: bool
+    capabilities: SegmentCapabilities | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "transitionId": self.transition_id,
             "cameraSegmentId": self.camera_segment_id,
             "frameIndex": self.frame_index,
@@ -82,6 +335,15 @@ class SceneStateTransition:
             "isMetricValid": self.is_metric_valid,
             "allowCanonicalWrites": self.allow_canonical_writes,
         }
+        if self.capabilities is not None:
+            d["capabilities"] = self.capabilities.to_dict()
+            d["canTrackPlayer"] = self.capabilities.can_track_player.enabled
+            d["canTrackShuttle"] = self.capabilities.can_track_shuttle.enabled
+            d["canUseCourtMetric"] = self.capabilities.can_use_court_metric.enabled
+            d["canBuildHeatmap"] = self.capabilities.can_build_heatmap.enabled
+            d["canEstimateHit"] = self.capabilities.can_estimate_hit.enabled
+            d["canWriteCanonicalMatchData"] = self.capabilities.can_write_canonical_match_data.enabled
+        return d
 
 
 class PanTiltZoomDetector:
@@ -390,23 +652,15 @@ class CameraSegmentLifecycleManager:
             reason = "Ambiguous scene: neither calibrated court nor clear feature"
             confidence = 0.50
 
-        # 3. Calculate explicit metric validity and write permissions
-        # RULE: Scene state name alone must NEVER be used as the sole proof that metrics are valid!
-        is_metric_valid = (
-            target_state in (SceneState.COURT_PLAY, SceneState.COURT_IDLE)
-            and self.calibration_context.is_metric_valid
-            and not is_pan_tilt_zoom
-            and not cut_detected
-            and not (self._manual_override_state is not None and self._manual_override_state not in (SceneState.COURT_PLAY, SceneState.COURT_IDLE))
+        # 3. Calculate explicit consumer capability gates
+        capabilities = compute_capabilities(
+            target_state=target_state,
+            calibration_context=self.calibration_context,
+            evidence=evidence,
+            has_valid_ground_measurement=True,
         )
-
-        # Replay, transitions, side play, close-ups, and uncalibrated scenes must NEVER write canonical match statistics
-        allow_canonical_writes = (
-            target_state is SceneState.COURT_PLAY
-            and is_metric_valid
-            and not is_pan_tilt_zoom
-            and not cut_detected
-        )
+        is_metric_valid = capabilities.can_use_court_metric.enabled
+        allow_canonical_writes = capabilities.can_write_canonical_match_data.enabled
 
         # 4. Latency and False-Valid Diagnostics
         if is_metric_valid and target_state not in (SceneState.COURT_PLAY, SceneState.COURT_IDLE):
@@ -435,6 +689,7 @@ class CameraSegmentLifecycleManager:
             evidence=evidence,
             is_metric_valid=is_metric_valid,
             allow_canonical_writes=allow_canonical_writes,
+            capabilities=capabilities,
         )
 
         self.current_state = target_state
