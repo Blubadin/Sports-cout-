@@ -26,6 +26,7 @@ from court_calibration import (
     validate_court_geometry,
 )
 from camera_cut_detector import CameraCutDetector
+from scene_lifecycle import CameraSegmentLifecycleManager, SceneState, SceneStateTransition
 from court_roi import calculate_court_roi, inverse_transform_bbox
 from device_runtime import resolve_device
 from engine_config import (
@@ -182,6 +183,11 @@ class BadmintonAnalyzerV2:
             else (AutomaticCourtCalibrationProvider() if auto_calibrate else None)
         )
         self.temporal_stability_validator = TemporalStabilityValidator()
+        self.scene_lifecycle = CameraSegmentLifecycleManager(
+            calibration_context=self.calibration_context,
+            camera_cut_detector=self.camera_cut_detector,
+            on_cut_callback=self._invalidate_for_camera_cut,
+        )
         self.frame_count = 0
 
         # Initialize player profiles (exactly max_players, no phantoms)
@@ -413,6 +419,7 @@ class BadmintonAnalyzerV2:
         """Invalidate calibration for an externally confirmed camera cut."""
         self.camera_cut_detector.reset()
         self._invalidate_for_camera_cut()
+        self.scene_lifecycle.notify_cut(frame_index=self.frame_count, timestamp_sec=self.frame_count / self.fps)
 
     def _invalidate_for_camera_cut(self) -> None:
         """Break all metric state before processing the first frame of a cut."""
@@ -430,6 +437,28 @@ class BadmintonAnalyzerV2:
             profile.detection_confidence = None
             profile.last_pose = None
             profile.last_pose_age = 0
+
+    def is_observation_accepted(self, camera_segment_id: str | None) -> bool:
+        """Reject late or stale observations from older camera segments."""
+        return self.scene_lifecycle.is_observation_accepted(camera_segment_id)
+
+    def set_manual_scene_override(
+        self,
+        state: SceneState | str,
+        override_by: str,
+        reason: str,
+        timestamp_sec: float | None = None,
+    ) -> None:
+        enum_state = SceneState(state) if isinstance(state, str) else state
+        self.scene_lifecycle.set_manual_override(
+            state=enum_state,
+            override_by=override_by,
+            reason=reason,
+            timestamp_sec=timestamp_sec,
+        )
+
+    def clear_manual_scene_override(self) -> None:
+        self.scene_lifecycle.clear_manual_override()
 
     def assign_initial_players(self, frame: np.ndarray, assignments: list[dict]):
         """
@@ -544,9 +573,44 @@ class BadmintonAnalyzerV2:
         should_run_pose = (self.analyzed_frame_count % self.pose_stride == 0)
         t_sec = timestamp_sec if timestamp_sec is not None else (self.frame_count / self.fps)
 
-        if self.camera_cut_detector.observe(frame):
+        # Check camera cut first to ensure no stale ROI is used during detection
+        cut_detected = self.camera_cut_detector.observe(frame)
+        if cut_detected:
             self._invalidate_for_camera_cut()
-        elif self.auto_calibration_provider is not None and not self.calibration_context.is_metric_valid:
+
+        raw_detections = self.detect_and_track(frame)
+        player_bboxes = [d["bbox"] for d in raw_detections if "bbox" in d]
+
+        # Evaluate coarse scene state and segment lifecycle
+        transition = self.scene_lifecycle.evaluate_frame(
+            frame=frame,
+            frame_index=self.frame_count,
+            timestamp_sec=t_sec,
+            player_bboxes=player_bboxes,
+            is_side_view_cue=getattr(self, "is_side_view", False),
+            is_replay_cue=getattr(self, "is_replay", False),
+            cut_detected=cut_detected,
+        )
+
+        # Pan/tilt/zoom motion drift suspends metrics and invalidates court homography
+        if transition.evidence.is_pan_tilt_zoom:
+            self.temporal_stability_validator.invalidate()
+            self.calibration_context.lose()
+            self.mapper.invalidate()
+            self.court_corners_px = None
+            self.dist_tracker.break_metric_segment()
+
+        # Attempt auto-calibration only when court is stable (not in cut, transition, close-up, side play, replay)
+        if (
+            self.auto_calibration_provider is not None
+            and not self.calibration_context.is_metric_valid
+            and transition.to_state not in (
+                SceneState.CAMERA_TRANSITION,
+                SceneState.CLOSE_UP,
+                SceneState.REPLAY,
+                SceneState.SIDE_PLAY,
+            )
+        ):
             cand = self.auto_calibration_provider.get_candidate(
                 frame,
                 frame_index=self.frame_count,
@@ -559,19 +623,26 @@ class BadmintonAnalyzerV2:
                 locked = self.temporal_stability_validator.observe(cand, self.calibration_context.camera_segment_id)
                 if locked is not None:
                     self._accept_automatic_candidate(locked, frame=self.frame_count, timestamp_sec=t_sec)
+                    transition = self.scene_lifecycle.evaluate_frame(
+                        frame=frame,
+                        frame_index=self.frame_count,
+                        timestamp_sec=t_sec,
+                        player_bboxes=player_bboxes,
+                        is_side_view_cue=getattr(self, "is_side_view", False),
+                        is_replay_cue=getattr(self, "is_replay", False),
+                        cut_detected=False,
+                    )
                 else:
                     if self.calibration_context.state is CalibrationState.CALIBRATION_LOST:
                         self.calibration_context.begin_recalibration()
             else:
                 self.temporal_stability_validator.observe(None, self.calibration_context.camera_segment_id)
 
-        raw_detections = self.detect_and_track(frame)
-
         # Filter detections inside calibrated physical court boundaries + margin in meters
         valid_detections = []
         for d in raw_detections:
             cx, cy = d["center"]
-            if self.court_corners_px is not None and self.mapper.is_calibrated:
+            if transition.is_metric_valid and self.court_corners_px is not None and self.mapper.is_calibrated:
                 try:
                     real_pos = self.mapper.pixel_to_real((cx, cy))
                     x_m, y_m = real_pos
@@ -585,7 +656,7 @@ class BadmintonAnalyzerV2:
                     d["real_pos"] = real_pos
                 except Exception:
                     continue
-            elif self.court_corners_px is not None:
+            elif self.court_corners_px is not None and transition.to_state in (SceneState.COURT_PLAY, SceneState.COURT_IDLE):
                 dist_px = cv2.pointPolygonTest(self.court_corners_px.astype(np.float32), (float(cx), float(cy)), True)
                 if dist_px < -30.0:
                     continue
@@ -607,7 +678,7 @@ class BadmintonAnalyzerV2:
         # Build telemetry frame (TrackingTelemetryV1 compliant, PDF §45-47)
         h, w = frame.shape[:2] if frame is not None else (720, 1280)
         player_telemetry = []
-        metric_valid = bool(self.calibration_context.is_metric_valid and self.mapper.is_calibrated)
+        metric_valid = bool(transition.is_metric_valid and self.mapper.is_calibrated)
         for pid, p in self.profiles.items():
             pose_obj = None
             if self.pose_architecture == "full_frame_pose":
@@ -695,6 +766,7 @@ class BadmintonAnalyzerV2:
                         camera_segment_id=self.calibration_context.camera_segment_id,
                         calibration_id=self.calibration_context.provenance.calibration_id if metric_valid else None,
                         provenance=ground_pt.provenance,
+                        allow_canonical_writes=transition.allow_canonical_writes,
                     )
 
             stats = self.dist_tracker.get_stats(pid)
@@ -768,7 +840,7 @@ class BadmintonAnalyzerV2:
                 "courtPosition": court_position,
                 "absoluteZone": abs_zone,
                 "playerRelativeZone": rel_zone,
-                "speedMps": stats.get("current_speed_ms") if (metric_valid and court_position is not None) else None,
+                "speedMps": stats.get("current_speed_ms") if (metric_valid and court_position is not None and transition.allow_canonical_writes) else None,
                 "totalDistanceM": stats.get("total_dist_m") if self.dist_tracker.has_metric_observation(pid) else None,
                 "detectionConfidence": confidence,
                 "confidence": confidence,
@@ -794,7 +866,7 @@ class BadmintonAnalyzerV2:
                 "court_pos_pct": pos_pct if metric_valid else None,
                 "court_pos_m": pos_m if metric_valid else None,
                 "zone": abs_zone,
-                "speed_ms": stats.get("current_speed_ms") if (metric_valid and court_position is not None) else None,
+                "speed_ms": stats.get("current_speed_ms") if (metric_valid and court_position is not None and transition.allow_canonical_writes) else None,
                 "total_dist_m": stats.get("total_dist_m") if self.dist_tracker.has_metric_observation(pid) else None,
                 "is_active": p.missed_frames < 10,
                 "video_bbox_pct": bbox_pct,
@@ -819,7 +891,11 @@ class BadmintonAnalyzerV2:
             "timestampSec": round(t_sec, 3),
             "frameIndex": self.frame_count,
             "timebase": getattr(self, "timebase", None),
-            "sceneState": getattr(self, "scene_state", "active_court"),
+            "sceneState": transition.to_state.value,
+            "sceneTransition": transition.to_dict(),
+            "sceneEvidence": transition.evidence.to_dict(),
+            "isMetricValid": metric_valid,
+            "allowCanonicalWrites": transition.allow_canonical_writes,
             "engineVersion": "1.0.0",
             "modelVersion": getattr(self, "model_path", "yolov8n.pt"),
             "modelArtifactHash": getattr(self, "model_artifact_hash", None),

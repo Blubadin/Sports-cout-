@@ -45,7 +45,19 @@ export function isMetricCalibrationValid(frame: {
   cameraSegmentId?: string;
   calibrationId?: string | null;
   calibration?: CalibrationProvenance | null;
+  sceneState?: string | null;
+  isMetricValid?: boolean;
 }): boolean {
+  if (frame.isMetricValid === false) return false;
+  if (
+    frame.sceneState === 'UNKNOWN' ||
+    frame.sceneState === 'CAMERA_TRANSITION' ||
+    frame.sceneState === 'REPLAY' ||
+    frame.sceneState === 'SIDE_PLAY' ||
+    frame.sceneState === 'CLOSE_UP'
+  ) {
+    return false;
+  }
   // V1 records without temporal fields retain their existing interpretation.
   if (frame.calibrationState === undefined) return true;
   return frame.calibrationState === 'CALIBRATED' &&

@@ -281,6 +281,7 @@ class DistanceTracker:
         camera_segment_id: str | None = None,
         calibration_id: str | None = None,
         provenance: str | None = None,
+        allow_canonical_writes: bool = True,
     ) -> dict:
         d = self._get_or_create(player_id)
         if not self.mapper.is_calibrated:
@@ -371,9 +372,10 @@ class DistanceTracker:
 
         # Filter spatial jitter (< 0.03m / 3cm) and impossible speeds (> 11.0 m/s)
         if dist >= 0.03 and speed_ms <= 11.0:
-            d["total_dist_m"] += dist
-            if zone in d["zone_dist"]:
-                d["zone_dist"][zone] += dist
+            if allow_canonical_writes:
+                d["total_dist_m"] += dist
+                if zone in d["zone_dist"]:
+                    d["zone_dist"][zone] += dist
 
             d["raw_speeds"].append(speed_ms)
             if len(d["raw_speeds"]) > self.smooth_k:
@@ -381,7 +383,7 @@ class DistanceTracker:
             smooth_speed = float(np.mean(d["raw_speeds"]))
             d["speeds_ms"].append(smooth_speed)
             d["current_speed_ms"] = round(smooth_speed, 2)
-            if smooth_speed > d["max_speed_ms"]:
+            if allow_canonical_writes and smooth_speed > d["max_speed_ms"]:
                 d["max_speed_ms"] = round(smooth_speed, 2)
         else:
             d["speeds_ms"].append(0.0)

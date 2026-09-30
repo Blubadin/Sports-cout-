@@ -1286,6 +1286,39 @@ export default function BadmintonTrackingLab() {
               isProcessing={processing}
             />
             <ShuttleOverlay frames={frames} time={time} mode={shuttleMode} width={dimensions.width} height={dimensions.height} />
+            {latestFrame && (
+              <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 pointer-events-none z-10 text-[11px] font-mono">
+                {latestFrame.sceneState && (
+                  <span className={`px-2 py-0.5 rounded border font-semibold ${
+                    latestFrame.sceneState === 'COURT_PLAY'
+                      ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                      : latestFrame.sceneState === 'REPLAY'
+                        ? 'bg-rose-950/80 border-rose-500/50 text-rose-300'
+                        : latestFrame.sceneState === 'SIDE_PLAY'
+                          ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300'
+                          : latestFrame.sceneState === 'CAMERA_TRANSITION'
+                            ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                            : 'bg-slate-900/80 border-slate-700 text-slate-300'
+                  }`}>
+                    {latestFrame.sceneState}
+                  </span>
+                )}
+                {latestFrame.cameraSegmentId && (
+                  <span className="px-2 py-0.5 rounded border border-slate-700 bg-slate-900/80 text-slate-300">
+                    {latestFrame.cameraSegmentId}
+                  </span>
+                )}
+                {latestFrame.calibrationState && (
+                  <span className={`px-2 py-0.5 rounded border ${
+                    latestFrame.calibrationState === 'CALIBRATED'
+                      ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                      : 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                  }`}>
+                    {latestFrame.calibrationState}
+                  </span>
+                )}
+              </div>
+            )}
             {(calibrating || corners.length > 0) && (
               <svg
                 aria-label="Court calibration"

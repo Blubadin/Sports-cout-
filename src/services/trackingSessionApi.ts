@@ -19,6 +19,7 @@ import type {
   ShuttleProvenance,
 } from '../types';
 import { isCalibrationState, isMetricCalibrationValid, parseCalibrationProvenance } from '../types/calibration';
+import { parseSceneEvidence, parseSceneTransition } from '../types/scene';
 import {
   AIConnectionError,
   type AIConnectionCode,
@@ -481,6 +482,10 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     frameIndex: frame.frameIndex ?? frame.frame_idx,
     timebase: frame.timebase ?? null,
     sceneState: frame.sceneState || frame.scene_state || null,
+    sceneTransition: parseSceneTransition(frame.sceneTransition || frame.scene_transition),
+    sceneEvidence: parseSceneEvidence(frame.sceneEvidence || frame.scene_evidence),
+    isMetricValid: frame.isMetricValid ?? frame.is_metric_valid ?? metricValid,
+    allowCanonicalWrites: frame.allowCanonicalWrites ?? frame.allow_canonical_writes ?? (metricValid && (frame.sceneState === 'COURT_PLAY' || !frame.sceneState)),
     engineVersion: frame.engineVersion || '1.0.0',
     modelVersion: frame.modelVersion || 'badminton-tracking-v1',
     modelArtifactHash: frame.modelArtifactHash || frame.model_artifact_hash || null,

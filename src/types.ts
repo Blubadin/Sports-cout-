@@ -510,7 +510,11 @@ export interface TrackingTelemetryV1 {
   timestampSec: number;
   frameIndex: number;
   timebase?: string | null;
-  sceneState?: string | null;
+  sceneState?: import('./types/scene').SceneState | string | null;
+  sceneTransition?: import('./types/scene').SceneStateTransition | null;
+  sceneEvidence?: import('./types/scene').SceneEvidence | null;
+  isMetricValid?: boolean;
+  allowCanonicalWrites?: boolean;
   engineVersion?: string;
   modelVersion?: string;
   modelArtifactHash?: string | null;
@@ -833,3 +837,4 @@ export interface TrackingRuntimeProvenance {
 export * from './types/benchmark';
 export * from './types/shuttleTelemetry';
 export * from './types/calibration';
+export * from './types/scene';
