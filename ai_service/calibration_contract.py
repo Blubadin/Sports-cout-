@@ -31,6 +31,7 @@ class CalibrationProvenance:
     created_at_timestamp_sec: float
     confidence: float | None = None
     reprojection_error_px: float | None = None
+    calibration_version: str | None = None
     corners: tuple[tuple[float, float], ...] | None = None
     h_matrix: tuple[tuple[float, ...], ...] | None = None
     h_inv_matrix: tuple[tuple[float, ...], ...] | None = None
@@ -76,6 +77,7 @@ class CalibrationProvenance:
     def to_dict(self) -> dict:
         d = {
             "calibrationId": self.calibration_id,
+            "calibrationVersion": self.calibration_version or self.calibration_id,
             "cameraSegmentId": self.camera_segment_id,
             "state": self.state.value,
             "source": self.source.value,
@@ -184,6 +186,7 @@ class CalibrationContext:
         return {
             "cameraSegmentId": self.camera_segment_id,
             "calibrationId": provenance.calibration_id if provenance else None,
+            "calibrationVersion": (provenance.calibration_version or provenance.calibration_id) if provenance else None,
             "calibrationState": self.state.value,
             "calibrationConfidence": provenance.confidence if provenance and self.is_metric_valid else None,
             "reprojectionErrorPx": provenance.reprojection_error_px if provenance and self.is_metric_valid else None,

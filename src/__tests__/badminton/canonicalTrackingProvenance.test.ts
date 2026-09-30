@@ -230,4 +230,100 @@ describe('Phase 1: Canonical Tracking Data Provenance & Integrity', () => {
     expect(getLatestTrackingAnalysis([analysisB, analysisA])?.id).toBe('analysis_new');
     expect(getLatestTrackingAnalysis([])).toBeNull();
   });
+
+  it('preserves full canonical provenance fields and athleteId in toTrackingTelemetryV1', () => {
+    const rawFrame = {
+      analysisId: 'analysis_01',
+      pipelineRunId: 'pipe_run_99',
+      timestamp: 3.5,
+      frame_idx: 105,
+      timebase: 'pts',
+      sceneState: 'active_court',
+      modelVersion: 'badminton-v2.1',
+      modelArtifactHash: 'sha256:fedcba9876543210',
+      runtime: 'tensorrt',
+      requestedDevice: 'cuda:0',
+      effectiveDevice: 'cuda:0',
+      precision: 'fp16',
+      supersededBy: 'pipe_run_100',
+      observationState: 'observed',
+      reviewState: 'reviewed',
+      players: [
+        {
+          id: 1,
+          athleteId: 'ath_kunlavut_01',
+          trackId: 7,
+          observationState: 'observed',
+          reviewState: 'reviewed',
+          detectionConfidence: 0.95,
+          court_pos_m: { x: 2.5, y: 11.2 },
+          court_pos_pct: { x: 41.0, y: 83.5 },
+        },
+      ],
+    };
+
+    const telemetry = toTrackingTelemetryV1(rawFrame);
+    expect(telemetry.pipelineRunId).toBe('pipe_run_99');
+    expect(telemetry.timebase).toBe('pts');
+    expect(telemetry.sceneState).toBe('active_court');
+    expect(telemetry.modelVersion).toBe('badminton-v2.1');
+    expect(telemetry.modelArtifactHash).toBe('sha256:fedcba9876543210');
+    expect(telemetry.runtime).toBe('tensorrt');
+    expect(telemetry.requestedDevice).toBe('cuda:0');
+    expect(telemetry.effectiveDevice).toBe('cuda:0');
+    expect(telemetry.precision).toBe('fp16');
+    expect(telemetry.supersededBy).toBe('pipe_run_100');
+    expect(telemetry.reviewState).toBe('reviewed');
+
+    expect(telemetry.players[0].athleteId).toBe('ath_kunlavut_01');
+    expect(telemetry.players[0].trackId).toBe(7);
+    expect(telemetry.players[0].reviewState).toBe('reviewed');
+    expect(telemetry.players[0].observationState).toBe('observed');
+  });
+
+  it('marks prior run as supersededBy when reprocess creates new pipelineRunId', () => {
+    const originalRun: TrackingAnalysis = {
+      id: 'analysis_01',
+      projectId: 'project_01',
+      pipelineRunId: 'pipe_run_v1',
+      sportType: 'badminton',
+      gameType: 'singles',
+      status: 'completed',
+      engineVersion: '1.0.0',
+      detectorModel: 'yolov8n',
+      trackerModel: 'bytetrack',
+      sampleRateHz: 10,
+      createdAt: '2026-09-30T10:00:00Z',
+      players: [],
+      summary: { durationSeconds: 60, sampleCount: 600, players: {} },
+    };
+
+    // When reprocessed:
+    const newPipelineRunId = 'pipe_run_v2';
+    const supersededRun: TrackingAnalysis = {
+      ...originalRun,
+      supersededBy: newPipelineRunId,
+    };
+
+    const newRun: TrackingAnalysis = {
+      id: 'analysis_02',
+      projectId: 'project_01',
+      pipelineRunId: newPipelineRunId,
+      sportType: 'badminton',
+      gameType: 'singles',
+      status: 'completed',
+      engineVersion: '1.0.0',
+      detectorModel: 'yolo11n',
+      trackerModel: 'bytetrack',
+      sampleRateHz: 10,
+      createdAt: '2026-09-30T11:00:00Z',
+      players: [],
+      summary: { durationSeconds: 60, sampleCount: 600, players: {} },
+    };
+
+    expect(supersededRun.supersededBy).toBe('pipe_run_v2');
+    expect(newRun.pipelineRunId).toBe('pipe_run_v2');
+    expect(newRun.supersededBy).toBeUndefined();
+  });
 });
+

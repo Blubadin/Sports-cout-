@@ -461,6 +461,7 @@ export interface FootTelemetryV1 {
 
 export interface TrackingPlayerV1 {
   playerId: string;
+  athleteId?: string | null;
   trackId?: number | null;
   teamCode?: string;
   bboxPct?: {
@@ -495,23 +496,39 @@ export interface TrackingPlayerV1 {
   speedMps?: number | null;
   totalDistanceM?: number | null;
   detectionConfidence?: number | null;
+  confidence?: number | null;
   state: 'observed' | 'predicted' | 'lost';
+  observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual';
+  reviewState?: 'unreviewed' | 'reviewed' | 'corrected';
   pose?: TrackingPoseV1 | null;
 }
 
 export interface TrackingTelemetryV1 {
   schemaVersion: 1;
   analysisId: string;
+  pipelineRunId?: string;
   timestampSec: number;
   frameIndex: number;
+  timebase?: string | null;
+  sceneState?: string | null;
   engineVersion?: string;
   modelVersion?: string;
+  modelArtifactHash?: string | null;
+  runtime?: string | null;
+  requestedDevice?: string | null;
+  effectiveDevice?: string | null;
+  precision?: string | null;
   /** Additive V1 temporal calibration identity. Absent on legacy saved frames. */
   cameraSegmentId?: string;
   calibrationId?: string | null;
+  calibrationVersion?: string | null;
   calibrationState?: import('./types/calibration').CalibrationState;
   calibrationConfidence?: number | null;
   calibration?: import('./types/calibration').CalibrationProvenance | null;
+  confidence?: number | null;
+  observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual';
+  reviewState?: 'unreviewed' | 'reviewed' | 'corrected';
+  supersededBy?: string | null;
   isSynthetic?: boolean;
   source?: 'real_tracking' | 'synthetic_demo' | string;
   trackedPlayerCount?: number;

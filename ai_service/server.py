@@ -46,6 +46,12 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+try:
+    from ai_service.path_utils import sanitize_path_reference
+except ImportError:
+    from path_utils import sanitize_path_reference
+
+
 def public_metadata(value):
     """Expose model/source names, not absolute machine paths, in API metadata."""
     if isinstance(value, dict):
@@ -53,13 +59,10 @@ def public_metadata(value):
     if isinstance(value, list):
         return [public_metadata(item) for item in value]
     if isinstance(value, str):
-        windows_path = PureWindowsPath(value)
-        if windows_path.is_absolute():
-            return windows_path.name
-        posix_path = PurePosixPath(value)
-        if posix_path.is_absolute():
-            return posix_path.name
+        sanitized = sanitize_path_reference(value)
+        return sanitized if sanitized is not None else value
     return value
+
 
 from analyzer_v2 import BadmintonAnalyzerV2
 from calibration_contract import CalibrationState

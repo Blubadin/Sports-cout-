@@ -183,6 +183,89 @@ class SecurityBoundaryTests(unittest.TestCase):
             response = self.client.post("/api/tracking/sessions", json={"video_source": "demo"})
             self.assertEqual(response.status_code, 200)
 
+    def test_malformed_and_invalid_authorization_schemes_rejected(self):
+        """Rejects non-Bearer schemes, empty credentials, and malformed header values."""
+        with patch.dict(os.environ, {"SPORTSCOUT_AI_AUTH_TOKEN": TOKEN}):
+            invalid_headers = [
+                {"Authorization": "Basic dXNlcjpwYXNz"},
+                {"Authorization": "Bearer"},
+                {"Authorization": "Bearer   "},
+                {"Authorization": "Token 12345"},
+                {"Authorization": f"Bearer {TOKEN}-wrong"},
+                {"Authorization": "Bearer\t"},
+                {"Authorization": "bearer"},
+            ]
+            for headers in invalid_headers:
+                with self.subTest(headers=headers):
+                    response = self.client.get("/api/capabilities", headers=headers)
+                    self.assertEqual(response.status_code, 401)
+                    self.assertEqual(response.headers.get("www-authenticate"), "Bearer")
+
+    def test_unauthorized_external_origins_rejected_by_cors(self):
+        """Cross-origin requests from external / LAN origins are rejected by CORS policy."""
+        # Disallowed external origins
+        for disallowed in ("http://evil-tracker.com", "http://192.168.1.100:3000", "http://sports-scout.attacker.org"):
+            with self.subTest(origin=disallowed):
+                response = self.client.options(
+                    "/api/status",
+                    headers={
+                        "Origin": disallowed,
+                        "Access-Control-Request-Method": "GET",
+                    },
+                )
+                self.assertNotIn("access-control-allow-origin", response.headers)
+
+        # Allowed loopback origins
+        for allowed in ("http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173"):
+            with self.subTest(origin=allowed):
+                response = self.client.options(
+                    "/api/status",
+                    headers={
+                        "Origin": allowed,
+                        "Access-Control-Request-Method": "GET",
+                    },
+                )
+                self.assertEqual(response.headers.get("access-control-allow-origin"), allowed)
+
+    def test_public_metadata_sanitizes_unc_drive_and_parent_paths(self):
+        """public_metadata strips Windows drive, UNC, Unix, and traversal paths from metadata responses."""
+        payload = {
+            "model": "C:\\Users\\Administrator\\Desktop\\private\\yolov8n.pt",
+            "unc_video": r"\\fileserver\share\tournaments\match_01.mp4",
+            "unix_path": "/home/runner/work/SportsScout/models/weights.pth",
+            "parent_leak": "../../secret/credentials.key",
+            "safe_tag": "normal_label",
+        }
+        sanitized = server.public_metadata(payload)
+        self.assertEqual(sanitized["model"], "yolov8n.pt")
+        self.assertEqual(sanitized["unc_video"], "match_01.mp4")
+        self.assertEqual(sanitized["unix_path"], "weights.pth")
+        self.assertEqual(sanitized["parent_leak"], "credentials.key")
+        self.assertEqual(sanitized["safe_tag"], "normal_label")
+        self.assertNotIn("Administrator", str(sanitized))
+        self.assertNotIn("fileserver", str(sanitized))
+        self.assertNotIn("..", str(sanitized))
+
+    def test_operational_reference_separation(self):
+        """Operational path is retained on the session while display metadata is sanitized."""
+        operational_path = "C:\\Users\\LocalCoach\\Videos\\tournament_final.mp4"
+        created = self.client.post("/api/tracking/sessions", json={"video_source": "demo"})
+        self.assertEqual(created.status_code, 200)
+        sid = created.json()["sessionId"]
+        session = server.tracking_sessions[sid]
+
+        # Operational reference holds exact file system path needed to decode video
+        session.video_source = operational_path
+        self.assertEqual(session.video_source, operational_path)
+
+        # Public metadata endpoint strips machine directory and user name
+        status = self.client.get(f"/api/tracking/sessions/{sid}/status")
+        self.assertEqual(status.status_code, 200)
+        self.assertNotIn("LocalCoach", status.text)
+        self.assertNotIn("C:\\Users", status.text)
+        self.assertNotIn("C:/Users", status.text)
+
+
 
 if __name__ == "__main__":
     unittest.main()

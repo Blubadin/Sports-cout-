@@ -96,6 +96,9 @@ export interface TrackingSummary {
 export interface TrackingAnalysis {
   id: string;
   projectId: string;
+  pipelineRunId?: string;
+  schemaVersion?: number;
+  supersededBy?: string | null;
   sportType: 'badminton';
   gameType: 'singles' | 'doubles';
   trackedPlayerCount?: number;
@@ -105,6 +108,14 @@ export interface TrackingAnalysis {
   detectorModel: string;
   trackerModel: string;
   poseModel?: string;
+  modelVersion?: string;
+  modelArtifactHash?: string | null;
+  runtime?: string | null;
+  requestedDevice?: string | null;
+  precision?: string | null;
+  calibrationId?: string | null;
+  calibrationVersion?: string | null;
+  reviewState?: 'unreviewed' | 'reviewed' | 'corrected';
   /** @deprecated Legacy alias for measured effectiveStoredHz. Never use for configured targets. */
   sampleRateHz: number | null;
   nominalAnalysisHz?: number | null;
@@ -131,14 +142,25 @@ export interface TrackingAnalysis {
 
 export interface TrackingSample {
   timestamp: number; // seconds
+  timestampSec?: number;
+  timebase?: string | null;
+  frameIndex?: number;
   playerId: string;
+  athleteId?: string | null;
   courtX: number; // meters (0..6.10)
   courtY: number; // meters (0..13.40)
   speed: number | null; // m/s
   confidence: number | null; // 0..1
   trackingState: 'tracked' | 'predicted' | 'lost';
+  observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual' | null;
+  reviewState?: 'unreviewed' | 'reviewed' | 'corrected' | null;
+  sceneState?: string | null;
+  pipelineRunId?: string;
   cameraSegmentId?: string;
   calibrationId?: string | null;
+  calibrationVersion?: string | null;
+  source?: string | null;
+  supersededBy?: string | null;
   /** Breaks metric movement across invalid calibration intervals. */
   metricRunId?: number;
   normalizedX?: number; // 0..1
