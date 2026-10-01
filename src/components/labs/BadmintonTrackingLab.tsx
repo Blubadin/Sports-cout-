@@ -446,13 +446,20 @@ export default function BadmintonTrackingLab() {
 
           const currentState = store.getProjectState(activeProjectId);
           const cur = currentState?.cursor ?? 0;
-          const partial = await aiTrackingService.getSessionResults(sessionId, cur);
-          if (!current()) return;
+          if (latestStatus.status !== 'COMPLETED' && latestStatus.status !== 'ERROR') {
+            const committedCursor = latestStatus.committedResultCursor;
+            const requestCursor = typeof committedCursor === 'number' && Number.isSafeInteger(committedCursor)
+              ? Math.min(cur, committedCursor)
+              : cur;
+            if (requestCursor !== cur) update({ cursor: requestCursor });
+            const partial = await aiTrackingService.getSessionResults(sessionId, requestCursor);
+            if (!current()) return;
 
-          if (partial.telemetry && partial.telemetry.length > 0) {
-            await store.appendTelemetry(activeProjectId!, partial.telemetry, partial.nextCursor);
-          } else if (partial.nextCursor !== undefined && partial.nextCursor !== cur) {
-            update({ cursor: partial.nextCursor });
+            if (partial.telemetry && partial.telemetry.length > 0) {
+              await store.appendTelemetry(activeProjectId!, partial.telemetry, partial.nextCursor);
+            } else if (partial.nextCursor !== undefined && partial.nextCursor !== requestCursor) {
+              update({ cursor: partial.nextCursor });
+            }
           }
 
           update({
@@ -465,7 +472,7 @@ export default function BadmintonTrackingLab() {
               latestStatus.status === 'ERROR'
                 ? 'ERROR'
               : latestStatus.status === 'COMPLETED'
-                ? 'COMPLETED'
+                ? 'PROCESSING'
                 : latestStatus.status === 'CANCEL_REQUESTED'
                 ? 'CANCEL_REQUESTED'
                 : latestStatus.status === 'INTERRUPTED'
@@ -552,15 +559,19 @@ export default function BadmintonTrackingLab() {
           } else if (currentStatus.status === 'INTERRUPTED' || currentStatus.status === 'CANCELLED') {
             update({ status: currentStatus.status });
           } else if (currentStatus.status === 'COMPLETED') {
-            update({ status: 'COMPLETED' });
-            const cur = state.cursor;
-            const partial = await aiTrackingService.getSessionResults(state.sessionId, cur);
-            if (partial.telemetry && partial.telemetry.length > 0) {
-              await store.appendTelemetry(activeProjectId, partial.telemetry, partial.nextCursor);
-            }
             const freshState = store.getProjectState(activeProjectId);
-            if (freshState && !freshState.analysis) {
-              await store.persistCompletedAnalysis(activeProjectId, freshState);
+            if (freshState) {
+              update({ status: 'PROCESSING' });
+              try {
+                await store.persistCompletedAnalysis(activeProjectId, freshState);
+              } catch (err) {
+                if (alive) {
+                  update({
+                    status: 'ERROR',
+                    error: err instanceof Error ? err.message : 'Unable to persist completed analysis',
+                  });
+                }
+              }
             }
           } else if (currentStatus.status === 'ERROR') {
             update({ status: 'ERROR', error: currentStatus.error || 'Unknown backend error' });

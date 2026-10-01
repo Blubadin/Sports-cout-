@@ -302,6 +302,59 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
     });
   });
 
+  it('does not query completed results with a stale-ahead localStorage cursor', async () => {
+    setupStoreWithSession('PROCESSING', 'session_cursor_ahead');
+    trackingSessionStore.updateProjectState('project-1', { cursor: 450 });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(
+      mockStatus('COMPLETED', { committedResultCursor: 300, progressPct: 100 }) as any,
+    );
+    const resultsSpy = vi.mocked(aiTrackingService.getSessionResults);
+    const persistSpy = vi.spyOn(trackingSessionStore, 'persistCompletedAnalysis').mockResolvedValue();
+
+    render(<BadmintonTrackingLab />);
+
+    await waitFor(() => expect(persistSpy).toHaveBeenCalledTimes(1));
+    expect(resultsSpy).not.toHaveBeenCalled();
+  });
+
+  it('clamps live result polling to the backend committed cursor when local state is ahead', async () => {
+    setupStoreWithSession('PROCESSING', 'session_cursor_ahead_live');
+    trackingSessionStore.updateProjectState('project-1', { cursor: 450 });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(
+      mockStatus('PROCESSING', { committedResultCursor: 300, progressPct: 75 }) as any,
+    );
+    vi.mocked(aiTrackingService.getSessionResults).mockResolvedValue({
+      telemetry: [], nextCursor: 300, totalSampleCount: 300, sampleCount: 0,
+    } as any);
+
+    const view = render(<BadmintonTrackingLab />);
+
+    await waitFor(() => expect(aiTrackingService.getSessionResults).toHaveBeenCalledWith(
+      'session_cursor_ahead_live', 300,
+    ));
+    expect(trackingSessionStore.getProjectState('project-1')?.cursor).toBe(300);
+    view.unmount();
+  });
+
+  it('surfaces completed-analysis storage failure instead of leaving the session COMPLETED', async () => {
+    setupStoreWithSession('PROCESSING', 'session_completion_write_failure');
+    trackingSessionStore.updateProjectState('project-1', { cursor: 450 });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(
+      mockStatus('COMPLETED', { committedResultCursor: 300, progressPct: 100 }) as any,
+    );
+    vi.spyOn(trackingSessionStore, 'persistCompletedAnalysis').mockRejectedValueOnce(
+      new Error('IndexedDB write quota exceeded'),
+    );
+
+    render(<BadmintonTrackingLab />);
+
+    await waitFor(() => {
+      const state = trackingSessionStore.getProjectState('project-1');
+      expect(state?.status).toBe('ERROR');
+      expect(state?.error).toMatch(/quota exceeded/i);
+    });
+  });
+
   it('video retained in SPA: preserves File object in memory across unmount/remount without reselecting', async () => {
     const mockFile = new File(['persistent-video-data'], 'court_rally.mp4', { type: 'video/mp4' });
     trackingSessionStore.setFile('project-1', mockFile);

@@ -418,6 +418,11 @@ class TrackingSessionStore {
       if (existingAnalysis?.status === "completed") {
         state.analysis = existingAnalysis;
         state.chunks = await getTrackingSampleChunks(sessionId, -1, MAX_TRACKING_PAGE_SIZE);
+        const committedCursor = state.sessionStatus?.committedResultCursor;
+        if (typeof committedCursor === 'number' && Number.isSafeInteger(committedCursor) && committedCursor >= 0) {
+          state.cursor = committedCursor;
+          this.saveToStorage(projectId);
+        }
         state.status = "COMPLETED";
         state.progress = 100;
         return;
@@ -434,7 +439,9 @@ class TrackingSessionStore {
       }
 
       let totalSampleCount = state.sessionStatus?.committedResultCursor;
-      let prefetched = null as Awaited<ReturnType<typeof aiTrackingService.getSessionResults>> | null;
+      if (typeof totalSampleCount === 'number' && (!Number.isSafeInteger(totalSampleCount) || totalSampleCount < 0)) {
+        throw new Error('Backend committed result cursor is invalid');
+      }
       if (typeof totalSampleCount !== 'number') {
         totalSampleCount = state.cursor || state.telemetry.length;
         const realFrames = state.telemetry.filter(
@@ -466,16 +473,28 @@ class TrackingSessionStore {
       while (resultCursor < totalSampleCount) {
         const localPage = await getTrackingTelemetryPage(sessionId, resultCursor);
         if (localPage && localPage.startCursor <= resultCursor && localPage.endCursor > resultCursor) {
-          realFrameCount += localPage.frames.length;
-          resultCursor = localPage.endCursor;
+          if (localPage.frames.length !== localPage.endCursor - localPage.startCursor) {
+            throw new Error(`Persisted telemetry page length does not match its cursor range at ${localPage.startCursor}`);
+          }
+          const coveredEnd = Math.min(localPage.endCursor, totalSampleCount);
+          realFrameCount += coveredEnd - resultCursor;
+          resultCursor = coveredEnd;
           continue;
         }
 
-        const page = prefetched && prefetched.nextCursor > resultCursor
-          ? prefetched
-          : await aiTrackingService.getSessionResults(sessionId, resultCursor, MAX_TRACKING_PAGE_SIZE);
-        prefetched = null;
-        if (page.nextCursor <= resultCursor) {
+        const gapEnd = localPage?.startCursor != null && localPage.startCursor > resultCursor
+          ? Math.min(localPage.startCursor, totalSampleCount)
+          : totalSampleCount;
+        const requestedLimit = localPage?.startCursor != null && localPage.startCursor > resultCursor
+          ? Math.min(MAX_TRACKING_PAGE_SIZE, gapEnd - resultCursor)
+          : MAX_TRACKING_PAGE_SIZE;
+        const page = await aiTrackingService.getSessionResults(sessionId, resultCursor, requestedLimit);
+        if (
+          page.nextCursor <= resultCursor ||
+          page.nextCursor > gapEnd ||
+          page.nextCursor > totalSampleCount ||
+          page.telemetry.length !== page.nextCursor - resultCursor
+        ) {
           throw new Error(`Missing durable telemetry page at result cursor ${resultCursor}`);
         }
         const realFrames = page.telemetry.filter(
@@ -494,14 +513,12 @@ class TrackingSessionStore {
           };
           await saveTrackingTelemetryPage(storedPage);
           realFrameCount += realFrames.length;
-          if (page.nextCursor > state.cursor) {
-            await this.appendTelemetry(projectId, page.telemetry, page.nextCursor);
-          }
         }
         resultCursor = page.nextCursor;
       }
 
-      state.cursor = Math.max(state.cursor, totalSampleCount);
+      // The backend committed cursor is the durable boundary; localStorage is only a hint.
+      state.cursor = totalSampleCount;
       this.saveToStorage(projectId);
       if (realFrameCount === 0) {
         state.analysis = null;
@@ -520,10 +537,11 @@ class TrackingSessionStore {
           throw new Error(`Persisted telemetry chunk gap at cursor ${transformCursor}`);
         }
         const offset = transformCursor - page.startCursor;
-        const frames = page.frames.slice(offset);
+        const committedLength = Math.min(page.endCursor, totalSampleCount) - transformCursor;
+        const frames = page.frames.slice(offset, offset + committedLength);
         const chunks = builder.addFrames(frames);
         if (chunks.length) await saveTrackingSampleChunks(chunks);
-        transformCursor = page.endCursor;
+        transformCursor = Math.min(page.endCursor, totalSampleCount);
       }
 
       let dispersionCursor = 0;
@@ -532,8 +550,10 @@ class TrackingSessionStore {
         if (!page || page.startCursor > dispersionCursor || page.endCursor <= dispersionCursor) {
           throw new Error(`Persisted telemetry chunk gap during summary pass at cursor ${dispersionCursor}`);
         }
-        builder.addDispersionFrames(page.frames.slice(dispersionCursor - page.startCursor));
-        dispersionCursor = page.endCursor;
+        const offset = dispersionCursor - page.startCursor;
+        const committedLength = Math.min(page.endCursor, totalSampleCount) - dispersionCursor;
+        builder.addDispersionFrames(page.frames.slice(offset, offset + committedLength));
+        dispersionCursor = Math.min(page.endCursor, totalSampleCount);
       }
       const finalChunks = builder.finishChunks();
       if (finalChunks.length) await saveTrackingSampleChunks(finalChunks);

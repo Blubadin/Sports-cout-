@@ -517,18 +517,40 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
     return new Promise<TrackingTelemetryPage | null>((resolve, reject) => {
       const tx = db.transaction('trackingTelemetryPages', 'readonly');
       const store = tx.objectStore('trackingTelemetryPages');
-      const startKey = cursorKey(analysisId, afterCursor);
+      const cursorKeyAtPosition = cursorKey(analysisId, afterCursor);
       const endKey = `${analysisId};`;
-      const request = store.openCursor(IDBKeyRange.bound(startKey, endKey));
+      const coveringRequest = store.openCursor(
+        IDBKeyRange.bound(`${analysisId}:`, cursorKeyAtPosition),
+        'prev',
+      );
       let page: TrackingTelemetryPage | null = null;
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor || cursor.value.analysisId !== analysisId) return;
-        page = cursor.value as TrackingTelemetryPage;
+      coveringRequest.onsuccess = () => {
+        const cursor = coveringRequest.result;
+        if (cursor && cursor.value.analysisId === analysisId) {
+          const candidate = cursor.value as TrackingTelemetryPage;
+          if (candidate.startCursor <= afterCursor && candidate.endCursor > afterCursor) {
+            page = candidate;
+            return;
+          }
+        }
+
+        // The preceding page does not cover the requested cursor. Return the next page
+        // so callers can identify and repair only the gap before it.
+        const nextRequest = store.openCursor(
+          IDBKeyRange.bound(cursorKeyAtPosition, endKey, true, false),
+        );
+        nextRequest.onsuccess = () => {
+          const nextCursor = nextRequest.result;
+          if (nextCursor && nextCursor.value.analysisId === analysisId) {
+            page = nextCursor.value as TrackingTelemetryPage;
+          }
+        };
+        nextRequest.onerror = () => reject(nextRequest.error ?? transactionError(tx));
       };
-      request.onerror = () => reject(request.error ?? transactionError(tx));
+      coveringRequest.onerror = () => reject(coveringRequest.error ?? transactionError(tx));
       tx.oncomplete = () => resolve(page);
       tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
     });
   }
 
