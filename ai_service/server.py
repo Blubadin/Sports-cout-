@@ -1127,6 +1127,7 @@ class TrackingSession:
         self.media_hash: str | None = None
         self.result_write_sequence = 0
         self.segment_start_frame = 0
+        self.last_observation_frame = 0
         self.last_camera_segment_id: str | None = None
         v_meta, r_meta = extract_video_metadata(video_source)
         self.video_metadata: dict = v_meta
@@ -1234,8 +1235,14 @@ def _resume_warmup_source_frames(session: TrackingSession) -> int:
 def _checkpoint_payload(session: TrackingSession) -> dict:
     analyzer = session.analyzer
     calibration = analyzer.calibration_context.frame_fields()
+    committed = session.job_store.get_job(session.session_id)["checkpoint"]
+    last_processed_frame = (
+        session.last_observation_frame
+        if session.pending_results
+        else int(committed.get("lastProcessedFrame", 0) or 0)
+    )
     return {
-        "lastProcessedFrame": session.current_frame,
+        "lastProcessedFrame": last_processed_frame,
         "segmentStartFrame": session.segment_start_frame,
         "analyzerFrameIndex": analyzer.frame_count,
         "analyzedFrames": session.analyzed_frames,
@@ -1269,30 +1276,31 @@ def _checkpoint_payload(session: TrackingSession) -> dict:
 
 
 def _commit_pending_results(session: TrackingSession) -> None:
-    if not session.pending_results:
-        return
-    job = session.job_store.get_job(session.session_id)
-    sequence = job["checkpoint"]["committedSequence"] + 1
-    pending = session.pending_results
-    checkpoint = _checkpoint_payload(session)
-    committed = session.job_store.append_result_chunk(
-        session.session_id,
-        sequence,
-        pending,
-        checkpoint=checkpoint,
-    )
-    session.result_write_sequence = committed["checkpoint"]["committedSequence"]
-    session.persisted_provenance = checkpoint["backendProvenance"]
-    session.persisted_player_summary = checkpoint["playerSummary"]
-    session.pending_results = []
-    session.job_store.update_job(session.session_id, {
-        "progress": {
-            "progressPct": session.progress_pct,
-            "lastProcessedFrame": session.current_frame,
-            "analyzedFrames": session.analyzed_frames,
-            "totalFrames": session.total_frames,
-        },
-    })
+    with session._state_lock:
+        if not session.pending_results:
+            return
+        job = session.job_store.get_job(session.session_id)
+        sequence = job["checkpoint"]["committedSequence"] + 1
+        pending = session.pending_results
+        checkpoint = _checkpoint_payload(session)
+        committed = session.job_store.append_result_chunk(
+            session.session_id,
+            sequence,
+            pending,
+            checkpoint=checkpoint,
+        )
+        session.result_write_sequence = committed["checkpoint"]["committedSequence"]
+        session.persisted_provenance = checkpoint["backendProvenance"]
+        session.persisted_player_summary = checkpoint["playerSummary"]
+        session.pending_results = []
+        session.job_store.update_job(session.session_id, {
+            "progress": {
+                "progressPct": session.progress_pct,
+                "lastProcessedFrame": session.current_frame,
+                "analyzedFrames": session.analyzed_frames,
+                "totalFrames": session.total_frames,
+            },
+        })
 
 
 def _append_session_result(session: TrackingSession, telemetry: dict) -> None:
@@ -1308,6 +1316,7 @@ def _append_session_result(session: TrackingSession, telemetry: dict) -> None:
     if len(session.results) > SESSION_RESULT_WINDOW_SIZE:
         del session.results[:len(session.results) - SESSION_RESULT_WINDOW_SIZE]
     session.pending_results.append(telemetry)
+    session.last_observation_frame = session.current_frame
     session.analyzed_frames += 1
     session.quality_accumulator.update(telemetry)
     with session._state_lock:
@@ -1451,6 +1460,7 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
     session.analyzed_frames = int(checkpoint.get("analyzedFrames", 0) or 0)
     session.frame_stride = int(checkpoint.get("frameStride", session.frame_stride) or session.frame_stride)
     session.result_write_sequence = int(checkpoint.get("committedSequence", 0) or 0)
+    session.last_observation_frame = int(checkpoint.get("lastProcessedFrame", 0) or 0)
     session.segment_start_frame = int(checkpoint.get("segmentStartFrame", 0) or 0)
     session.last_camera_segment_id = segment_state.get("cameraSegmentId")
     session.source_fps = checkpoint.get("sourceFps")
@@ -1582,11 +1592,11 @@ def _analyze_session_frames(session: TrackingSession):
             frame = np.zeros((720, 1280, 3), dtype=np.uint8)
             with session._state_lock:
                 telemetry = session.analyzer.process_frame(frame, timestamp_sec=t)
-            telemetry["source"] = "synthetic_demo"
-            telemetry["isSynthetic"] = True
-            session.current_frame = i + 1
-            session.progress_pct = round(((i + 1) / total_frames) * 100.0, 1)
-            _append_session_result(session, telemetry)
+                telemetry["source"] = "synthetic_demo"
+                telemetry["isSynthetic"] = True
+                session.current_frame = i + 1
+                session.progress_pct = round(((i + 1) / total_frames) * 100.0, 1)
+                _append_session_result(session, telemetry)
             session.elapsed_sec = round(time.time() - start_time, 1)
             time.sleep(0.01)
 
@@ -1669,15 +1679,15 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
                 continue
             with session._state_lock:
                 telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
-            if session.is_resuming and frame_idx <= resume_source_frame:
-                if frame_idx >= resume_source_frame:
-                    _finish_resume_warmup(session, resume_analyzer_frame)
-                continue
-            telemetry["source"] = "real_tracking"
-            telemetry["isSynthetic"] = False
-            session.current_frame = frame_idx
-            session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
-            _append_session_result(session, telemetry)
+                if session.is_resuming and frame_idx <= resume_source_frame:
+                    if frame_idx >= resume_source_frame:
+                        _finish_resume_warmup(session, resume_analyzer_frame)
+                    continue
+                telemetry["source"] = "real_tracking"
+                telemetry["isSynthetic"] = False
+                session.current_frame = frame_idx
+                session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
+                _append_session_result(session, telemetry)
             session.elapsed_sec = round(time.time() - start_time, 1)
         
         if not session._cancel:
@@ -1964,6 +1974,16 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
                 )
 
         try:
+            # Commit observations before advancing the checkpoint to recovered calibration state.
+            if session.pending_results:
+                try:
+                    _commit_pending_results(session)
+                except (OSError, JobStoreError, ValueError) as error:
+                    session._cancel = True
+                    session.error_message = "Pending observations could not be committed before calibration recovery"
+                    logger.error("Calibration recovery could not commit pending results (%s)", type(error).__name__)
+                    raise HTTPException(status_code=507, detail=session.error_message) from None
+
             session.analyzer.set_court_corners(
                 req.corners,
                 camera_segment_id=req.camera_segment_id,
@@ -1980,8 +2000,21 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
         session.calibration_request = req.model_dump()
         if not recovering_during_processing:
             session.status = "READY_TO_ANALYZE"
-        _persist_session_job(session, status=session.status, error=None)
-        session.job_store.update_job(session.session_id, {"checkpoint": _checkpoint_payload(session)})
+        try:
+            job = session.job_store.get_job(session.session_id)
+            session.job_store.update_job(session.session_id, {
+                "identity": _session_identity(session, job.get("identity")),
+                "metadata": _session_job_metadata(session, job.get("metadata")),
+                "status": session.status,
+                "error": None,
+                "checkpoint": _checkpoint_payload(session),
+            })
+        except (OSError, JobStoreError, ValueError) as error:
+            session._cancel = True
+            session.status = "ERROR"
+            session.error_message = "Calibration checkpoint could not be committed; analysis has been stopped"
+            logger.error("Calibration checkpoint could not be committed (%s)", type(error).__name__)
+            raise HTTPException(status_code=507, detail=session.error_message) from None
         return {"status": "success", "sessionStatus": session.status, **session.analyzer.calibration_context.frame_fields()}
 
 
