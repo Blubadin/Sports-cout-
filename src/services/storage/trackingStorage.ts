@@ -198,11 +198,17 @@ export interface TrackingCandidate {
   details?: Record<string, unknown>;
 }
 
+export interface TrackingOrphanRepairResult {
+  status: 'repaired' | 'no-orphans' | 'analysis-present';
+  removed: { chunks: number; candidates: number; telemetryPages: number };
+}
+
 export interface TrackingStorageDriver {
   getAnalysis: (id: string) => Promise<TrackingAnalysis | null>;
   saveAnalysis: (analysis: TrackingAnalysis) => Promise<void>;
   listAnalyses: (projectId?: string) => Promise<TrackingAnalysis[]>;
   deleteAnalysis: (id: string) => Promise<void>;
+  repairOrphanedAnalysisData: (id: string) => Promise<TrackingOrphanRepairResult>;
 
   saveChunks: (chunks: TrackingSampleChunk[]) => Promise<void>;
   getChunks: (analysisId: string, afterChunkIndex?: number, limit?: number) => Promise<TrackingSampleChunk[]>;
@@ -303,6 +309,62 @@ function transactionError(tx: IDBTransaction): Error {
   return tx.error ?? new Error('Tracking storage transaction failed');
 }
 
+type TrackingAnalysisDependentStore = 'trackingSampleChunks' | 'trackingCandidates' | 'trackingTelemetryPages';
+
+function deleteOwnedRows(
+  source: IDBObjectStore | IDBIndex,
+  range: IDBKeyRange,
+  analysisId: string,
+  onDelete: () => void,
+  tx: IDBTransaction,
+): void {
+  const request = source.openCursor(range);
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) return;
+    if ((cursor.value as { analysisId?: string }).analysisId === analysisId) {
+      cursor.delete();
+      onDelete();
+    }
+    cursor.continue();
+  };
+  request.onerror = () => {
+    try { tx.abort(); } catch { /* the transaction may already be aborting */ }
+  };
+}
+
+function deleteAnalysisDependents(
+  tx: IDBTransaction,
+  analysisId: string,
+  onDelete: (store: TrackingAnalysisDependentStore) => void = () => undefined,
+): void {
+  deleteOwnedRows(
+    tx.objectStore('trackingSampleChunks').index('analysisChunk'),
+    IDBKeyRange.bound([analysisId, Number.NEGATIVE_INFINITY], [analysisId, Number.POSITIVE_INFINITY]),
+    analysisId,
+    () => onDelete('trackingSampleChunks'),
+    tx,
+  );
+  deleteOwnedRows(
+    tx.objectStore('trackingCandidates').index('analysisTimestamp'),
+    IDBKeyRange.bound([analysisId, Number.NEGATIVE_INFINITY], [analysisId, Number.POSITIVE_INFINITY]),
+    analysisId,
+    () => onDelete('trackingCandidates'),
+    tx,
+  );
+  deleteOwnedRows(
+    tx.objectStore('trackingTelemetryPages'),
+    IDBKeyRange.bound(`${analysisId}:`, `${analysisId};`),
+    analysisId,
+    () => onDelete('trackingTelemetryPages'),
+    tx,
+  );
+}
+
+function emptyOrphanRepairResult(status: TrackingOrphanRepairResult['status']): TrackingOrphanRepairResult {
+  return { status, removed: { chunks: 0, candidates: 0, telemetryPages: 0 } };
+}
+
 export class IndexedDbTrackingDriver implements TrackingStorageDriver {
   async getAnalysis(id: string): Promise<TrackingAnalysis | null> {
     const db = await openTrackingDatabase();
@@ -349,31 +411,40 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction([...TRACKING_STORE_NAMES], 'readwrite');
       tx.objectStore('trackingAnalyses').delete(id);
-
-      const deleteRange = (storeName: string, range: IDBKeyRange) => {
-        const request = tx.objectStore(storeName).openCursor(range);
-        request.onsuccess = () => {
-          const cursor = request.result;
-          if (!cursor) return;
-          cursor.delete();
-          cursor.continue();
-        };
-        request.onerror = () => reject(request.error ?? transactionError(tx));
-      };
-
-      deleteRange(
-        'trackingSampleChunks',
-        IDBKeyRange.bound([id, 0], [id, Number.MAX_SAFE_INTEGER]),
-      );
-      deleteRange(
-        'trackingCandidates',
-        IDBKeyRange.bound([id, -Infinity], [id, Infinity]),
-      );
-      deleteRange(
-        'trackingTelemetryPages',
-        IDBKeyRange.bound(`${id}:`, `${id};`),
-      );
+      deleteAnalysisDependents(tx, id);
       tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
+    });
+  }
+
+  /** Repair leftovers from the legacy delete bug only when the parent is already absent. */
+  async repairOrphanedAnalysisData(id: string): Promise<TrackingOrphanRepairResult> {
+    const db = await openTrackingDatabase();
+    if (!db) throw new Error('Persistent tracking storage is unavailable');
+    return new Promise<TrackingOrphanRepairResult>((resolve, reject) => {
+      const tx = db.transaction([...TRACKING_STORE_NAMES], 'readwrite');
+      const removed = { chunks: 0, candidates: 0, telemetryPages: 0 };
+      let status: TrackingOrphanRepairResult['status'] = 'no-orphans';
+      const parentRequest = tx.objectStore('trackingAnalyses').get(id);
+      parentRequest.onsuccess = () => {
+        if (parentRequest.result) {
+          status = 'analysis-present';
+          return;
+        }
+        deleteAnalysisDependents(tx, id, store => {
+          if (store === 'trackingSampleChunks') removed.chunks += 1;
+          if (store === 'trackingCandidates') removed.candidates += 1;
+          if (store === 'trackingTelemetryPages') removed.telemetryPages += 1;
+        });
+      };
+      parentRequest.onerror = () => {
+        try { tx.abort(); } catch { /* the transaction may already be aborting */ }
+      };
+      tx.oncomplete = () => {
+        if (removed.chunks + removed.candidates + removed.telemetryPages > 0) status = 'repaired';
+        resolve({ status, removed });
+      };
       tx.onerror = () => reject(transactionError(tx));
       tx.onabort = () => reject(transactionError(tx));
     });
@@ -466,15 +537,13 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
     if (!db) throw new Error("Persistent tracking storage is unavailable");
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('trackingTelemetryPages', 'readwrite');
-      const range = IDBKeyRange.bound(`${analysisId}:`, `${analysisId};`);
-      const request = tx.objectStore('trackingTelemetryPages').openCursor(range);
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor) return;
-        cursor.delete();
-        cursor.continue();
-      };
-      request.onerror = () => reject(request.error ?? transactionError(tx));
+      deleteOwnedRows(
+        tx.objectStore('trackingTelemetryPages'),
+        IDBKeyRange.bound(`${analysisId}:`, `${analysisId};`),
+        analysisId,
+        () => undefined,
+        tx,
+      );
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(transactionError(tx));
       tx.onabort = () => reject(transactionError(tx));
@@ -486,15 +555,13 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
     if (!db) throw new Error("Persistent tracking storage is unavailable");
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('trackingSampleChunks', 'readwrite');
-      const store = tx.objectStore('trackingSampleChunks');
-      const request = store.openCursor();
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor) return;
-        if ((cursor.value as TrackingSampleChunk).analysisId === analysisId) cursor.delete();
-        cursor.continue();
-      };
-      request.onerror = () => reject(request.error ?? transactionError(tx));
+      deleteOwnedRows(
+        tx.objectStore('trackingSampleChunks').index('analysisChunk'),
+        IDBKeyRange.bound([analysisId, Number.NEGATIVE_INFINITY], [analysisId, Number.POSITIVE_INFINITY]),
+        analysisId,
+        () => undefined,
+        tx,
+      );
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(transactionError(tx));
       tx.onabort = () => reject(transactionError(tx));
@@ -534,15 +601,13 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
     if (!db) throw new Error("Persistent tracking storage is unavailable");
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('trackingCandidates', 'readwrite');
-      const store = tx.objectStore('trackingCandidates');
-      const request = store.openCursor();
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor) return;
-        if ((cursor.value as TrackingCandidate).analysisId === analysisId) cursor.delete();
-        cursor.continue();
-      };
-      request.onerror = () => reject(request.error ?? transactionError(tx));
+      deleteOwnedRows(
+        tx.objectStore('trackingCandidates').index('analysisTimestamp'),
+        IDBKeyRange.bound([analysisId, Number.NEGATIVE_INFINITY], [analysisId, Number.POSITIVE_INFINITY]),
+        analysisId,
+        () => undefined,
+        tx,
+      );
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(transactionError(tx));
       tx.onabort = () => reject(transactionError(tx));
@@ -585,6 +650,26 @@ export class MemoryTrackingDriver implements TrackingStorageDriver {
     await this.deleteChunks(id);
     await this.deleteCandidates(id);
     await this.deleteTelemetryPages(id);
+  }
+
+  async repairOrphanedAnalysisData(id: string): Promise<TrackingOrphanRepairResult> {
+    if (this.analyses.has(id)) return emptyOrphanRepairResult('analysis-present');
+    const removed = {
+      chunks: this.countForAnalysis(this.chunks, id),
+      candidates: this.countForAnalysis(this.candidates, id),
+      telemetryPages: this.countForAnalysis(this.telemetryPages, id),
+    };
+    await this.deleteChunks(id);
+    await this.deleteCandidates(id);
+    await this.deleteTelemetryPages(id);
+    const hasOrphans = removed.chunks + removed.candidates + removed.telemetryPages > 0;
+    return { status: hasOrphans ? 'repaired' : 'no-orphans', removed };
+  }
+
+  private countForAnalysis<T extends { analysisId: string }>(rows: Map<string, T>, id: string): number {
+    let count = 0;
+    for (const row of rows.values()) if (row.analysisId === id) count += 1;
+    return count;
   }
 
   async saveChunks(chunks: TrackingSampleChunk[]): Promise<void> {
