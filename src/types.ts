@@ -613,6 +613,9 @@ export type BackendSessionStatus =
   | 'VIDEO_READY'
   | 'READY_TO_ANALYZE'
   | 'PROCESSING'
+  | 'CANCEL_REQUESTED'
+  | 'CANCELLED'
+  | 'INTERRUPTED'
   | 'COMPLETED'
   | 'ERROR';
 
@@ -621,6 +624,12 @@ export interface TrackingSessionStatus {
   status: BackendSessionStatus;
   progressPct: number;
   currentFrame: number;
+  lastProcessedFrame?: number;
+  durableCheckpointFrame?: number;
+  checkpointSequence?: number;
+  committedResultCursor?: number;
+  resumable?: boolean;
+  resume?: { available?: boolean; mode?: string | null; reason?: string | null; temporalStateRestoredExactly?: boolean } | null;
   totalFrames: number;
   analyzedFrames: number;
   frameStride: number;

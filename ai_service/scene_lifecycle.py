@@ -695,4 +695,5 @@ class CameraSegmentLifecycleManager:
         self.current_state = target_state
         self.last_transition = transition
         self.transition_history.append(transition)
+        del self.transition_history[:-128]
         return transition

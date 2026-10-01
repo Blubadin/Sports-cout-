@@ -14,6 +14,7 @@ Verifies:
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -38,6 +39,8 @@ from scene_lifecycle import (
     compute_capabilities,
 )
 from server import app, tracking_sessions, TrackingSession
+import server
+from analysis_job_store import AnalysisJobStore
 
 
 class TestConsumerCapabilityGates(unittest.TestCase):
@@ -175,8 +178,24 @@ class TestCalibrationRecoveryAPI(unittest.TestCase):
     """API level tests for calibration recovery, stale correction rejection, and diagnostics."""
 
     def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.prior_store = server.analysis_job_store
+        server.analysis_job_store = AnalysisJobStore(Path(self.temp_dir.name))
         self.client = TestClient(app)
         tracking_sessions.clear()
+
+    def tearDown(self) -> None:
+        tracking_sessions.clear()
+        server.analysis_job_store = self.prior_store
+        self.temp_dir.cleanup()
+
+    def _register(self, session: TrackingSession) -> None:
+        session.job_store.create_job(
+            session.session_id,
+            server._session_identity(session),
+            server._session_job_metadata(session),
+        )
+        tracking_sessions[session.session_id] = session
 
     def test_stale_segment_correction_rejected(self) -> None:
         """Manual calibration targeting an older camera segment is rejected with HTTP 409."""
@@ -191,7 +210,7 @@ class TestCalibrationRecoveryAPI(unittest.TestCase):
         active_segment = session.analyzer.calibration_context.camera_segment_id
         self.assertEqual(active_segment, "segment-1")
 
-        tracking_sessions["test_recovery_session"] = session
+        self._register(session)
 
         # Attempt to calibrate using stale "segment-0"
         corners = [[100.0, 100.0], [1180.0, 100.0], [1180.0, 620.0], [100.0, 620.0]]
@@ -217,7 +236,7 @@ class TestCalibrationRecoveryAPI(unittest.TestCase):
         session.status = "PROCESSING"
         session.analyzer.calibration_context.lose()
         session.analyzer.frame_count = 50
-        tracking_sessions["test_future_frame_session"] = session
+        self._register(session)
 
         corners = [[100.0, 100.0], [1180.0, 100.0], [1180.0, 620.0], [100.0, 620.0]]
         res = self.client.post(
@@ -242,7 +261,7 @@ class TestCalibrationRecoveryAPI(unittest.TestCase):
         session.status = "PROCESSING"
         session.analyzer.frame_count = 50
         session.analyzer.calibration_context.lose()
-        tracking_sessions["test_valid_relock_session"] = session
+        self._register(session)
 
         corners = [[100.0, 100.0], [1180.0, 100.0], [1180.0, 620.0], [100.0, 620.0]]
         active_seg = session.analyzer.calibration_context.camera_segment_id

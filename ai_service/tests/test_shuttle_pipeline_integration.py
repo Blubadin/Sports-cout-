@@ -24,7 +24,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import cv2
 import numpy as np
@@ -37,6 +37,7 @@ if str(ai_service_dir) not in sys.path:
 
 from analyzer_v2 import BadmintonAnalyzerV2
 from server import TrackingSession, _run_session_analysis, resolve_processing_config, tracking_sessions
+from analysis_job_store import AnalysisJobStore
 from shuttle_pipeline import (
     ShuttlePipelineConfig,
     ProductionShuttlePipeline,
@@ -97,6 +98,11 @@ class UnavailableModelProvider(ShuttleTrackerProvider):
 class TestShuttlePipelineIntegration(unittest.TestCase):
     def setUp(self):
         tracking_sessions.clear()
+        # These tests exercise a deterministic shuttle provider and generated
+        # frames; detector inference belongs to real-media evaluation.
+        detector = patch.object(BadmintonAnalyzerV2, "detect_and_track", return_value=[])
+        detector.start()
+        self.addCleanup(detector.stop)
 
     def test_trajectory_runtime_buffer_is_bounded_without_dropping_emitted_telemetry(self):
         provider = DeterministicShuttleProvider()
@@ -475,8 +481,8 @@ class TestShuttlePipelineIntegration(unittest.TestCase):
     # =========================================================================
     # L. REAL VIDEO SMOKE TEST (TrackingSession lifecycle)
     # =========================================================================
-    def test_l_real_video_session_smoke_test(self):
-        """TrackingSession processes real video, player pipeline completes, shuttle reports status truthfully."""
+    def test_l_generated_video_decode_fixture(self):
+        """Generated MP4 decode fixture completes and reports unavailable shuttle model truthfully."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             video_path = Path(tmp_dir) / "smoke_test.mp4"
             # Write a 10-frame synthetic MP4 video at 30 fps
@@ -504,6 +510,8 @@ class TestShuttlePipelineIntegration(unittest.TestCase):
             self.assertEqual(session.shuttle_pipeline.status, STATUS_MODEL_UNAVAILABLE)
 
             # Run analysis synchronously
+            session.job_store = AnalysisJobStore(Path(tmp_dir) / "jobs")
+            session.job_store.create_job(session.session_id, identity={}, metadata={})
             _run_session_analysis(session)
 
             # Session should complete cleanly without error

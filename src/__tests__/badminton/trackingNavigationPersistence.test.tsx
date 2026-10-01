@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import React from 'react';
 import BadmintonTrackingLab from '../../../src/components/labs/BadmintonTrackingLab';
@@ -17,6 +17,7 @@ vi.mock('../../../src/services/aiTrackingService', () => ({
     uploadSessionVideo: vi.fn(),
     calibrateSession: vi.fn(),
     startSessionAnalysis: vi.fn(),
+    cancelSessionAnalysis: vi.fn().mockResolvedValue({ status: 'cancellation_requested' }),
     deleteSession: vi.fn().mockResolvedValue(undefined),
     getSessionResults: vi.fn().mockResolvedValue({ telemetry: [], nextCursor: 1 }),
     checkBackendHealth: vi.fn().mockResolvedValue(true),
@@ -52,6 +53,11 @@ vi.mock('../../../src/context/WorkspaceContext', () => ({
 describe('Phase 0.1 — Tracking Navigation Persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    trackingStorage.setTrackingStorageDriver(new trackingStorage.MemoryTrackingDriver());
+    vi.mocked(aiTrackingService.getSessionResults).mockResolvedValue({
+      telemetry: [], nextCursor: 0, totalSampleCount: 0, sampleCount: 0,
+    } as any);
+    vi.mocked(aiTrackingService.cancelSessionAnalysis).mockResolvedValue({ status: 'cancellation_requested' });
     vi.mocked(useWorkspace).mockReturnValue({ activeProjectId: 'project-1' } as any);
     trackingSessionStore.updateProjectState('project-1', createDefaultProjectTrackingState('project-1'));
     trackingSessionStore.updateProjectState('project-2', createDefaultProjectTrackingState('project-2'));
@@ -249,7 +255,7 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       sessionId: 'session_bg_complete',
       status: 'PROCESSING',
       progress: 40,
-      cursor: 4,
+      cursor: 5,
       telemetry: [],
       file: mockFile,
       videoFingerprint: computeVideoFingerprint(mockFile),
@@ -259,8 +265,8 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
     vi.mocked(aiTrackingService.getSessionResults).mockResolvedValue({
       sessionId: 'session_bg_complete',
       status: 'COMPLETED',
-      sampleCount: 2,
-      totalSampleCount: 2,
+      sampleCount: 1,
+      totalSampleCount: 6,
       nextCursor: 6,
       telemetry: [
         {
@@ -285,7 +291,7 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       ],
     } as any);
 
-    const persistSpy = vi.spyOn(trackingSessionStore, 'persistCompletedAnalysis');
+    const persistSpy = vi.spyOn(trackingSessionStore, 'persistCompletedAnalysis').mockResolvedValue();
 
     // Mount Lab (user returns from Scout)
     render(<BadmintonTrackingLab />);
@@ -334,8 +340,8 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
     expect(screen.getByText(/Analyzing 75%/i)).toBeInTheDocument();
   });
 
-  it('explicit cancel still cancels: calls deleteSession and resets project store state', async () => {
-    const deleteSessionSpy = vi.spyOn(aiTrackingService, 'deleteSession').mockResolvedValue();
+  it('explicit cancel requests a checkpointed stop and keeps the session resumable', async () => {
+    const cancelAnalysisSpy = vi.spyOn(aiTrackingService, 'cancelSessionAnalysis').mockResolvedValue({ status: 'cancellation_requested' });
     const mockFile = new File(['video'], 'match.mp4', { type: 'video/mp4' });
 
     trackingSessionStore.updateProjectState('project-1', {
@@ -346,18 +352,26 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       videoFingerprint: computeVideoFingerprint(mockFile),
     });
     vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockStatus('PROCESSING', { progressPct: 30 }) as any);
+    vi.mocked(aiTrackingService.cancelSessionAnalysis).mockImplementationOnce(async () => {
+      vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(mockStatus('CANCELLED', { progressPct: 30 }) as any);
+      return { status: 'cancellation_requested' };
+    });
 
     render(<BadmintonTrackingLab />);
     const cancelBtn = await screen.findByRole('button', { name: /Cancel analysis/i });
     fireEvent.click(cancelBtn);
 
     await waitFor(() => {
-      expect(deleteSessionSpy).toHaveBeenCalledWith('session_to_cancel');
+      expect(cancelAnalysisSpy).toHaveBeenCalledWith('session_to_cancel');
     });
 
     const state = trackingSessionStore.getProjectState('project-1');
-    expect(state?.sessionId).toBeNull();
-    expect(state?.status).toBe('IDLE');
+    await waitFor(() => expect(trackingSessionStore.getProjectState('project-1')?.status).toBe('CANCELLED'));
+    expect(state?.sessionId).toBe('session_to_cancel');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('project isolation: Project A tracking state does NOT bleed into Project B, switching back restores Project A', async () => {

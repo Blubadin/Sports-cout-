@@ -178,6 +178,16 @@ export interface TrackingSampleChunk {
   samples: TrackingSample[];
 }
 
+export interface TrackingTelemetryPage {
+  id: string;
+  analysisId: string;
+  startCursor: number;
+  endCursor: number;
+  frames: TrackingTelemetryV1[];
+}
+
+export const MAX_TRACKING_PAGE_SIZE = 250;
+
 export interface TrackingCandidate {
   id: string;
   analysisId: string;
@@ -195,8 +205,11 @@ export interface TrackingStorageDriver {
   deleteAnalysis: (id: string) => Promise<void>;
 
   saveChunks: (chunks: TrackingSampleChunk[]) => Promise<void>;
-  getChunks: (analysisId: string) => Promise<TrackingSampleChunk[]>;
+  getChunks: (analysisId: string, afterChunkIndex?: number, limit?: number) => Promise<TrackingSampleChunk[]>;
   deleteChunks: (analysisId: string) => Promise<void>;
+  saveTelemetryPage: (page: TrackingTelemetryPage) => Promise<void>;
+  getTelemetryPage: (analysisId: string, afterCursor: number) => Promise<TrackingTelemetryPage | null>;
+  deleteTelemetryPages: (analysisId: string) => Promise<void>;
 
   saveCandidate: (candidate: TrackingCandidate) => Promise<void>;
   getCandidates: (analysisId: string) => Promise<TrackingCandidate[]>;
@@ -207,11 +220,12 @@ export interface TrackingStorageDriver {
 // IndexedDB driver with stores: trackingAnalyses, trackingSampleChunks, trackingCandidates
 // -------------------------------------------------------------
 const DB_NAME = 'sportscout-tracking-v1';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 export const TRACKING_STORE_NAMES = [
   'trackingAnalyses',
   'trackingSampleChunks',
   'trackingCandidates',
+  'trackingTelemetryPages',
 ] as const;
 
 export interface TrackingDatabaseSchemaTarget {
@@ -219,10 +233,39 @@ export interface TrackingDatabaseSchemaTarget {
   createObjectStore: (name: string) => unknown;
 }
 
+function cursorKey(analysisId: string, cursor: number): string {
+  return `${analysisId}:${String(cursor).padStart(20, '0')}`;
+}
+
+function ensureTrackingIndexes(db: IDBDatabase, transaction: IDBTransaction | null): void {
+  if (!transaction) return;
+  const ensureIndex = (storeName: string, name: string, keyPath: string | string[]) => {
+    const store = transaction.objectStore(storeName);
+    if (!store.indexNames.contains(name)) store.createIndex(name, keyPath, { unique: false });
+  };
+  ensureIndex('trackingAnalyses', 'projectId', 'projectId');
+  ensureIndex('trackingSampleChunks', 'analysisChunk', ['analysisId', 'chunkIndex']);
+  ensureIndex('trackingCandidates', 'analysisTimestamp', ['analysisId', 'timestamp']);
+}
+
 /** Ensure the complete tracking schema is created in the same upgrade. */
 export function ensureTrackingObjectStores(db: TrackingDatabaseSchemaTarget): void {
   for (const storeName of TRACKING_STORE_NAMES) {
     if (!db.objectStoreNames.contains(storeName)) db.createObjectStore(storeName);
+  }
+}
+
+function validateTelemetryPage(page: TrackingTelemetryPage): void {
+  if (
+    !page.analysisId ||
+    !Number.isInteger(page.startCursor) ||
+    page.startCursor < 0 ||
+    !Number.isInteger(page.endCursor) ||
+    page.endCursor !== page.startCursor + page.frames.length ||
+    page.frames.length > MAX_TRACKING_PAGE_SIZE ||
+    page.id !== cursorKey(page.analysisId, page.startCursor)
+  ) {
+    throw new Error('Telemetry page cursor or maximum page size is invalid');
   }
 }
 
@@ -234,7 +277,10 @@ function openTrackingDatabase(): Promise<IDBDatabase | null> {
 
   trackingDbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = window.indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => ensureTrackingObjectStores(request.result);
+    request.onupgradeneeded = () => {
+      ensureTrackingObjectStores(request.result);
+      ensureTrackingIndexes(request.result, request.transaction);
+    };
     request.onsuccess = () => {
       const db = request.result;
       db.onversionchange = () => {
@@ -272,7 +318,7 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
 
   async saveAnalysis(analysis: TrackingAnalysis): Promise<void> {
     const db = await openTrackingDatabase();
-    if (!db) return;
+    if (!db) throw new Error("Persistent tracking storage is unavailable");
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('trackingAnalyses', 'readwrite');
       tx.objectStore('trackingAnalyses').put(analysis, analysis.id);
@@ -285,31 +331,52 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
   async listAnalyses(projectId?: string): Promise<TrackingAnalysis[]> {
     const db = await openTrackingDatabase();
     if (!db) return [];
-    const items = await new Promise<TrackingAnalysis[]>((resolve, reject) => {
+    return new Promise<TrackingAnalysis[]>((resolve, reject) => {
       const tx = db.transaction('trackingAnalyses', 'readonly');
-      const request = tx.objectStore('trackingAnalyses').getAll();
+      const store = tx.objectStore('trackingAnalyses');
+      const request = projectId
+        ? store.index('projectId').getAll(IDBKeyRange.only(projectId), MAX_TRACKING_PAGE_SIZE)
+        : store.getAll(undefined, MAX_TRACKING_PAGE_SIZE);
       request.onsuccess = () => resolve(request.result as TrackingAnalysis[]);
       request.onerror = () => reject(request.error ?? transactionError(tx));
       tx.onerror = () => reject(transactionError(tx));
     });
-    if (projectId) {
-      return items.filter((a) => a.projectId === projectId);
-    }
-    return items;
   }
 
   async deleteAnalysis(id: string): Promise<void> {
     const db = await openTrackingDatabase();
-    if (!db) return;
+    if (!db) throw new Error("Persistent tracking storage is unavailable");
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('trackingAnalyses', 'readwrite');
+      const tx = db.transaction([...TRACKING_STORE_NAMES], 'readwrite');
       tx.objectStore('trackingAnalyses').delete(id);
+
+      const deleteRange = (storeName: string, range: IDBKeyRange) => {
+        const request = tx.objectStore(storeName).openCursor(range);
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          cursor.delete();
+          cursor.continue();
+        };
+        request.onerror = () => reject(request.error ?? transactionError(tx));
+      };
+
+      deleteRange(
+        'trackingSampleChunks',
+        IDBKeyRange.bound([id, 0], [id, Number.MAX_SAFE_INTEGER]),
+      );
+      deleteRange(
+        'trackingCandidates',
+        IDBKeyRange.bound([id, -Infinity], [id, Infinity]),
+      );
+      deleteRange(
+        'trackingTelemetryPages',
+        IDBKeyRange.bound(`${id}:`, `${id};`),
+      );
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(transactionError(tx));
       tx.onabort = () => reject(transactionError(tx));
     });
-    await this.deleteChunks(id);
-    await this.deleteCandidates(id);
   }
 
   async saveChunks(chunks: TrackingSampleChunk[]): Promise<void> {
@@ -325,24 +392,98 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
     });
   }
 
-  async getChunks(analysisId: string): Promise<TrackingSampleChunk[]> {
+  async getChunks(analysisId: string, afterChunkIndex = -1, limit = MAX_TRACKING_PAGE_SIZE): Promise<TrackingSampleChunk[]> {
     const db = await openTrackingDatabase();
     if (!db) return [];
-    const all = await new Promise<TrackingSampleChunk[]>((resolve, reject) => {
+    const boundedLimit = Math.max(1, Math.min(MAX_TRACKING_PAGE_SIZE, Math.floor(limit)));
+    return new Promise<TrackingSampleChunk[]>((resolve, reject) => {
       const tx = db.transaction('trackingSampleChunks', 'readonly');
-      const request = tx.objectStore('trackingSampleChunks').getAll();
-      request.onsuccess = () => resolve(request.result as TrackingSampleChunk[]);
+      const range = IDBKeyRange.bound(
+        [analysisId, Math.max(0, afterChunkIndex + 1)],
+        [analysisId, Number.MAX_SAFE_INTEGER],
+      );
+      const request = tx.objectStore('trackingSampleChunks').index('analysisChunk').openCursor(range);
+      const page: TrackingSampleChunk[] = [];
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor || page.length >= boundedLimit) return;
+        page.push(cursor.value as TrackingSampleChunk);
+        cursor.continue();
+      };
       request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.oncomplete = () => resolve(page);
       tx.onerror = () => reject(transactionError(tx));
     });
-    return all
-      .filter((c) => c.analysisId === analysisId)
-      .sort((a, b) => a.chunkIndex - b.chunkIndex);
+  }
+
+  async saveTelemetryPage(page: TrackingTelemetryPage): Promise<void> {
+    validateTelemetryPage(page);
+    const db = await openTrackingDatabase();
+    if (!db) throw new Error("Persistent tracking storage is unavailable");
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('trackingTelemetryPages', 'readwrite');
+      const store = tx.objectStore('trackingTelemetryPages');
+      const request = store.get(page.id);
+      request.onsuccess = () => {
+        const existing = request.result as TrackingTelemetryPage | undefined;
+        if (existing && JSON.stringify(existing) !== JSON.stringify(page)) {
+          tx.abort();
+          reject(new Error('Telemetry cursor page conflicts with an existing persisted page'));
+          return;
+        }
+        if (!existing) store.put(page, page.id);
+      };
+      request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
+    });
+  }
+
+  async getTelemetryPage(analysisId: string, afterCursor: number): Promise<TrackingTelemetryPage | null> {
+    const db = await openTrackingDatabase();
+    if (!db) return null;
+    return new Promise<TrackingTelemetryPage | null>((resolve, reject) => {
+      const tx = db.transaction('trackingTelemetryPages', 'readonly');
+      const store = tx.objectStore('trackingTelemetryPages');
+      const startKey = cursorKey(analysisId, afterCursor);
+      const endKey = `${analysisId};`;
+      const request = store.openCursor(IDBKeyRange.bound(startKey, endKey));
+      let page: TrackingTelemetryPage | null = null;
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor || cursor.value.analysisId !== analysisId) return;
+        page = cursor.value as TrackingTelemetryPage;
+      };
+      request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.oncomplete = () => resolve(page);
+      tx.onerror = () => reject(transactionError(tx));
+    });
+  }
+
+  async deleteTelemetryPages(analysisId: string): Promise<void> {
+    const db = await openTrackingDatabase();
+    if (!db) throw new Error("Persistent tracking storage is unavailable");
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('trackingTelemetryPages', 'readwrite');
+      const range = IDBKeyRange.bound(`${analysisId}:`, `${analysisId};`);
+      const request = tx.objectStore('trackingTelemetryPages').openCursor(range);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        cursor.delete();
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error ?? transactionError(tx));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(transactionError(tx));
+      tx.onabort = () => reject(transactionError(tx));
+    });
   }
 
   async deleteChunks(analysisId: string): Promise<void> {
     const db = await openTrackingDatabase();
-    if (!db) return;
+    if (!db) throw new Error("Persistent tracking storage is unavailable");
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('trackingSampleChunks', 'readwrite');
       const store = tx.objectStore('trackingSampleChunks');
@@ -362,7 +503,7 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
 
   async saveCandidate(candidate: TrackingCandidate): Promise<void> {
     const db = await openTrackingDatabase();
-    if (!db) return;
+    if (!db) throw new Error("Persistent tracking storage is unavailable");
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('trackingCandidates', 'readwrite');
       tx.objectStore('trackingCandidates').put(candidate, candidate.id);
@@ -377,19 +518,20 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
     if (!db) return [];
     const all = await new Promise<TrackingCandidate[]>((resolve, reject) => {
       const tx = db.transaction('trackingCandidates', 'readonly');
-      const request = tx.objectStore('trackingCandidates').getAll();
+      const request = tx.objectStore('trackingCandidates').index('analysisTimestamp').getAll(
+        IDBKeyRange.bound([analysisId, 0], [analysisId, Number.MAX_SAFE_INTEGER]),
+        MAX_TRACKING_PAGE_SIZE,
+      );
       request.onsuccess = () => resolve(request.result as TrackingCandidate[]);
       request.onerror = () => reject(request.error ?? transactionError(tx));
       tx.onerror = () => reject(transactionError(tx));
     });
-    return all
-      .filter((c) => c.analysisId === analysisId)
-      .sort((a, b) => a.timestamp - b.timestamp);
+    return all;
   }
 
   async deleteCandidates(analysisId: string): Promise<void> {
     const db = await openTrackingDatabase();
-    if (!db) return;
+    if (!db) throw new Error("Persistent tracking storage is unavailable");
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('trackingCandidates', 'readwrite');
       const store = tx.objectStore('trackingCandidates');
@@ -422,6 +564,7 @@ export class MemoryTrackingDriver implements TrackingStorageDriver {
   private analyses = new Map<string, TrackingAnalysis>();
   private chunks = new Map<string, TrackingSampleChunk>();
   private candidates = new Map<string, TrackingCandidate>();
+  private telemetryPages = new Map<string, TrackingTelemetryPage>();
 
   async getAnalysis(id: string): Promise<TrackingAnalysis | null> {
     return this.analyses.get(id) ?? null;
@@ -441,6 +584,7 @@ export class MemoryTrackingDriver implements TrackingStorageDriver {
     this.analyses.delete(id);
     await this.deleteChunks(id);
     await this.deleteCandidates(id);
+    await this.deleteTelemetryPages(id);
   }
 
   async saveChunks(chunks: TrackingSampleChunk[]): Promise<void> {
@@ -449,10 +593,33 @@ export class MemoryTrackingDriver implements TrackingStorageDriver {
     }
   }
 
-  async getChunks(analysisId: string): Promise<TrackingSampleChunk[]> {
+  async getChunks(analysisId: string, afterChunkIndex = -1, limit = MAX_TRACKING_PAGE_SIZE): Promise<TrackingSampleChunk[]> {
     return Array.from(this.chunks.values())
       .filter((c) => c.analysisId === analysisId)
-      .sort((a, b) => a.chunkIndex - b.chunkIndex);
+      .filter((c) => c.chunkIndex > afterChunkIndex)
+      .sort((a, b) => a.chunkIndex - b.chunkIndex)
+      .slice(0, Math.max(1, Math.min(MAX_TRACKING_PAGE_SIZE, Math.floor(limit))));
+  }
+
+  async saveTelemetryPage(page: TrackingTelemetryPage): Promise<void> {
+    validateTelemetryPage(page);
+    const existing = this.telemetryPages.get(page.id);
+    if (existing && JSON.stringify(existing) !== JSON.stringify(page)) {
+      throw new Error('Telemetry cursor page conflicts with an existing persisted page');
+    }
+    this.telemetryPages.set(page.id, page);
+  }
+
+  async getTelemetryPage(analysisId: string, afterCursor: number): Promise<TrackingTelemetryPage | null> {
+    return Array.from(this.telemetryPages.values())
+      .filter((page) => page.analysisId === analysisId && page.endCursor > afterCursor)
+      .sort((a, b) => a.startCursor - b.startCursor)[0] ?? null;
+  }
+
+  async deleteTelemetryPages(analysisId: string): Promise<void> {
+    for (const [key, page] of this.telemetryPages.entries()) {
+      if (page.analysisId === analysisId) this.telemetryPages.delete(key);
+    }
   }
 
   async deleteChunks(analysisId: string): Promise<void> {
@@ -1279,6 +1446,449 @@ export function downsampleAndChunkTrackingSamples(
   return { chunks, summary, quality, calibrationTimeline };
 }
 
+interface StreamingPlayerSummary {
+  totalDistanceM: number;
+  lastCanonicalDistanceM?: number;
+  avgSpeedSum: number;
+  speedCount: number;
+  speedHistogram: number[];
+  maxSpeedMps: number;
+  trackedCount: number;
+  sumX: number;
+  sumY: number;
+  dispersionSum: number;
+  frontCount: number;
+  midCount: number;
+  rearCount: number;
+  leftCount: number;
+  rightCount: number;
+  lateralMovementM: number;
+  frontBackMovementM: number;
+  previousSample?: TrackingSample;
+}
+
+interface StreamingQualityTally {
+  observed: number;
+  predicted: number;
+  lost: number;
+  confidenceSum: number;
+  confidenceCount: number;
+}
+
+function streamingSample(
+  frame: TrackingTelemetryV1,
+  player: TrackingTelemetryV1['players'][number],
+  metricRunId: number,
+): TrackingSample | null {
+  const position = player.courtPosition;
+  if (
+    !position || position.xM == null || position.yM == null ||
+    !Number.isFinite(position.xM) || !Number.isFinite(position.yM) ||
+    (position.xM === 0 && position.yM === 0)
+  ) return null;
+  return {
+    timestamp: frame.timestampSec,
+    playerId: player.playerId,
+    courtX: Number(position.xM.toFixed(2)),
+    courtY: Number(position.yM.toFixed(2)),
+    speed: typeof player.speedMps === 'number' ? Number(player.speedMps.toFixed(2)) : null,
+    confidence: typeof player.detectionConfidence === 'number' ? Number(player.detectionConfidence.toFixed(2)) : null,
+    trackingState: player.state === 'lost' ? 'lost' : player.state === 'predicted' ? 'predicted' : 'tracked',
+    cameraSegmentId: frame.cameraSegmentId,
+    calibrationId: frame.calibrationId,
+    metricRunId,
+    normalizedX: Number((position.xPct / 100).toFixed(3)),
+    normalizedY: Number((position.yPct / 100).toFixed(3)),
+    canBuildHeatmap: frame.canBuildHeatmap !== false,
+    canUseCourtMetric: true,
+  };
+}
+
+/** Streaming equivalent of downsampleAndChunkTrackingSamples with fixed-size accumulators. */
+export class TrackingAnalysisStreamBuilder {
+  private readonly analysisId: string;
+  private readonly targetHz: number;
+  private readonly chunkDurationSec: number;
+  private readonly playerIds: string[];
+  private readonly playerSummaries = new Map<string, StreamingPlayerSummary>();
+  private readonly qualityTallies = new Map<string, StreamingQualityTally>();
+  private readonly calibrationTimeline: TrackingCalibrationEvent[] = [];
+  private priorCalibrationKey: string | null = null;
+  private metricRunId = 0;
+  private dispersionPriorCalibrationKey: string | null = null;
+  private dispersionMetricRunId = 0;
+  private lastDownsampledTimestamp = -1;
+  private firstTimestamp: number | null = null;
+  private lastTimestamp: number | null = null;
+  private frameCount = 0;
+  private sampleCount = 0;
+  private uniqueStoredTimestampCount = 0;
+  private qualityFullyObserved = 0;
+  private qualityPartiallyObserved = 0;
+  private qualityFullyLost = 0;
+  private qualityPoseCount = 0;
+  private qualityPlayerSlots = 0;
+  private qualityConfidenceSum = 0;
+  private qualityConfidenceCount = 0;
+  private currentChunkIndex = 0;
+  private currentChunkStart: number | null = null;
+  private currentChunkSamples: TrackingSample[] = [];
+
+  constructor(
+    analysisId: string,
+    playerIds: string[],
+    targetHz = 10,
+    chunkDurationSec = 15,
+  ) {
+    this.analysisId = analysisId;
+    this.playerIds = [...new Set(playerIds)].sort();
+    this.targetHz = Math.max(0.1, targetHz);
+    this.chunkDurationSec = Math.max(1, chunkDurationSec);
+    for (const playerId of this.playerIds) {
+      this.qualityTallies.set(playerId, { observed: 0, predicted: 0, lost: 0, confidenceSum: 0, confidenceCount: 0 });
+    }
+  }
+
+  setCanonicalPlayerMetrics(metrics: Record<string, { totalDistanceM?: number }>): void {
+    for (const [playerId, value] of Object.entries(metrics)) {
+      let aggregate = this.playerSummaries.get(playerId);
+      const hasCanonicalDistance = typeof value.totalDistanceM === 'number' && Number.isFinite(value.totalDistanceM);
+      if (!aggregate && hasCanonicalDistance) {
+        aggregate = this.createPlayerSummary();
+        this.playerSummaries.set(playerId, aggregate);
+      }
+      if (!this.qualityTallies.has(playerId)) {
+        this.qualityTallies.set(playerId, { observed: 0, predicted: 0, lost: 0, confidenceSum: 0, confidenceCount: 0 });
+        this.playerIds.push(playerId);
+        this.playerIds.sort();
+      }
+      if (aggregate && hasCanonicalDistance) {
+        aggregate.lastCanonicalDistanceM = value.totalDistanceM;
+      }
+    }
+  }
+
+  private createPlayerSummary(): StreamingPlayerSummary {
+    return {
+      totalDistanceM: 0,
+      avgSpeedSum: 0,
+      speedCount: 0,
+      speedHistogram: new Array<number>(1201).fill(0),
+      maxSpeedMps: 0,
+      trackedCount: 0,
+      sumX: 0,
+      sumY: 0,
+      dispersionSum: 0,
+      frontCount: 0,
+      midCount: 0,
+      rearCount: 0,
+      leftCount: 0,
+      rightCount: 0,
+      lateralMovementM: 0,
+      frontBackMovementM: 0,
+    };
+  }
+
+  private runIdFor(frame: TrackingTelemetryV1, dispersionPass = false): number {
+    if (frame.calibrationState !== undefined) {
+      const key = `${frame.cameraSegmentId ?? ''}:${frame.calibrationId ?? ''}:${frame.calibrationState}`;
+      const prior = dispersionPass ? this.dispersionPriorCalibrationKey : this.priorCalibrationKey;
+      let runId = dispersionPass ? this.dispersionMetricRunId : this.metricRunId;
+      if (!isMetricCalibrationValid(frame) || (prior !== null && key !== prior)) runId++;
+      if (dispersionPass) {
+        this.dispersionPriorCalibrationKey = key;
+        this.dispersionMetricRunId = runId;
+      } else {
+        if (key !== prior) {
+          this.calibrationTimeline.push({
+            frameIndex: frame.frameIndex,
+            timestampSec: frame.timestampSec,
+            cameraSegmentId: frame.cameraSegmentId,
+            calibrationId: frame.calibrationId,
+            state: frame.calibrationState,
+            provenance: frame.calibration ?? null,
+          });
+        }
+        this.priorCalibrationKey = key;
+        this.metricRunId = runId;
+      }
+    }
+    return dispersionPass ? this.dispersionMetricRunId : this.metricRunId;
+  }
+
+  private addQuality(frame: TrackingTelemetryV1): void {
+    let observedInFrame = 0;
+    const byId = new Map(frame.players.map((player) => [player.playerId, player]));
+    for (const playerId of this.playerIds) {
+      const player = byId.get(playerId);
+      const tally = this.qualityTallies.get(playerId)!;
+      if (!player || player.state === 'lost') {
+        tally.lost++;
+      } else if (player.state === 'predicted') {
+        tally.predicted++;
+      } else if (player.state === 'observed') {
+        tally.observed++;
+        observedInFrame++;
+        if (typeof player.detectionConfidence === 'number') {
+          tally.confidenceSum += player.detectionConfidence;
+          tally.confidenceCount++;
+          this.qualityConfidenceSum += player.detectionConfidence;
+          this.qualityConfidenceCount++;
+        }
+      } else {
+        tally.lost++;
+      }
+    }
+    if (observedInFrame === this.playerIds.length) this.qualityFullyObserved++;
+    else if (observedInFrame > 0) this.qualityPartiallyObserved++;
+    else this.qualityFullyLost++;
+    this.qualityPlayerSlots += this.playerIds.length;
+    for (const player of frame.players) {
+      if (player.pose && !player.pose.isReused) this.qualityPoseCount++;
+    }
+  }
+
+  private appendDownsampled(sample: TrackingSample): TrackingSampleChunk[] {
+    const ready: TrackingSampleChunk[] = [];
+    if (this.currentChunkStart === null) this.currentChunkStart = sample.timestamp;
+    if (sample.timestamp - this.currentChunkStart >= this.chunkDurationSec && this.currentChunkSamples.length > 0) {
+      ready.push({
+        id: `${this.analysisId}:${this.currentChunkIndex}`,
+        analysisId: this.analysisId,
+        chunkIndex: this.currentChunkIndex,
+        startTime: Number(this.currentChunkStart.toFixed(2)),
+        endTime: Number(sample.timestamp.toFixed(2)),
+        samples: this.currentChunkSamples,
+      });
+      this.currentChunkIndex++;
+      this.currentChunkStart = sample.timestamp;
+      this.currentChunkSamples = [];
+    }
+    this.currentChunkSamples.push(sample);
+    return ready;
+  }
+
+  addFrames(frames: TrackingTelemetryV1[]): TrackingSampleChunk[] {
+    const ready: TrackingSampleChunk[] = [];
+    const sampleInterval = 1 / this.targetHz;
+    for (const frame of frames) {
+      if (this.firstTimestamp === null) this.firstTimestamp = frame.timestampSec;
+      this.lastTimestamp = frame.timestampSec;
+      this.frameCount++;
+      this.addQuality(frame);
+      const runId = this.runIdFor(frame);
+      const validMetricFrame = isMetricCalibrationValid(frame) && frame.canUseCourtMetric !== false;
+      if (!validMetricFrame) continue;
+
+      for (const player of frame.players) {
+        let aggregate = this.playerSummaries.get(player.playerId);
+        const sample = streamingSample(frame, player, runId);
+        if (!sample) continue;
+        if (!aggregate) {
+          aggregate = this.createPlayerSummary();
+          this.playerSummaries.set(player.playerId, aggregate);
+        }
+        if (aggregate && typeof player.totalDistanceM === 'number' && Number.isFinite(player.totalDistanceM)) {
+          aggregate.lastCanonicalDistanceM = player.totalDistanceM;
+        }
+        const previous = aggregate.previousSample;
+        if (sample.trackingState === 'tracked') {
+          aggregate.trackedCount++;
+          aggregate.sumX += sample.courtX;
+          aggregate.sumY += sample.courtY;
+          const distanceToNet = Math.abs(6.7 - sample.courtY);
+          if (distanceToNet <= 2.2) aggregate.frontCount++;
+          else if (distanceToNet <= 4.4) aggregate.midCount++;
+          else aggregate.rearCount++;
+          if (sample.courtX < 3.05) aggregate.leftCount++;
+          else aggregate.rightCount++;
+          if (
+            previous?.trackingState === 'tracked' &&
+            previous.metricRunId === sample.metricRunId &&
+            previous.calibrationId === sample.calibrationId &&
+            previous.cameraSegmentId === sample.cameraSegmentId
+          ) {
+            const dx = sample.courtX - previous.courtX;
+            const dy = sample.courtY - previous.courtY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const deltaSec = Math.max(0.001, sample.timestamp - previous.timestamp);
+            const speed = distance / deltaSec;
+            if (speed <= 12.0) {
+              aggregate.totalDistanceM += distance;
+              aggregate.lateralMovementM += Math.abs(dx);
+              aggregate.frontBackMovementM += Math.abs(dy);
+              aggregate.avgSpeedSum += speed;
+              aggregate.speedCount++;
+              const bin = Math.max(0, Math.min(1200, Math.round(speed * 100)));
+              aggregate.speedHistogram[bin]++;
+              aggregate.maxSpeedMps = Math.max(aggregate.maxSpeedMps, speed);
+            }
+          }
+        }
+        aggregate.previousSample = sample;
+      }
+
+      if (frame.timestampSec - this.lastDownsampledTimestamp < sampleInterval * 0.95) continue;
+      this.lastDownsampledTimestamp = frame.timestampSec;
+      let emittedAtTimestamp = false;
+      for (const player of frame.players) {
+        const sample = streamingSample(frame, player, runId);
+        if (!sample) continue;
+        this.sampleCount++;
+        emittedAtTimestamp = true;
+        ready.push(...this.appendDownsampled(sample));
+      }
+      if (emittedAtTimestamp) this.uniqueStoredTimestampCount++;
+    }
+    return ready;
+  }
+
+  addDispersionFrames(frames: TrackingTelemetryV1[]): void {
+    for (const frame of frames) {
+      const runId = this.runIdFor(frame, true);
+      if (!isMetricCalibrationValid(frame) || frame.canUseCourtMetric === false) continue;
+      for (const player of frame.players) {
+        const sample = streamingSample(frame, player, runId);
+        const aggregate = sample ? this.playerSummaries.get(sample.playerId) : undefined;
+        if (!sample || !aggregate || sample.trackingState !== 'tracked' || aggregate.trackedCount === 0) continue;
+        const avgX = aggregate.sumX / aggregate.trackedCount;
+        const avgY = aggregate.sumY / aggregate.trackedCount;
+        const dx = sample.courtX - avgX;
+        const dy = sample.courtY - avgY;
+        aggregate.dispersionSum += Math.sqrt(dx * dx + dy * dy);
+      }
+    }
+  }
+
+  finishChunks(): TrackingSampleChunk[] {
+    if (!this.currentChunkSamples.length || this.currentChunkStart === null) return [];
+    const samples = this.currentChunkSamples;
+    const first = this.currentChunkStart;
+    const index = this.currentChunkIndex;
+    this.currentChunkSamples = [];
+    this.currentChunkStart = null;
+    return [{
+      id: `${this.analysisId}:${index}`,
+      analysisId: this.analysisId,
+      chunkIndex: index,
+      startTime: Number(first.toFixed(2)),
+      endTime: Number(samples[samples.length - 1].timestamp.toFixed(2)),
+      samples,
+    }];
+  }
+
+  finish(): {
+    summary: TrackingSummary;
+    quality: TrackingQuality;
+    calibrationTimeline: TrackingCalibrationEvent[];
+    uniqueStoredTimestampCount: number;
+  } {
+    const players: Record<string, PlayerMovementMetrics> = {};
+    for (const playerId of this.playerIds) {
+      const aggregate = this.playerSummaries.get(playerId);
+      if (!aggregate) continue;
+      let p95Speed = 0;
+      if (aggregate.speedCount > 0) {
+        const target = Math.floor(aggregate.speedCount * 0.95);
+        let accumulated = 0;
+        for (let bin = 0; bin < aggregate.speedHistogram.length; bin++) {
+          accumulated += aggregate.speedHistogram[bin];
+          if (accumulated > target) {
+            p95Speed = Number((bin / 100).toFixed(2));
+            break;
+          }
+        }
+      }
+      const count = aggregate.trackedCount;
+      const denominator = Math.max(1, count);
+      players[playerId] = {
+        totalDistanceMeters: Number((aggregate.lastCanonicalDistanceM ?? aggregate.totalDistanceM).toFixed(2)),
+        avgSpeedMps: Number((aggregate.speedCount ? aggregate.avgSpeedSum / aggregate.speedCount : 0).toFixed(2)),
+        p95SpeedMps: p95Speed,
+        maxSpeedMps: Number(aggregate.maxSpeedMps.toFixed(2)),
+        courtCoverage: {
+          frontPercent: Number(((aggregate.frontCount / denominator) * 100).toFixed(1)),
+          midPercent: Number(((aggregate.midCount / denominator) * 100).toFixed(1)),
+          rearPercent: Number(((aggregate.rearCount / denominator) * 100).toFixed(1)),
+          leftPercent: Number(((aggregate.leftCount / denominator) * 100).toFixed(1)),
+          rightPercent: Number(((aggregate.rightCount / denominator) * 100).toFixed(1)),
+        },
+        basePosition: {
+          avgCourtX: count ? Number((aggregate.sumX / count).toFixed(2)) : null,
+          avgCourtY: count ? Number((aggregate.sumY / count).toFixed(2)) : null,
+          dispersion: count ? Number((aggregate.dispersionSum / count).toFixed(2)) : 0,
+        },
+        lateralMovementMeters: Number(aggregate.lateralMovementM.toFixed(2)),
+        frontBackMovementMeters: Number(aggregate.frontBackMovementM.toFixed(2)),
+      };
+    }
+
+    if (this.frameCount === 0) {
+      return {
+        summary: { durationSeconds: 0, sampleCount: 0, players: {} },
+        quality: computeTrackingQuality([], this.playerIds),
+        calibrationTimeline: [],
+        uniqueStoredTimestampCount: 0,
+      };
+    }
+
+    const playerCoverage: Record<string, PlayerTrackingQuality> = {};
+    let totalCoverage = 0;
+    let totalPredicted = 0;
+    let totalLost = 0;
+    for (const playerId of this.playerIds) {
+      const tally = this.qualityTallies.get(playerId)!;
+      const coverage = Number((tally.observed / this.frameCount).toFixed(2));
+      const predictedPercent = Number(((tally.predicted / this.frameCount) * 100).toFixed(1));
+      const lostPercent = Number(((tally.lost / this.frameCount) * 100).toFixed(1));
+      playerCoverage[playerId] = {
+        playerId,
+        observedFrameCount: tally.observed,
+        predictedFrameCount: tally.predicted,
+        lostFrameCount: tally.lost,
+        detectionCoverage: coverage,
+        predictedPercent,
+        lostPercent,
+        meanObservedConfidence: tally.confidenceCount ? Number((tally.confidenceSum / tally.confidenceCount).toFixed(2)) : null,
+        idSwitchCount: null,
+        manualCorrectionCount: null,
+      };
+      totalCoverage += coverage;
+      totalPredicted += tally.predicted;
+      totalLost += tally.lost;
+    }
+    const targetCount = this.playerIds.length;
+    const meanTargetCoverage = targetCount ? Number((totalCoverage / targetCount).toFixed(2)) : null;
+    const quality: TrackingQuality = {
+      meanTargetCoverage,
+      simultaneousTargetCoverage: this.frameCount ? Number((this.qualityFullyObserved / this.frameCount).toFixed(2)) : null,
+      fullyObservedFrameCount: this.qualityFullyObserved,
+      partiallyObservedFrameCount: this.qualityPartiallyObserved,
+      fullyLostFrameCount: this.qualityFullyLost,
+      predictedPercent: this.qualityPlayerSlots ? Number(((totalPredicted / this.qualityPlayerSlots) * 100).toFixed(1)) : null,
+      lostPercent: this.qualityPlayerSlots ? Number(((totalLost / this.qualityPlayerSlots) * 100).toFixed(1)) : null,
+      playerCoverage,
+      idSwitchCount: null,
+      manualCorrectionCount: null,
+      manualCorrections: null,
+      detectionCoverage: meanTargetCoverage,
+      lostTimePercent: meanTargetCoverage === null ? null : Number(Math.max(0, (1 - meanTargetCoverage) * 100).toFixed(1)),
+      confidence: this.qualityConfidenceCount ? Number((this.qualityConfidenceSum / this.qualityConfidenceCount).toFixed(2)) : null,
+      lowConfidenceWarning: meanTargetCoverage !== null && (meanTargetCoverage < 0.5 || (this.qualityConfidenceCount > 0 && this.qualityConfidenceSum / this.qualityConfidenceCount < 0.6)),
+    };
+    return {
+      summary: {
+        durationSeconds: Number(Math.max(0, (this.lastTimestamp ?? 0) - (this.firstTimestamp ?? 0)).toFixed(2)),
+        sampleCount: this.sampleCount,
+        players,
+      },
+      quality,
+      calibrationTimeline: this.calibrationTimeline,
+      uniqueStoredTimestampCount: this.uniqueStoredTimestampCount,
+    };
+  }
+}
+
 // -------------------------------------------------------------
 // High-Level Repository Operations
 // -------------------------------------------------------------
@@ -1311,9 +1921,39 @@ export async function listTrackingAnalyses(projectId?: string): Promise<Tracking
   });
 }
 
-export async function getTrackingSampleChunks(analysisId: string): Promise<TrackingSampleChunk[]> {
+export async function getTrackingSampleChunks(
+  analysisId: string,
+  afterChunkIndex = -1,
+  limit = MAX_TRACKING_PAGE_SIZE,
+): Promise<TrackingSampleChunk[]> {
   const driver = getTrackingStorageDriver();
-  return driver.getChunks(analysisId);
+  return driver.getChunks(analysisId, afterChunkIndex, limit);
+}
+
+/** Marks a streamed result retryable before the final completion record is written. */
+export async function saveTrackingAnalysisRecord(analysis: TrackingAnalysis): Promise<void> {
+  const driver = getTrackingStorageDriver();
+  await driver.saveAnalysis({ ...analysis, status: 'processing', completedAt: undefined });
+  await driver.saveAnalysis(analysis);
+}
+
+export async function saveTrackingSampleChunks(chunks: TrackingSampleChunk[]): Promise<void> {
+  await getTrackingStorageDriver().saveChunks(chunks);
+}
+
+export async function saveTrackingTelemetryPage(page: TrackingTelemetryPage): Promise<void> {
+  await getTrackingStorageDriver().saveTelemetryPage(page);
+}
+
+export async function getTrackingTelemetryPage(
+  analysisId: string,
+  afterCursor: number,
+): Promise<TrackingTelemetryPage | null> {
+  return getTrackingStorageDriver().getTelemetryPage(analysisId, afterCursor);
+}
+
+export async function deleteTrackingTelemetryPages(analysisId: string): Promise<void> {
+  await getTrackingStorageDriver().deleteTelemetryPages(analysisId);
 }
 
 export async function getTrackingSamples(

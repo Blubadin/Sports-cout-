@@ -241,7 +241,7 @@ export default function BadmintonTrackingLab() {
   const upload = useRef<AbortController | null>(null);
 
   const file = state.file;
-  const processing = state.status === 'PROCESSING' || state.status === 'UPLOADING';
+  const processing = state.status === 'PROCESSING' || state.status === 'CANCEL_REQUESTED' || state.status === 'UPLOADING';
   const progress = state.progress;
   const gameType = state.gameType;
   const trackedPlayerCount = state.trackedPlayerCount;
@@ -450,7 +450,7 @@ export default function BadmintonTrackingLab() {
           if (!current()) return;
 
           if (partial.telemetry && partial.telemetry.length > 0) {
-            store.appendTelemetry(activeProjectId!, partial.telemetry, partial.nextCursor);
+            await store.appendTelemetry(activeProjectId!, partial.telemetry, partial.nextCursor);
           } else if (partial.nextCursor !== undefined && partial.nextCursor !== cur) {
             update({ cursor: partial.nextCursor });
           }
@@ -464,8 +464,14 @@ export default function BadmintonTrackingLab() {
             status:
               latestStatus.status === 'ERROR'
                 ? 'ERROR'
-                : latestStatus.status === 'COMPLETED'
+              : latestStatus.status === 'COMPLETED'
                 ? 'COMPLETED'
+                : latestStatus.status === 'CANCEL_REQUESTED'
+                ? 'CANCEL_REQUESTED'
+                : latestStatus.status === 'INTERRUPTED'
+                ? 'INTERRUPTED'
+                : latestStatus.status === 'CANCELLED'
+                ? 'CANCELLED'
                 : 'PROCESSING',
             error: latestStatus.error || null,
           });
@@ -479,6 +485,8 @@ export default function BadmintonTrackingLab() {
             if (freshState) {
               await store.persistCompletedAnalysis(activeProjectId!, freshState);
             }
+          } else if (latestStatus.status === 'INTERRUPTED' || latestStatus.status === 'CANCELLED') {
+            return;
           } else {
             timer.current = setTimeout(() => void poll(), 500);
           }
@@ -506,13 +514,13 @@ export default function BadmintonTrackingLab() {
       // Case A: active project already has a sessionId in store
       if (
         state.sessionId &&
-        ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'UPLOADING', 'COMPLETED', 'ERROR'].includes(state.status)
+        ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCEL_REQUESTED', 'CANCELLED', 'INTERRUPTED', 'UPLOADING', 'COMPLETED', 'ERROR'].includes(state.status)
       ) {
         // Enforce fingerprint match if file is loaded
         if (file && state.videoFingerprint) {
           if (state.videoFingerprint !== computeVideoFingerprint(file)) {
             // Mismatch: clear old non-processing session to force recreation
-            if (['VIDEO_READY', 'READY_TO_ANALYZE', 'ERROR'].includes(state.status)) {
+            if (['VIDEO_READY', 'READY_TO_ANALYZE', 'CANCELLED', 'INTERRUPTED', 'ERROR'].includes(state.status)) {
               void aiTrackingService.deleteSession(state.sessionId).catch(() => {});
               update({ sessionId: null, status: 'IDLE', sessionStatus: null });
             }
@@ -538,12 +546,17 @@ export default function BadmintonTrackingLab() {
           } else if (currentStatus.status === 'PROCESSING') {
             update({ status: 'PROCESSING' });
             pollSession(state.sessionId, runId);
+          } else if (currentStatus.status === 'CANCEL_REQUESTED') {
+            update({ status: 'CANCEL_REQUESTED' });
+            pollSession(state.sessionId, runId);
+          } else if (currentStatus.status === 'INTERRUPTED' || currentStatus.status === 'CANCELLED') {
+            update({ status: currentStatus.status });
           } else if (currentStatus.status === 'COMPLETED') {
             update({ status: 'COMPLETED' });
             const cur = state.cursor;
             const partial = await aiTrackingService.getSessionResults(state.sessionId, cur);
             if (partial.telemetry && partial.telemetry.length > 0) {
-              store.appendTelemetry(activeProjectId, partial.telemetry, partial.nextCursor);
+              await store.appendTelemetry(activeProjectId, partial.telemetry, partial.nextCursor);
             }
             const freshState = store.getProjectState(activeProjectId);
             if (freshState && !freshState.analysis) {
@@ -568,7 +581,7 @@ export default function BadmintonTrackingLab() {
         const candidate = sessions.find(
           (item: any) =>
             (!item.projectId || item.projectId === activeProjectId) &&
-            ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'COMPLETED'].includes(item.status) &&
+            ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCELLED', 'INTERRUPTED', 'COMPLETED'].includes(item.status) &&
             (!file || !item.videoFingerprint || item.videoFingerprint === computeVideoFingerprint(file))
         );
         if (candidate) {
@@ -587,7 +600,7 @@ export default function BadmintonTrackingLab() {
               ? { ...state.processingConfig, ...candidate.processingConfig }
               : state.processingConfig,
           });
-          if (candidate.status === 'PROCESSING' || candidate.status === 'COMPLETED') {
+          if (['PROCESSING', 'CANCEL_REQUESTED', 'COMPLETED'].includes(candidate.status)) {
             pollSession(candidate.sessionId, runId);
           }
         }
@@ -618,7 +631,15 @@ export default function BadmintonTrackingLab() {
       timer.current = null;
     }
     upload.current?.abort();
-    await cancelSession();
+    try {
+      await cancelSession();
+      const latest = activeProjectId ? store.getProjectState(activeProjectId) : null;
+      if (latest?.status === 'CANCEL_REQUESTED' && latest.sessionId) {
+        pollSession(latest.sessionId, generation.current);
+      }
+    } catch (err) {
+      update({ error: err instanceof Error ? err.message : 'Unable to cancel analysis' });
+    }
   };
 
   const choose = (next: File | undefined) => {
@@ -662,7 +683,7 @@ export default function BadmintonTrackingLab() {
     const currentBackendStatus = state.status;
     const isResumable =
       id &&
-      ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING'].includes(currentBackendStatus) &&
+      ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCELLED', 'INTERRUPTED'].includes(currentBackendStatus) &&
       (!file || !state.videoFingerprint || state.videoFingerprint === computeVideoFingerprint(file));
 
     const fail = (err: unknown) => {
@@ -704,7 +725,7 @@ export default function BadmintonTrackingLab() {
       };
 
       if (!isResumable) {
-        if (id && ['VIDEO_READY', 'READY_TO_ANALYZE', 'ERROR'].includes(currentBackendStatus)) {
+        if (id && ['VIDEO_READY', 'READY_TO_ANALYZE', 'CANCELLED', 'INTERRUPTED', 'ERROR'].includes(currentBackendStatus)) {
           void aiTrackingService.deleteSession(id).catch(() => {});
         }
         update({
@@ -755,7 +776,7 @@ export default function BadmintonTrackingLab() {
       }
 
       const activeStatus2 = store.getProjectState(activeProjectId!)?.status || 'READY_TO_ANALYZE';
-      if (activeStatus2 === 'READY_TO_ANALYZE') {
+      if (['READY_TO_ANALYZE', 'INTERRUPTED', 'CANCELLED'].includes(activeStatus2)) {
         await aiTrackingService.startSessionAnalysis(id!);
         if (!current()) return;
         update({ status: 'PROCESSING' });
@@ -1512,8 +1533,10 @@ export default function BadmintonTrackingLab() {
           <span>
             {th ? 'กำลังวิเคราะห์' : 'Analyzing'} {progress}%
           </span>
-          <button className={button} onClick={cancel}>
-            {th ? 'ยกเลิก' : 'Cancel analysis'}
+          <button className={button} onClick={cancel} disabled={state.status === 'CANCEL_REQUESTED'}>
+            {state.status === 'CANCEL_REQUESTED'
+              ? th ? 'กำลังหยุด…' : 'Stopping…'
+              : th ? 'ยกเลิก' : 'Cancel analysis'}
           </button>
         </div>
       ) : (

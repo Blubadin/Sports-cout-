@@ -150,6 +150,7 @@ class CalibrationContext:
         )
         if self.provenance is not None:
             self.history.append(self.provenance)
+            del self.history[:-128]
         self.provenance = provenance
         self.state = CalibrationState.CALIBRATED
         return provenance
@@ -167,6 +168,7 @@ class CalibrationContext:
     def start_camera_segment(self) -> None:
         if self.provenance is not None:
             self.history.append(self.provenance)
+            del self.history[:-128]
         self.camera_segment_index += 1
         self.camera_segment_id = f"segment-{self.camera_segment_index}"
         self.state = CalibrationState.CALIBRATION_LOST

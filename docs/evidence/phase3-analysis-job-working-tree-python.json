@@ -1,0 +1,11 @@
+{
+  "status": "FAIL",
+  "testsRun": 596,
+  "elapsedSec": 37.615,
+  "failures": [
+    "test_cut_invalidates_h_before_mapping_and_preserves_image_observations (test_camera_cut_safety.TestCutCalibrationSafety.test_cut_invalidates_h_before_mapping_and_preserves_image_observations)",
+    "test_court_to_cut_to_close_up_to_return_to_court (test_scene_lifecycle.TestSceneLifecycleAndSegmentManager.test_court_to_cut_to_close_up_to_return_to_court)"
+  ],
+  "errors": [],
+  "scope": "Working tree including pre-existing uncommitted player eligibility changes; original camera-cut assertions retained"
+}

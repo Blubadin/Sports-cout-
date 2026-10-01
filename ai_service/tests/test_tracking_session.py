@@ -5,19 +5,30 @@ test_tracking_session.py — Unit tests for Tracking Session API lifecycle (PDF 
 import unittest
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 # Add ai_service to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi.testclient import TestClient
+import server
 from server import app, tracking_sessions
+from analysis_job_store import AnalysisJobStore
 
 
 class TestTrackingSessionAPI(unittest.TestCase):
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.prior_store = server.analysis_job_store
+        server.analysis_job_store = AnalysisJobStore(Path(self.temp_dir.name))
         self.client = TestClient(app)
         tracking_sessions.clear()
+
+    def tearDown(self):
+        tracking_sessions.clear()
+        server.analysis_job_store = self.prior_store
+        self.temp_dir.cleanup()
 
     def test_session_full_lifecycle_demo(self):
         """Verify session creation, calibration, player assignment, processing, and results."""
@@ -90,7 +101,8 @@ class TestTrackingSessionAPI(unittest.TestCase):
         tracking_sessions[session_id].status = "READY_TO_ANALYZE"
 
         res_start = self.client.post(f"/api/tracking/sessions/{session_id}/start")
-        self.assertEqual(res_start.status_code, 200)
+        self.assertEqual(res_start.status_code, 409)
+        self.assertIn("Video file not found", res_start.json()["detail"])
 
         time.sleep(0.2)
         res_status = self.client.get(f"/api/tracking/sessions/{session_id}/status")

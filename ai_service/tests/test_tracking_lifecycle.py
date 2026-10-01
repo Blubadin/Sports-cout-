@@ -7,11 +7,14 @@ Covers: upload states, calibration locks, player assignment locks,
 import unittest
 import sys
 import time
+import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from server import app, tracking_sessions
+import server
+from analysis_job_store import AnalysisJobStore
 
 CORNERS = [[200.0, 100.0], [1080.0, 100.0], [1080.0, 650.0], [200.0, 650.0]]
 # Container-shaped payload for lifecycle tests that mock the actual decoder.
@@ -28,8 +31,20 @@ def _mock_cv2_cap():
 
 class TestTrackingLifecycle(unittest.TestCase):
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.prior_store = server.analysis_job_store
+        server.analysis_job_store = AnalysisJobStore(self.temp_dir.name)
         tracking_sessions.clear()
         self.client = TestClient(app)
+
+    def tearDown(self):
+        for session in tracking_sessions.values():
+            session._cancel = True
+            if session._thread and session._thread.is_alive():
+                session._thread.join(5)
+        tracking_sessions.clear()
+        server.analysis_job_store = self.prior_store
+        self.temp_dir.cleanup()
 
     def _create_session(self, **kwargs):
         payload = {"game_type": "singles"}
@@ -249,7 +264,7 @@ class TestTrackingLifecycle(unittest.TestCase):
         original_start = threading.Thread.start
 
         def mock_start(self_obj, *args, **kwargs):
-            if hasattr(self_obj, "_target") and self_obj._target and getattr(self_obj._target, "__name__", "") == "_run_session_analysis":
+            if hasattr(self_obj, "_target") and self_obj._target and getattr(self_obj._target, "__name__", "") == "_run_analysis_worker":
                 start_calls.append(self_obj)
             return original_start(self_obj, *args, **kwargs)
 

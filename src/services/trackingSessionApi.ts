@@ -305,6 +305,11 @@ export class TrackingSessionApiClient {
     });
   }
 
+  public async cancelSessionAnalysis(sessionId: string): Promise<{ status: string }> {
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/cancel`, { method: 'POST' });
+    return res.json();
+  }
+
   public async getSessionStatus(sessionId: string): Promise<TrackingSessionStatus> {
     const res = await this.request(`/api/tracking/sessions/${sessionId}/status`);
     return res.json();
@@ -312,20 +317,25 @@ export class TrackingSessionApiClient {
 
   public async getSessionResults(
     sessionId: string,
-    after?: number
+    after?: number,
+    limit = 250,
   ): Promise<{
     sessionId: string;
     status: string;
     sampleCount: number;
     totalSampleCount: number;
     nextCursor: number;
+    maximumPageSize?: number;
     trackedPlayerCount?: number;
     processingConfig?: ProcessingConfig;
     performance?: TrackingPerformanceStats;
     quality?: TrackingQualityStats;
     telemetry: TrackingTelemetryV1[];
   }> {
-    const query = after !== undefined ? `?after=${encodeURIComponent(after)}` : '';
+    const params = new URLSearchParams();
+    if (after !== undefined) params.set('after', String(after));
+    params.set('limit', String(limit));
+    const query = `?${params.toString()}`;
     const res = await this.request(`/api/tracking/sessions/${sessionId}/results${query}`);
     const payload = await res.json();
     return { ...payload, telemetry: (payload.telemetry || []).map(toTrackingTelemetryV1) };

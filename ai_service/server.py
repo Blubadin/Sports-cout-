@@ -8,6 +8,7 @@ import sys
 import tempfile
 import asyncio
 import json
+import hashlib
 import math
 import threading
 import time
@@ -28,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 import cv2
 
 try:
@@ -65,7 +67,8 @@ def public_metadata(value):
 
 
 from analyzer_v2 import BadmintonAnalyzerV2
-from calibration_contract import CalibrationState
+from calibration_contract import CalibrationState, CalibrationSource
+from dataclasses import replace
 from pose_adapter import PoseArchitectureNotImplementedError
 from court_mapper import CourtMapper
 from device_runtime import capability_report, resolve_device
@@ -75,6 +78,12 @@ from engine_config import (
     validate_engine_config,
     InvalidEngineConfigError,
     ModelNotFoundError,
+)
+from analysis_job_store import (
+    AnalysisJobStore,
+    JobStoreCorruptionError,
+    JobStoreError,
+    default_analysis_store,
 )
 try:
     from ai_service.video_metadata import extract_video_metadata
@@ -111,6 +120,13 @@ async def security_lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0", lifespan=security_lifespan)
+
+analysis_job_store = default_analysis_store()
+ANALYSIS_RESULT_CHUNK_SIZE = 64
+SESSION_RESULT_WINDOW_SIZE = 128
+SEMANTIC_OWNER_HISTORY_LIMIT = 4096
+RESULT_PAGE_SIZE = 250
+RESUME_WARMUP_SOURCE_FRAMES = 60
 
 
 @app.exception_handler(RequestValidationError)
@@ -875,6 +891,135 @@ class SessionCalibrationRequest(BaseModel):
 class SessionPlayerRequest(BaseModel):
     players: list[dict]
 
+
+class SessionQualityAccumulator:
+    """Fixed-size quality counters; the frame history remains in the durable result store."""
+
+    def __init__(self, tracked_player_count: int, snapshot: dict | None = None):
+        self.player_ids = [f"P{i}" for i in range(1, max(1, min(4, int(tracked_player_count or 2))) + 1)]
+        self.frames = 0
+        self.observed = {pid: 0 for pid in self.player_ids}
+        self.predicted = {pid: 0 for pid in self.player_ids}
+        self.lost = {pid: 0 for pid in self.player_ids}
+        self.lost_time = {pid: 0.0 for pid in self.player_ids}
+        self.pose_observed = 0
+        self.player_samples = 0
+        self.previous_timestamp: float | None = None
+        self.previous_states: dict[str, str] | None = None
+        if snapshot:
+            self.restore(snapshot)
+
+    def _frame_states(self, frame: dict) -> tuple[dict[str, str], int]:
+        by_id: dict[str, dict] = {}
+        players = frame.get("players", [])
+        for index, player in enumerate(players):
+            pid = player.get("playerId")
+            if not pid and "id" in player:
+                pid = f"P{player['id']}"
+            if not pid:
+                pid = self.player_ids[index] if index < len(self.player_ids) else f"P{index + 1}"
+            by_id[pid] = player
+        states: dict[str, str] = {}
+        poses = 0
+        for pid in self.player_ids:
+            player = by_id.get(pid)
+            state = player.get("state") if player else "lost"
+            states[pid] = state if state in {"observed", "predicted"} else "lost"
+            if player and player.get("pose") and not player["pose"].get("isReused", False):
+                poses += 1
+        return states, poses
+
+    def _add_lost_time(self, states: dict[str, str], delta_sec: float) -> None:
+        for pid, state in states.items():
+            if state == "lost":
+                self.lost_time[pid] += delta_sec
+
+    def update(self, frame: dict) -> None:
+        timestamp = frame.get("timestampSec", frame.get("timestamp_sec"))
+        if timestamp is None or not math.isfinite(float(timestamp)):
+            timestamp = max(0, self.frames - 1) * 0.033
+        timestamp = float(timestamp)
+        states, poses = self._frame_states(frame)
+
+        if self.frames == 1 and self.previous_timestamp is not None and self.previous_states is not None:
+            first_gap = max(0.0, timestamp - self.previous_timestamp)
+            self._add_lost_time(self.previous_states, first_gap)
+            self._add_lost_time(states, first_gap)
+        elif self.previous_timestamp is not None:
+            self._add_lost_time(states, max(0.0, timestamp - self.previous_timestamp))
+
+        for pid, state in states.items():
+            if state == "observed":
+                self.observed[pid] += 1
+            elif state == "predicted":
+                self.predicted[pid] += 1
+            else:
+                self.lost[pid] += 1
+        self.player_samples += len(self.player_ids)
+        self.pose_observed += poses
+        self.frames += 1
+        self.previous_timestamp = timestamp
+        self.previous_states = states
+
+    def snapshot(self) -> dict:
+        return {
+            "frames": self.frames,
+            "playerIds": self.player_ids,
+            "observed": self.observed,
+            "predicted": self.predicted,
+            "lost": self.lost,
+            "lostTimeSec": self.lost_time,
+            "poseObserved": self.pose_observed,
+            "playerSamples": self.player_samples,
+            "previousTimestamp": self.previous_timestamp,
+            "previousStates": self.previous_states,
+        }
+
+    def restore(self, snapshot: dict) -> None:
+        self.frames = int(snapshot.get("frames", 0))
+        for key, target in (("observed", self.observed), ("predicted", self.predicted), ("lost", self.lost), ("lostTimeSec", self.lost_time)):
+            source = snapshot.get(key, {})
+            for pid in self.player_ids:
+                target[pid] = source.get(pid, target[pid])
+        self.pose_observed = int(snapshot.get("poseObserved", 0))
+        self.player_samples = int(snapshot.get("playerSamples", 0))
+        self.previous_timestamp = snapshot.get("previousTimestamp")
+        self.previous_states = snapshot.get("previousStates")
+
+    def to_dict(self) -> dict:
+        if self.frames == 0:
+            return {
+                "observedCoveragePct": None,
+                "lostFramesPct": None,
+                "predictedFramesPct": None,
+                "poseCoveragePct": None,
+                "playerCoverage": {},
+            }
+        player_coverage = {}
+        for pid in self.player_ids:
+            observed = self.observed[pid]
+            predicted = self.predicted[pid]
+            lost = self.lost[pid]
+            player_coverage[pid] = {
+                "playerId": pid,
+                "expectedFrames": self.frames,
+                "observedFrames": observed,
+                "predictedFrames": predicted,
+                "lostFrames": lost,
+                "observedCoveragePct": round(observed / self.frames * 100.0, 1),
+                "predictedFramesPct": round(predicted / self.frames * 100.0, 1),
+                "lostFramesPct": round(lost / self.frames * 100.0, 1),
+                "lostTimeSec": round(self.lost_time[pid], 2),
+            }
+        return {
+            "observedCoveragePct": round(sum(row["observedCoveragePct"] for row in player_coverage.values()) / len(player_coverage), 1),
+            "lostFramesPct": round(sum(row["lostFramesPct"] for row in player_coverage.values()) / len(player_coverage), 1),
+            "predictedFramesPct": round(sum(row["predictedFramesPct"] for row in player_coverage.values()) / len(player_coverage), 1),
+            "poseCoveragePct": round(self.pose_observed / self.player_samples * 100.0, 1) if self.player_samples else 0.0,
+            "playerCoverage": player_coverage,
+        }
+
+
 class TrackingSession:
     def __init__(
         self,
@@ -969,8 +1114,20 @@ class TrackingSession:
         self.duration_sec = 0.0
         self.frame_stride = resolved_cfg["frameStride"]
         self.results: list[dict] = []
+        self.pending_results: list[dict] = []
+        self.quality_accumulator = SessionQualityAccumulator(self.tracked_player_count)
         self.error_message: str | None = None
         self.owned_video_path: Path | None = None
+        self.job_store = analysis_job_store
+        self.calibration_request: dict | None = None
+        self.player_assignments: list[dict] | None = None
+        self.resume_checkpoint: dict | None = None
+        self.resume_distance_aggregates: dict | None = None
+        self.is_resuming = False
+        self.media_hash: str | None = None
+        self.result_write_sequence = 0
+        self.segment_start_frame = 0
+        self.last_camera_segment_id: str | None = None
         v_meta, r_meta = extract_video_metadata(video_source)
         self.video_metadata: dict = v_meta
         self.research_metadata: dict = r_meta
@@ -981,34 +1138,414 @@ class TrackingSession:
         self._state_lock = threading.RLock()
 
 tracking_sessions: dict[str, TrackingSession] = {}
+analysis_worker_slots = threading.BoundedSemaphore(1)
+
+
+def _config_identity(config: dict) -> str:
+    stable = {key: value for key, value in config.items() if key not in {"effectiveDevice", "fallbackReason"}}
+    encoded = json.dumps(stable, sort_keys=True, separators=(",", ":"), default=str, allow_nan=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _model_identity(session: TrackingSession) -> dict:
+    cfg = session.processing_config
+    from device_runtime import artifact_sha256, package_version
+    hashes = {}
+    for kind, reference in {
+        "detector": cfg.get("modelArtifactReference") or cfg.get("detectorModel", "yolov8n.pt"),
+        "pose": cfg.get("poseModel"),
+        "shuttle": cfg.get("shuttleModelPath") if cfg.get("shuttleEnabled") else None,
+        "reid": cfg.get("reidModel") if cfg.get("reidEnabled") else None,
+    }.items():
+        digest = None
+        if reference:
+            for candidate in (Path(reference), Path.home() / "AppData/Roaming/Ultralytics" / reference, Path.home() / ".cache/ultralytics" / reference):
+                if candidate.is_file():
+                    digest = artifact_sha256(candidate)
+                    break
+        hashes[kind] = digest
+    return {
+        "artifactSha256": hashes,
+        "runtimeVersion": package_version("torch"),
+        "providerVersion": package_version("ultralytics"),
+        "pipelineContractVersion": "analysis-job-v1",
+        "detectorModel": cfg.get("detectorModel", "yolov8n.pt"),
+        "poseModel": cfg.get("poseModel", "yolov8n-pose.pt"),
+        "runtime": cfg.get("runtime", "pytorch"),
+        "precision": cfg.get("precision", "fp32"),
+        "artifactReference": cfg.get("modelArtifactReference"),
+    }
+
+
+def _session_identity(session: TrackingSession, current: dict | None = None) -> dict:
+    identity = dict(current or {})
+    source = session.video_source
+    identity.update({
+        "mediaSource": "synthetic_demo" if source == "demo" else str(Path(source).expanduser().resolve()),
+        "mediaHash": session.media_hash or identity.get("mediaHash"),
+        "videoFingerprint": session.video_fingerprint,
+        "configHash": _config_identity(session.processing_config),
+        "model": _model_identity(session),
+    })
+    return identity
+
+
+def _session_job_metadata(session: TrackingSession, existing: dict | None = None) -> dict:
+    metadata = dict(existing or {})
+    metadata["session"] = {
+        "videoSource": session.video_source,
+        "ownedVideo": bool(session.owned_video_path),
+        "gameType": session.game_type,
+        "projectId": session.project_id,
+        "videoFingerprint": session.video_fingerprint,
+        "device": session.requested_device,
+        "trackedPlayerCount": session.tracked_player_count,
+        "processingConfig": session.processing_config,
+        "videoMetadata": session.video_metadata,
+        "researchMetadata": session.research_metadata,
+        "calibration": session.calibration_request,
+        "players": session.player_assignments,
+        "mediaHash": session.media_hash,
+    }
+    return metadata
+
+
+_UNSET_JOB_ERROR = object()
+
+
+def _persist_session_job(session: TrackingSession, *, status: str | None = None, error: str | None | object = _UNSET_JOB_ERROR) -> dict:
+    job = session.job_store.get_job(session.session_id)
+    patch = {
+        "identity": _session_identity(session, job.get("identity")),
+        "metadata": _session_job_metadata(session, job.get("metadata")),
+    }
+    if status is not None:
+        patch["status"] = status
+    if error is not _UNSET_JOB_ERROR:
+        patch["error"] = error
+    return session.job_store.update_job(session.session_id, patch)
+
+
+def _resume_warmup_source_frames(session: TrackingSession) -> int:
+    temporal_window = int(session.processing_config.get("shuttleWindowSize", 1)) if session.processing_config.get("shuttleEnabled") else 1
+    return max(RESUME_WARMUP_SOURCE_FRAMES, session.frame_stride * temporal_window)
+
+
+def _checkpoint_payload(session: TrackingSession) -> dict:
+    analyzer = session.analyzer
+    calibration = analyzer.calibration_context.frame_fields()
+    return {
+        "lastProcessedFrame": session.current_frame,
+        "segmentStartFrame": session.segment_start_frame,
+        "analyzerFrameIndex": analyzer.frame_count,
+        "analyzedFrames": session.analyzed_frames,
+        "sourceFps": session.source_fps,
+        "durationSec": session.duration_sec,
+        "elapsedSec": session.elapsed_sec,
+        "playerSummary": analyzer.get_live_player_statuses(),
+        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None} for pid, profile in analyzer.profiles.items()},
+        "identityCounters": {"rawTrackerIdSwitches": analyzer.raw_tracker_id_switches, "semanticPlayerIdSwitches": analyzer.semantic_player_id_switches},
+        "frameStride": session.frame_stride,
+        "segmentCalibrationState": {
+            "cameraSegmentId": analyzer.calibration_context.camera_segment_id,
+            "calibrationId": calibration.get("calibrationId"),
+            "calibrationState": calibration.get("calibrationState"),
+            "calibrationVersion": calibration.get("calibrationVersion"),
+            "cornersPx": analyzer.court_corners_px.tolist() if analyzer.court_corners_px is not None else None,
+            "provenance": calibration.get("calibration"),
+        },
+        "backendProvenance": _build_session_metrics(session)[2],
+        "distanceAggregates": analyzer.dist_tracker.aggregate_snapshot(),
+        "qualityAccumulator": session.quality_accumulator.snapshot(),
+        "temporalState": {
+            "mode": "RECENT_FRAME_WARMUP",
+            "restored": False,
+            "warmupSourceFrames": _resume_warmup_source_frames(session),
+            "identityState": "APPEARANCE_RESTORED_TRACK_IDS_REACQUIRE",
+            "metricContinuity": "BREAK_AT_RESUME_BOUNDARY",
+            "reason": "Detector tracker and shuttle temporal inputs are recreated; recent source frames must be replayed before continuing.",
+        },
+    }
+
+
+def _commit_pending_results(session: TrackingSession) -> None:
+    if not session.pending_results:
+        return
+    job = session.job_store.get_job(session.session_id)
+    sequence = job["checkpoint"]["committedSequence"] + 1
+    pending = session.pending_results
+    checkpoint = _checkpoint_payload(session)
+    committed = session.job_store.append_result_chunk(
+        session.session_id,
+        sequence,
+        pending,
+        checkpoint=checkpoint,
+    )
+    session.result_write_sequence = committed["checkpoint"]["committedSequence"]
+    session.persisted_provenance = checkpoint["backendProvenance"]
+    session.persisted_player_summary = checkpoint["playerSummary"]
+    session.pending_results = []
+    session.job_store.update_job(session.session_id, {
+        "progress": {
+            "progressPct": session.progress_pct,
+            "lastProcessedFrame": session.current_frame,
+            "analyzedFrames": session.analyzed_frames,
+            "totalFrames": session.total_frames,
+        },
+    })
+
+
+def _append_session_result(session: TrackingSession, telemetry: dict) -> None:
+    telemetry = jsonable_encoder(telemetry)
+    segment_id = telemetry.get("cameraSegmentId")
+    if session.last_camera_segment_id is None:
+        session.last_camera_segment_id = segment_id
+        session.segment_start_frame = max(0, session.current_frame)
+    elif segment_id is not None and segment_id != session.last_camera_segment_id:
+        session.last_camera_segment_id = segment_id
+        session.segment_start_frame = max(0, session.current_frame)
+    session.results.append(telemetry)
+    if len(session.results) > SESSION_RESULT_WINDOW_SIZE:
+        del session.results[:len(session.results) - SESSION_RESULT_WINDOW_SIZE]
+    session.pending_results.append(telemetry)
+    session.analyzed_frames += 1
+    session.quality_accumulator.update(telemetry)
+    with session._state_lock:
+        owners = session.analyzer.last_known_track_owners
+        if len(owners) > SEMANTIC_OWNER_HISTORY_LIMIT:
+            active_ids = {profile.track_id for profile in session.analyzer.profiles.values() if profile.track_id is not None}
+            for track_id in list(owners):
+                if len(owners) <= SEMANTIC_OWNER_HISTORY_LIMIT:
+                    break
+                if track_id not in active_ids:
+                    owners.pop(track_id, None)
+    if len(session.pending_results) >= ANALYSIS_RESULT_CHUNK_SIZE:
+        _commit_pending_results(session)
+
+
+def _ensure_media_identity(session: TrackingSession) -> None:
+    if session.video_source == "demo":
+        session.media_hash = "synthetic-demo-v1"
+    else:
+        path = Path(session.video_source)
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError("Video file not found; analysis cannot resume")
+        observed_hash = session.job_store.hash_file(path)
+        job = session.job_store.get_job(session.session_id)
+        prior_hash = job.get("identity", {}).get("mediaHash")
+        if prior_hash and prior_hash != observed_hash:
+            raise JobStoreError("Video media identity changed since this job was checkpointed")
+        session.media_hash = observed_hash
+    _persist_session_job(session)
+
+
+def _restore_persisted_session(session_id: str) -> TrackingSession | None:
+    existing = tracking_sessions.get(session_id)
+    if existing is not None:
+        return existing
+    try:
+        job = analysis_job_store.get_job(session_id)
+    except FileNotFoundError:
+        return None
+    except JobStoreError as error:
+        issue = f"{session_id}: persisted job unavailable ({type(error).__name__})"
+        analysis_job_store.recovery_report.setdefault("issues", []).append(issue)
+        logger.error("%s", issue)
+        return None
+    metadata = job.get("metadata", {}).get("session") or {}
+    video_source = metadata.get("videoSource", "demo")
+    try:
+        session = TrackingSession(
+            session_id,
+            video_source=video_source,
+            game_type=metadata.get("gameType", "doubles"),
+            project_id=metadata.get("projectId"),
+            video_fingerprint=metadata.get("videoFingerprint"),
+            device=metadata.get("device", "auto"),
+            tracked_player_count=metadata.get("trackedPlayerCount"),
+            processing_config=metadata.get("processingConfig"),
+        )
+    except Exception as error:
+        logger.error("Persisted analysis session could not be reconstructed (%s)", type(error).__name__)
+        return None
+
+    session.job_store = analysis_job_store
+    session.created_at = job.get("createdAt", session.created_at)
+    session.status = job.get("status", "ERROR")
+    session.error_message = job.get("error")
+    session.video_metadata = metadata.get("videoMetadata") or session.video_metadata
+    session.research_metadata = metadata.get("researchMetadata") or session.research_metadata
+    session.media_hash = metadata.get("mediaHash")
+    if metadata.get("ownedVideo") and video_source != "demo":
+        session.owned_video_path = Path(video_source)
+    checkpoint = job.get("checkpoint", {})
+    segment_state = checkpoint.get("segmentCalibrationState") or {}
+    segment_id = segment_state.get("cameraSegmentId")
+    if segment_id:
+        session.analyzer.calibration_context.camera_segment_id = segment_id
+        session.analyzer.calibration_context.camera_segment_index = int(segment_id.removeprefix("segment-"))
+        session.analyzer.scene_lifecycle.current_segment_id = segment_id
+    calibration = metadata.get("calibration")
+    session.calibration_request = calibration
+    if checkpoint.get("committedCursor", 0) > 0:
+        calibration = None
+        if segment_state.get("calibrationState") == "CALIBRATED" and segment_state.get("cornersPx"):
+            calibration = {"corners": segment_state["cornersPx"], "calibration_version": segment_state.get("calibrationVersion")}
+        else:
+            session.analyzer.calibration_context.state = CalibrationState(segment_state.get("calibrationState", "UNCALIBRATED"))
+    if calibration and calibration.get("corners"):
+        try:
+            session.analyzer.set_court_corners(
+                calibration["corners"],
+                camera_segment_id=segment_id,
+                calibration_version=calibration.get("calibration_version"),
+                created_at_frame=calibration.get("frame_index"),
+                created_at_timestamp_sec=calibration.get("timestamp_sec"),
+            )
+            if checkpoint.get("committedCursor", 0) and segment_state.get("calibrationId"):
+                provenance = segment_state.get("provenance") or {}
+                session.analyzer.calibration_context.provenance = replace(
+                    session.analyzer.calibration_context.provenance,
+                    calibration_id=segment_state["calibrationId"],
+                    source=CalibrationSource(provenance.get("source", "manual")),
+                    confidence=provenance.get("confidence"),
+                    reprojection_error_px=provenance.get("reprojectionErrorPx"),
+                    created_at_frame=provenance.get("createdAtFrame", 0),
+                    created_at_timestamp_sec=provenance.get("createdAtTimestampSec", 0.0),
+                )
+        except (ValueError, TypeError):
+            session.status = "ERROR"
+            session.error_message = "Saved calibration state is invalid; analysis cannot resume"
+    for pid, saved in checkpoint.get("identityProfiles", {}).items():
+        profile = session.analyzer.profiles.get(int(pid))
+        if profile is None:
+            continue
+        profile.name = saved.get("name", profile.name)
+        profile.team = saved.get("team", 0)
+        histogram = saved.get("colorHistogram")
+        embedding = saved.get("reidEmbedding")
+        if histogram is not None:
+            restored_histogram = np.asarray(histogram, dtype=np.float32)
+            if restored_histogram.shape != (16, 16) or not np.isfinite(restored_histogram).all():
+                raise JobStoreError("Invalid saved appearance histogram")
+            profile.color_hist = restored_histogram
+        if embedding is not None:
+            restored_embedding = np.asarray(embedding, dtype=np.float32)
+            if restored_embedding.ndim != 1 or restored_embedding.size > 4096 or not np.isfinite(restored_embedding).all():
+                raise JobStoreError("Invalid saved identity embedding")
+            profile.reid_embedding = restored_embedding
+    session.player_assignments = metadata.get("players")
+    if not checkpoint.get("committedCursor", 0) and session.player_assignments and video_source != "demo" and Path(video_source).exists():
+        cap = cv2.VideoCapture(video_source)
+        try:
+            readable, first_frame = cap.read()
+            if readable and first_frame is not None:
+                session.analyzer.assign_initial_players(first_frame, session.player_assignments)
+        finally:
+            cap.release()
+
+    progress = job.get("progress", {})
+    session.progress_pct = float(progress.get("progressPct", 0.0) or 0.0)
+    session.current_frame = int(checkpoint.get("lastProcessedFrame", progress.get("lastProcessedFrame", 0)) or 0)
+    session.total_frames = int(progress.get("totalFrames", 0) or 0)
+    session.analyzed_frames = int(checkpoint.get("analyzedFrames", 0) or 0)
+    session.frame_stride = int(checkpoint.get("frameStride", session.frame_stride) or session.frame_stride)
+    session.result_write_sequence = int(checkpoint.get("committedSequence", 0) or 0)
+    session.segment_start_frame = int(checkpoint.get("segmentStartFrame", 0) or 0)
+    session.last_camera_segment_id = segment_state.get("cameraSegmentId")
+    session.source_fps = checkpoint.get("sourceFps")
+    session.duration_sec = float(checkpoint.get("durationSec", 0.0) or 0.0)
+    session.elapsed_sec = float(checkpoint.get("elapsedSec", 0.0) or 0.0)
+    session.persisted_player_summary = checkpoint.get("playerSummary")
+    session.analyzer.dist_tracker.restore_aggregates(checkpoint.get("distanceAggregates"))
+    if checkpoint.get("committedCursor", 0):
+        session.results = session.job_store.page_results(session_id, max(0, checkpoint["committedCursor"] - SESSION_RESULT_WINDOW_SIZE), SESSION_RESULT_WINDOW_SIZE)["items"]
+    session.resume_checkpoint = checkpoint if session.status in {"INTERRUPTED", "CANCELLED"} else None
+    session.persisted_provenance = checkpoint.get("backendProvenance")
+    session.resume_distance_aggregates = checkpoint.get("distanceAggregates")
+    session.quality_accumulator.restore(checkpoint.get("qualityAccumulator", {}))
+    tracking_sessions[session_id] = session
+    return session
+
+
+def _validate_resume(session: TrackingSession) -> None:
+    session.job_store.validate_committed(session.session_id)
+    job = session.job_store.get_job(session.session_id)
+    identity = job.get("identity", {})
+    if identity.get("configHash") != _config_identity(session.processing_config):
+        raise JobStoreError("Processing configuration changed since checkpoint")
+    if identity.get("model") != _model_identity(session):
+        raise JobStoreError("Model/runtime identity changed since checkpoint")
+    _ensure_media_identity(session)
 
 
 def _run_session_analysis(session: TrackingSession):
     try:
-        _analyze_session_frames(session)
+        terminal_status = _analyze_session_frames(session)
+        _commit_pending_results(session)
+        if terminal_status == "COMPLETED":
+            session.progress_pct = 100.0
+            _persist_session_job(session, status="COMPLETED", error=None)
+            session.job_store.update_job(session.session_id, {
+                "progress": {
+                    "progressPct": 100.0,
+                    "lastProcessedFrame": session.current_frame,
+                    "analyzedFrames": session.analyzed_frames,
+                    "totalFrames": session.total_frames,
+                },
+            })
+            session.status = "COMPLETED"
+        elif terminal_status == "CANCELLED":
+            _persist_session_job(session, status="CANCELLED", error=None)
+            session.job_store.update_job(session.session_id, {
+                "resume": {
+                    "available": True,
+                    "mode": "SAFE_BOUNDARY_REPROCESS",
+                    "reason": "Cancellation committed a safe result boundary; replay recent source frames to warm temporal tracker state before continuing.",
+                    "temporalStateRestoredExactly": False,
+                },
+            })
+            session.status = "CANCELLED"
+        elif session.status == "ERROR":
+            _persist_session_job(session, status="ERROR", error=session.error_message)
     except Exception as error:
         logger.error('Analysis initialization/execution failed for session %s (%s)', session.session_id, type(error).__name__)
         session.status = 'ERROR'
-        session.error_message = 'Video analysis failed; see local service logs'
+        session.error_message = f'Video analysis failed: {type(error).__name__}'
+        try:
+            _persist_session_job(session, status="ERROR", error=session.error_message)
+        except Exception as journal_error:
+            logger.error('Analysis job error state could not be journaled for %s (%s)', session.session_id, type(journal_error).__name__)
+
+
+def _run_analysis_worker(session: TrackingSession):
+    try:
+        _run_session_analysis(session)
     finally:
-        if session.status == 'ERROR':
-            with session._state_lock:
-                _discard_owned_video(session)
+        if getattr(session, "_worker_slot_owned", False):
+            session._worker_slot_owned = False
+            analysis_worker_slots.release()
 
 
-def _discard_owned_video(session: TrackingSession):
-    """Only unlink the path created and owned by the upload endpoint."""
-    if session.owned_video_path is not None:
-        session.owned_video_path.unlink(missing_ok=True)
-        session.owned_video_path = None
-        session.video_source = 'upload'
+def _finish_resume_warmup(session: TrackingSession, analyzer_frame: int):
+    session.analyzer.dist_tracker.restore_aggregates(session.resume_distance_aggregates, preserve_temporal=False)
+    session.analyzer.frame_count = analyzer_frame
+    session.analyzer.analyzed_frame_count = session.analyzed_frames
+    counters = (session.resume_checkpoint or {}).get("identityCounters", {})
+    session.analyzer.raw_tracker_id_switches = int(counters.get("rawTrackerIdSwitches", 0))
+    session.analyzer.semantic_player_id_switches = int(counters.get("semanticPlayerIdSwitches", 0))
+    session.is_resuming = False
 
 
 def _analyze_session_frames(session: TrackingSession):
     # session.status is already PROCESSING (set atomically by the /start endpoint)
-    session.progress_pct = 0.0
-    session.results = []
-    session.analyzed_frames = 0
+    if not session.is_resuming:
+        session.progress_pct = 0.0
+        session.results = []
+        session.pending_results = []
+        session.analyzed_frames = 0
+        session.current_frame = 0
+        session.quality_accumulator = SessionQualityAccumulator(session.tracked_player_count)
     start_time = time.time()
 
     if session.video_source == "demo":
@@ -1023,7 +1560,22 @@ def _analyze_session_frames(session: TrackingSession):
         session.duration_sec = 2.0
         session.source_fps = 30.0
         session.frame_stride = 1
-        for i in range(total_frames):
+        resume_frame = int(session.resume_checkpoint.get("lastProcessedFrame", 0)) if session.is_resuming and session.resume_checkpoint else 0
+        resume_analyzer_frame = int(session.resume_checkpoint.get("analyzerFrameIndex", 0)) if session.is_resuming and session.resume_checkpoint else 0
+        if session.is_resuming and resume_frame > 0:
+            warmup_start = max(
+                int(session.resume_checkpoint.get("segmentStartFrame", 0)),
+                resume_frame - _resume_warmup_source_frames(session),
+            )
+            session.analyzer.frame_count = max(0, resume_analyzer_frame - (resume_frame - warmup_start))
+            for warmup_i in range(warmup_start, resume_frame):
+                warmup_frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+                with session._state_lock:
+                    session.analyzer.process_frame(warmup_frame, timestamp_sec=round(warmup_i * 0.033, 2))
+            _finish_resume_warmup(session, resume_analyzer_frame)
+        elif session.is_resuming:
+            session.is_resuming = False
+        for i in range(resume_frame, total_frames):
             if session._cancel:
                 break
             t = round(i * 0.033, 2)
@@ -1032,19 +1584,16 @@ def _analyze_session_frames(session: TrackingSession):
                 telemetry = session.analyzer.process_frame(frame, timestamp_sec=t)
             telemetry["source"] = "synthetic_demo"
             telemetry["isSynthetic"] = True
-            session.results.append(telemetry)
-            session.analyzed_frames += 1
             session.current_frame = i + 1
             session.progress_pct = round(((i + 1) / total_frames) * 100.0, 1)
+            _append_session_result(session, telemetry)
             session.elapsed_sec = round(time.time() - start_time, 1)
             time.sleep(0.01)
 
         if not session._cancel:
-            session.status = "COMPLETED"
-            session.progress_pct = 100.0
+            return "COMPLETED"
         else:
-            session.status = "READY"
-        return
+            return "CANCELLED"
 
     # Real video file
     video_path = Path(session.video_source)
@@ -1055,7 +1604,7 @@ def _analyze_session_frames(session: TrackingSession):
 
     cap = cv2.VideoCapture(session.video_source)
     try:
-        _analyze_captured_frames(session, cap, start_time)
+        return _analyze_captured_frames(session, cap, start_time)
     finally:
         cap.release()
         if session.shuttle_pipeline is not None:
@@ -1081,7 +1630,26 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
     session.total_frames = total_frames
     session.duration_sec = round(total_frames / fps, 2) if total_frames > 0 else 0.0
 
-    frame_idx = 0
+    resume_source_frame = int(session.resume_checkpoint.get("lastProcessedFrame", 0)) if session.is_resuming and session.resume_checkpoint else 0
+    resume_analyzer_frame = int(session.resume_checkpoint.get("analyzerFrameIndex", 0)) if session.is_resuming and session.resume_checkpoint else 0
+    warmup_start = max(
+        int(session.resume_checkpoint.get("segmentStartFrame", 0)),
+        resume_source_frame - _resume_warmup_source_frames(session),
+    ) if resume_source_frame else 0
+    if resume_source_frame > 0:
+        if not cap.set(cv2.CAP_PROP_POS_FRAMES, warmup_start):
+            session.status = "ERROR"
+            session.error_message = "Video decoder cannot seek to a safe resume boundary"
+            return
+        reported_position = _positive_finite(cap.get(cv2.CAP_PROP_POS_FRAMES))
+        if reported_position is not None and abs(reported_position - warmup_start) > 1:
+            session.status = "ERROR"
+            session.error_message = "Video decoder seek did not reach the recorded safe resume boundary"
+            return
+        warmup_sample_count = sum(1 for index in range(warmup_start + 1, resume_source_frame + 1) if index % session.frame_stride == 0)
+        session.analyzer.frame_count = max(0, resume_analyzer_frame - warmup_sample_count)
+        session.analyzer.analyzed_frame_count = max(0, session.analyzed_frames - warmup_sample_count)
+    frame_idx = warmup_start
     last_timestamp_sec = None
     try:
         while not session._cancel:
@@ -1093,24 +1661,33 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
             timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
             last_timestamp_sec = timestamp_sec
             if frame_idx % session.frame_stride != 0:
-                session.current_frame = frame_idx
-                session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
+                if frame_idx > resume_source_frame:
+                    session.current_frame = frame_idx
+                    session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
+                if session.is_resuming and frame_idx >= resume_source_frame:
+                    _finish_resume_warmup(session, resume_analyzer_frame)
                 continue
             with session._state_lock:
                 telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+            if session.is_resuming and frame_idx <= resume_source_frame:
+                if frame_idx >= resume_source_frame:
+                    _finish_resume_warmup(session, resume_analyzer_frame)
+                continue
             telemetry["source"] = "real_tracking"
             telemetry["isSynthetic"] = False
-            session.results.append(telemetry)
-            session.analyzed_frames += 1
             session.current_frame = frame_idx
             session.progress_pct = round((frame_idx / total_frames) * 100.0, 1) if total_frames > 0 else 0.0
+            _append_session_result(session, telemetry)
             session.elapsed_sec = round(time.time() - start_time, 1)
         
         if not session._cancel:
-            session.status = "COMPLETED"
-            session.progress_pct = 100.0
+            if total_frames > 0 and frame_idx < total_frames:
+                session.status = "ERROR"
+                session.error_message = f"Video decode ended before the expected final frame ({frame_idx}/{total_frames}); partial data retained"
+                return
+            return "COMPLETED"
         else:
-            session.status = "READY"
+            return "CANCELLED"
     except Exception as error:
         logger.error('Video analysis failed for session %s (%s)', session.session_id, type(error).__name__)
         session.status = "ERROR"
@@ -1135,6 +1712,16 @@ def create_tracking_session(req: CreateSessionRequest):
         logger.error('Tracking session configuration rejected (%s)', type(error).__name__)
         detail = 'Invalid tracking configuration; check device (cuda/mps), model and processing settings'
         raise HTTPException(status_code=422, detail=detail) from error
+    try:
+        session.job_store.create_job(
+            session_id,
+            _session_identity(session),
+            _session_job_metadata(session),
+        )
+        _persist_session_job(session, status=session.status)
+    except (OSError, JobStoreError, ValueError) as error:
+        logger.error('Analysis job journal could not be created (%s)', type(error).__name__)
+        raise HTTPException(status_code=507, detail='Analysis job storage unavailable') from None
     tracking_sessions[session_id] = session
     return {
         "sessionId": session_id,
@@ -1151,34 +1738,54 @@ def create_tracking_session(req: CreateSessionRequest):
 
 
 @app.get("/api/tracking/sessions")
-def list_tracking_sessions(project_id: str | None = None):
-    sessions = [
-        session for session in tracking_sessions.values()
-        if project_id is None or session.project_id == project_id
-    ]
-    sessions.sort(key=lambda session: session.created_at, reverse=True)
+def list_tracking_sessions(project_id: str | None = None, after: str | None = None, limit: int = RESULT_PAGE_SIZE):
+    maximum = max(1, min(int(limit), RESULT_PAGE_SIZE))
+    summaries = []
+    has_more = False
+    for session_id in analysis_job_store.list_job_ids():
+        if after is not None and session_id <= after:
+            continue
+        try:
+            job = analysis_job_store.get_job(session_id)
+        except (OSError, JobStoreError):
+            continue  # Startup recovery diagnostics expose corrupt/deleting jobs.
+        metadata = job.get("metadata", {}).get("session") or {}
+        if project_id is not None and metadata.get("projectId") != project_id:
+            continue
+        if len(summaries) >= maximum:
+            has_more = True
+            break
+        progress = job.get("progress", {})
+        checkpoint = job.get("checkpoint", {})
+        cfg = metadata.get("processingConfig") or {}
+        active = tracking_sessions.get(session_id)
+        status = active.status if active else job["status"]
+        summaries.append({
+            "sessionId": session_id,
+            "status": status,
+            "gameType": metadata.get("gameType", "doubles"),
+            "projectId": metadata.get("projectId"),
+            "videoFingerprint": metadata.get("videoFingerprint"),
+            "device": active.effective_device if active else cfg.get("effectiveDevice", "cpu"),
+            "requestedDevice": metadata.get("device", "auto"),
+            "effectiveDevice": active.effective_device if active else cfg.get("effectiveDevice", "cpu"),
+            "progressPct": active.progress_pct if active else progress.get("progressPct", 0),
+            "currentFrame": active.current_frame if active else checkpoint.get("lastProcessedFrame", 0),
+            "totalFrames": active.total_frames if active else progress.get("totalFrames", 0),
+            "analyzedFrames": active.analyzed_frames if active else checkpoint.get("analyzedFrames", 0),
+            "trackedPlayerCount": metadata.get("trackedPlayerCount", 2),
+            "processingConfig": public_metadata(cfg),
+            "effectiveProcessingConfig": public_metadata(cfg),
+            "lastProcessedFrame": checkpoint.get("lastProcessedFrame", 0),
+            "checkpointSequence": checkpoint.get("committedSequence", 0),
+            "resumable": status in {"VIDEO_READY", "READY_TO_ANALYZE", "INTERRUPTED", "CANCELLED"},
+            "resume": job.get("resume"),
+        })
     return {
-        "sessions": [
-            {
-                "sessionId": session.session_id,
-                "status": session.status,
-                "gameType": session.game_type,
-                "projectId": session.project_id,
-                "videoFingerprint": session.video_fingerprint,
-                "device": session.effective_device,
-                "requestedDevice": session.requested_device,
-                "effectiveDevice": session.effective_device,
-                "progressPct": session.progress_pct,
-                "currentFrame": session.current_frame,
-                "totalFrames": session.total_frames,
-                "analyzedFrames": session.analyzed_frames,
-                "trackedPlayerCount": session.tracked_player_count,
-                "processingConfig": public_metadata(session.processing_config),
-                "effectiveProcessingConfig": public_metadata(session.effective_processing_config),
-                "resumable": session.status not in {"COMPLETED", "ERROR"},
-            }
-            for session in sessions
-        ]
+        "sessions": summaries,
+        "nextCursor": summaries[-1]["sessionId"] if has_more and summaries else None,
+        "maximumPageSize": RESULT_PAGE_SIZE,
+        "recoveryIssues": list(analysis_job_store.recovery_report.get("issues", [])),
     }
 
 
@@ -1187,7 +1794,7 @@ ALLOWED_UPLOAD_STATES = {"READY", "VIDEO_READY"}
 
 @app.post("/api/tracking/sessions/{session_id}/video")
 async def upload_session_video(session_id: str, request: Request):
-    session = tracking_sessions.get(session_id)
+    session = _restore_persisted_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -1231,13 +1838,20 @@ async def upload_session_video(session_id: str, request: Request):
                 safe_ext = ext
 
         bytes_written = 0
-        with tempfile.NamedTemporaryFile(prefix="sportscout_", suffix=safe_ext, delete=False) as target:
+        with tempfile.NamedTemporaryFile(
+            prefix="upload_",
+            suffix=safe_ext,
+            dir=str(session.job_store.job_path(session_id)),
+            delete=False,
+        ) as target:
             temp_path = Path(target.name)
             async for chunk in request.stream():
                 if bytes_written + len(chunk) > max_upload_bytes:
                     raise HTTPException(status_code=413, detail=f'Video upload exceeds the {max_upload_bytes}-byte limit')
                 target.write(chunk)
                 bytes_written += len(chunk)
+            target.flush()
+            os.fsync(target.fileno())
 
         if bytes_written == 0:
             raise HTTPException(status_code=400, detail="Empty upload")
@@ -1260,18 +1874,34 @@ async def upload_session_video(session_id: str, request: Request):
         # the previous upload. A rejected replacement leaves that upload usable.
         v_meta, r_meta = extract_video_metadata(str(temp_path), original_filename=orig_filename)
         with session._state_lock:
-            if session.owned_video_path:
-                session.owned_video_path.unlink(missing_ok=True)
-            session.owned_video_path = temp_path
-            session.video_source = str(temp_path)
-            session.analyzer.fps = fps if fps > 0 else 30.0
-            session.analyzer.dist_tracker.fps = session.analyzer.fps
-            
-            session.video_metadata = v_meta
-            session.research_metadata = r_meta
-            session.status = "VIDEO_READY"
-        
-        temp_path = None
+            durable_path = session.job_store.media_path(session_id, safe_ext)
+            media_hash = session.job_store.hash_file(temp_path)
+            old_video_path = session.owned_video_path
+            fields = ("owned_video_path", "video_source", "media_hash", "video_metadata", "research_metadata", "status")
+            prior_state = {field: getattr(session, field) for field in fields}
+            prior_fps = session.analyzer.fps
+            os.replace(temp_path, durable_path)
+            temp_path = durable_path
+            try:
+                session.owned_video_path = durable_path
+                session.video_source = str(durable_path)
+                session.media_hash = media_hash
+                session.analyzer.fps = fps if fps > 0 else 30.0
+                session.analyzer.dist_tracker.fps = session.analyzer.fps
+                session.video_metadata = v_meta
+                session.research_metadata = r_meta
+                session.status = "VIDEO_READY"
+                _persist_session_job(session, status="VIDEO_READY", error=None)
+            except Exception:
+                for field, value in prior_state.items():
+                    setattr(session, field, value)
+                session.analyzer.fps = prior_fps
+                session.analyzer.dist_tracker.fps = prior_fps
+                raise
+            temp_path = None
+            if old_video_path and old_video_path != durable_path:
+                old_video_path.unlink(missing_ok=True)
+
         return {
             "sessionId": session_id,
             "width": frame.shape[1],
@@ -1282,12 +1912,12 @@ async def upload_session_video(session_id: str, request: Request):
         }
     except HTTPException:
         raise
+    except (OSError, JobStoreError) as error:
+        logger.error('Video storage failed for session %s (%s)', session_id, type(error).__name__)
+        raise HTTPException(status_code=507, detail='Video storage unavailable') from None
     except (cv2.error, ValueError, RuntimeError) as error:
         logger.error('Video validation failed for session %s (%s)', session_id, type(error).__name__)
         raise HTTPException(status_code=422, detail='Video could not be validated') from None
-    except OSError as error:
-        logger.error('Video storage failed for session %s (%s)', session_id, type(error).__name__)
-        raise HTTPException(status_code=507, detail='Video storage unavailable') from None
     finally:
         try:
             if temp_path:
@@ -1303,9 +1933,9 @@ ALLOWED_CALIBRATION_STATES_DEMO = {"READY", "VIDEO_READY", "READY_TO_ANALYZE"}
 
 @app.post("/api/tracking/sessions/{session_id}/calibration")
 def calibrate_session(session_id: str, req: SessionCalibrationRequest):
-    if session_id not in tracking_sessions:
+    session = _restore_persisted_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    session = tracking_sessions[session_id]
 
     with session._state_lock:
         if session._uploading or session._deleting:
@@ -1347,16 +1977,19 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
         session.game_type = req.game_type
         session.analyzer.game_type = req.game_type
         session.analyzer.mapper.game_type = req.game_type
+        session.calibration_request = req.model_dump()
         if not recovering_during_processing:
             session.status = "READY_TO_ANALYZE"
+        _persist_session_job(session, status=session.status, error=None)
+        session.job_store.update_job(session.session_id, {"checkpoint": _checkpoint_payload(session)})
         return {"status": "success", "sessionStatus": session.status, **session.analyzer.calibration_context.frame_fields()}
 
 
 @app.post("/api/tracking/sessions/{session_id}/players")
 def assign_session_players(session_id: str, req: SessionPlayerRequest):
-    if session_id not in tracking_sessions:
+    session = _restore_persisted_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    session = tracking_sessions[session_id]
 
     with session._state_lock:
         if session._uploading or session._deleting:
@@ -1376,41 +2009,118 @@ def assign_session_players(session_id: str, req: SessionPlayerRequest):
                 raise HTTPException(status_code=422, detail="Upload a decodable video before assigning players")
 
         session.analyzer.assign_initial_players(frame, req.players)
+        session.player_assignments = req.players
+        _persist_session_job(session, status=session.status, error=None)
         return {"status": "success", "sessionStatus": session.status, "assignedCount": len(req.players)}
 
 
 @app.post("/api/tracking/sessions/{session_id}/start")
 def start_session_analysis(session_id: str):
-    if session_id not in tracking_sessions:
+    session = _restore_persisted_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    session = tracking_sessions[session_id]
 
     with session._state_lock:
         if session._uploading or session._deleting:
             raise HTTPException(status_code=409, detail='Session is busy')
         if session.status == "PROCESSING":
             return {"status": "already_processing", "sessionId": session_id}
-
+        is_resume = session.status in {"INTERRUPTED", "CANCELLED"}
         if session.status == "ERROR":
-            raise HTTPException(status_code=409, detail="Cannot start a session in ERROR state")
-
-        if session.status != "READY_TO_ANALYZE":
+            raise HTTPException(status_code=409, detail=session.error_message or "Cannot start a session in ERROR state")
+        if session.status != "READY_TO_ANALYZE" and not is_resume:
             raise HTTPException(status_code=409, detail=f"Cannot start analysis in {session.status} state")
 
+        if is_resume:
+            # Recreate worker-owned temporal objects and warm them from the recorded safe boundary.
+            tracking_sessions.pop(session_id, None)
+            session = _restore_persisted_session(session_id)
+            if session is None:
+                raise HTTPException(status_code=409, detail="Saved analysis session cannot be reconstructed")
+            try:
+                _validate_resume(session)
+            except (OSError, JobStoreError, ValueError) as error:
+                session.status = "ERROR"
+                reason = "Video file not found; re-upload before resuming" if isinstance(error, FileNotFoundError) else f"{type(error).__name__}: {error}"
+                session.error_message = f"Resume rejected: {reason}"
+                try:
+                    _persist_session_job(session, status="ERROR", error=session.error_message)
+                except Exception:
+                    pass
+                raise HTTPException(status_code=409, detail=session.error_message) from None
+            job = session.job_store.get_job(session_id)
+            session.resume_checkpoint = job["checkpoint"]
+            session.resume_distance_aggregates = job["checkpoint"].get("distanceAggregates")
+            session.quality_accumulator.restore(job["checkpoint"].get("qualityAccumulator", {}))
+            session.is_resuming = True
+        else:
+            try:
+                _ensure_media_identity(session)
+            except (OSError, JobStoreError, ValueError) as error:
+                session.status = "ERROR"
+                reason = "Video file not found; upload it before starting analysis" if isinstance(error, FileNotFoundError) else f"{type(error).__name__}: {error}"
+                session.error_message = f"Analysis input unavailable: {reason}"
+                try:
+                    _persist_session_job(session, status="ERROR", error=session.error_message)
+                except Exception:
+                    pass
+                raise HTTPException(status_code=409, detail=session.error_message) from None
+
         # Atomically transition to PROCESSING before creating the thread
+        if not analysis_worker_slots.acquire(blocking=False):
+            raise HTTPException(status_code=429, detail="Analysis worker is busy; retry after the active job finishes or is cancelled")
+        session._worker_slot_owned = True
         session.status = "PROCESSING"
         session._cancel = False
         try:
-            session._thread = threading.Thread(target=_run_session_analysis, args=(session,), daemon=True)
+            _persist_session_job(session, status="PROCESSING", error=None)
+            if is_resume:
+                session.job_store.record_resume(session_id, {
+                    "available": True,
+                    "mode": "SAFE_BOUNDARY_REPROCESS",
+                    "reason": "Committed chunks are retained; recent source frames are replayed only to warm tracker/shuttle state before new frames are committed. Metric continuity is broken at the resume boundary.",
+                    "reprocessingFromFrame": max(
+                        int(session.resume_checkpoint.get("segmentStartFrame", 0)),
+                        int(session.resume_checkpoint.get("lastProcessedFrame", 0)) - _resume_warmup_source_frames(session),
+                    ),
+                    "reprocessingThroughFrame": int(session.resume_checkpoint.get("lastProcessedFrame", 0)),
+                    "temporalStateRestoredExactly": False,
+                })
+            session._thread = threading.Thread(target=_run_analysis_worker, args=(session,), daemon=True)
             session._thread.start()
         except Exception as error:
+            if session._worker_slot_owned:
+                session._worker_slot_owned = False
+                analysis_worker_slots.release()
             logger.error('Analysis worker failed to start for session %s (%s)', session_id, type(error).__name__)
             session.status = "ERROR"
-            session.error_message = 'Failed to start analysis worker'
-            _discard_owned_video(session)
+            session.error_message = f'Failed to start analysis worker: {type(error).__name__}'
+            try:
+                _persist_session_job(session, status="ERROR", error=session.error_message)
+            except Exception:
+                pass
             raise HTTPException(status_code=500, detail=session.error_message)
 
-    return {"status": "started", "sessionId": session_id}
+    return {"status": "resumed" if is_resume else "started", "sessionId": session_id}
+
+
+@app.post("/api/tracking/sessions/{session_id}/cancel")
+def cancel_session_analysis(session_id: str):
+    session = _restore_persisted_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    with session._state_lock:
+        if session.status not in {"PROCESSING", "CANCEL_REQUESTED"}:
+            return {"status": session.status, "sessionId": session_id}
+        session._cancel = True
+        session.status = "CANCEL_REQUESTED"
+        try:
+            _persist_session_job(session, status="CANCEL_REQUESTED")
+        except (OSError, JobStoreError) as error:
+            session.status = "ERROR"
+            session.error_message = f"Cancellation could not be journaled: {type(error).__name__}"
+            raise HTTPException(status_code=507, detail=session.error_message) from None
+    return {"status": "cancellation_requested", "sessionId": session_id}
 
 
 def _build_session_metrics(session: TrackingSession):
@@ -1462,7 +2172,7 @@ def _build_session_metrics(session: TrackingSession):
         "isFinal": (session.status == "COMPLETED"),
     }
 
-    quality = compute_session_quality_metrics(session.results, session.tracked_player_count)
+    quality = session.quality_accumulator.to_dict()
 
     analyzer_prov = session.analyzer.get_provenance() if hasattr(session.analyzer, "get_provenance") else {}
     session.effective_device = analyzer_prov.get("device", session.effective_device)
@@ -1561,14 +2271,17 @@ def _build_session_metrics(session: TrackingSession):
         "suggestedConfidence": suggested_confidence,
     }
 
+    saved_provenance = getattr(session, "persisted_provenance", None)
+    if saved_provenance and session.status != "PROCESSING":
+        provenance.update({key: value for key, value in saved_provenance.items() if key not in {"calibration", "autoCourtCalibrationEnabled"}})
     return performance, quality, public_metadata(provenance)
 
 
 @app.get("/api/tracking/sessions/{session_id}/status")
 def get_session_status(session_id: str):
-    if session_id not in tracking_sessions:
+    session = _restore_persisted_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    session = tracking_sessions[session_id]
 
     performance_stats, quality_stats, runtime_provenance = _build_session_metrics(session)
     last_timestamp = session.results[-1].get("timestampSec") if session.results else None
@@ -1578,6 +2291,14 @@ def get_session_status(session_id: str):
         "status": session.status,
         "progressPct": session.progress_pct,
         "currentFrame": session.current_frame,
+        "lastProcessedFrame": session.current_frame,
+        "durableCheckpointFrame": (
+            session.job_store.get_job(session_id).get("checkpoint", {}).get("lastProcessedFrame", 0)
+        ),
+        "checkpointSequence": session.result_write_sequence,
+        "committedResultCursor": (
+            session.job_store.get_job(session_id).get("checkpoint", {}).get("committedCursor", 0)
+        ),
         "totalFrames": session.total_frames,
         "analyzedFrames": session.analyzed_frames,
         "frameStride": session.frame_stride,
@@ -1601,32 +2322,48 @@ def get_session_status(session_id: str):
         "shuttle": runtime_provenance.get("shuttle"),
         "videoMetadata": getattr(session, "video_metadata", None),
         "researchMetadata": getattr(session, "research_metadata", None),
-        "players": session.analyzer.get_live_player_statuses(),
+        "players": (getattr(session, "persisted_player_summary", None) if session.status == "COMPLETED" else None) or session.analyzer.get_live_player_statuses(),
         **session.analyzer.calibration_context.frame_fields(),
         "error": session.error_message,
+        "analysisJob": {
+            "status": session.status,
+            "progressPct": session.progress_pct,
+            "lastProcessedFrame": session.current_frame,
+            "checkpoint": session.job_store.get_job(session_id).get("checkpoint"),
+            "resume": session.job_store.get_job(session_id).get("resume"),
+            "cancelRequested": session._cancel,
+            "error": session.error_message,
+        },
     }
 
 
 @app.get("/api/tracking/sessions/{session_id}/results")
-def get_session_results(session_id: str, after: int | None = None):
-    if session_id not in tracking_sessions:
+def get_session_results(session_id: str, after: int | None = None, limit: int = RESULT_PAGE_SIZE):
+    session = _restore_persisted_session(session_id)
+    if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    session = tracking_sessions[session_id]
-    total_count = len(session.results)
-    if after is not None:
-        start_idx = max(0, int(after))
-        items = session.results[start_idx:]
-    else:
-        items = session.results
+    try:
+        page = session.job_store.page_results(
+            session_id,
+            after_cursor=0 if after is None else after,
+            limit=limit,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
+    except (OSError, JobStoreError) as error:
+        logger.error('Stored results could not be paged for %s (%s)', session_id, type(error).__name__)
+        raise HTTPException(status_code=500, detail='Stored analysis results failed integrity validation') from None
 
     performance_stats, quality_stats, runtime_provenance = _build_session_metrics(session)
 
     return {
         "sessionId": session_id,
         "status": session.status,
-        "sampleCount": len(items),
-        "totalSampleCount": total_count,
-        "nextCursor": total_count,
+        "sampleCount": len(page["items"]),
+        "totalSampleCount": page["totalCount"],
+        "nextCursor": page["nextCursor"],
+        "committedSequence": page["committedSequence"],
+        "maximumPageSize": page["maximumPageSize"],
         "trackedPlayerCount": session.tracked_player_count,
         "device": session.effective_device,
         "requestedDevice": session.requested_device,
@@ -1640,16 +2377,23 @@ def get_session_results(session_id: str, after: int | None = None):
         "quality": quality_stats,
         "videoMetadata": getattr(session, "video_metadata", None),
         "researchMetadata": getattr(session, "research_metadata", None),
-        "telemetry": items,
+        "telemetry": page["items"],
         **session.analyzer.calibration_context.frame_fields(),
     }
 
 
 @app.delete("/api/tracking/sessions/{session_id}")
 def delete_tracking_session(session_id: str):
-    if session_id not in tracking_sessions:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    session = tracking_sessions[session_id]
+    session = _restore_persisted_session(session_id)
+    if session is None:
+        if session_id not in analysis_job_store.list_job_ids():
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        try:
+            analysis_job_store.delete_job(session_id)
+        except (OSError, JobStoreError) as error:
+            logger.error('Analysis job delete repair failed for %s (%s)', session_id, type(error).__name__)
+            raise HTTPException(status_code=507, detail='Analysis job storage unavailable; retry deletion') from None
+        return {"status": "deleted", "sessionId": session_id}
     with session._state_lock:
         if session._uploading or session._deleting:
             raise HTTPException(status_code=409, detail="Session is busy")
@@ -1663,11 +2407,11 @@ def delete_tracking_session(session_id: str):
             if session._thread.is_alive():
                 raise HTTPException(status_code=409, detail="Analysis is stopping; retry deletion shortly")
         with session._state_lock:
-            _discard_owned_video(session)
+            session.job_store.delete_job(session_id)
             tracking_sessions.pop(session_id)
-    except OSError as error:
-        logger.error('Owned video deletion failed for session %s (%s)', session_id, type(error).__name__)
-        raise HTTPException(status_code=507, detail='Video storage unavailable; retry deletion') from None
+    except (OSError, JobStoreError) as error:
+        logger.error('Analysis job deletion failed for session %s (%s)', session_id, type(error).__name__)
+        raise HTTPException(status_code=507, detail='Analysis job storage unavailable; retry deletion') from None
     finally:
         with session._state_lock:
             session._deleting = False
