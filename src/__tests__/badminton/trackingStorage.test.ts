@@ -269,14 +269,14 @@ describe('Phase 8 — Tracking Data Persistence & Metrics', () => {
 
       // Samples retrieval
       const samples = await getTrackingSamples('analysis_uuid_1', { playerId: 'P1' });
-      expect(samples).toHaveLength(2);
+      expect(samples.samples).toHaveLength(2);
 
       // Delete
       await deleteTrackingAnalysis('analysis_uuid_1');
       const afterDelete = await getTrackingAnalysis('analysis_uuid_1');
       expect(afterDelete).toBeNull();
       const samplesAfterDelete = await getTrackingSamples('analysis_uuid_1');
-      expect(samplesAfterDelete).toHaveLength(0);
+      expect(samplesAfterDelete.samples).toHaveLength(0);
     });
   });
 });

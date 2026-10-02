@@ -22,10 +22,8 @@ import {
 } from './aiTrackingService';
 import {
   saveTrackingAnalysis,
-  listTrackingAnalyses,
-  getLatestTrackingAnalysis,
   getTrackingAnalysis,
-  getTrackingSampleChunks,
+  getTrackingSampleChunkPage,
   deleteTrackingTelemetryPages,
   getTrackingTelemetryPage,
   saveTrackingAnalysisRecord,
@@ -67,6 +65,8 @@ export interface ProjectTrackingState {
   sessionStatus: TrackingSessionStatus | null;
   analysis: TrackingAnalysis | null;
   chunks: TrackingSampleChunk[];
+  chunksNextCursor: number | null;
+  chunksHasMore: boolean;
   isPersisting: boolean;
   uiPreferences: ProjectTrackingUIPreferences;
 }
@@ -124,6 +124,8 @@ export function createDefaultProjectTrackingState(projectId: string): ProjectTra
     sessionStatus: null,
     analysis: null,
     chunks: [],
+    chunksNextCursor: null,
+    chunksHasMore: false,
     isPersisting: false,
     uiPreferences: {
       overlayMode: 'skeleton',
@@ -417,7 +419,10 @@ class TrackingSessionStore {
       const existingAnalysis = await getTrackingAnalysis(sessionId);
       if (existingAnalysis?.status === "completed") {
         state.analysis = existingAnalysis;
-        state.chunks = await getTrackingSampleChunks(sessionId, -1, MAX_TRACKING_PAGE_SIZE);
+        const chunkPage = await getTrackingSampleChunkPage(sessionId, -1, MAX_TRACKING_PAGE_SIZE);
+        state.chunks = chunkPage.chunks;
+        state.chunksNextCursor = chunkPage.nextCursor;
+        state.chunksHasMore = chunkPage.hasMore;
         const committedCursor = state.sessionStatus?.committedResultCursor;
         if (typeof committedCursor === 'number' && Number.isSafeInteger(committedCursor) && committedCursor >= 0) {
           state.cursor = committedCursor;
@@ -523,6 +528,8 @@ class TrackingSessionStore {
       if (realFrameCount === 0) {
         state.analysis = null;
         state.chunks = [];
+        state.chunksNextCursor = null;
+        state.chunksHasMore = false;
         state.status = 'COMPLETED';
         state.progress = 100;
         return;
@@ -622,7 +629,10 @@ class TrackingSessionStore {
 
       await saveTrackingAnalysisRecord(record);
       state.analysis = record;
-      state.chunks = await getTrackingSampleChunks(sessionId, -1, MAX_TRACKING_PAGE_SIZE);
+      const chunkPage = await getTrackingSampleChunkPage(sessionId, -1, MAX_TRACKING_PAGE_SIZE);
+      state.chunks = chunkPage.chunks;
+      state.chunksNextCursor = chunkPage.nextCursor;
+      state.chunksHasMore = chunkPage.hasMore;
       state.status = 'COMPLETED';
       state.progress = 100;
       try {

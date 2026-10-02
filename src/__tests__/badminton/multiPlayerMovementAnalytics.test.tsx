@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
+import * as trackingStorage from '../../services/storage/trackingStorage';
 import {
   computeSinglePlayerMovementMetrics,
   computeMultiPlayerMovementMetrics,
@@ -211,6 +212,48 @@ describe('Multi-Player Movement Analytics (Phase 0.1)', () => {
 
   // UI / DASHBOARD PRESENTATION TESTS
   describe('BadmintonMovementDashboard UI semantics', () => {
+    it('uses complete storage aggregation instead of deriving whole-analysis KPIs from a partial chunk page', async () => {
+      const metrics = {
+        totalDistanceMeters: 12.5,
+        avgSpeedMps: 1.25,
+        p95SpeedMps: 2,
+        maxSpeedMps: 2.5,
+        courtCoverage: { frontPercent: 25, midPercent: 50, rearPercent: 25, leftPercent: 50, rightPercent: 50 },
+        basePosition: { avgCourtX: 3, avgCourtY: 6, dispersion: 0.5 },
+        lateralMovementMeters: 4,
+        frontBackMovementMeters: 8,
+      };
+      const aggregate = vi.spyOn(trackingStorage, 'getTrackingMovementMetrics').mockResolvedValue({
+        metrics,
+        sampleCount: 100,
+        trackedSampleCount: 95,
+        predictedSampleCount: 3,
+        uniqueTimestampCount: 50,
+      });
+      const analysis: TrackingAnalysis = {
+        id: 'movement-paged-ui', projectId: 'project-ui', sportType: 'badminton', gameType: 'singles',
+        status: 'completed', engineVersion: 'tracking-v1', detectorModel: 'yolo', trackerModel: 'bytetrack',
+        sampleRateHz: 10, createdAt: '2026-09-21T00:00:00.000Z', players: [{ playerId: 'P1', side: 'near' }],
+        quality: null, summary: { durationSeconds: 10, sampleCount: 100, players: {} },
+      };
+      const partialSample: TrackingSample = {
+        timestamp: 0, playerId: 'P1', courtX: 1, courtY: 1, speed: 0.1, confidence: 0.5, trackingState: 'tracked',
+      };
+
+      render(<BadmintonMovementDashboard
+        analysis={analysis}
+        chunks={[{ id: 'movement-paged-ui:0', analysisId: analysis.id, chunkIndex: 0, startTime: 0, endTime: 0, samples: [partialSample] }]}
+      />);
+
+      await waitFor(() => expect(aggregate).toHaveBeenCalledWith(
+        analysis.id,
+        expect.objectContaining({ startTime: 0, endTime: 10, playerId: undefined }),
+      ));
+      expect(screen.getByTestId('tracking-sample-preview-limited')).toBeInTheDocument();
+      expect(screen.getByText('12.5')).toBeInTheDocument();
+      aggregate.mockRestore();
+    });
+
     it('displays "Combined / Team Occupancy Centroid" in ALL mode and "Base Position" in single player mode', () => {
       const samples: TrackingSample[] = [
         { timestamp: 0.0, playerId: 'P1', courtX: 2.0, courtY: 3.0, speed: 1.0, confidence: 0.9, trackingState: 'tracked' },

@@ -235,6 +235,45 @@ class TestAnalysisJobAPI(unittest.TestCase):
             self.assertEqual(len(second["sessions"]), 1)
         self.assertEqual(sorted(row["sessionId"] for row in first["sessions"] + second["sessions"]), sorted(ids))
 
+    def test_interrupted_job_is_discoverable_after_the_first_bounded_page(self):
+        for index in range(5):
+            session_id = f"paged-job-{index:03d}"
+            server.analysis_job_store.create_job(
+                session_id,
+                {"configHash": f"config-{index}", "mediaHash": f"media-{index}"},
+                {"session": {
+                    "projectId": "project-paged",
+                    "videoFingerprint": f"fingerprint-{index}",
+                    "gameType": "singles",
+                    "processingConfig": {"frameStride": 1},
+                }},
+            )
+            server.analysis_job_store.update_job(session_id, {
+                "status": "INTERRUPTED" if index == 4 else "COMPLETED",
+                "resume": {"available": index == 4, "mode": "SAFE_BOUNDARY_REPROCESS" if index == 4 else None},
+            })
+        server.tracking_sessions.clear()
+
+        with patch("server.TrackingSession", side_effect=AssertionError("Listing must not recreate analyzers")):
+            first = self.client.get("/api/tracking/sessions", params={"limit": 2}).json()
+            second = self.client.get(
+                "/api/tracking/sessions",
+                params={"limit": 2, "after": first["nextCursor"]},
+            ).json()
+            third = self.client.get(
+                "/api/tracking/sessions",
+                params={"limit": 2, "after": second["nextCursor"]},
+            ).json()
+
+        rows = first["sessions"] + second["sessions"] + third["sessions"]
+        interrupted = next(row for row in rows if row["sessionId"] == "paged-job-004")
+        self.assertTrue(interrupted["resumable"])
+        self.assertTrue(interrupted["resume"]["available"])
+        self.assertEqual(interrupted["projectId"], "project-paged")
+        self.assertEqual(first["maximumPageSize"], server.analysis_job_store.maximum_page_size)
+        self.assertIn("recoveryIssues", first)
+        self.assertIn("pageIssues", first)
+
     def test_artifact_hash_change_rejects_resume(self):
         session_id = self._create_ready_demo()
         artifact = Path(self.temp_dir.name) / "model.pt"

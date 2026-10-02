@@ -283,6 +283,7 @@ export function resolveOverlayAtTime(
 
   const next = frames[lo];
   const canInterpolate = !!next
+    && (next.cameraSegmentId ?? null) === (previous.cameraSegmentId ?? null)
     && ageSec > TIME_EPSILON_SEC
     && next.timestampSec - time <= freshnessToleranceSec + TIME_EPSILON_SEC;
   const nextPlayers = canInterpolate

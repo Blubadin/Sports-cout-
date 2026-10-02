@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import os
 import re
@@ -70,6 +71,26 @@ class AnalysisJobStore:
             path.name for path in self.root.iterdir()
             if path.is_dir() and _SAFE_ID.fullmatch(path.name) and (path / "job.json").is_file()
         )
+
+    def list_job_ids_page(self, after: str | None = None, limit: int = DEFAULT_PAGE_SIZE) -> tuple[list[str], str | None, bool]:
+        """Return a stable, bounded lexical page without materializing the full job-id set."""
+        if after is not None and not _SAFE_ID.fullmatch(after):
+            raise ValueError("Analysis job cursor is invalid")
+        page_size = max(1, min(int(limit), self.maximum_page_size))
+        candidates = (
+            path.name for path in self.root.iterdir()
+            if path.is_dir()
+            and _SAFE_ID.fullmatch(path.name)
+            and (after is None or path.name > after)
+            and (path / "job.json").is_file()
+            and not (path / "delete.json").exists()
+            and not (self.root / f"{path.name}.delete.json").exists()
+        )
+        selected = heapq.nsmallest(page_size + 1, candidates)
+        has_more = len(selected) > page_size
+        page = selected[:page_size]
+        next_cursor = page[-1] if has_more and page else None
+        return page, next_cursor, has_more
 
     def media_path(self, session_id: str, suffix: str = ".video") -> Path:
         safe_suffix = suffix.lower() if re.fullmatch(r"\.[a-z0-9]{1,8}", suffix.lower()) else ".video"

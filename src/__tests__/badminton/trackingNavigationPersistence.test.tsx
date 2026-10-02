@@ -11,7 +11,7 @@ import type { TrackingSessionStatus } from '../../../src/types';
 // Mock dependencies
 vi.mock('../../../src/services/aiTrackingService', () => ({
   aiTrackingService: {
-    listSessions: vi.fn().mockResolvedValue([]),
+    listSessions: vi.fn().mockResolvedValue({ sessions: [], nextCursor: null, maximumPageSize: 250, recoveryIssues: [], recoveryIssueCount: 0, recoveryIssuesTruncated: false, pageIssues: [], pageIssueCount: 0, pageIssuesTruncated: false }),
     getSessionStatus: vi.fn(),
     createSession: vi.fn(),
     uploadSessionVideo: vi.fn(),
@@ -474,10 +474,11 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       gameType: 'singles',
       status: 'completed',
       players: [],
+      summary: { durationSeconds: 0, sampleCount: 0, players: {} },
     };
 
-    vi.spyOn(trackingStorage, 'listTrackingAnalyses').mockResolvedValue([mockRecord]);
-    vi.spyOn(trackingStorage, 'getTrackingSampleChunks').mockResolvedValue([]);
+    vi.spyOn(trackingStorage, 'getLatestTrackingAnalysisForProject').mockResolvedValue(mockRecord);
+    vi.spyOn(trackingStorage, 'getTrackingSampleChunkPage').mockResolvedValue({ chunks: [], nextCursor: null, hasMore: false });
 
     render(<BadmintonTrackingLab />);
 

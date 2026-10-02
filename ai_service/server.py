@@ -1,5 +1,5 @@
 """
-server.py — FastAPI + WebSocket Telemetry Server for SportsScout AI Auto-Tracking
+server.py โ€” FastAPI + WebSocket Telemetry Server for SportsScout AI Auto-Tracking
 Bridges Python Badminton Motion Analyzer with React/TypeScript PWA.
 """
 
@@ -627,7 +627,7 @@ async def websocket_telemetry(websocket: WebSocket):
 
 
 # ==========================================
-# Tracking Session API (PDF §53-55)
+# Tracking Session API (PDF ยง53-55)
 # ==========================================
 import uuid
 import numpy as np
@@ -1748,56 +1748,68 @@ def create_tracking_session(req: CreateSessionRequest):
 
 
 @app.get("/api/tracking/sessions")
-def list_tracking_sessions(project_id: str | None = None, after: str | None = None, limit: int = RESULT_PAGE_SIZE):
-    maximum = max(1, min(int(limit), RESULT_PAGE_SIZE))
-    summaries = []
-    has_more = False
-    for session_id in analysis_job_store.list_job_ids():
-        if after is not None and session_id <= after:
-            continue
+def list_tracking_sessions(project_id: str | None = None, after: str | None = None, limit: int = 250):
+    try:
+        session_ids, next_cursor, has_more = analysis_job_store.list_job_ids_page(after, limit)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    sessions = []
+    page_issues = []
+    for session_id in session_ids:
         try:
             job = analysis_job_store.get_job(session_id)
-        except (OSError, JobStoreError):
-            continue  # Startup recovery diagnostics expose corrupt/deleting jobs.
-        metadata = job.get("metadata", {}).get("session") or {}
+        except (OSError, JobStoreError, ValueError) as error:
+            page_issues.append(f"{session_id}: job listing failed ({type(error).__name__})")
+            continue
+        metadata = (job.get("metadata", {}).get("session") or {})
         if project_id is not None and metadata.get("projectId") != project_id:
             continue
-        if len(summaries) >= maximum:
-            has_more = True
-            break
-        progress = job.get("progress", {})
         checkpoint = job.get("checkpoint", {})
-        cfg = metadata.get("processingConfig") or {}
-        active = tracking_sessions.get(session_id)
-        status = active.status if active else job["status"]
-        summaries.append({
+        progress = job.get("progress", {})
+        status = job.get("status", "ERROR")
+        resume = job.get("resume") or {"available": False, "reason": "No resume record is available"}
+        resumable = status in {"VIDEO_READY", "READY_TO_ANALYZE"} or (
+            status in {"INTERRUPTED", "CANCELLED"} and resume.get("available") is True
+        )
+        sessions.append({
             "sessionId": session_id,
+            "runId": session_id,
             "status": status,
             "gameType": metadata.get("gameType", "doubles"),
             "projectId": metadata.get("projectId"),
             "videoFingerprint": metadata.get("videoFingerprint"),
-            "device": active.effective_device if active else cfg.get("effectiveDevice", "cpu"),
-            "requestedDevice": metadata.get("device", "auto"),
-            "effectiveDevice": active.effective_device if active else cfg.get("effectiveDevice", "cpu"),
-            "progressPct": active.progress_pct if active else progress.get("progressPct", 0),
-            "currentFrame": active.current_frame if active else checkpoint.get("lastProcessedFrame", 0),
-            "totalFrames": active.total_frames if active else progress.get("totalFrames", 0),
-            "analyzedFrames": active.analyzed_frames if active else checkpoint.get("analyzedFrames", 0),
-            "trackedPlayerCount": metadata.get("trackedPlayerCount", 2),
-            "processingConfig": public_metadata(cfg),
-            "effectiveProcessingConfig": public_metadata(cfg),
-            "lastProcessedFrame": checkpoint.get("lastProcessedFrame", 0),
-            "checkpointSequence": checkpoint.get("committedSequence", 0),
-            "resumable": status in {"VIDEO_READY", "READY_TO_ANALYZE", "INTERRUPTED", "CANCELLED"},
-            "resume": job.get("resume"),
+            "device": metadata.get("device"),
+            "requestedDevice": metadata.get("device"),
+            "effectiveDevice": (metadata.get("processingConfig") or {}).get("effectiveDevice"),
+            "progressPct": float(progress.get("progressPct", 0.0) or 0.0),
+            "currentFrame": int(progress.get("lastProcessedFrame", checkpoint.get("lastCommittedFrame", 0)) or 0),
+            "totalFrames": int(progress.get("totalFrames", 0) or 0),
+            "analyzedFrames": int(checkpoint.get("analyzedFrames", checkpoint.get("committedCursor", 0)) or 0),
+            "trackedPlayerCount": metadata.get("trackedPlayerCount"),
+            "processingConfig": public_metadata(metadata.get("processingConfig", {})),
+            "effectiveProcessingConfig": public_metadata(metadata.get("effectiveProcessingConfig", metadata.get("processingConfig", {}))),
+            "lastProcessedFrame": int(checkpoint.get("lastCommittedFrame", 0) or 0),
+            "checkpointSequence": int(checkpoint.get("committedSequence", 0) or 0),
+            "committedCursor": int(checkpoint.get("committedCursor", 0) or 0),
+            "resumable": resumable,
+            "resume": resume,
+            "error": job.get("error"),
         })
-    return {
-        "sessions": summaries,
-        "nextCursor": summaries[-1]["sessionId"] if has_more and summaries else None,
-        "maximumPageSize": RESULT_PAGE_SIZE,
-        "recoveryIssues": list(analysis_job_store.recovery_report.get("issues", [])),
-    }
 
+    recovery_issues = analysis_job_store.recovery_report.get("issues", [])
+    maximum_diagnostics = min(50, analysis_job_store.maximum_page_size)
+    return {
+        "sessions": sessions,
+        "nextCursor": next_cursor if has_more else None,
+        "maximumPageSize": analysis_job_store.maximum_page_size,
+        "recoveryIssues": recovery_issues[:maximum_diagnostics],
+        "recoveryIssueCount": len(recovery_issues),
+        "recoveryIssuesTruncated": len(recovery_issues) > maximum_diagnostics,
+        "pageIssues": page_issues[:maximum_diagnostics],
+        "pageIssueCount": len(page_issues),
+        "pageIssuesTruncated": len(page_issues) > maximum_diagnostics,
+    }
 
 ALLOWED_UPLOAD_STATES = {"READY", "VIDEO_READY"}
 

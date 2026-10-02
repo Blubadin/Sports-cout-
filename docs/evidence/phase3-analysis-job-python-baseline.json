@@ -1,10 +1,10 @@
 {
   "scope": "Current phase changes; three pre-existing dirty player files loaded from specified Git baseline; unrelated player eligibility suite excluded",
   "baselineSHA": "fadf3bf2a8a0208fe2977c2c93d74f6e02e681f9",
-  "testsRun": 578,
+  "testsRun": 583,
   "skipped": 3,
   "failures": [],
   "errors": [],
-  "elapsedSec": 37.375,
+  "elapsedSec": 37.469,
   "status": "PASS"
 }

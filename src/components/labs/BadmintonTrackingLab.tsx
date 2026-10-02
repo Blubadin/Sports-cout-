@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
-import type { BackendCapabilities } from '../../services/trackingSessionApi';
+import { isCompatibleResumableTrackingSession, MAX_TRACKING_RESULTS_PAGE_SIZE, type BackendCapabilities } from '../../services/trackingSessionApi';
 import type { AIConnectionSnapshot } from '../../services/aiConnection';
 import type {
   TrackingTelemetryV1,
@@ -15,13 +15,19 @@ import type {
 } from '../../types';
 import { loadProjectVideoFileHandle } from '../../utils/videoFileStore';
 import {
-  listTrackingAnalyses,
-  getLatestTrackingAnalysis,
-  getTrackingSampleChunks,
+  getLatestTrackingAnalysisForProject,
+  getTrackingSampleChunkPage,
 } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
-import TrackingVideoOverlay from './TrackingVideoOverlay';
+import TrackingVideoOverlay, { resolveOverlayAtTime } from './TrackingVideoOverlay';
 import { ShuttleOverlay, ShuttleControls, ShuttleDiagnostics, type ShuttleMode } from './ShuttleOverlay';
+import {
+  framesForCameraSegmentAtTime,
+  TrackingOverlayWindowLoader,
+  trackingOverlayStatusText,
+  trackingOverlayWindowContainsTime,
+  type TrackingOverlayWindow,
+} from './trackingOverlayWindow';
 import TrackingLabInspector from './TrackingLabInspector';
 import {
   useProjectTrackingSession,
@@ -31,6 +37,10 @@ import {
 function formatDiagnosticCount(val: number | null | undefined): string {
   if (val === null || val === undefined) return '—';
   return String(val);
+}
+
+function telemetryCoversTime(items: TrackingTelemetryV1[], target: number): boolean {
+  return items.length > 0 && target >= items[0].timestampSec && target <= items[items.length - 1].timestampSec;
 }
 
 export function deriveShuttleEngineStatus(params: {
@@ -233,12 +243,21 @@ export default function BadmintonTrackingLab() {
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [time, setTime] = useState(0);
   const [shuttleMode, setShuttleMode] = useState<ShuttleMode>('off');
+  const [overlayWindow, setOverlayWindow] = useState<TrackingOverlayWindow | null>(null);
+  const [overlayWindowStatus, setOverlayWindowStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable' | 'error'>('idle');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const generation = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upload = useRef<AbortController | null>(null);
+  const overlayWindowLoader = useRef(new TrackingOverlayWindowLoader());
+  const overlayRequestId = useRef(0);
+  const overlayRequest = useRef<{ projectId: string; sessionId: string; timeSec: number; coverageSec: number } | null>(null);
+  const overlayOwner = useRef({ projectId: activeProjectId, sessionId: state.sessionId });
+  overlayOwner.current = { projectId: activeProjectId, sessionId: state.sessionId };
+  const overlayTime = useRef(time);
+  overlayTime.current = time;
 
   const file = state.file;
   const processing = state.status === 'PROCESSING' || state.status === 'CANCEL_REQUESTED' || state.status === 'UPLOADING';
@@ -259,6 +278,125 @@ export default function BadmintonTrackingLab() {
   const chunks = state.chunks;
   const error = state.error;
   const overlayMode = state.uiPreferences.overlayMode;
+
+  useEffect(() => {
+    overlayRequestId.current += 1;
+    overlayRequest.current = null;
+    overlayWindowLoader.current.cancel();
+    setOverlayWindow(null);
+    setOverlayWindowStatus('idle');
+  }, [activeProjectId, state.sessionId]);
+
+  const loadOverlayWindow = useCallback(async (targetTime: number, force = false) => {
+    const sessionId = state.sessionId;
+    const projectId = activeProjectId;
+    if (telemetryCoversTime(frames, targetTime)) {
+      overlayRequestId.current += 1;
+      overlayRequest.current = null;
+      overlayWindowLoader.current.cancel();
+      setOverlayWindowStatus('idle');
+      return;
+    }
+
+    if (
+      overlayWindow && overlayWindow.projectId === projectId && overlayWindow.sessionId === sessionId
+      && trackingOverlayWindowContainsTime(overlayWindow, targetTime)
+      && (framesForCameraSegmentAtTime(overlayWindow.frames, targetTime)[0]?.cameraSegmentId ?? null) === overlayWindow.cameraSegmentId
+    ) return;
+
+    if (!force && overlayRequest.current?.projectId === projectId && overlayRequest.current.sessionId === sessionId) {
+      const activeRequest = overlayRequest.current;
+      if (Math.abs(targetTime - activeRequest.timeSec) <= Math.max(2, activeRequest.coverageSec / 2)) return;
+    }
+
+    if (!projectId || !sessionId) {
+      setOverlayWindow(null);
+      setOverlayWindowStatus('unavailable');
+      return;
+    }
+
+    const requestId = ++overlayRequestId.current;
+    setOverlayWindow(null);
+    setOverlayWindowStatus('loading');
+    overlayRequest.current = {
+      projectId,
+      sessionId,
+      timeSec: targetTime,
+      coverageSec: state.sessionStatus?.committedResultCursor && state.sessionStatus.videoDurationSec
+        ? (MAX_TRACKING_RESULTS_PAGE_SIZE * state.sessionStatus.videoDurationSec) / state.sessionStatus.committedResultCursor
+        : 5,
+    };
+
+    try {
+      const result = await overlayWindowLoader.current.load(
+        { projectId, sessionId, timeSec: targetTime, status: state.sessionStatus },
+        (id, signal) => aiTrackingService.getSessionStatus(id, signal),
+        (id, cursor, limit, signal) => aiTrackingService.getSessionResults(id, cursor, limit, signal),
+      );
+      if (
+        requestId !== overlayRequestId.current
+        || overlayOwner.current.projectId !== projectId
+        || overlayOwner.current.sessionId !== sessionId
+      ) return;
+      if (result.status === 'stale') return;
+      if (result.status === 'unavailable') {
+        setOverlayWindow(null);
+        setOverlayWindowStatus('unavailable');
+        return;
+      }
+
+      const currentTime = overlayTime.current;
+      const currentSegment = framesForCameraSegmentAtTime(result.window.frames, currentTime)[0]?.cameraSegmentId ?? null;
+      if (currentSegment !== result.window.cameraSegmentId) {
+        setOverlayWindow(null);
+        setOverlayWindowStatus('loading');
+        void loadOverlayWindow(currentTime, true);
+        return;
+      }
+
+      setOverlayWindow(result.window);
+      const scopedFrames = framesForCameraSegmentAtTime(result.window.frames, targetTime);
+      const playerResolution = resolveOverlayAtTime(scopedFrames, targetTime);
+      const firstTime = result.window.frames[0]?.timestampSec;
+      const lastTime = result.window.frames[result.window.frames.length - 1]?.timestampSec;
+      if (playerResolution.status !== 'resolved' || targetTime < (firstTime ?? Infinity) || targetTime > (lastTime ?? -Infinity)) {
+        setOverlayWindowStatus('unavailable');
+      } else {
+        setOverlayWindowStatus('ready');
+      }
+    } catch {
+      if (
+        requestId === overlayRequestId.current
+        && overlayOwner.current.projectId === projectId
+        && overlayOwner.current.sessionId === sessionId
+      ) {
+        setOverlayWindow(null);
+        setOverlayWindowStatus('error');
+      }
+    } finally {
+      if (requestId === overlayRequestId.current) overlayRequest.current = null;
+    }
+  }, [activeProjectId, frames, overlayWindow, state.sessionId, state.sessionStatus]);
+  const overlayLoadCallback = useRef(loadOverlayWindow);
+  overlayLoadCallback.current = loadOverlayWindow;
+
+  const activeRemoteWindow = overlayWindow && overlayWindow.projectId === activeProjectId
+    && overlayWindow.sessionId === state.sessionId && trackingOverlayWindowContainsTime(overlayWindow, time)
+    && (framesForCameraSegmentAtTime(overlayWindow.frames, time)[0]?.cameraSegmentId ?? null) === overlayWindow.cameraSegmentId
+    ? overlayWindow : null;
+  const hasLiveOverlayWindow = telemetryCoversTime(frames, time);
+  const sourceOverlayFrames = hasLiveOverlayWindow
+    ? frames
+    : activeRemoteWindow?.frames ?? [];
+  const displayFrames = framesForCameraSegmentAtTime(sourceOverlayFrames, time);
+  const overlayFrame = [...displayFrames].reverse().find((frame) => frame.timestampSec <= time) ?? null;
+  const displayResolutionStatus = displayFrames.length ? resolveOverlayAtTime(displayFrames, time).status : 'unavailable';
+  const overlayStatusKey = hasLiveOverlayWindow
+    ? 'idle'
+    : overlayWindowStatus === 'loading' || overlayWindowStatus === 'error'
+      ? overlayWindowStatus
+      : displayResolutionStatus === 'resolved' ? 'idle' : 'unavailable';
+  const overlayStatus = trackingOverlayStatusText(overlayStatusKey, th);
 
   const effectiveShuttleProv =
     sessionStatus?.shuttle ||
@@ -297,6 +435,7 @@ export default function BadmintonTrackingLab() {
     let callbackId = 0;
     const tick: VideoFrameRequestCallback = (_now, metadata) => {
       setTime(metadata.mediaTime);
+      void overlayLoadCallback.current(metadata.mediaTime);
       callbackId = video.requestVideoFrameCallback(tick);
     };
     callbackId = video.requestVideoFrameCallback(tick);
@@ -394,15 +533,16 @@ export default function BadmintonTrackingLab() {
   useEffect(() => {
     let alive = true;
     if (activeProjectId && !state.analysis) {
-      void listTrackingAnalyses(activeProjectId)
-        .then(async (records) => {
-          const latest = getLatestTrackingAnalysis(records);
+      void getLatestTrackingAnalysisForProject(activeProjectId)
+        .then(async (latest) => {
           if (!latest || !alive) return;
-          const saved = await getTrackingSampleChunks(latest.id);
+          const page = await getTrackingSampleChunkPage(latest.id);
           if (alive) {
             update({
               analysis: latest,
-              chunks: saved,
+              chunks: page.chunks,
+              chunksNextCursor: page.nextCursor,
+              chunksHasMore: page.hasMore,
               trackedPlayerCount: latest.trackedPlayerCount ?? state.trackedPlayerCount,
               gameType: latest.gameType ?? state.gameType,
             });
@@ -584,19 +724,44 @@ export default function BadmintonTrackingLab() {
 
       // Case B: No sessionId in store, discover from backend listSessions
       try {
-        const rawSessions = await aiTrackingService.listSessions(activeProjectId);
-        if (!alive) return;
-        const sessions = Array.isArray(rawSessions)
-          ? rawSessions
-          : (rawSessions as any)?.sessions || [];
-        const candidate = sessions.find(
-          (item: any) =>
-            (!item.projectId || item.projectId === activeProjectId) &&
-            ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCELLED', 'INTERRUPTED', 'COMPLETED'].includes(item.status) &&
-            (!file || !item.videoFingerprint || item.videoFingerprint === computeVideoFingerprint(file))
-        );
+        const fingerprint = state.videoFingerprint || (file ? computeVideoFingerprint(file) : null);
+        const recoveryIssues: string[] = [];
+        let recoveryIssueCount = 0;
+        let recoveryIssuesTruncated = false;
+        let cursor: string | null = null;
+        let firstPage = true;
+        let candidate = null;
+        if (fingerprint) {
+          do {
+            const page = await aiTrackingService.listSessions(activeProjectId, cursor);
+            if (!alive) return;
+            if (firstPage) {
+              recoveryIssues.push(...page.recoveryIssues.slice(0, 3));
+              recoveryIssueCount = page.recoveryIssueCount;
+              recoveryIssuesTruncated = page.recoveryIssuesTruncated;
+              firstPage = false;
+            }
+            recoveryIssueCount += page.pageIssueCount;
+            for (const issue of page.pageIssues) {
+              if (recoveryIssues.length < 3) recoveryIssues.push(issue);
+            }
+            recoveryIssuesTruncated ||= page.pageIssuesTruncated || page.pageIssueCount > 3;
+            candidate = page.sessions.find((item) => isCompatibleResumableTrackingSession(item, {
+              projectId: activeProjectId,
+              videoFingerprint: fingerprint,
+              processingConfig: state.processingConfig,
+            })) ?? null;
+            if (candidate || !page.nextCursor) break;
+            if (page.nextCursor === cursor) throw new Error('Tracking job listing repeated a cursor');
+            cursor = page.nextCursor;
+          } while (alive);
+        }
+        const recoveryNotice = recoveryIssueCount > 0
+          ? `${th ? 'พบปัญหาการกู้คืน' : 'Recovery diagnostics'} (${recoveryIssueCount}): ${recoveryIssues.slice(0, 3).join('; ')}${recoveryIssuesTruncated || recoveryIssueCount > 3 ? '…' : ''}`
+          : !fingerprint ? (th ? 'ยังเลือกงานกู้คืนไม่ได้: ไม่พบ fingerprint ของวิดีโอสำหรับยืนยันสื่อ' : 'Resume job not selected: video fingerprint is unavailable for media verification') : null;
         if (candidate) {
           update({
+            error: recoveryNotice,
             sessionId: candidate.sessionId,
             status: candidate.status as any,
             gameType: candidate.gameType,
@@ -614,9 +779,11 @@ export default function BadmintonTrackingLab() {
           if (['PROCESSING', 'CANCEL_REQUESTED', 'COMPLETED'].includes(candidate.status)) {
             pollSession(candidate.sessionId, runId);
           }
+        } else if (recoveryNotice) {
+          update({ error: recoveryNotice });
         }
-      } catch {
-        // Backend list error
+      } catch (error) {
+        update({ error: error instanceof Error ? error.message : 'Unable to list compatible tracking jobs' });
       }
     };
 
@@ -1284,96 +1451,119 @@ export default function BadmintonTrackingLab() {
               src={url}
               controls={!calibrating}
               className="w-full h-full"
-              onLoadedMetadata={(e) =>
+              onLoadedMetadata={(e) => {
                 setDimensions({
                   width: e.currentTarget.videoWidth,
                   height: e.currentTarget.videoHeight,
-                })
-              }
+                });
+                const savedTime = state.videoFingerprint && file
+                  && state.videoFingerprint === computeVideoFingerprint(file)
+                  ? state.uiPreferences.videoCurrentTime
+                  : 0;
+                const restoredTime = Number.isFinite(savedTime) && savedTime > 0
+                  ? (Number.isFinite(e.currentTarget.duration) ? Math.min(savedTime, e.currentTarget.duration) : savedTime)
+                  : 0;
+                if (restoredTime > 0) {
+                  e.currentTarget.currentTime = restoredTime;
+                }
+                setTime(restoredTime);
+                void loadOverlayWindow(restoredTime, true);
+              }}
               onTimeUpdate={(e) => {
                 const cur = e.currentTarget.currentTime;
                 setTime(cur);
                 setUIPreference('videoCurrentTime', cur);
+                void loadOverlayWindow(cur);
               }}
               onSeeked={(e) => {
                 const cur = e.currentTarget.currentTime;
                 setTime(cur);
                 setUIPreference('videoCurrentTime', cur);
+                void loadOverlayWindow(cur, true);
               }}
             />
             <TrackingVideoOverlay
-              frames={frames}
+              frames={displayFrames}
               time={time}
               mode={overlayMode}
               isProcessing={processing}
             />
-            <ShuttleOverlay frames={frames} time={time} mode={shuttleMode} width={dimensions.width} height={dimensions.height} />
-            {latestFrame && (
+            <ShuttleOverlay frames={displayFrames} time={time} mode={shuttleMode} width={dimensions.width} height={dimensions.height} />
+            {overlayStatus && (
+              <div
+                role={overlayWindowStatus === 'error' ? 'alert' : 'status'}
+                aria-live={overlayWindowStatus === 'error' ? 'assertive' : 'polite'}
+                className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 rounded border border-slate-600 bg-slate-950/90 px-3 py-1.5 text-xs text-slate-200 shadow"
+              >
+                {overlayStatus}
+              </div>
+            )}
+            {overlayFrame && (
               <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 pointer-events-none z-10 text-[11px] font-mono">
-                {latestFrame.sceneState && (
+                {overlayFrame.sceneState && (
                   <span className={`px-2 py-0.5 rounded border font-semibold ${
-                    latestFrame.sceneState === 'COURT_PLAY'
+                    overlayFrame.sceneState === 'COURT_PLAY'
                       ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-                      : latestFrame.sceneState === 'REPLAY'
+                      : overlayFrame.sceneState === 'REPLAY'
                         ? 'bg-rose-950/80 border-rose-500/50 text-rose-300'
-                        : latestFrame.sceneState === 'SIDE_PLAY'
+                        : overlayFrame.sceneState === 'SIDE_PLAY'
                           ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300'
-                          : latestFrame.sceneState === 'CAMERA_TRANSITION'
+                          : overlayFrame.sceneState === 'CAMERA_TRANSITION'
                             ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
                             : 'bg-slate-900/80 border-slate-700 text-slate-300'
                   }`}>
-                    {latestFrame.sceneState}
+                    {overlayFrame.sceneState}
                   </span>
                 )}
-                {latestFrame.cameraSegmentId && (
+                {overlayFrame.cameraSegmentId && (
                   <span className="px-2 py-0.5 rounded border border-slate-700 bg-slate-900/80 text-slate-300">
-                    {latestFrame.cameraSegmentId}
+                    {overlayFrame.cameraSegmentId}
                   </span>
                 )}
-                {latestFrame.calibrationState && (
+                {overlayFrame.calibrationState && (
                   <span className={`px-2 py-0.5 rounded border ${
-                    latestFrame.calibrationState === 'CALIBRATED'
+                    overlayFrame.calibrationState === 'CALIBRATED'
                       ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-                      : latestFrame.calibrationState === 'RECALIBRATING'
+                      : overlayFrame.calibrationState === 'RECALIBRATING'
                         ? 'bg-amber-950/90 border-amber-500 text-amber-200 animate-pulse motion-reduce:animate-none'
                         : 'bg-amber-950/80 border-amber-500/50 text-amber-300'
                   }`}
-                  title={latestFrame.calibrationUnavailableReason || latestFrame.calibrationState}>
-                    {latestFrame.calibrationState}
+                  title={overlayFrame.calibrationUnavailableReason || overlayFrame.calibrationState}>
+                    {overlayFrame.calibrationState}
                   </span>
                 )}
-                {latestFrame.canTrackPlayer !== undefined && (
+                {overlayFrame.canTrackPlayer !== undefined && (
                   <span
                     className={`px-1.5 py-0.5 rounded border ${
-                      latestFrame.canTrackPlayer
+                      overlayFrame.canTrackPlayer
                         ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
                         : 'bg-slate-900/80 border-slate-700 text-slate-500 line-through'
                     }`}
-                    title={latestFrame.capabilities?.canTrackPlayer?.reason || 'Player tracking'}
+                    title={overlayFrame.capabilities?.canTrackPlayer?.reason || 'Player tracking'}
                   >
                     2D
                   </span>
                 )}
-                {latestFrame.canUseCourtMetric !== undefined && (
+                {overlayFrame.canUseCourtMetric !== undefined && (
                   <span
                     className={`px-1.5 py-0.5 rounded border ${
-                      latestFrame.canUseCourtMetric
+                      overlayFrame.canUseCourtMetric
                         ? 'bg-sky-950/80 border-sky-500/40 text-sky-300'
                         : 'bg-slate-900/80 border-slate-700 text-slate-500 line-through'
                     }`}
-                    title={latestFrame.capabilities?.canUseCourtMetric?.reason || 'Court metric'}
+                    title={overlayFrame.capabilities?.canUseCourtMetric?.reason || 'Court metric'}
                   >
                     METRIC
                   </span>
                 )}
-                {latestFrame.canWriteCanonicalMatchData !== undefined && (
+                {overlayFrame.canWriteCanonicalMatchData !== undefined && (
                   <span
                     className={`px-1.5 py-0.5 rounded border ${
-                      latestFrame.canWriteCanonicalMatchData
+                      overlayFrame.canWriteCanonicalMatchData
                         ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
                         : 'bg-slate-900/80 border-slate-700 text-slate-500 line-through'
                     }`}
-                    title={latestFrame.capabilities?.canWriteCanonicalMatchData?.reason || 'Canonical writes'}
+                    title={overlayFrame.capabilities?.canWriteCanonicalMatchData?.reason || 'Canonical writes'}
                   >
                     CANONICAL
                   </span>
@@ -1429,7 +1619,7 @@ export default function BadmintonTrackingLab() {
             )}
           </div>
           <ShuttleControls mode={shuttleMode} onChange={setShuttleMode} />
-          <ShuttleDiagnostics frames={frames} time={time} />
+          <ShuttleDiagnostics frames={displayFrames} time={time} />
           <button
             className={button}
             disabled={(processing && !lostSegmentId) || !dimensions.width}
@@ -1577,6 +1767,8 @@ export default function BadmintonTrackingLab() {
         <BadmintonMovementDashboard
           analysis={analysis}
           chunks={chunks}
+          hasMoreChunks={state.chunksHasMore}
+          language={th ? 'th' : 'en'}
           title={th ? 'ผลการเคลื่อนที่ของผู้เล่น' : 'Player movement results'}
         />
       )}

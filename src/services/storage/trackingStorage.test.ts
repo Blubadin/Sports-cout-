@@ -7,7 +7,13 @@ import {
   saveTrackingAnalysis,
   downsampleAndChunkTrackingSamples,
   TrackingAnalysisStreamBuilder,
+  computePlayerMovementMetrics,
+  computeMultiPlayerMovementMetrics,
   getTrackingAnalysis,
+  getTrackingSamples,
+  getTrackingMovementMetrics,
+  listTrackingAnalysisPage,
+  getLatestTrackingAnalysisForProject,
   setTrackingStorageDriver,
   MAX_TRACKING_PAGE_SIZE,
   type TrackingTelemetryPage,
@@ -52,6 +58,172 @@ describe('tracking IndexedDB schema', () => {
 
     await expect(saveTrackingAnalysis(analysis, chunks)).rejects.toThrow('chunk write failed');
     expect((await getTrackingAnalysis(analysis.id))?.status).toBe('processing');
+  });
+});
+
+describe('paged tracking analysis consumers', () => {
+  const makeSample = (index: number) => ({
+    timestamp: index,
+    frameIndex: index,
+    playerId: 'P1',
+    courtX: 2 + (index % 20) * 0.05,
+    courtY: 3 + (index % 7) * 0.1,
+    speed: null,
+    confidence: 0.9,
+    trackingState: 'tracked' as const,
+  });
+
+  it('retrieves a bounded tail page after the 250 chunk cursor', async () => {
+    const driver = new MemoryTrackingDriver();
+    setTrackingStorageDriver(driver);
+    await driver.saveChunks(Array.from({ length: 251 }, (_, chunkIndex) => ({
+      id: `analysis-pages:${chunkIndex}`,
+      analysisId: 'analysis-pages',
+      chunkIndex,
+      startTime: chunkIndex,
+      endTime: chunkIndex,
+      samples: [makeSample(chunkIndex)],
+    })));
+
+    const tail = await getTrackingSamples('analysis-pages', {
+      afterChunkIndex: 249,
+      limit: 10,
+      startTime: 250,
+      endTime: 250,
+    });
+
+    expect(tail.samples.map((sample) => sample.frameIndex)).toEqual([250]);
+    expect(tail.nextCursor).toBeNull();
+    expect(tail.hasMore).toBe(false);
+  });
+
+  it('ends a time-window page before later chunks outside the requested interval', async () => {
+    const driver = new MemoryTrackingDriver();
+    setTrackingStorageDriver(driver);
+    await driver.saveChunks(Array.from({ length: 251 }, (_, chunkIndex) => ({
+      id: `analysis-window:${chunkIndex}`,
+      analysisId: 'analysis-window',
+      chunkIndex,
+      startTime: chunkIndex,
+      endTime: chunkIndex,
+      samples: [makeSample(chunkIndex)],
+    })));
+
+    const lastRequestedPage = await getTrackingSamples('analysis-window', {
+      afterChunkIndex: 9,
+      limit: 1,
+      startTime: 10,
+      endTime: 10,
+    });
+
+    expect(lastRequestedPage.samples.map((sample) => sample.frameIndex)).toEqual([10]);
+    expect(lastRequestedPage.nextCursor).toBeNull();
+    expect(lastRequestedPage.hasMore).toBe(false);
+  });
+
+  it('aggregates complete and filtered movement metrics across every chunk with bounded reads', async () => {
+    class CountingDriver extends MemoryTrackingDriver {
+      readCount = 0;
+      largestRead = 0;
+      async getChunks(analysisId: string, afterChunkIndex = -1, limit = MAX_TRACKING_PAGE_SIZE) {
+        this.readCount += 1;
+        this.largestRead = Math.max(this.largestRead, limit);
+        return super.getChunks(analysisId, afterChunkIndex, limit);
+      }
+    }
+    const driver = new CountingDriver();
+    setTrackingStorageDriver(driver);
+    const samples = Array.from({ length: 251 }, (_, index) => makeSample(index));
+    const analysis: TrackingAnalysis = {
+      id: 'analysis-metrics-pages', projectId: 'project-pages', sportType: 'badminton', gameType: 'singles',
+      status: 'completed', engineVersion: 'tracking-v2', detectorModel: 'YOLO', trackerModel: 'ByteTrack',
+      sampleRateHz: 1, createdAt: new Date(0).toISOString(), completedAt: new Date(1).toISOString(),
+      players: [{ playerId: 'P1', side: 'near' }], quality: null,
+      summary: { durationSeconds: 250, sampleCount: 251, players: {} },
+    };
+    const chunks = samples.map((sample, chunkIndex) => ({
+      id: `${analysis.id}:${chunkIndex}`, analysisId: analysis.id, chunkIndex,
+      startTime: sample.timestamp, endTime: sample.timestamp, samples: [sample],
+    }));
+
+    await saveTrackingAnalysis(analysis, chunks);
+    const expectedAll = computePlayerMovementMetrics(samples);
+    const expectedRange = computePlayerMovementMetrics(samples.filter((sample) => sample.timestamp >= 220 && sample.timestamp <= 250));
+    const all = await getTrackingMovementMetrics(analysis.id);
+    const filtered = await getTrackingMovementMetrics(analysis.id, { startTime: 220, endTime: 250, playerId: 'P1' });
+    const reloaded = await getTrackingAnalysis(analysis.id);
+    const afterReload = await getTrackingMovementMetrics(reloaded!.id);
+
+    expect(all.metrics).toEqual(expectedAll);
+    expect(filtered.metrics).toEqual(expectedRange);
+    expect(afterReload.metrics).toEqual(expectedAll);
+    expect(all.sampleCount).toBe(251);
+    expect(driver.largestRead).toBeLessThanOrEqual(MAX_TRACKING_PAGE_SIZE);
+    expect(driver.readCount).toBe(12);
+  });
+
+  it('matches pooled multi-player movement metrics without retaining the complete sample set', async () => {
+    const driver = new MemoryTrackingDriver();
+    setTrackingStorageDriver(driver);
+    const samples = Array.from({ length: 251 }, (_, index) => [
+      {
+        ...makeSample(index),
+        timestamp: index / 10,
+        playerId: 'P1',
+        courtX: 1 + (index % 17) * 0.08,
+        trackingState: index % 31 === 0 ? 'lost' as const : 'tracked' as const,
+      },
+      {
+        ...makeSample(index),
+        timestamp: index / 10,
+        playerId: 'P2',
+        courtX: 4 + (index % 13) * 0.06,
+        courtY: 8 + (index % 11) * 0.1,
+        cameraSegmentId: index < 125 ? 'segment-a' : 'segment-b',
+        trackingState: index % 37 === 0 ? 'predicted' as const : 'tracked' as const,
+      },
+    ]).flat();
+    const analysis: TrackingAnalysis = {
+      id: 'analysis-multi-pages', projectId: 'project-pages', sportType: 'badminton', gameType: 'doubles',
+      status: 'completed', engineVersion: 'tracking-v2', detectorModel: 'YOLO', trackerModel: 'ByteTrack',
+      sampleRateHz: 10, createdAt: new Date(0).toISOString(), completedAt: new Date(1).toISOString(),
+      players: [{ playerId: 'P1', side: 'near' }, { playerId: 'P2', side: 'far' }], quality: null,
+      summary: { durationSeconds: 25, sampleCount: samples.length, players: {} },
+    };
+    await saveTrackingAnalysis(analysis, Array.from({ length: 251 }, (_, chunkIndex) => ({
+      id: `${analysis.id}:${chunkIndex}`, analysisId: analysis.id, chunkIndex,
+      startTime: samples[chunkIndex * 2].timestamp,
+      endTime: samples[chunkIndex * 2 + 1].timestamp,
+      samples: samples.slice(chunkIndex * 2, chunkIndex * 2 + 2),
+    })));
+
+    const result = await getTrackingMovementMetrics(analysis.id);
+
+    expect(result.metrics).toEqual(computeMultiPlayerMovementMetrics(samples));
+    expect(result.sampleCount).toBe(samples.length);
+    expect(result.uniqueTimestampCount).toBe(251);
+  });
+
+  it('pages analyses by a stable cursor and finds the latest record beyond the first page', async () => {
+    const driver = new MemoryTrackingDriver();
+    setTrackingStorageDriver(driver);
+    const base: TrackingAnalysis = {
+      id: 'analysis', projectId: 'page-project', sportType: 'badminton', gameType: 'singles',
+      status: 'completed', engineVersion: 'tracking-v2', detectorModel: 'YOLO', trackerModel: 'ByteTrack',
+      sampleRateHz: 1, createdAt: new Date(0).toISOString(), players: [], quality: null,
+      summary: { durationSeconds: 0, sampleCount: 0, players: {} },
+    };
+    for (let index = 0; index < 251; index += 1) {
+      await driver.saveAnalysis({ ...base, id: `analysis-${String(index).padStart(3, '0')}`, createdAt: new Date(index * 1000).toISOString() });
+    }
+
+    const firstPage = await listTrackingAnalysisPage({ projectId: 'page-project', limit: 250 });
+    const latest = await getLatestTrackingAnalysisForProject('page-project');
+
+    expect(firstPage.analyses).toHaveLength(250);
+    expect(firstPage.analyses[0].id).toBe('analysis-000');
+    expect(firstPage.nextCursor).not.toBeNull();
+    expect(latest?.id).toBe('analysis-250');
   });
 });
 

@@ -32,6 +32,7 @@ import {
 export type BadmintonGameType = 'singles' | 'doubles';
 export type AIConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 export type AIEngineMode = 'browser' | 'server';
+export const MAX_TRACKING_RESULTS_PAGE_SIZE = 250;
 
 export interface MarkingState {
   isMarking: boolean;
@@ -62,6 +63,7 @@ export interface BackendCapabilities {
 
 export interface TrackingSessionSummary {
   sessionId: string;
+  runId: string;
   status: string;
   gameType: BadmintonGameType;
   projectId: string | null;
@@ -72,6 +74,67 @@ export interface TrackingSessionSummary {
   trackedPlayerCount?: number;
   processingConfig?: ProcessingConfig;
   resumable: boolean;
+  resume?: { available?: boolean; mode?: string | null; reason?: string | null; [key: string]: unknown };
+  checkpointSequence?: number;
+  committedCursor?: number;
+  lastProcessedFrame?: number;
+  error?: string | null;
+}
+
+export interface TrackingSessionPage {
+  sessions: TrackingSessionSummary[];
+  nextCursor: string | null;
+  maximumPageSize: number;
+  recoveryIssues: string[];
+  recoveryIssueCount: number;
+  recoveryIssuesTruncated: boolean;
+  pageIssues: string[];
+  pageIssueCount: number;
+  pageIssuesTruncated: boolean;
+}
+
+export const MAX_TRACKING_SESSION_PAGE_SIZE = 250;
+
+export interface TrackingSessionCompatibility {
+  projectId: string;
+  videoFingerprint: string | null;
+  processingConfig: ProcessingConfig;
+  runId?: string | null;
+}
+
+const RESUME_CONFIG_KEYS: Array<keyof ProcessingConfig> = [
+  'profile', 'requestedProfile', 'device', 'requestedDevice',
+  'detectorInputSize', 'useCourtRoi', 'courtRoiMarginPx', 'courtRoiMarginM',
+  'frameStride', 'poseStride', 'detectorModel', 'detectorFamily', 'poseModel', 'poseFamily',
+  'poseArchitecture', 'trackerName', 'trackerConfigPath', 'trackerConfig', 'reidEnabled', 'reidModel',
+  'runtime', 'precision', 'confidenceThreshold', 'autoCourtCalibrationEnabled',
+  'shuttleEnabled', 'shuttleProvider', 'shuttleModelPath', 'shuttleWindowSize',
+  'shuttleInputWidth', 'shuttleInputHeight', 'shuttleConfidenceThreshold',
+  'shuttleCentroidRelativeThreshold', 'shuttleCandidateMode', 'shuttleRecoveryEnabled',
+  'shuttleDevice', 'shuttleRuntime', 'shuttlePrecision', 'shuttleAuxiliaryDetector', 'shuttleBuildTrajectory',
+];
+
+function sessionConfigMatches(expected: ProcessingConfig, actual: ProcessingConfig | undefined): boolean {
+  if (!actual) return false;
+  return RESUME_CONFIG_KEYS.every((key) => expected[key] === undefined || expected[key] === actual[key]);
+}
+
+export function isCompatibleResumableTrackingSession(
+  candidate: TrackingSessionSummary,
+  expected: TrackingSessionCompatibility,
+): boolean {
+  if (candidate.projectId !== expected.projectId || !expected.videoFingerprint ||
+    candidate.videoFingerprint !== expected.videoFingerprint ||
+    candidate.runId !== candidate.sessionId ||
+    (expected.runId && candidate.runId !== expected.runId)
+  ) return false;
+  if (!['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCELLED', 'INTERRUPTED', 'COMPLETED'].includes(candidate.status)) return false;
+  if (['CANCELLED', 'INTERRUPTED'].includes(candidate.status) && (!candidate.resumable || candidate.resume?.available !== true)) return false;
+  if (!Number.isSafeInteger(candidate.checkpointSequence) || (candidate.checkpointSequence ?? -1) < 0 ||
+    !Number.isSafeInteger(candidate.committedCursor) || (candidate.committedCursor ?? -1) < 0 ||
+    (candidate.committedCursor ?? 0) < (candidate.checkpointSequence ?? 0) ||
+    (candidate.committedCursor ?? 0) > (candidate.checkpointSequence ?? 0) * 256) return false;
+  return sessionConfigMatches(expected.processingConfig, candidate.processingConfig);
 }
 
 function asConnectionFailure(code: AIConnectionCode): Exclude<AIConnectionCode, 'CONNECTED'> {
@@ -310,15 +373,16 @@ export class TrackingSessionApiClient {
     return res.json();
   }
 
-  public async getSessionStatus(sessionId: string): Promise<TrackingSessionStatus> {
-    const res = await this.request(`/api/tracking/sessions/${sessionId}/status`);
+  public async getSessionStatus(sessionId: string, signal?: AbortSignal): Promise<TrackingSessionStatus> {
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/status`, { signal });
     return res.json();
   }
 
   public async getSessionResults(
     sessionId: string,
     after?: number,
-    limit = 250,
+    limit = MAX_TRACKING_RESULTS_PAGE_SIZE,
+    signal?: AbortSignal,
   ): Promise<{
     sessionId: string;
     status: string;
@@ -336,18 +400,44 @@ export class TrackingSessionApiClient {
     if (after !== undefined) params.set('after', String(after));
     params.set('limit', String(limit));
     const query = `?${params.toString()}`;
-    const res = await this.request(`/api/tracking/sessions/${sessionId}/results${query}`);
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/results${query}`, { signal });
     const payload = await res.json();
     return { ...payload, telemetry: (payload.telemetry || []).map(toTrackingTelemetryV1) };
   }
 
-  public async listSessions(projectId?: string | null): Promise<TrackingSessionSummary[] | { sessions: TrackingSessionSummary[] }> {
-    const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
-    const res = await this.request(`/api/tracking/sessions${query}`);
+  public async listSessions(
+    projectId?: string | null,
+    afterCursor?: string | null,
+    limit = MAX_TRACKING_SESSION_PAGE_SIZE,
+  ): Promise<TrackingSessionPage> {
+    const params = new URLSearchParams();
+    if (projectId) params.set('project_id', projectId);
+    if (afterCursor) params.set('after', afterCursor);
+    params.set('limit', String(Math.max(1, Math.min(MAX_TRACKING_SESSION_PAGE_SIZE, Math.floor(limit)))));
+    const res = await this.request(`/api/tracking/sessions?${params.toString()}`);
     const payload = (await res.json()) as {
       sessions?: TrackingSessionSummary[];
+      nextCursor?: string | null;
+      maximumPageSize?: number;
+      recoveryIssues?: string[];
+      recoveryIssueCount?: number;
+      recoveryIssuesTruncated?: boolean;
+      pageIssues?: string[];
+      pageIssueCount?: number;
+      pageIssuesTruncated?: boolean;
     };
-    return payload.sessions ?? [];
+    const recoveryIssues = payload.recoveryIssues ?? [];
+    return {
+      sessions: payload.sessions ?? [],
+      nextCursor: payload.nextCursor ?? null,
+      maximumPageSize: payload.maximumPageSize ?? MAX_TRACKING_SESSION_PAGE_SIZE,
+      recoveryIssues,
+      recoveryIssueCount: payload.recoveryIssueCount ?? recoveryIssues.length,
+      recoveryIssuesTruncated: payload.recoveryIssuesTruncated ?? false,
+      pageIssues: payload.pageIssues ?? [],
+      pageIssueCount: payload.pageIssueCount ?? payload.pageIssues?.length ?? 0,
+      pageIssuesTruncated: payload.pageIssuesTruncated ?? false,
+    };
   }
 
   public async deleteSession(sessionId: string): Promise<void> {
@@ -437,6 +527,7 @@ export class TrackingSessionApiClient {
     try {
       response = await fetch(url, { ...init, headers });
     } catch (error) {
+      if (init.signal?.aborted) throw error;
       throw new AIConnectionError(this.classifyTransportError(error));
     }
     if (response.status === 401) {

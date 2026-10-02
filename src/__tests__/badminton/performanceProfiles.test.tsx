@@ -127,7 +127,7 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
       cudaAvailable: false,
       mpsAvailable: false,
     });
-    vi.mocked(aiTrackingService.listSessions).mockResolvedValue([]);
+    vi.mocked(aiTrackingService.listSessions).mockResolvedValue({ sessions: [], nextCursor: null, maximumPageSize: 250, recoveryIssues: [], recoveryIssueCount: 0, recoveryIssuesTruncated: false, pageIssues: [], pageIssueCount: 0, pageIssuesTruncated: false });
     vi.mocked(aiTrackingService.createSession).mockResolvedValue({
       sessionId: 'session_perf_1',
       status: 'READY',
