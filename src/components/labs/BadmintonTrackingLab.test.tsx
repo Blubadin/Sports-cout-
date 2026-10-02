@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, cleanup, act } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import BadmintonTrackingLab from './BadmintonTrackingLab';
 import { aiTrackingService } from '../../services/aiTrackingService';
@@ -11,7 +11,7 @@ vi.mock('../../services/storage/trackingStorage', () => ({ MAX_TRACKING_PAGE_SIZ
 vi.mock('../../services/aiTrackingService', () => ({ aiTrackingService: { checkConnection: vi.fn(), getCapabilities: vi.fn().mockResolvedValue({ selectedDevice: 'cpu', cudaAvailable: false, mpsAvailable: false }), listSessions: vi.fn().mockResolvedValue({ sessions: [], nextCursor: null, maximumPageSize: 250, recoveryIssues: [], recoveryIssueCount: 0, recoveryIssuesTruncated: false, pageIssues: [], pageIssueCount: 0, pageIssuesTruncated: false }), createSession: vi.fn(), uploadSessionVideo: vi.fn(), calibrateSession: vi.fn(), startSessionAnalysis: vi.fn(), getSessionStatus: vi.fn(), getSessionResults: vi.fn(), deleteSession: vi.fn().mockResolvedValue(undefined) } }));
 beforeEach(() => { vi.clearAllMocks(); trackingSessionStore.updateProjectState('p1', createDefaultProjectTrackingState('p1')); vi.mocked(aiTrackingService.checkConnection).mockResolvedValue({ code: 'CONNECTED', connected: true, endpoint: 'http://127.0.0.1:8000' }); URL.createObjectURL = vi.fn(() => 'blob:video'); URL.revokeObjectURL = vi.fn(); });
 afterEach(() => { cleanup(); trackingSessionStore.updateProjectState('p1', createDefaultProjectTrackingState('p1')); });
-it('requires actual video bytes and four real court corners before analysis', async () => {
+it('requires actual video bytes before analysis', async () => {
   render(<BadmintonTrackingLab />);
   await waitFor(() => expect(aiTrackingService.checkConnection).toHaveBeenCalled());
   expect(screen.getByRole('button', { name: /Run Movement Analysis/i })).toBeDisabled();
@@ -50,6 +50,63 @@ it('provides a clearly visible video file picker button', async () => {
   render(<BadmintonTrackingLab />);
   expect(await screen.findByRole('button', { name: /Choose video file/i })).toBeInTheDocument();
   expect(screen.getByLabelText('Select video file')).toBeInTheDocument();
+});
+it('starts automatic court analysis without inventing or submitting manual corners', async () => {
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  trackingSessionStore.updateProjectState('p1', { file });
+  vi.mocked(aiTrackingService.createSession).mockResolvedValue({ sessionId: 'auto-run', status: 'READY', trackedPlayerCount: 2 });
+  vi.mocked(aiTrackingService.uploadSessionVideo).mockResolvedValue({ width: 1280, height: 720 });
+  render(<BadmintonTrackingLab />);
+  await screen.findByText(/Inference device: cpu/i);
+  const run = screen.getByRole('button', { name: /Run Movement Analysis/i });
+  expect(run).toBeDisabled(); // Manual mode still requires real corners.
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic court calibration' }));
+  expect(run).toBeEnabled();
+  fireEvent.click(run);
+  await waitFor(() => expect(aiTrackingService.startSessionAnalysis).toHaveBeenCalledWith('auto-run'));
+  expect(aiTrackingService.createSession).toHaveBeenCalledWith('singles', 'upload', expect.objectContaining({
+    processingConfig: expect.objectContaining({ autoCourtCalibrationEnabled: true }),
+  }));
+  expect(aiTrackingService.calibrateSession).not.toHaveBeenCalled();
+  expect(trackingSessionStore.getProjectState('p1')?.corners).toEqual([]);
+});
+
+it('keeps manual calibration before start when automatic court calibration is off', async () => {
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  const corners = [[100, 100], [1100, 100], [1100, 600], [100, 600]];
+  trackingSessionStore.updateProjectState('p1', { file, corners });
+  vi.mocked(aiTrackingService.createSession).mockResolvedValue({ sessionId: 'manual-run', status: 'READY', trackedPlayerCount: 2 });
+  vi.mocked(aiTrackingService.uploadSessionVideo).mockResolvedValue({ width: 1280, height: 720 });
+  render(<BadmintonTrackingLab />);
+  await screen.findByText(/Inference device: cpu/i);
+  fireEvent.click(screen.getByRole('button', { name: /Run Movement Analysis/i }));
+  await waitFor(() => expect(aiTrackingService.startSessionAnalysis).toHaveBeenCalledWith('manual-run'));
+  expect(aiTrackingService.calibrateSession).toHaveBeenCalledWith('manual-run', corners, 'singles');
+  expect(aiTrackingService.createSession).toHaveBeenCalledWith('singles', 'upload', expect.objectContaining({
+    processingConfig: expect.objectContaining({ autoCourtCalibrationEnabled: false }),
+  }));
+});
+
+it('displays accepted automatic court geometry and removes it immediately after a cut', async () => {
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  const frame = {
+    schemaVersion: 1 as const, analysisId: 'court-overlay-run', timestampSec: 0, frameIndex: 0, players: [],
+    cameraSegmentId: 'segment-0', calibrationState: 'CALIBRATED' as const, calibrationId: 'court-1',
+    calibration: { calibrationId: 'court-1', cameraSegmentId: 'segment-0', state: 'CALIBRATED' as const,
+      source: 'automatic' as const, createdAtFrame: 0, createdAtTimestampSec: 0,
+      corners: [[100, 100], [1100, 100], [1100, 600], [100, 600]] },
+  };
+  trackingSessionStore.updateProjectState('p1', { file, telemetry: [frame] });
+  render(<BadmintonTrackingLab />);
+  const video = document.querySelector('video')!;
+  Object.defineProperty(video, 'videoWidth', { value: 1280 });
+  Object.defineProperty(video, 'videoHeight', { value: 720 });
+  fireEvent.loadedMetadata(video);
+  expect(await screen.findByLabelText('Validated court calibration')).toBeInTheDocument();
+  act(() => trackingSessionStore.updateProjectState('p1', { telemetry: [{ ...frame,
+    cameraSegmentId: 'segment-1', calibrationState: 'CALIBRATION_LOST', calibrationId: null,
+  }] }));
+  await waitFor(() => expect(screen.queryByLabelText('Validated court calibration')).not.toBeInTheDocument());
 });
 
 it('restores a saved seek after reload from the bounded backend telemetry page', async () => {

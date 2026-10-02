@@ -14,6 +14,7 @@ import type {
   ShuttleTrackingStatus,
 } from '../../types';
 import { loadProjectVideoFileHandle } from '../../utils/videoFileStore';
+import { isMetricCalibrationValid } from '../../types/calibration';
 import {
   getLatestTrackingAnalysisForProject,
   getTrackingSampleChunkPage,
@@ -265,6 +266,10 @@ export default function BadmintonTrackingLab() {
   const gameType = state.gameType;
   const trackedPlayerCount = state.trackedPlayerCount;
   const corners = state.corners;
+  const autoCourtCalibrationEnabled = state.processingConfig?.autoCourtCalibrationEnabled ?? false;
+  const existingPreparedSession = !!state.sessionId &&
+    ['READY_TO_ANALYZE', 'INTERRUPTED', 'CANCELLED'].includes(state.status);
+  const calibrationReadyToStart = autoCourtCalibrationEnabled || corners.length === 4 || existingPreparedSession;
   const frames = state.telemetry;
   const latestFrame = frames.length ? frames[frames.length - 1] : null;
   const latestLostSegmentId = state.status === 'PROCESSING' && latestFrame?.calibrationState === 'CALIBRATION_LOST'
@@ -391,6 +396,13 @@ export default function BadmintonTrackingLab() {
   const displayFrames = framesForCameraSegmentAtTime(sourceOverlayFrames, time);
   const overlayFrame = [...displayFrames].reverse().find((frame) => frame.timestampSec <= time) ?? null;
   const displayResolutionStatus = displayFrames.length ? resolveOverlayAtTime(displayFrames, time).status : 'unavailable';
+  const acceptedCourtCorners = overlayFrame?.calibration?.corners;
+  const courtOverlayCorners = displayResolutionStatus === 'resolved' && overlayFrame?.calibrationState === 'CALIBRATED' &&
+    isMetricCalibrationValid(overlayFrame) && dimensions.width > 0 && dimensions.height > 0 &&
+    Array.isArray(acceptedCourtCorners) && acceptedCourtCorners.length === 4 && acceptedCourtCorners.every(point =>
+      Array.isArray(point) && point.length === 2 && point.every(Number.isFinite) && point[0] >= 0 && point[0] < dimensions.width &&
+      point[1] >= 0 && point[1] < dimensions.height)
+    ? acceptedCourtCorners : null;
   const overlayStatusKey = hasLiveOverlayWindow
     ? 'idle'
     : overlayWindowStatus === 'loading' || overlayWindowStatus === 'error'
@@ -849,7 +861,7 @@ export default function BadmintonTrackingLab() {
     if (
       !file ||
       online !== true ||
-      corners.length !== 4 ||
+      !calibrationReadyToStart ||
       processing ||
       matchInfo.sportType !== 'badminton'
     )
@@ -886,6 +898,7 @@ export default function BadmintonTrackingLab() {
         frameStride: effectiveFrameStride,
         poseStride,
         shuttleEnabled: shuttleTrackingEnabled,
+        autoCourtCalibrationEnabled,
         ...(shuttleTrackingEnabled
           ? {
               shuttleProvider: capabilities?.shuttle?.provider ?? 'opencv_onnx',
@@ -947,14 +960,16 @@ export default function BadmintonTrackingLab() {
       // Resume flow picks up from here using the existing id
       const activeStatus = store.getProjectState(activeProjectId!)?.status || 'VIDEO_READY';
 
-      if (activeStatus === 'VIDEO_READY' || activeStatus === 'IDLE' || activeStatus === 'CREATED') {
+      if ((activeStatus === 'VIDEO_READY' || activeStatus === 'IDLE' || activeStatus === 'CREATED') &&
+          !autoCourtCalibrationEnabled) {
         await aiTrackingService.calibrateSession(id!, corners, gameType);
         if (!current()) return;
         update({ status: 'READY_TO_ANALYZE' });
       }
 
       const activeStatus2 = store.getProjectState(activeProjectId!)?.status || 'READY_TO_ANALYZE';
-      if (['READY_TO_ANALYZE', 'INTERRUPTED', 'CANCELLED'].includes(activeStatus2)) {
+      if (['READY_TO_ANALYZE', 'INTERRUPTED', 'CANCELLED'].includes(activeStatus2) ||
+          (activeStatus2 === 'VIDEO_READY' && autoCourtCalibrationEnabled)) {
         await aiTrackingService.startSessionAnalysis(id!);
         if (!current()) return;
         update({ status: 'PROCESSING' });
@@ -970,7 +985,7 @@ export default function BadmintonTrackingLab() {
     matchInfo.sportType === 'badminton' &&
     online === true &&
     !!file &&
-    corners.length === 4 &&
+    calibrationReadyToStart &&
     !processing;
   const applyManualRecovery = async () => {
     if (!state.sessionId || !lostSegmentId || recoverySelectionKey !== lostSegmentKey ||
@@ -1337,6 +1352,27 @@ export default function BadmintonTrackingLab() {
         </p>
       )}
 
+      <div className="space-y-1 text-sm">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={autoCourtCalibrationEnabled}
+            disabled={processing || (!!state.sessionId && ['VIDEO_READY', 'READY_TO_ANALYZE', 'INTERRUPTED', 'CANCELLED'].includes(state.status))}
+            onChange={(e) => update({ processingConfig: {
+              ...state.processingConfig, autoCourtCalibrationEnabled: e.target.checked,
+            } })}
+            className="rounded bg-slate-800 border-slate-700 text-sky-500 focus-visible:ring-2 focus-visible:ring-sky-500"
+          />
+          <span>{th ? 'ตรวจจับสนามอัตโนมัติ' : 'Automatic court calibration'}</span>
+        </label>
+        <p className="text-xs text-slate-400">
+          {autoCourtCalibrationEnabled
+            ? (th ? 'เริ่มได้โดยไม่ต้องเลือกมุมสนาม ค่าสนามจะแสดงเมื่อระบบตรวจสอบการปรับเทียบผ่านเท่านั้น'
+              : 'Start without marking corners. Court metrics become available only after calibration is validated.')
+            : (th ? 'เลือกมุมสนาม 4 จุดก่อนเริ่มวิเคราะห์' : 'Mark four court corners before starting analysis.')}
+        </p>
+      </div>
+
       {/* Video Selection & Reconnection */}
       <div className="space-y-2">
         <span className="block text-sm">{th ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select video file'}</span>
@@ -1570,7 +1606,18 @@ export default function BadmintonTrackingLab() {
                 )}
               </div>
             )}
-            {(calibrating || corners.length > 0) && (
+            {!calibrating && courtOverlayCorners && (
+              <svg
+                aria-label={th ? 'สนามที่ผ่านการตรวจสอบการปรับเทียบ' : 'Validated court calibration'}
+                viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
+                className="absolute inset-0 w-full h-full pointer-events-none"
+              >
+                <polygon points={courtOverlayCorners.map(point => point.join(',')).join(' ')}
+                  fill="none" stroke="#38bdf8" strokeWidth={dimensions.width / 400} />
+              </svg>
+            )}
+            {(calibrating || (corners.length > 0 && !state.sessionId && frames.length === 0) ||
+              (corners.length > 0 && lostSegmentKey && recoverySelectionKey === lostSegmentKey)) && (
               <svg
                 aria-label="Court calibration"
                 viewBox={`0 0 ${dimensions.width || 1} ${dimensions.height || 1}`}

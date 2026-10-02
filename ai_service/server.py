@@ -2078,7 +2078,9 @@ def start_session_analysis(session_id: str):
         is_resume = session.status in {"INTERRUPTED", "CANCELLED"}
         if session.status == "ERROR":
             raise HTTPException(status_code=409, detail=session.error_message or "Cannot start a session in ERROR state")
-        if session.status != "READY_TO_ANALYZE" and not is_resume:
+        auto_start = (session.status == "VIDEO_READY"
+                      and session.analyzer.auto_calibration_provider is not None)
+        if session.status != "READY_TO_ANALYZE" and not is_resume and not auto_start:
             raise HTTPException(status_code=409, detail=f"Cannot start analysis in {session.status} state")
 
         if is_resume:

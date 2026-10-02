@@ -109,6 +109,7 @@ class RealRallyLensTests(unittest.TestCase):
                     'frameStride': 1, 'shuttle_enabled': True, 'shuttle_provider': 'rallylens_tracknet',
                     'shuttle_model_path': os.environ['SPORTSCOUT_TEST_SHUTTLE_MODEL'],
                     'shuttle_recovery_enabled': False,
+                    'autoCourtCalibrationEnabled': True,
                 },
             })
             self.assertEqual(response.status_code, 200, response.text)
@@ -116,12 +117,9 @@ class RealRallyLensTests(unittest.TestCase):
             self.addCleanup(client.delete, f'/api/tracking/sessions/{sid}')
             response = client.post(f'/api/tracking/sessions/{sid}/video?filename=real-clip.avi', content=clip.read_bytes())
             self.assertEqual(response.status_code, 200, response.text)
-            # Image boundary calibration is an infrastructure smoke test only;
-            # these are NOT surveyed court corners or valid tactical metrics.
-            response = client.post(f'/api/tracking/sessions/{sid}/calibration', json={
-                'game_type': 'singles', 'corners': [[0, 0], [width-1, 0], [width-1, height-1], [0, height-1]],
-            })
-            self.assertEqual(response.status_code, 200, response.text)
+            # Exercise Auto Court startup with real decoded input and no fabricated geometry.
+            self.assertIsNotNone(server.tracking_sessions[sid].analyzer.auto_calibration_provider)
+            self.assertIsNone(server.tracking_sessions[sid].analyzer.court_corners_px)
             response = client.post(f'/api/tracking/sessions/{sid}/start')
             self.assertEqual(response.status_code, 200, response.text)
             session = server.tracking_sessions[sid]

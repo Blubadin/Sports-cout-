@@ -210,6 +210,25 @@ class TestTrackingLifecycle(unittest.TestCase):
 
     # ── Lifecycle flow tests ──
 
+    def test_auto_court_start_accepts_uploaded_video_without_manual_corners(self):
+        session_id = self._create_session(processing_config={"autoCourtCalibrationEnabled": True})
+        self.assertEqual(self._upload(session_id, _mock_cv2_cap()).status_code, 200)
+        session = tracking_sessions[session_id]
+        self.assertIsNotNone(session.analyzer.auto_calibration_provider)
+        with patch("server._run_session_analysis"):
+            response = self.client.post(f"/api/tracking/sessions/{session_id}/start")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(session.analyzer.court_corners_px)
+        self.assertEqual(session.analyzer.calibration_context.state.value, "UNCALIBRATED")
+        self.assertIsNone(session.analyzer.mapper.H)
+
+    def test_manual_court_start_still_requires_calibration(self):
+        session_id = self._create_session(processing_config={"autoCourtCalibrationEnabled": False})
+        self.assertEqual(self._upload(session_id, _mock_cv2_cap()).status_code, 200)
+        response = self.client.post(f"/api/tracking/sessions/{session_id}/start")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(tracking_sessions[session_id].status, "VIDEO_READY")
+
     @patch("server.cv2.VideoCapture")
     def test_lifecycle_state_transitions(self, mock_cv2):
         mock_cv2.return_value = _mock_cv2_cap()

@@ -200,6 +200,9 @@ class TestDynamicCourtCalibrationFoundation(unittest.TestCase):
     # 10. new segment cannot reuse previous calibrationId
     def test_10_new_segment_cannot_reuse_previous_calibration_id(self):
         analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1)
+        # Calibration lifecycle fixture: detector execution is covered separately.
+        analyzer._detector = "dummy"
+        analyzer.detect_and_track = lambda f: []
         analyzer.set_court_corners(self.court_corners)
         old_id = analyzer.calibration_context.provenance.calibration_id
 
