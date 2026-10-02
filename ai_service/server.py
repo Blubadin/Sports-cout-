@@ -884,9 +884,11 @@ class SessionCalibrationRequest(BaseModel):
     corners: list[list[float]]
     game_type: Literal['singles', 'doubles'] = "doubles"
     camera_segment_id: str | None = None
-    frame_index: int | None = None
-    timestamp_sec: float | None = None
+    frame_index: int | None = Field(default=None, strict=True, ge=0)
+    timestamp_sec: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     calibration_version: str | None = None
+    selected_at_frame_index: int | None = Field(default=None, strict=True, ge=0)
+    selected_at_timestamp_sec: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 class SessionPlayerRequest(BaseModel):
     players: list[dict]
@@ -1968,27 +1970,49 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
         if session._uploading or session._deleting:
             raise HTTPException(status_code=409, detail='Session is busy')
         allowed = ALLOWED_CALIBRATION_STATES_DEMO if session.video_source == "demo" else ALLOWED_CALIBRATION_STATES_REAL
-        active_segment = session.analyzer.calibration_context.camera_segment_id
         recovering_during_processing = (
             session.status == "PROCESSING"
-            and session.analyzer.calibration_context.state in (CalibrationState.CALIBRATION_LOST, CalibrationState.RECALIBRATING)
+            and session.analyzer.calibration_context.state in (
+                CalibrationState.CALIBRATION_LOST, CalibrationState.RECALIBRATING
+            )
             and req.game_type == session.game_type
         )
         if session.status not in allowed and not recovering_during_processing:
             raise HTTPException(status_code=409, detail=f"Cannot calibrate in {session.status} state")
-        if recovering_during_processing and req.camera_segment_id is not None and req.camera_segment_id != active_segment:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Stale calibration correction: target segment '{req.camera_segment_id}' does not match active segment '{active_segment}'",
+        # Both shipped request formats refer to the frame the user actually selected.
+        if (req.frame_index is not None and req.selected_at_frame_index is not None
+                and req.frame_index != req.selected_at_frame_index):
+            raise HTTPException(status_code=400, detail="Conflicting calibration frame references")
+        if (req.timestamp_sec is not None and req.selected_at_timestamp_sec is not None
+                and req.timestamp_sec != req.selected_at_timestamp_sec):
+            raise HTTPException(status_code=400, detail="Conflicting calibration time references")
+        selected_frame_index = req.selected_at_frame_index if req.selected_at_frame_index is not None else req.frame_index
+        selected_timestamp_sec = req.selected_at_timestamp_sec if req.selected_at_timestamp_sec is not None else req.timestamp_sec
+        active_segment_id = session.analyzer.calibration_context.camera_segment_id
+        if req.camera_segment_id is not None and req.camera_segment_id != active_segment_id:
+            raise HTTPException(status_code=409, detail=(
+                f"Stale calibration correction: target segment '{req.camera_segment_id}' does not match active segment '{active_segment_id}'; select corners on the current segment"
+            ))
+        if session.status == "PROCESSING" and selected_frame_index is not None and selected_frame_index > session.analyzer.frame_count:
+            raise HTTPException(status_code=409, detail=(
+                f"Stale calibration correction: frameIndex {selected_frame_index} exceeds currently analyzed frame {session.analyzer.frame_count}"
+            ))
+        if recovering_during_processing:
+            if req.camera_segment_id != active_segment_id or selected_frame_index is None or selected_timestamp_sec is None:
+                raise HTTPException(status_code=409, detail="Select a frame on the current camera segment before recalibrating")
+            selected_frame = next(
+                (frame for frame in reversed(session.results)
+                 if frame.get("frameIndex") == selected_frame_index),
+                None,
             )
-        if req.frame_index is not None:
-            if req.frame_index < 0:
-                raise HTTPException(status_code=400, detail="frameIndex must be non-negative")
-            if session.status == "PROCESSING" and req.frame_index > session.analyzer.frame_count:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Stale calibration correction: frameIndex {req.frame_index} exceeds currently analyzed frame {session.analyzer.frame_count}",
-                )
+            timestamp_tolerance = max(0.05, 1.0 / session.source_fps) if session.source_fps > 0 else 0.05
+            if (
+                selected_frame is None
+                or selected_frame.get("cameraSegmentId") != active_segment_id
+                or not isinstance(selected_frame.get("timestampSec"), (int, float))
+                or abs(selected_frame["timestampSec"] - selected_timestamp_sec) > timestamp_tolerance
+            ):
+                raise HTTPException(status_code=409, detail="Selected video frame is not on the current camera segment")
 
         try:
             # Commit observations before advancing the checkpoint to recovered calibration state.
@@ -2005,8 +2029,8 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
                 req.corners,
                 camera_segment_id=req.camera_segment_id,
                 calibration_version=req.calibration_version,
-                created_at_frame=req.frame_index,
-                created_at_timestamp_sec=req.timestamp_sec,
+                created_at_frame=selected_frame_index,
+                created_at_timestamp_sec=selected_timestamp_sec,
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -2014,7 +2038,10 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
         session.game_type = req.game_type
         session.analyzer.game_type = req.game_type
         session.analyzer.mapper.game_type = req.game_type
-        session.calibration_request = req.model_dump()
+        session.calibration_request = {
+            **req.model_dump(), "frame_index": selected_frame_index,
+            "timestamp_sec": selected_timestamp_sec,
+        }
         if not recovering_during_processing:
             session.status = "READY_TO_ANALYZE"
         try:

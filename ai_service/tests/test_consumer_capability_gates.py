@@ -265,6 +265,9 @@ class TestCalibrationRecoveryAPI(unittest.TestCase):
 
         corners = [[100.0, 100.0], [1180.0, 100.0], [1180.0, 620.0], [100.0, 620.0]]
         active_seg = session.analyzer.calibration_context.camera_segment_id
+        session.results.append({
+            "frameIndex": 10, "timestampSec": 10 / 30, "cameraSegmentId": active_seg,
+        })
         res = self.client.post(
             "/api/tracking/sessions/test_valid_relock_session/calibration",
             json={
@@ -272,6 +275,7 @@ class TestCalibrationRecoveryAPI(unittest.TestCase):
                 "game_type": "doubles",
                 "camera_segment_id": active_seg,
                 "frame_index": 10,
+                "timestamp_sec": 10 / 30,
                 "calibration_version": "v1.0",
             },
         )

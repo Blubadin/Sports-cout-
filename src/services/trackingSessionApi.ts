@@ -331,7 +331,8 @@ export class TrackingSessionApiClient {
       frameIndex?: number;
       timestampSec?: number;
       calibrationVersion?: string;
-    }
+    },
+    selectedFrame?: { frameIndex: number; timestampSec: number },
   ): Promise<Pick<TrackingTelemetryV1, 'cameraSegmentId' | 'calibrationId' | 'calibrationState' | 'calibrationConfidence' | 'calibration'>> {
     const opts = typeof cameraSegmentIdOrOptions === 'string'
       ? { camera_segment_id: cameraSegmentIdOrOptions }
@@ -346,7 +347,13 @@ export class TrackingSessionApiClient {
     const res = await this.request(`/api/tracking/sessions/${sessionId}/calibration`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ corners, game_type: gameType, ...opts }),
+      body: JSON.stringify({
+        corners, game_type: gameType, ...opts,
+        ...(selectedFrame ? {
+          selected_at_frame_index: selectedFrame.frameIndex,
+          selected_at_timestamp_sec: selectedFrame.timestampSec,
+        } : {}),
+      }),
     });
     return res.json();
   }
@@ -674,14 +681,30 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
               yPct: posPct.y,
             }
           : null);
-      const groundPoint =
-        p.groundPointPct ||
-        (p.video_bbox_pct
+      const hasCanonicalGroundPoint = Object.prototype.hasOwnProperty.call(p, 'groundPointPct');
+      const groundPoint = hasCanonicalGroundPoint
+        ? p.groundPointPct
+        : (p.video_bbox_pct
           ? {
               x: Number((p.video_bbox_pct.x + p.video_bbox_pct.width / 2).toFixed(2)),
               y: Number((p.video_bbox_pct.y + p.video_bbox_pct.height).toFixed(2)),
             }
           : undefined);
+      const normalizeFoot = (foot: any) => foot && typeof foot === 'object'
+        ? { ...foot, ...(metricValid ? {} : { courtPositionM: null }) }
+        : foot;
+      const pose = p.pose && typeof p.pose === 'object'
+        ? { ...p.pose, keypointCoordinateSpace: p.pose.keypointCoordinateSpace ?? 'normalized_percent' }
+        : p.pose;
+      const groundPositionM = metricValid
+        ? (p.groundPositionM !== undefined ? p.groundPositionM : p.courtPositionM)
+        : null;
+      const leftFootCourtM = metricValid
+        ? (p.leftFootCourtM !== undefined ? p.leftFootCourtM : p.leftFoot?.courtPositionM)
+        : null;
+      const rightFootCourtM = metricValid
+        ? (p.rightFootCourtM !== undefined ? p.rightFootCourtM : p.rightFoot?.courtPositionM)
+        : null;
 
       const state =
         p.state ||
@@ -715,17 +738,29 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         bboxPct: state === 'lost' ? null : (p.bboxPct || p.video_bbox_pct),
         groundPointPct: state === 'lost' ? null : groundPoint,
         groundPointProvenance,
+        groundPositionM,
+        courtPositionM: metricValid
+          ? (p.courtPositionM !== undefined ? p.courtPositionM : posM ?? null)
+          : null,
+        leftFootPx: p.leftFootPx !== undefined ? p.leftFootPx : p.leftFoot?.positionPx ?? null,
+        rightFootPx: p.rightFootPx !== undefined ? p.rightFootPx : p.rightFoot?.positionPx ?? null,
+        leftFootConfidence: p.leftFootConfidence !== undefined ? p.leftFootConfidence : p.leftFoot?.confidence ?? null,
+        rightFootConfidence: p.rightFootConfidence !== undefined ? p.rightFootConfidence : p.rightFoot?.confidence ?? null,
+        leftFootCourtM,
+        rightFootCourtM,
+        leftFoot: normalizeFoot(p.leftFoot),
+        rightFoot: normalizeFoot(p.rightFoot),
         courtPosition: metricValid ? courtPos : null,
         absoluteZone: metricValid ? (p.absoluteZone ?? p.zone) : null,
         playerRelativeZone: metricValid ? (p.playerRelativeZone ?? p.zone) : null,
         speedMps: metricValid ? (p.speedMps ?? p.speed_ms) : null,
-        totalDistanceM: p.totalDistanceM ?? p.total_dist_m,
+        totalDistanceM: metricValid ? (p.totalDistanceM ?? p.total_dist_m ?? null) : null,
         detectionConfidence: typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null,
         confidence: typeof p.confidence === 'number' ? p.confidence : (typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null),
         state,
         observationState,
         reviewState: p.reviewState || p.review_state || 'unreviewed',
-        pose: state === 'lost' ? null : p.pose,
+        pose: state === 'lost' ? null : pose,
       };
     }),
     shuttle: frame.shuttle

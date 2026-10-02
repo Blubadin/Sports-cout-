@@ -45,13 +45,17 @@ test('Chromium renders player and shuttle overlays without connecting camera seg
     fixture.style.cssText = 'position:fixed;inset:24px auto auto 24px;width:640px;height:360px;background:#0b1219;z-index:9999;';
     document.body.append(fixture);
     createRoot(fixture).render(React.createElement(React.Fragment, null,
-      React.createElement(TrackingVideoOverlay, { frames, time: 1.06, mode: 'box' }),
+      React.createElement(TrackingVideoOverlay, { frames, time: 1.04, mode: 'box' }),
+      React.createElement('div', { 'data-testid': 'cross-cut-gap' },
+        React.createElement(TrackingVideoOverlay, { frames, time: 1.06, mode: 'box' })),
       React.createElement(ShuttleOverlay, { frames, time: 1.12, mode: 'trail', width: 640, height: 360 }),
     ));
   });
 
   await expect(page.getByTestId('player-overlay-P1')).toHaveAttribute('data-overlay-state', 'observed');
   await expect(page.locator('[data-testid="player-bbox"]')).toHaveAttribute('x', '20');
+  await expect(page.getByTestId('cross-cut-gap').locator('svg')).toHaveCount(1);
+  await expect(page.getByTestId('cross-cut-gap').getByTestId('player-bbox')).toHaveCount(0);
   const shuttleTrail = page.getByTestId('shuttle-trail');
   await expect(shuttleTrail).toHaveCount(1);
   await expect(shuttleTrail).toHaveAttribute('cx', '70');

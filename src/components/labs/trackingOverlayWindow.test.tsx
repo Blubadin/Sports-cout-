@@ -123,9 +123,13 @@ describe('bounded seek-time overlay windows', () => {
     before.shuttle = { ...before.shuttle!, state: 'lost', positionPx: null, confidence: null };
     before.players = [{ playerId: 'P1', state: 'observed', detectionConfidence: 0.9, bboxPct: { x: 10, y: 10, width: 10, height: 20 } }];
     atCut.players = [{ playerId: 'P1', state: 'observed', detectionConfidence: 0.9, bboxPct: { x: 70, y: 10, width: 10, height: 20 } }];
-    const resolution = resolveOverlayAtTime([before, atCut], 10.05);
+    const resolution = resolveOverlayAtTime([before, atCut], 10);
     expect(resolution.status).toBe('resolved');
     if (resolution.status === 'resolved') expect(resolution.players[0].provenance).toBe('observed');
+    // main's cut guard also prevents holding the old box between segment samples.
+    const betweenSegments = resolveOverlayAtTime([before, atCut], 10.05);
+    expect(betweenSegments.status).toBe('unavailable');
+    expect(betweenSegments.players).toEqual([]);
     expect(framesForCameraSegmentAtTime([before, atCut, later], 10.15).map((sample) => sample.cameraSegmentId))
       .toEqual(['segment-after', 'segment-after']);
 

@@ -59,6 +59,7 @@ class TestCalibrationCheckpointBoundary(unittest.TestCase):
                 "corners": [[100, 100], [700, 100], [700, 500], [100, 500]],
                 "game_type": session.game_type,
                 "frame_index": frame_index,
+                "timestamp_sec": next(row["timestampSec"] for row in session.results if row["frameIndex"] == frame_index),
                 "camera_segment_id": session.analyzer.calibration_context.camera_segment_id,
             },
         )
@@ -346,6 +347,9 @@ class TestCalibrationCheckpointBoundary(unittest.TestCase):
                     json={
                         "corners": [[100, 100], [700, 100], [700, 500], [100, 500]],
                         "game_type": session.game_type,
+                        # First fixture frame is appended at timestamp zero once the lock is released.
+                        "selected_at_frame_index": 1,
+                        "selected_at_timestamp_sec": 0.0,
                         "camera_segment_id": session.analyzer.calibration_context.camera_segment_id,
                     },
                 )
