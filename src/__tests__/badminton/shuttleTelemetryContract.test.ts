@@ -356,9 +356,21 @@ describe('Phase 2.1 — Canonical Shuttle Telemetry Contract', () => {
       expect(v1Telemetry.players[0].pose).toBeNull();
     });
 
-    it('accepts the additive WARMING_UP tracker state in the TypeScript provenance contract', () => {
+    it('preserves per-frame WARMING_UP and null validity through API, builder and JSON', () => {
       const trackingState: ShuttleTrackerState = 'WARMING_UP';
-      expect(trackingState).toBe('WARMING_UP');
+      const frame = toTrackingTelemetryV1({ timestampSec: 1, frameIndex: 30, players: [], shuttle: {
+        timestampSec: 1, frameIndex: 30, state: 'unknown', source: 'temporal_tracker',
+        positionPx: null, confidence: null, trajectoryId: null, trackingState,
+        warmupRemainingFrames: 8, validity: { positionValid: false, reason: 'warming_up' },
+      } });
+      expect(frame.shuttle?.trackingState).toBe('WARMING_UP');
+      expect(frame.shuttle?.warmupRemainingFrames).toBe(8);
+      const restored = JSON.parse(JSON.stringify(createShuttleObservation(frame.shuttle!)));
+      expect(restored.validity).toEqual({ positionValid: false, reason: 'warming_up' });
+      expect(validateShuttleObservation(restored).valid).toBe(true);
+      expect(validateShuttleObservation({ ...restored, validity: { positionValid: true, reason: 'observed_measurement' } }).valid).toBe(false);
+      expect(validateShuttleObservation({ ...restored, state: 'observed', positionPx: { x: 10, y: 20 },
+        validity: { positionValid: true, reason: 'observed_measurement' } }).valid).toBe(false);
     });
   });
 

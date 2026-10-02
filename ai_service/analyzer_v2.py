@@ -83,6 +83,9 @@ class PlayerProfile:
         self.last_envelope_zone: str | None = None
         self.last_eligibility_status: str | None = None
         self.last_ground_pt: CanonicalGroundPoint | None = None
+        self.identity_needs_reacquisition = False
+        self.identity_confirmation_track = None
+        self.identity_confirmation_frames = 0
 
     def update_reid_embedding(self, embedding: np.ndarray | None, alpha: float = 0.2):
         """Update ReID appearance embedding using exponential moving average."""
@@ -456,6 +459,9 @@ class BadmintonAnalyzerV2:
         self.dist_tracker.break_metric_segment()
         self.last_known_track_owners.clear()
         for profile in self.profiles.values():
+            profile.identity_needs_reacquisition = True
+            profile.identity_confirmation_track = None
+            profile.identity_confirmation_frames = 0
             profile.last_real_pos = None
             profile.last_bbox = None
             profile.missed_frames = 30
@@ -1004,6 +1010,7 @@ class BadmintonAnalyzerV2:
                 frame_index=self.frame_count,
                 camera_segment_id=self.calibration_context.camera_segment_id,
                 pipeline_run_id=getattr(self, "pipeline_run_id", getattr(self, "analysis_id", "live_session")),
+                scene_evidence=transition.evidence.to_dict(),
             )
 
         raw_player_detections = [

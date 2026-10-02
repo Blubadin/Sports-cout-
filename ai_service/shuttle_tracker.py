@@ -425,12 +425,14 @@ class TemporalShuttleTracker:
         image: np.ndarray,
         timestamp_sec: float,
         frame_index: int,
+        scene_evidence: dict | None = None,
     ) -> ShuttleObservation:
         started = time.perf_counter()
         self._frames_received += 1
 
         def finish(observation: ShuttleObservation) -> ShuttleObservation:
             self._processing_seconds += time.perf_counter() - started
+            observation.set_frame_validity(self.tracking_state, max(0, self.config.window_size - len(self._frames)))
             return observation
 
         if not self._valid_input(image, timestamp_sec, frame_index):
@@ -538,9 +540,14 @@ class TemporalShuttleTracker:
                 x=cand_x_px,
                 y=cand_y_px,
             )
+            # Local pixel change is not independent object motion during pan,
+            # tilt or zoom. Consume measured scene evidence without gating the
+            # detector by a scene label (court visibility is not required).
+            camera_motion = (scene_evidence or {}).get("is_pan_tilt_zoom") is True
+            motion_reliability = 0.0 if camera_motion else 1.0
             fused_score = (
-                cand.confidence * persistence_weight * (1.0 + 0.25 * motion_score)
-                + trajectory_support
+                cand.confidence * persistence_weight * (1.0 + 0.25 * motion_score * motion_reliability)
+                + trajectory_support * motion_reliability
             )
             scored_candidates.append((fused_score, cand, cand_x_px, cand_y_px, cand_stat_frames, matched_trk))
 
@@ -563,11 +570,16 @@ class TemporalShuttleTracker:
 
         scored_candidates.sort(key=lambda item: item[0], reverse=True)
         best_fused_score, best_cand, best_x_px, best_y_px, best_stat_frames, _ = scored_candidates[0]
+        fusion = {"appearanceConfidence": best_cand.confidence,
+                  "motionReliability": motion_reliability,
+                  "fusedScore": float(best_fused_score), "sceneContextConsumed": scene_evidence is not None}
 
         if best_fused_score < self.config.confidence_threshold:
             self._last_failure = "NO SHUTTLE CANDIDATE"
             self.tracking_state = "LOST"
-            return finish(self._missing_observation(timestamp_sec, frame_index))
+            missing = self._missing_observation(timestamp_sec, frame_index)
+            missing.evidence_fusion = fusion
+            return finish(missing)
 
         observation = ShuttleObservation(
             timestamp_sec=float(timestamp_sec),
@@ -577,6 +589,7 @@ class TemporalShuttleTracker:
             position_px=ShuttlePositionPx(x=best_x_px, y=best_y_px),
             confidence=best_cand.confidence,
             trajectory_id=None,
+            evidence_fusion=fusion,
         )
         self._observed_trajectory.append((float(timestamp_sec), best_x_px, best_y_px))
         self._has_observed = True

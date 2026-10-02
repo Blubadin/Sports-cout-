@@ -1250,7 +1250,7 @@ def _checkpoint_payload(session: TrackingSession) -> dict:
         "durationSec": session.duration_sec,
         "elapsedSec": session.elapsed_sec,
         "playerSummary": analyzer.get_live_player_statuses(),
-        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None} for pid, profile in analyzer.profiles.items()},
+        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None, "needsReacquisition": profile.identity_needs_reacquisition} for pid, profile in analyzer.profiles.items()},
         "identityCounters": {"rawTrackerIdSwitches": analyzer.raw_tracker_id_switches, "semanticPlayerIdSwitches": analyzer.semantic_player_id_switches},
         "frameStride": session.frame_stride,
         "segmentCalibrationState": {
@@ -1431,6 +1431,11 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
             continue
         profile.name = saved.get("name", profile.name)
         profile.team = saved.get("team", 0)
+        # MOT/spatial continuity and pending confirmation counts are not durable.
+        # Older checkpoints in a later segment must also forbid initial seeding.
+        profile.identity_needs_reacquisition = saved.get("needsReacquisition", segment_id not in (None, "segment-0"))
+        profile.identity_confirmation_track = None
+        profile.identity_confirmation_frames = 0
         histogram = saved.get("colorHistogram")
         embedding = saved.get("reidEmbedding")
         if histogram is not None:

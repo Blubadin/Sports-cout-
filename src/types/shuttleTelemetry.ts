@@ -32,6 +32,18 @@ export type ShuttleState = 'observed' | 'predicted' | 'interpolated' | 'lost' | 
 
 /** Tracker lifecycle state, kept separate from a frame's canonical observation state. */
 export type ShuttleTrackerState = 'WARMING_UP' | 'TRACKING' | 'WEAK' | 'LOST' | 'REACQUIRING';
+export interface ShuttlePositionValidity {
+  positionValid: boolean;
+  reason: 'observed_measurement' | 'predicted_estimate' | 'interpolated_estimate'
+    | 'warming_up' | 'no_reliable_position' | 'inference_failure';
+}
+
+export interface ShuttleEvidenceFusion {
+  appearanceConfidence: number;
+  motionReliability: number;
+  fusedScore: number;
+  sceneContextConsumed: boolean;
+}
 
 /**
  * Origin source producing the shuttle observation.
@@ -101,6 +113,13 @@ export interface ShuttleObservation {
   cameraSegmentId?: string;
   /** Pipeline run that owned this observation. */
   pipelineRunId?: string;
+  /** Lifecycle at this frame's emission, not the latest runtime snapshot. */
+  trackingState?: ShuttleTrackerState;
+  /** Frames still needed by the temporal model; zero does not imply a lock. */
+  warmupRemainingFrames?: number;
+  /** Image-space position validity; does not certify court/landing validity. */
+  validity?: ShuttlePositionValidity;
+  evidenceFusion?: ShuttleEvidenceFusion;
 }
 
 /**
@@ -203,6 +222,10 @@ export function createShuttleObservation(
     speedPxPerSec: params.speedPxPerSec ?? null,
     ...(params.cameraSegmentId ? { cameraSegmentId: params.cameraSegmentId } : {}),
     ...(params.pipelineRunId ? { pipelineRunId: params.pipelineRunId } : {}),
+    ...(params.trackingState !== undefined ? { trackingState: params.trackingState } : {}),
+    ...(params.warmupRemainingFrames !== undefined ? { warmupRemainingFrames: params.warmupRemainingFrames } : {}),
+    ...(params.validity !== undefined ? { validity: params.validity } : {}),
+    ...(params.evidenceFusion !== undefined ? { evidenceFusion: params.evidenceFusion } : {}),
   };
 }
 
@@ -213,6 +236,30 @@ export function validateShuttleObservation(obs: unknown): { valid: boolean; erro
   }
 
   const o = obs as Record<string, unknown>;
+  if (o.trackingState !== undefined && !['WARMING_UP', 'TRACKING', 'WEAK', 'LOST', 'REACQUIRING'].includes(String(o.trackingState))) {
+    errors.push('trackingState is invalid');
+  }
+  if (o.warmupRemainingFrames !== undefined && (typeof o.warmupRemainingFrames !== 'number' || !Number.isInteger(o.warmupRemainingFrames) || o.warmupRemainingFrames < 0)) {
+    errors.push('warmupRemainingFrames must be a non-negative integer');
+  }
+  if (o.trackingState === 'WARMING_UP' && (o.positionPx != null || !['unknown', 'lost'].includes(String(o.state)) || o.warmupRemainingFrames === 0)) {
+    errors.push('WARMING_UP requires an unavailable position and incomplete temporal input');
+  }
+  if (o.validity !== undefined) {
+    const validity = o.validity as Partial<ShuttlePositionValidity> | null;
+    const expected = o.positionPx != null && ['observed', 'predicted', 'interpolated'].includes(String(o.state));
+    if (!validity || typeof validity !== 'object' || validity.positionValid !== expected || ![
+      'observed_measurement', 'predicted_estimate', 'interpolated_estimate', 'warming_up', 'no_reliable_position', 'inference_failure',
+    ].includes(String(validity.reason))) {
+      errors.push('validity must agree with observation position/state');
+    } else if (validity.reason === 'warming_up' && (expected || o.trackingState !== 'WARMING_UP')) {
+      errors.push('warming_up validity requires WARMING_UP and no position');
+    } else if (expected && validity.reason !== (o.state === 'observed' ? 'observed_measurement' : `${String(o.state)}_estimate`)) {
+      errors.push('validity reason must describe the observation state');
+    } else if (!expected && ['observed_measurement', 'predicted_estimate', 'interpolated_estimate'].includes(String(validity.reason))) {
+      errors.push('missing position cannot claim measurement/estimate validity');
+    }
+  }
 
   // timestampSec
   if (typeof o.timestampSec !== 'number' || !Number.isFinite(o.timestampSec) || o.timestampSec < 0) {

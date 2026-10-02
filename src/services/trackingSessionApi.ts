@@ -745,6 +745,10 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
           trajectoryId: frame.shuttle.trajectoryId ?? null,
           velocityPxPerSec: frame.shuttle.velocityPxPerSec ?? null,
           speedPxPerSec: frame.shuttle.speedPxPerSec ?? null,
+          ...(frame.shuttle.trackingState !== undefined ? { trackingState: frame.shuttle.trackingState } : {}),
+          ...(frame.shuttle.warmupRemainingFrames !== undefined ? { warmupRemainingFrames: frame.shuttle.warmupRemainingFrames } : {}),
+          ...(frame.shuttle.validity !== undefined ? { validity: frame.shuttle.validity } : {}),
+          ...(frame.shuttle.evidenceFusion !== undefined ? { evidenceFusion: frame.shuttle.evidenceFusion } : {}),
           ...(typeof (frame.shuttle.cameraSegmentId || frame.shuttle.camera_segment_id) === 'string'
             ? { cameraSegmentId: frame.shuttle.cameraSegmentId || frame.shuttle.camera_segment_id }
             : {}),

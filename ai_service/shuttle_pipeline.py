@@ -352,6 +352,7 @@ class ProductionShuttlePipeline:
         frame_index: int,
         camera_segment_id: Optional[str] = None,
         pipeline_run_id: Optional[str] = None,
+        scene_evidence: Optional[Dict[str, Any]] = None,
     ) -> Optional[ShuttleObservation]:
         """Process a single analyzed video frame and emit canonical ShuttleObservation.
 
@@ -386,7 +387,7 @@ class ProductionShuttlePipeline:
             return None
 
         try:
-            observation = active_tracker.process_frame(image, timestamp_sec, frame_index)
+            observation = active_tracker.process_frame(image, timestamp_sec, frame_index, scene_evidence=scene_evidence) if scene_evidence is not None else active_tracker.process_frame(image, timestamp_sec, frame_index)
             self.last_failure = None
             if observation is not None:
                 if observation.camera_segment_id is None:
@@ -428,6 +429,7 @@ class ProductionShuttlePipeline:
                 camera_segment_id=camera_segment_id or self.current_camera_segment_id,
                 pipeline_run_id=pipeline_run_id or self.current_pipeline_run_id,
             )
+            obs.set_frame_validity("LOST", 0, "inference_failure")
             return self._record_observation(obs)
         except Exception as err:
             logger.error('Shuttle processing failed (%s)', type(err).__name__)

@@ -147,19 +147,31 @@ class TestCutCalibrationSafety(unittest.TestCase):
             self.assertEqual(later["cameraSegmentId"], "segment-1")
 
     def test_manual_recalibration_creates_new_identity_without_distance_bridge(self):
+        # Calibration recovery is independent of sports identity recovery.
+        # Give the returning person matching torso evidence in both views.
+        def person_frame(background):
+            image = background.copy()
+            image[150:260, self.feet_x - 20:self.feet_x + 20] = (20, 20, 210)
+            return image
+        new_view = replay_frame()
+        # Keep actual court edge evidence in the recovered view; an unrelated
+        # replay/background cannot validate a court homography over time.
+        cv2.polylines(new_view, [np.array(self.corners, dtype=np.int32)], True, (230, 230, 230), 3)
         self.analyzer.set_court_corners(self.corners)
-        first = self.analyzer.process_frame(court_frame(), timestamp_sec=0.0)
+        first = self.analyzer.process_frame(person_frame(court_frame()), timestamp_sec=0.0)
         self.feet_x = 200
-        moved = self.analyzer.process_frame(court_frame(), timestamp_sec=1.0)
+        moved = self.analyzer.process_frame(person_frame(court_frame()), timestamp_sec=1.0)
         previous_distance = moved["players"][0]["totalDistanceM"]
         self.assertGreater(previous_distance, 0)
 
-        self.analyzer.process_frame(replay_frame(), timestamp_sec=2.0)
-        lost = self.analyzer.process_frame(replay_frame(), timestamp_sec=3.0)
+        self.analyzer.process_frame(person_frame(new_view), timestamp_sec=2.0)
+        lost = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=3.0)
         self.assertEqual(lost["players"][0]["totalDistanceM"], previous_distance)
         self.feet_x = 470
         self.analyzer.set_court_corners(self.corners)
-        restored = self.analyzer.process_frame(replay_frame(), timestamp_sec=4.0)
+        pending = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=4.0)
+        self.assertIsNone(pending["players"][0]["courtPosition"])
+        restored = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=5.0)
         self.assertEqual(restored["calibrationState"], "CALIBRATED")
         self.assertEqual(restored["cameraSegmentId"], lost["cameraSegmentId"])
         self.assertNotEqual(restored["calibrationId"], first["calibrationId"])

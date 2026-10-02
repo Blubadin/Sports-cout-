@@ -157,7 +157,11 @@ class TestSceneLifecycleAndSegmentManager(unittest.TestCase):
 
         # Calibrate segment-2
         self.analyzer.set_court_corners(self.corners)
-        restored = self.analyzer.process_frame(court_frame((180, 150, 220, 260)), timestamp_sec=0.4)
+        for timestamp in (0.4, 0.5):
+            pending = self.analyzer.process_frame(court_frame((180, 150, 220, 260)), timestamp_sec=timestamp)
+            self.assertIsNone(pending["players"][0]["trackId"])
+            self.assertIsNone(pending["players"][0]["courtPosition"])
+        restored = self.analyzer.process_frame(court_frame((180, 150, 220, 260)), timestamp_sec=0.6)
         self.assertEqual(restored["sceneState"], SceneState.COURT_PLAY.value)
         self.assertEqual(restored["cameraSegmentId"], "segment-2")
         self.assertTrue(restored["isMetricValid"])

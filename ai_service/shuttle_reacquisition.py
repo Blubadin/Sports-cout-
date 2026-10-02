@@ -111,7 +111,15 @@ class RecoveringShuttleTracker:
         p, r = self._last.position_px, self.config.local_radius_px
         return (max(0, p.x-r), max(0, p.y-r), min(width-1, p.x+r), min(height-1, p.y+r))
 
-    def process_frame(self, image, timestamp_sec, frame_index):
+    def process_frame(self, image, timestamp_sec, frame_index, scene_evidence=None):
+        result = self._process_frame(image, timestamp_sec, frame_index, scene_evidence)
+        remaining = max(0, self.temporal.config.window_size - self.temporal.buffered_frame_count) if hasattr(self.temporal, "config") else 0
+        result.set_frame_validity(self.state.value, remaining)
+        if result.evidence_fusion is None:
+            result.evidence_fusion = getattr(self, "_frame_evidence", None)
+        return result
+
+    def _process_frame(self, image, timestamp_sec, frame_index, scene_evidence):
         if self._closed:
             raise ValueError('stream has ended')
         if (type(frame_index) is not int or frame_index < 0 or not math.isfinite(timestamp_sec)
@@ -122,7 +130,8 @@ class RecoveringShuttleTracker:
             self._pending = None
             self._confirmations = 0
         self._last_input = (frame_index, timestamp_sec)
-        raw = self.temporal.process_frame(image, timestamp_sec, frame_index)
+        raw = self.temporal.process_frame(image, timestamp_sec, frame_index, scene_evidence=scene_evidence) if scene_evidence is not None else self.temporal.process_frame(image, timestamp_sec, frame_index)
+        self._frame_evidence = raw.evidence_fusion
         temporal_warming_up = self.temporal.is_warming_up
         valid_image = getattr(image, 'ndim', 0) == 3 and image.shape[2] == 3 and min(image.shape[:2]) > 0
         height, width = image.shape[:2] if valid_image else (0, 0)

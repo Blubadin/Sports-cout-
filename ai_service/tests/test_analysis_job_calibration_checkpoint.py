@@ -65,6 +65,68 @@ class TestCalibrationCheckpointBoundary(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+    def test_cut_identity_gate_survives_checkpoint_without_prior_appearance(self):
+        session_id = self._create_ready_demo()
+        session = server.tracking_sessions[session_id]
+        session.status = "PROCESSING"
+        session.analyzer.start_camera_segment()
+        session.current_frame = 1
+        session.analyzed_frames = 1
+        session.analyzer.frame_count = 1
+        server._append_session_result(session, {
+            "frameIndex": 1, "timestampSec": 1 / 30,
+            "cameraSegmentId": "segment-1", "players": [],
+        })
+        server._commit_pending_results(session)
+        checkpoint = server.analysis_job_store.get_job(session_id)["checkpoint"]
+        self.assertTrue(checkpoint["identityProfiles"]["1"]["needsReacquisition"])
+        server.analysis_job_store.update_job(session_id, {"status": "PROCESSING"})
+        server.analysis_job_store = AnalysisJobStore(Path(self.temp_dir.name))
+        server.tracking_sessions.clear()
+        restored = server._restore_persisted_session(session_id)
+        self.assertTrue(restored.analyzer.profiles[1].identity_needs_reacquisition)
+        restored.analyzer._detector = "fixture"
+        restored.analyzer.detect_and_track = lambda _: [{
+            "bbox": [500, 200, 540, 350], "center": (520, 350), "conf": .9, "track_id": 99,
+        }]
+        for index in range(2, 8):
+            frame = restored.analyzer.process_frame(np.full((720, 1280, 3), 120, dtype=np.uint8), index / 30)
+            self.assertTrue(all(p["trackId"] is None for p in frame["players"]))
+            self.assertEqual(frame["rawPlayerDetections"][0]["trackId"], 99)
+
+    def test_warmup_frame_survives_backend_chunk_journal_restart_and_results_api(self):
+        from shuttle_pipeline import create_shuttle_pipeline
+        from shuttle_tracker import ShuttleTrackerProvider, TemporalModelOutput
+        from shuttle_telemetry import TrackingFrame
+
+        class Provider(ShuttleTrackerProvider):
+            def infer(self, frames):
+                return TemporalModelOutput(np.zeros((48, 64), dtype=np.float32))
+
+        session_id = self._create_ready_demo()
+        session = server.tracking_sessions[session_id]
+        session.status = "PROCESSING"
+        session.analyzer._detector = "dummy"
+        session.analyzer.detect_and_track = lambda _: []
+        session.analyzer.shuttle_pipeline = create_shuttle_pipeline({
+            "shuttle_enabled": True, "shuttle_window_size": 3,
+            "shuttle_recovery_enabled": False,
+        }, custom_provider=Provider())
+        frame = session.analyzer.process_frame(np.zeros((480, 640, 3), dtype=np.uint8), 1 / 30)
+        self.assertEqual(frame["shuttle"]["trackingState"], "WARMING_UP")
+        session.current_frame = 1
+        session.analyzed_frames = 1
+        server._append_session_result(session, frame)
+        server._commit_pending_results(session)
+        server._persist_session_job(session, status="PROCESSING")
+        server.analysis_job_store = AnalysisJobStore(Path(self.temp_dir.name))
+        server.tracking_sessions.clear()
+        response = self.client.get(f"/api/tracking/sessions/{session_id}/results", params={"after": 0, "limit": 1})
+        self.assertEqual(response.status_code, 200, response.text)
+        persisted = response.json()["telemetry"][0]
+        self.assertEqual(persisted["shuttle"], frame["shuttle"])
+        self.assertEqual(TrackingFrame.from_dict(persisted).to_dict()["shuttle"], frame["shuttle"])
+
     def test_stride_resume_uses_last_sampled_observation_and_does_not_duplicate_boundary(self):
         session_id = self._create_ready_demo()
         session = server.tracking_sessions[session_id]
