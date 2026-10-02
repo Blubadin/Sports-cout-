@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import React from 'react';
 import BadmintonTrackingLab from '../../../src/components/labs/BadmintonTrackingLab';
@@ -11,12 +11,13 @@ import type { TrackingSessionStatus } from '../../../src/types';
 // Mock dependencies
 vi.mock('../../../src/services/aiTrackingService', () => ({
   aiTrackingService: {
-    listSessions: vi.fn().mockResolvedValue([]),
+    listSessions: vi.fn().mockResolvedValue({ sessions: [], nextCursor: null, maximumPageSize: 250, recoveryIssues: [], recoveryIssueCount: 0, recoveryIssuesTruncated: false, pageIssues: [], pageIssueCount: 0, pageIssuesTruncated: false }),
     getSessionStatus: vi.fn(),
     createSession: vi.fn(),
     uploadSessionVideo: vi.fn(),
     calibrateSession: vi.fn(),
     startSessionAnalysis: vi.fn(),
+    cancelSessionAnalysis: vi.fn().mockResolvedValue({ status: 'cancellation_requested' }),
     deleteSession: vi.fn().mockResolvedValue(undefined),
     getSessionResults: vi.fn().mockResolvedValue({ telemetry: [], nextCursor: 1 }),
     checkBackendHealth: vi.fn().mockResolvedValue(true),
@@ -52,6 +53,11 @@ vi.mock('../../../src/context/WorkspaceContext', () => ({
 describe('Phase 0.1 — Tracking Navigation Persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    trackingStorage.setTrackingStorageDriver(new trackingStorage.MemoryTrackingDriver());
+    vi.mocked(aiTrackingService.getSessionResults).mockResolvedValue({
+      telemetry: [], nextCursor: 0, totalSampleCount: 0, sampleCount: 0,
+    } as any);
+    vi.mocked(aiTrackingService.cancelSessionAnalysis).mockResolvedValue({ status: 'cancellation_requested' });
     vi.mocked(useWorkspace).mockReturnValue({ activeProjectId: 'project-1' } as any);
     trackingSessionStore.updateProjectState('project-1', createDefaultProjectTrackingState('project-1'));
     trackingSessionStore.updateProjectState('project-2', createDefaultProjectTrackingState('project-2'));
@@ -274,7 +280,7 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       sessionId: 'session_bg_complete',
       status: 'PROCESSING',
       progress: 40,
-      cursor: 4,
+      cursor: 5,
       telemetry: [],
       file: mockFile,
       videoFingerprint: computeVideoFingerprint(mockFile),
@@ -284,8 +290,8 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
     vi.mocked(aiTrackingService.getSessionResults).mockResolvedValue({
       sessionId: 'session_bg_complete',
       status: 'COMPLETED',
-      sampleCount: 2,
-      totalSampleCount: 2,
+      sampleCount: 1,
+      totalSampleCount: 6,
       nextCursor: 6,
       telemetry: [
         {
@@ -310,7 +316,7 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       ],
     } as any);
 
-    const persistSpy = vi.spyOn(trackingSessionStore, 'persistCompletedAnalysis');
+    const persistSpy = vi.spyOn(trackingSessionStore, 'persistCompletedAnalysis').mockResolvedValue();
 
     // Mount Lab (user returns from Scout)
     render(<BadmintonTrackingLab />);
@@ -318,6 +324,59 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
     // Should recognize COMPLETED and persist
     await waitFor(() => {
       expect(persistSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does not query completed results with a stale-ahead localStorage cursor', async () => {
+    setupStoreWithSession('PROCESSING', 'session_cursor_ahead');
+    trackingSessionStore.updateProjectState('project-1', { cursor: 450 });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(
+      mockStatus('COMPLETED', { committedResultCursor: 300, progressPct: 100 }) as any,
+    );
+    const resultsSpy = vi.mocked(aiTrackingService.getSessionResults);
+    const persistSpy = vi.spyOn(trackingSessionStore, 'persistCompletedAnalysis').mockResolvedValue();
+
+    render(<BadmintonTrackingLab />);
+
+    await waitFor(() => expect(persistSpy).toHaveBeenCalledTimes(1));
+    expect(resultsSpy).not.toHaveBeenCalled();
+  });
+
+  it('clamps live result polling to the backend committed cursor when local state is ahead', async () => {
+    setupStoreWithSession('PROCESSING', 'session_cursor_ahead_live');
+    trackingSessionStore.updateProjectState('project-1', { cursor: 450 });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(
+      mockStatus('PROCESSING', { committedResultCursor: 300, progressPct: 75 }) as any,
+    );
+    vi.mocked(aiTrackingService.getSessionResults).mockResolvedValue({
+      telemetry: [], nextCursor: 300, totalSampleCount: 300, sampleCount: 0,
+    } as any);
+
+    const view = render(<BadmintonTrackingLab />);
+
+    await waitFor(() => expect(aiTrackingService.getSessionResults).toHaveBeenCalledWith(
+      'session_cursor_ahead_live', 300,
+    ));
+    expect(trackingSessionStore.getProjectState('project-1')?.cursor).toBe(300);
+    view.unmount();
+  });
+
+  it('surfaces completed-analysis storage failure instead of leaving the session COMPLETED', async () => {
+    setupStoreWithSession('PROCESSING', 'session_completion_write_failure');
+    trackingSessionStore.updateProjectState('project-1', { cursor: 450 });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(
+      mockStatus('COMPLETED', { committedResultCursor: 300, progressPct: 100 }) as any,
+    );
+    vi.spyOn(trackingSessionStore, 'persistCompletedAnalysis').mockRejectedValueOnce(
+      new Error('IndexedDB write quota exceeded'),
+    );
+
+    render(<BadmintonTrackingLab />);
+
+    await waitFor(() => {
+      const state = trackingSessionStore.getProjectState('project-1');
+      expect(state?.status).toBe('ERROR');
+      expect(state?.error).toMatch(/quota exceeded/i);
     });
   });
 
@@ -359,8 +418,8 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
     expect(screen.getByText(/Analyzing 75%/i)).toBeInTheDocument();
   });
 
-  it('explicit cancel still cancels: calls deleteSession and resets project store state', async () => {
-    const deleteSessionSpy = vi.spyOn(aiTrackingService, 'deleteSession').mockResolvedValue();
+  it('explicit cancel requests a checkpointed stop and keeps the session resumable', async () => {
+    const cancelAnalysisSpy = vi.spyOn(aiTrackingService, 'cancelSessionAnalysis').mockResolvedValue({ status: 'cancellation_requested' });
     const mockFile = new File(['video'], 'match.mp4', { type: 'video/mp4' });
 
     trackingSessionStore.updateProjectState('project-1', {
@@ -371,18 +430,26 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       videoFingerprint: computeVideoFingerprint(mockFile),
     });
     vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockStatus('PROCESSING', { progressPct: 30 }) as any);
+    vi.mocked(aiTrackingService.cancelSessionAnalysis).mockImplementationOnce(async () => {
+      vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(mockStatus('CANCELLED', { progressPct: 30 }) as any);
+      return { status: 'cancellation_requested' };
+    });
 
     render(<BadmintonTrackingLab />);
     const cancelBtn = await screen.findByRole('button', { name: /Cancel analysis/i });
     fireEvent.click(cancelBtn);
 
     await waitFor(() => {
-      expect(deleteSessionSpy).toHaveBeenCalledWith('session_to_cancel');
+      expect(cancelAnalysisSpy).toHaveBeenCalledWith('session_to_cancel');
     });
 
     const state = trackingSessionStore.getProjectState('project-1');
-    expect(state?.sessionId).toBeNull();
-    expect(state?.status).toBe('IDLE');
+    await waitFor(() => expect(trackingSessionStore.getProjectState('project-1')?.status).toBe('CANCELLED'));
+    expect(state?.sessionId).toBe('session_to_cancel');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('project isolation: Project A tracking state does NOT bleed into Project B, switching back restores Project A', async () => {
@@ -432,10 +499,11 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       gameType: 'singles',
       status: 'completed',
       players: [],
+      summary: { durationSeconds: 0, sampleCount: 0, players: {} },
     };
 
-    vi.spyOn(trackingStorage, 'listTrackingAnalyses').mockResolvedValue([mockRecord]);
-    vi.spyOn(trackingStorage, 'getTrackingSampleChunks').mockResolvedValue([]);
+    vi.spyOn(trackingStorage, 'getLatestTrackingAnalysisForProject').mockResolvedValue(mockRecord);
+    vi.spyOn(trackingStorage, 'getTrackingSampleChunkPage').mockResolvedValue({ chunks: [], nextCursor: null, hasMore: false });
 
     render(<BadmintonTrackingLab />);
 

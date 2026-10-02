@@ -2,6 +2,7 @@ import React from 'react';
 import type { TrackingTelemetryV1 } from '../../types';
 import type { ShuttleObservation } from '../../types/shuttleTelemetry';
 import { deriveOverlayFreshnessToleranceSec } from './TrackingVideoOverlay';
+import { framesForCameraSegmentAtTime } from './trackingOverlayWindow';
 
 export type ShuttleMode = 'off' | 'point' | 'trail' | 'debug';
 export function resolveShuttle(frames: TrackingTelemetryV1[], time: number) {
@@ -27,13 +28,14 @@ function positioned(s: ShuttleObservation | null | undefined): s is ShuttleObser
 export function ShuttleOverlay({ frames, time, mode, width, height, trailSeconds = 0.6 }: {
   frames: TrackingTelemetryV1[]; time: number; mode: ShuttleMode; width: number; height: number; trailSeconds?: number;
 }) {
-  const current = resolveShuttle(frames, time);
+  const segmentFrames = framesForCameraSegmentAtTime(frames, time);
+  const current = resolveShuttle(segmentFrames, time);
   if (mode === 'off' || width <= 0 || height <= 0) return null;
   const radius = width / 220;
   const valid = (s: ShuttleObservation | null | undefined) => positioned(s)
     && s.positionPx.x >= 0 && s.positionPx.x < width && s.positionPx.y >= 0 && s.positionPx.y < height;
   // Individual trail marks preserve gaps and provenance; never connect across loss.
-  const trail = mode === 'trail' || mode === 'debug' ? frames.filter(f =>
+  const trail = mode === 'trail' || mode === 'debug' ? segmentFrames.filter(f =>
     f.timestampSec < time && f.timestampSec >= time - Math.min(2, Math.max(0, trailSeconds))
     && f.shuttle?.frameIndex !== current?.frameIndex
     && f.shuttle?.frameIndex === f.frameIndex && Math.abs(f.shuttle.timestampSec - f.timestampSec) < 0.001
@@ -64,8 +66,9 @@ export function ShuttleControls({ mode, onChange }: { mode: ShuttleMode; onChang
 }
 
 export function ShuttleDiagnostics({ frames, time }: { frames: TrackingTelemetryV1[]; time: number }) {
-  const current = resolveShuttle(frames, time);
-  const raw = frames.filter(f => f.timestampSec <= time).flatMap(f => f.shuttle ? [f.shuttle] : []);
+  const segmentFrames = framesForCameraSegmentAtTime(frames, time);
+  const current = resolveShuttle(segmentFrames, time);
+  const raw = segmentFrames.filter(f => f.timestampSec <= time).flatMap(f => f.shuttle ? [f.shuttle] : []);
   const percent = (state: string) => raw.length ? `${(100 * raw.filter(s => s.state === state).length / raw.length).toFixed(1)}%` : '—';
   return <dl aria-label="Shuttle diagnostics" className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400 border border-slate-800 rounded p-2">
     {Object.entries({ State: current?.state ?? '—', Confidence: current?.confidence == null ? '—' : current.confidence.toFixed(2),

@@ -22,12 +22,17 @@ import {
 } from './aiTrackingService';
 import {
   saveTrackingAnalysis,
-  listTrackingAnalyses,
-  getLatestTrackingAnalysis,
-  getTrackingSampleChunks,
-  downsampleAndChunkTrackingSamples,
+  getTrackingAnalysis,
+  getTrackingSampleChunkPage,
+  deleteTrackingTelemetryPages,
+  getTrackingTelemetryPage,
+  saveTrackingAnalysisRecord,
+  saveTrackingSampleChunks,
+  saveTrackingTelemetryPage,
+  TrackingAnalysisStreamBuilder,
   calculateNominalAnalysisHz,
   calculateEffectiveStoredHz,
+  MAX_TRACKING_PAGE_SIZE,
   type TrackingAnalysis,
   type TrackingSampleChunk,
 } from './storage/trackingStorage';
@@ -49,7 +54,7 @@ export interface ProjectTrackingState {
   trackedPlayerCount: number;
   corners: number[][];
   processingConfig: ProcessingConfig;
-  status: 'IDLE' | 'CREATED' | 'UPLOADING' | 'VIDEO_READY' | 'READY_TO_ANALYZE' | 'PROCESSING' | 'COMPLETED' | 'ERROR';
+  status: 'IDLE' | 'CREATED' | 'UPLOADING' | 'VIDEO_READY' | 'READY_TO_ANALYZE' | 'PROCESSING' | 'CANCEL_REQUESTED' | 'CANCELLED' | 'INTERRUPTED' | 'COMPLETED' | 'ERROR';
   progress: number;
   currentFrame: number;
   totalFrames: number;
@@ -60,16 +65,35 @@ export interface ProjectTrackingState {
   sessionStatus: TrackingSessionStatus | null;
   analysis: TrackingAnalysis | null;
   chunks: TrackingSampleChunk[];
+  chunksNextCursor: number | null;
+  chunksHasMore: boolean;
   isPersisting: boolean;
   uiPreferences: ProjectTrackingUIPreferences;
+}
+
+export const MAX_LIVE_TELEMETRY_FRAMES = 512;
+
+export function mergeBoundedTelemetry(
+  current: TrackingTelemetryV1[],
+  incoming: TrackingTelemetryV1[],
+  maximum = MAX_LIVE_TELEMETRY_FRAMES,
+): TrackingTelemetryV1[] {
+  const pageKeys = new Set<string>();
+  const unique = incoming.filter((frame) => {
+    const key = `${frame.frameIndex}:${frame.timestampSec}`;
+    if (pageKeys.has(key)) return false;
+    pageKeys.add(key);
+    return true;
+  });
+  return [...current, ...unique].slice(-maximum);
 }
 
 export function getDefaultProcessingConfig(): ProcessingConfig {
   return {
     profile: 'auto',
     device: 'auto',
-    detectorInputSize: 512,
-    useCourtRoi: true,
+    detectorInputSize: 640,
+    useCourtRoi: false,
     courtRoiMarginPx: 60,
     frameStride: 2,
     poseStride: 1,
@@ -100,6 +124,8 @@ export function createDefaultProjectTrackingState(projectId: string): ProjectTra
     sessionStatus: null,
     analysis: null,
     chunks: [],
+    chunksNextCursor: null,
+    chunksHasMore: false,
     isPersisting: false,
     uiPreferences: {
       overlayMode: 'skeleton',
@@ -272,6 +298,26 @@ class TrackingSessionStore {
     const state = this.states.get(projectId);
     if (!state) return;
 
+    const timer = this.pollTimers.get(projectId);
+    if (timer) {
+      clearTimeout(timer);
+      this.pollTimers.delete(projectId);
+    }
+
+    if (state.sessionId && ['PROCESSING', 'CANCEL_REQUESTED'].includes(state.status)) {
+      try {
+        await aiTrackingService.cancelSessionAnalysis(state.sessionId);
+      } catch (error) {
+        state.error = `Unable to request analysis cancellation: ${error instanceof Error ? error.message : 'connection error'}`;
+        this.notify(projectId);
+        throw error;
+      }
+      state.status = 'CANCEL_REQUESTED';
+      state.error = null;
+      this.notify(projectId);
+      return;
+    }
+
     // Abort in-flight upload
     const uploadCtrl = this.uploadControllers.get(projectId);
     if (uploadCtrl) {
@@ -279,19 +325,14 @@ class TrackingSessionStore {
       this.uploadControllers.delete(projectId);
     }
 
-    // Clear polling timer
-    const timer = this.pollTimers.get(projectId);
-    if (timer) {
-      clearTimeout(timer);
-      this.pollTimers.delete(projectId);
-    }
-
     // Delete session from backend
     if (state.sessionId) {
       try {
         await aiTrackingService.deleteSession(state.sessionId);
-      } catch {
-        // Backend might already have cleaned it up
+      } catch (error) {
+        state.error = `Unable to delete tracking session: ${error instanceof Error ? error.message : 'connection error'}`;
+        this.notify(projectId);
+        throw error;
       }
     }
 
@@ -334,23 +375,32 @@ class TrackingSessionStore {
   /**
    * Appends newly received frames into the project state, deduplicating by frameIndex + timestampSec.
    */
-  public appendTelemetry(projectId: string, newFrames: TrackingTelemetryV1[], nextCursor: number): void {
+  public async appendTelemetry(projectId: string, newFrames: TrackingTelemetryV1[], nextCursor: number): Promise<void> {
     const state = this.states.get(projectId);
-    if (!state || newFrames.length === 0) {
-      if (state) {
-        state.cursor = nextCursor;
-        this.notify(projectId);
+    if (!state || nextCursor < state.cursor) return;
+    if (newFrames.length > 0 && state.sessionId && nextCursor > state.cursor) {
+      if (nextCursor - state.cursor !== newFrames.length) {
+        throw new Error('Tracking result page cursor does not match its frame count');
       }
-      return;
+      const realFrames = newFrames.filter(
+        (frame) => frame.isSynthetic !== true && frame.source !== 'synthetic_demo'
+      );
+      if (realFrames.length > 0 && realFrames.length !== newFrames.length) {
+        throw new Error('Backend result page mixed synthetic and real tracking frames');
+      }
+      if (realFrames.length === newFrames.length) {
+        await saveTrackingTelemetryPage({
+          id: `${state.sessionId}:${String(state.cursor).padStart(20, '0')}`,
+          analysisId: state.sessionId,
+          startCursor: state.cursor,
+          endCursor: nextCursor,
+          frames: realFrames,
+        });
+      }
     }
-
-    const existingMap = new Set(state.telemetry.map((f) => `${f.frameIndex}:${f.timestampSec}`));
-    const unique = newFrames.filter((f) => !existingMap.has(`${f.frameIndex}:${f.timestampSec}`));
-
-    if (unique.length > 0) {
-      state.telemetry.push(...unique);
-    }
+    state.telemetry = mergeBoundedTelemetry(state.telemetry, newFrames);
     state.cursor = nextCursor;
+    this.saveToStorage(projectId);
     this.notify(projectId);
   }
 
@@ -365,51 +415,167 @@ class TrackingSessionStore {
     state.isPersisting = true;
 
     try {
-      const realTelemetry = state.telemetry.filter(
-        (frame) => frame.isSynthetic !== true && frame.source !== 'synthetic_demo'
-      );
-      if (realTelemetry.length === 0) {
-        state.analysis = null;
-        state.chunks = [];
-        state.status = 'COMPLETED';
+      const sessionId = state.sessionId;
+      const existingAnalysis = await getTrackingAnalysis(sessionId);
+      if (existingAnalysis?.status === "completed") {
+        state.analysis = existingAnalysis;
+        const chunkPage = await getTrackingSampleChunkPage(sessionId, -1, MAX_TRACKING_PAGE_SIZE);
+        state.chunks = chunkPage.chunks;
+        state.chunksNextCursor = chunkPage.nextCursor;
+        state.chunksHasMore = chunkPage.hasMore;
+        const committedCursor = state.sessionStatus?.committedResultCursor;
+        if (typeof committedCursor === 'number' && Number.isSafeInteger(committedCursor) && committedCursor >= 0) {
+          state.cursor = committedCursor;
+          this.saveToStorage(projectId);
+        }
+        state.status = "COMPLETED";
         state.progress = 100;
         return;
       }
-
       const count = state.trackedPlayerCount;
       const expectedIds = Array.from({ length: count }, (_, i) => `P${i + 1}`);
       const canonicalMetrics: Record<string, { totalDistanceM?: number }> = Object.fromEntries(
         expectedIds.map((playerId) => [playerId, {}])
       );
-      if (state.sessionStatus?.players) {
-        for (const lp of state.sessionStatus.players) {
-          if (lp.playerId && typeof lp.totalDistanceM === 'number' && Number.isFinite(lp.totalDistanceM)) {
-            canonicalMetrics[lp.playerId] = { totalDistanceM: lp.totalDistanceM };
-          }
+      for (const player of state.sessionStatus?.players ?? []) {
+        if (player.playerId && typeof player.totalDistanceM === 'number' && Number.isFinite(player.totalDistanceM)) {
+          canonicalMetrics[player.playerId] = { totalDistanceM: player.totalDistanceM };
         }
       }
 
-      const saved = downsampleAndChunkTrackingSamples(
-        state.sessionId,
-        realTelemetry,
-        10,
-        15,
-        canonicalMetrics
-      );
+      let totalSampleCount = state.sessionStatus?.committedResultCursor;
+      if (typeof totalSampleCount === 'number' && (!Number.isSafeInteger(totalSampleCount) || totalSampleCount < 0)) {
+        throw new Error('Backend committed result cursor is invalid');
+      }
+      if (typeof totalSampleCount !== 'number') {
+        totalSampleCount = state.cursor || state.telemetry.length;
+        const realFrames = state.telemetry.filter(
+          (frame) => frame.isSynthetic !== true && frame.source !== 'synthetic_demo'
+        );
+        if (realFrames.length > 0 && realFrames.length !== state.telemetry.length) {
+          throw new Error('Local telemetry mixed synthetic and real tracking frames');
+        }
+        if (state.cursor === 0 && realFrames.length > 0) {
+          for (let offset = 0; offset < realFrames.length; offset += MAX_TRACKING_PAGE_SIZE) {
+            const frames = realFrames.slice(offset, offset + MAX_TRACKING_PAGE_SIZE);
+            await saveTrackingTelemetryPage({
+              id: `${sessionId}:${String(offset).padStart(20, '0')}`,
+              analysisId: sessionId,
+              startCursor: offset,
+              endCursor: offset + frames.length,
+              frames,
+            });
+          }
+        } else if (realFrames.length === 0) {
+          // Synthetic demo frames are intentionally excluded from browser persistence.
+          totalSampleCount = 0;
+        }
+      }
 
-      const observedPlayerIds = new Set<string>();
-      realTelemetry.forEach((f) => f.players.forEach((p) => observedPlayerIds.add(p.playerId)));
-      const effectiveIds = Array.from(new Set([...expectedIds, ...observedPlayerIds])).sort();
+      // Repair gaps from an older browser cursor before turning the raw result pages into saved chunks.
+      let resultCursor = 0;
+      let realFrameCount = 0;
+      while (resultCursor < totalSampleCount) {
+        const localPage = await getTrackingTelemetryPage(sessionId, resultCursor);
+        if (localPage && localPage.startCursor <= resultCursor && localPage.endCursor > resultCursor) {
+          if (localPage.frames.length !== localPage.endCursor - localPage.startCursor) {
+            throw new Error(`Persisted telemetry page length does not match its cursor range at ${localPage.startCursor}`);
+          }
+          const coveredEnd = Math.min(localPage.endCursor, totalSampleCount);
+          realFrameCount += coveredEnd - resultCursor;
+          resultCursor = coveredEnd;
+          continue;
+        }
+
+        const gapEnd = localPage?.startCursor != null && localPage.startCursor > resultCursor
+          ? Math.min(localPage.startCursor, totalSampleCount)
+          : totalSampleCount;
+        const requestedLimit = localPage?.startCursor != null && localPage.startCursor > resultCursor
+          ? Math.min(MAX_TRACKING_PAGE_SIZE, gapEnd - resultCursor)
+          : MAX_TRACKING_PAGE_SIZE;
+        const page = await aiTrackingService.getSessionResults(sessionId, resultCursor, requestedLimit);
+        if (
+          page.nextCursor <= resultCursor ||
+          page.nextCursor > gapEnd ||
+          page.nextCursor > totalSampleCount ||
+          page.telemetry.length !== page.nextCursor - resultCursor
+        ) {
+          throw new Error(`Missing durable telemetry page at result cursor ${resultCursor}`);
+        }
+        const realFrames = page.telemetry.filter(
+          (frame) => frame.isSynthetic !== true && frame.source !== 'synthetic_demo'
+        );
+        if (realFrames.length > 0 && realFrames.length !== page.telemetry.length) {
+          throw new Error('Backend result page mixed synthetic and real tracking frames');
+        }
+        if (realFrames.length > 0) {
+          const storedPage = {
+            id: `${sessionId}:${String(resultCursor).padStart(20, '0')}`,
+            analysisId: sessionId,
+            startCursor: resultCursor,
+            endCursor: page.nextCursor,
+            frames: realFrames,
+          };
+          await saveTrackingTelemetryPage(storedPage);
+          realFrameCount += realFrames.length;
+        }
+        resultCursor = page.nextCursor;
+      }
+
+      // The backend committed cursor is the durable boundary; localStorage is only a hint.
+      state.cursor = totalSampleCount;
+      this.saveToStorage(projectId);
+      if (realFrameCount === 0) {
+        state.analysis = null;
+        state.chunks = [];
+        state.chunksNextCursor = null;
+        state.chunksHasMore = false;
+        state.status = 'COMPLETED';
+        state.progress = 100;
+        return;
+      }
+
+      const builder = new TrackingAnalysisStreamBuilder(sessionId, expectedIds, 10, 15);
+      builder.setCanonicalPlayerMetrics(canonicalMetrics);
+      let transformCursor = 0;
+      while (transformCursor < totalSampleCount) {
+        const page = await getTrackingTelemetryPage(sessionId, transformCursor);
+        if (!page || page.startCursor > transformCursor || page.endCursor <= transformCursor) {
+          throw new Error(`Persisted telemetry chunk gap at cursor ${transformCursor}`);
+        }
+        const offset = transformCursor - page.startCursor;
+        const committedLength = Math.min(page.endCursor, totalSampleCount) - transformCursor;
+        const frames = page.frames.slice(offset, offset + committedLength);
+        const chunks = builder.addFrames(frames);
+        if (chunks.length) await saveTrackingSampleChunks(chunks);
+        transformCursor = Math.min(page.endCursor, totalSampleCount);
+      }
+
+      let dispersionCursor = 0;
+      while (dispersionCursor < totalSampleCount) {
+        const page = await getTrackingTelemetryPage(sessionId, dispersionCursor);
+        if (!page || page.startCursor > dispersionCursor || page.endCursor <= dispersionCursor) {
+          throw new Error(`Persisted telemetry chunk gap during summary pass at cursor ${dispersionCursor}`);
+        }
+        const offset = dispersionCursor - page.startCursor;
+        const committedLength = Math.min(page.endCursor, totalSampleCount) - dispersionCursor;
+        builder.addDispersionFrames(page.frames.slice(offset, offset + committedLength));
+        dispersionCursor = Math.min(page.endCursor, totalSampleCount);
+      }
+      const finalChunks = builder.finishChunks();
+      if (finalChunks.length) await saveTrackingSampleChunks(finalChunks);
+      const saved = builder.finish();
+      const effectiveIds = [...new Set([...expectedIds, ...state.telemetry.flatMap((frame) => frame.players.map((player) => player.playerId))])].sort();
 
       const sourceFps = state.sessionStatus?.videoMetadata?.nominalFps ?? state.sessionStatus?.sourceFps;
       const frameStride = state.sessionStatus?.frameStride ?? state.processingConfig?.frameStride;
       const nominalAnalysisHz = calculateNominalAnalysisHz(sourceFps, frameStride);
-      const uniqueStoredTimestamps = new Set(
-        saved.chunks.flatMap((chunk) => chunk.samples.map((sample) => sample.timestamp))
-      ).size;
       const effectiveStoredHz = calculateEffectiveStoredHz(
-        uniqueStoredTimestamps,
+        saved.uniqueStoredTimestampCount,
         saved.summary.durationSeconds
+      );
+      const recentTelemetry = state.telemetry.filter(
+        (frame) => frame.isSynthetic !== true && frame.source !== 'synthetic_demo'
       );
 
       const record: TrackingAnalysis = {
@@ -420,8 +586,8 @@ class TrackingSessionStore {
         trackedPlayerCount: count,
         status: 'completed',
         videoFingerprint: state.videoFingerprint ?? undefined,
-        engineVersion: realTelemetry[0].engineVersion ?? '1.0.0',
-        detectorModel: state.sessionStatus?.runtimeProvenance?.detectorModel ?? realTelemetry[0].modelVersion ?? 'unknown',
+        engineVersion: recentTelemetry[0]?.engineVersion ?? '1.0.0',
+        detectorModel: state.sessionStatus?.runtimeProvenance?.detectorModel ?? recentTelemetry[0]?.modelVersion ?? 'unknown',
         trackerModel: state.sessionStatus?.runtimeProvenance?.trackerModel ?? 'unknown',
         poseModel: state.sessionStatus?.runtimeProvenance?.poseModel,
         sampleRateHz: effectiveStoredHz,
@@ -434,17 +600,16 @@ class TrackingSessionStore {
         effectiveDevice: state.sessionStatus?.effectiveDevice || state.sessionStatus?.device,
         runtimeProvenance: state.sessionStatus?.runtimeProvenance,
         calibrationTimeline: saved.calibrationTimeline,
-        imageObservations: saved.imageObservations,
         videoMetadata: state.sessionStatus?.videoMetadata,
         researchMetadata: state.sessionStatus?.researchMetadata,
         localFileName: state.localFileName ?? undefined,
-        analyzedFrames: state.sessionStatus?.analyzedFrames ?? realTelemetry.length,
+        analyzedFrames: state.sessionStatus?.analyzedFrames ?? totalSampleCount,
         totalFrames: state.sessionStatus?.totalFrames ?? state.totalFrames,
         processingConfig: state.processingConfig,
         performance: state.sessionStatus?.performance,
         qualityStats: state.sessionStatus?.quality,
         players: effectiveIds.map((playerId) => {
-          const lastObserved = [...realTelemetry]
+          const lastObserved = [...recentTelemetry]
             .reverse()
             .find((f) => f.players.some((p) => p.playerId === playerId));
           const pData = lastObserved?.players.find((p) => p.playerId === playerId);
@@ -462,11 +627,19 @@ class TrackingSessionStore {
         quality: saved.quality,
       };
 
-      await saveTrackingAnalysis(record, saved.chunks);
+      await saveTrackingAnalysisRecord(record);
       state.analysis = record;
-      state.chunks = saved.chunks;
+      const chunkPage = await getTrackingSampleChunkPage(sessionId, -1, MAX_TRACKING_PAGE_SIZE);
+      state.chunks = chunkPage.chunks;
+      state.chunksNextCursor = chunkPage.nextCursor;
+      state.chunksHasMore = chunkPage.hasMore;
       state.status = 'COMPLETED';
       state.progress = 100;
+      try {
+        await deleteTrackingTelemetryPages(sessionId);
+      } catch (error) {
+        state.error = `Analysis completed; temporary telemetry cleanup failed: ${error instanceof Error ? error.message : 'storage error'}`;
+      }
     } finally {
       state.isPersisting = false;
       this.notify(projectId);

@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import server
+from analysis_job_store import AnalysisJobStore
 from shuttle_pipeline import ShuttlePipelineConfig, create_shuttle_pipeline
 from ai_service.shuttle_tracker import (
     ShuttleTrackerProvider, ProviderAvailability, RuntimeUnavailableError,
@@ -28,6 +29,9 @@ class UploadSecurityTests(unittest.TestCase):
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.root = Path(self.folder.name)
+        prior_store = server.analysis_job_store
+        server.analysis_job_store = AnalysisJobStore(self.root / "jobs")
+        self.addCleanup(setattr, server, "analysis_job_store", prior_store)
         self.source = self.root / "match.avi"
         writer = cv2.VideoWriter(str(self.source), cv2.VideoWriter_fourcc(*"MJPG"), 30, (64, 48))
         self.assertTrue(writer.isOpened())
@@ -44,7 +48,7 @@ class UploadSecurityTests(unittest.TestCase):
         factory = tempfile.NamedTemporaryFile
         self.writes = []
         def tracked_tempfile(**kwargs):
-            target = factory(dir=self.root, **kwargs)
+            target = factory(**kwargs)
             target.write = Mock(wraps=target.write)
             self.writes.append(target.write)
             return target
@@ -57,7 +61,8 @@ class UploadSecurityTests(unittest.TestCase):
                                 content=self.video if payload is None else payload, **kwargs)
 
     def owned_files(self):
-        return list(self.root.glob('sportscout_*'))
+        folder = self.session.job_store.job_path(self.sid)
+        return list(folder.glob("source_*")) + list(folder.glob("upload_*"))
 
     def test_oversized_content_length_rejected_before_tempfile(self):
         with patch.dict(os.environ, {'SPORTSCOUT_AI_MAX_UPLOAD_BYTES': '10'}):
@@ -150,6 +155,17 @@ class UploadSecurityTests(unittest.TestCase):
         self.assertEqual(self.owned_files(), [previous])
         self.assertFalse(self.session._uploading)
 
+    def test_failed_journal_commit_preserves_previous_media_and_metadata(self):
+        self.assertEqual(self.upload().status_code, 200)
+        previous = self.session.owned_video_path
+        prior_hash = self.session.media_hash
+        with patch.object(self.session.job_store, "update_job", side_effect=PermissionError("denied")):
+            self.assertEqual(self.upload().status_code, 507)
+        self.assertEqual(self.session.owned_video_path, previous)
+        self.assertEqual(self.session.media_hash, prior_hash)
+        self.assertEqual(self.owned_files(), [previous])
+        self.assertTrue(previous.exists())
+
     def test_concurrent_upload_and_mutations_conflict(self):
         async def scenario():
             entered, release = asyncio.Event(), asyncio.Event()
@@ -193,7 +209,7 @@ class UploadSecurityTests(unittest.TestCase):
         self.assertEqual(self.owned_files(), [])
         self.assertFalse(self.session._uploading)
 
-    def test_worker_initialization_failure_cleans_owned_upload(self):
+    def test_worker_initialization_failure_retains_owned_media_for_recovery(self):
         self.assertEqual(self.upload().status_code, 200)
         self.session.status = 'READY_TO_ANALYZE'
         with patch('server.threading.Thread.start', side_effect=RuntimeError('C:/private/worker.py')):
@@ -201,18 +217,18 @@ class UploadSecurityTests(unittest.TestCase):
                 server.start_session_analysis(self.sid)
         self.assertEqual(caught.exception.status_code, 500)
         self.assertNotIn('C:/private', caught.exception.detail)
-        self.assertEqual(self.owned_files(), [])
-        self.assertIsNone(self.session.owned_video_path)
+        self.assertEqual(self.owned_files(), [self.session.owned_video_path])
+        self.assertTrue(self.session.owned_video_path.exists())
 
-    def test_decoder_initialization_failure_cleans_owned_upload(self):
+    def test_decoder_initialization_failure_retains_owned_media_for_recovery(self):
         self.assertEqual(self.upload().status_code, 200)
         with patch('server.cv2.VideoCapture', side_effect=RuntimeError('C:/private/decoder')):
             server._run_session_analysis(self.session)
         self.assertEqual(self.session.status, 'ERROR')
-        self.assertEqual(self.owned_files(), [])
+        self.assertEqual(self.owned_files(), [self.session.owned_video_path])
         self.assertNotIn('C:/private', self.session.error_message)
 
-    def test_decoder_metadata_failure_releases_capture_before_cleanup(self):
+    def test_decoder_metadata_failure_releases_capture_and_retains_media(self):
         self.assertEqual(self.upload().status_code, 200)
         real_capture = cv2.VideoCapture(self.session.video_source)
         self.addCleanup(real_capture.release)
@@ -223,7 +239,7 @@ class UploadSecurityTests(unittest.TestCase):
         try:
             self.assertFalse(real_capture.isOpened())
             self.assertEqual(self.session.status, 'ERROR')
-            self.assertEqual(self.owned_files(), [])
+            self.assertEqual(self.owned_files(), [self.session.owned_video_path])
         finally:
             real_capture.release()
 

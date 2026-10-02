@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -11,11 +12,16 @@ from analyzer_v2 import BadmintonAnalyzerV2, PlayerProfile
 from calibration_contract import CalibrationProvenance, CalibrationSource
 from semantic_identity import match_tracks_to_profiles_with_reid
 from fastapi.testclient import TestClient
+import server
 from server import app, tracking_sessions
+from analysis_job_store import AnalysisJobStore
 
 
 class TestCalibrationContract(unittest.TestCase):
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.prior_store = server.analysis_job_store
+        server.analysis_job_store = AnalysisJobStore(Path(self.temp_dir.name))
         self.analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1)
         self.analyzer._detector = "dummy"
         pose = MagicMock()
@@ -27,6 +33,11 @@ class TestCalibrationContract(unittest.TestCase):
         }]
         self.frame = np.zeros((500, 700, 3), dtype=np.uint8)
         self.corners = [[50, 50], [600, 50], [600, 450], [50, 450]]
+
+    def tearDown(self):
+        tracking_sessions.clear()
+        server.analysis_job_store = self.prior_store
+        self.temp_dir.cleanup()
 
     def test_new_calibration_has_segment_identity_and_unknown_quality(self):
         before = self.analyzer.process_frame(self.frame, timestamp_sec=0.0)
@@ -78,9 +89,12 @@ class TestCalibrationContract(unittest.TestCase):
         self.assertIsNone(player["speedMps"])
         self.assertIsNone(player["absoluteZone"])
         self.assertEqual(player["totalDistanceM"], distance)
-        self.assertIsNotNone(player["bboxPct"])
-        self.assertIsNotNone(player["pose"])
-        self.assertEqual(player["trackId"], 42)
+        self.assertIsNone(player["trackId"])
+        self.assertIsNone(player["bboxPct"])
+        self.assertIsNone(player.get("pose"))
+        raw_detection = next(d for d in lost["rawPlayerDetections"] if d["trackId"] == 42)
+        self.assertEqual(raw_detection["bboxPx"], [100, 100, 150, 200])
+        self.assertIsNotNone(raw_detection["pose"])
         self.assertEqual(lost["shuttle"]["positionPx"], {"x": 120, "y": 80})
 
         self.analyzer.set_court_corners(self.corners)
@@ -126,7 +140,10 @@ class TestCalibrationContract(unittest.TestCase):
         session = tracking_sessions[session_id]
         session.analyzer.detect_and_track = self.analyzer.detect_and_track
         session.analyzer._detector = "dummy"
-        session.results.append(session.analyzer.process_frame(self.frame, timestamp_sec=0.0))
+        telemetry_frame = session.analyzer.process_frame(self.frame, timestamp_sec=0.0)
+        session.current_frame = telemetry_frame["frameIndex"]
+        server._append_session_result(session, telemetry_frame)
+        server._commit_pending_results(session)
         result = client.get(f'/api/tracking/sessions/{session_id}/results').json()
         telemetry = result["telemetry"][0]
         self.assertEqual(telemetry["cameraSegmentId"], identity["cameraSegmentId"])

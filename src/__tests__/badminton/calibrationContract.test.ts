@@ -214,6 +214,20 @@ describe('calibration contract', () => {
     });
   });
 
+  it('preserves the options-object calibration contract alongside selected-frame calls', async () => {
+    const client = new TrackingSessionApiClient();
+    client.setBaseUrl('http://127.0.0.1:8000');
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) } as Response);
+    await client.calibrateSession('a1', [[1, 2], [3, 4], [5, 6], [7, 8]], 'singles', {
+      cameraSegmentId: 'segment-1', frameIndex: 8, timestampSec: 0.267, calibrationVersion: 'manual-2',
+    });
+    const request = vi.mocked(global.fetch).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual({
+      corners: [[1, 2], [3, 4], [5, 6], [7, 8]], game_type: 'singles',
+      camera_segment_id: 'segment-1', frame_index: 8, timestamp_sec: 0.267, calibration_version: 'manual-2',
+    });
+  });
+
   it('does not infer a zero confidence or map meters from an unknown state', () => {
     const unknown = frame(1, { calibrationState: 'UNRECOGNIZED', calibrationConfidence: 0 });
     expect(unknown.calibrationState).toBe('UNCALIBRATED');

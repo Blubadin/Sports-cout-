@@ -68,6 +68,10 @@ class BasePoseAdapter(ABC):
             f"Pose architecture '{self.architecture}' does not provide full-frame candidates"
         )
 
+    def get_provenance(self):
+        detector = getattr(self, '_detector', None)
+        return detector.get_provenance() if detector is not None else None
+
 
 class UltralyticsPoseAdapter(BasePoseAdapter):
     """
@@ -225,12 +229,7 @@ class UltralyticsFullFramePoseAdapter(BasePoseAdapter):
             return []
 
         try:
-            results = self._detector._model.predict(
-                frame,
-                conf=self._conf_threshold,
-                device=self._device,
-                verbose=False,
-            )
+            results = self._detector.predict(frame)
         except Exception as e:
             raise RuntimeError(
                 f"Full-frame pose estimation failed with model '{self._model_path}': {e}"

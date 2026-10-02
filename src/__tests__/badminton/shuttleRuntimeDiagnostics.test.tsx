@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import BadmintonTrackingLab, { deriveShuttleEngineStatus } from '../../components/labs/BadmintonTrackingLab';
 import { aiTrackingService } from '../../services/aiTrackingService';
+import { createDefaultProjectTrackingState, trackingSessionStore } from '../../services/trackingSessionStore';
 import type { ShuttleProvenance } from '../../types';
 
 let testProjectId = 'shuttle_diag_project_1';
@@ -71,7 +72,7 @@ describe('Phase 2.9C: Shuttle Runtime Diagnostics', () => {
         probeFailureReason: 'No local ONNX model artifact path configured',
       },
     });
-    vi.mocked(aiTrackingService.listSessions).mockResolvedValue({ sessions: [] });
+    vi.mocked(aiTrackingService.listSessions).mockResolvedValue({ sessions: [], nextCursor: null, maximumPageSize: 250, recoveryIssues: [], recoveryIssueCount: 0, recoveryIssuesTruncated: false, pageIssues: [], pageIssueCount: 0, pageIssuesTruncated: false });
   });
 
   describe('deriveShuttleEngineStatus status mapper', () => {
@@ -186,11 +187,17 @@ describe('Phase 2.9C: Shuttle Runtime Diagnostics', () => {
     it('renders measured zero as 0 and null/undefined as em dash —', async () => {
       const mockSessionStatus = {
         sessionId: 'session_diag_test',
+        runId: 'session_diag_test',
+        projectId: testProjectId,
+        videoFingerprint: 'fingerprint-shuttle-diagnostics',
         status: 'PROCESSING' as const,
         progressPct: 50,
         currentFrame: 100,
         totalFrames: 200,
         analyzedFrames: 100,
+        checkpointSequence: 0,
+        committedCursor: 0,
+        resumable: true,
         frameStride: 1,
         elapsedSec: 2.0,
         videoDurationSec: 6.0,
@@ -237,8 +244,22 @@ describe('Phase 2.9C: Shuttle Runtime Diagnostics', () => {
         } as ShuttleProvenance,
       };
 
+      trackingSessionStore.updateProjectState(testProjectId, {
+        ...createDefaultProjectTrackingState(testProjectId),
+        videoFingerprint: mockSessionStatus.videoFingerprint,
+        processingConfig: mockSessionStatus.processingConfig,
+      });
+
       vi.mocked(aiTrackingService.listSessions).mockResolvedValue({
         sessions: [mockSessionStatus as any],
+        nextCursor: null,
+        maximumPageSize: 250,
+        recoveryIssues: [],
+        recoveryIssueCount: 0,
+        recoveryIssuesTruncated: false,
+        pageIssues: [],
+        pageIssueCount: 0,
+        pageIssuesTruncated: false,
       });
       vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockSessionStatus as any);
 

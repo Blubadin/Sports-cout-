@@ -129,7 +129,7 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
       cudaAvailable: false,
       mpsAvailable: false,
     });
-    vi.mocked(aiTrackingService.listSessions).mockResolvedValue([]);
+    vi.mocked(aiTrackingService.listSessions).mockResolvedValue({ sessions: [], nextCursor: null, maximumPageSize: 250, recoveryIssues: [], recoveryIssueCount: 0, recoveryIssuesTruncated: false, pageIssues: [], pageIssueCount: 0, pageIssuesTruncated: false });
     vi.mocked(aiTrackingService.createSession).mockResolvedValue({
       sessionId: 'session_perf_1',
       status: 'READY',
@@ -200,6 +200,19 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
   });
 
   describe('BadmintonTrackingLab Performance Controls', () => {
+    it('keeps the reference workload when auto is selected without CUDA', async () => {
+      render(<BadmintonTrackingLab />);
+      await waitFor(() => expect(aiTrackingService.checkBackendHealth).toHaveBeenCalled());
+      const profileSelect = screen.getByLabelText('Performance profile');
+      fireEvent.change(profileSelect, { target: { value: 'fast' } });
+      fireEvent.change(profileSelect, { target: { value: 'auto' } });
+      fireEvent.click(screen.getByText(/Advanced settings/i));
+      expect(screen.getByLabelText('Detector Input Size')).toHaveValue('640');
+      expect(screen.getByLabelText('Frame Stride')).toHaveValue('2');
+      expect(screen.getByLabelText('Pose Stride')).toHaveValue('1');
+      expect(screen.getByLabelText('Court ROI Cropping')).not.toBeChecked();
+    });
+
     it('renders profile selector and toggles advanced settings drawer', async () => {
       render(<BadmintonTrackingLab />);
 
@@ -220,14 +233,14 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
       expect(screen.getByLabelText('Frame Stride')).toBeInTheDocument();
       expect(screen.getByLabelText('Pose Stride')).toBeInTheDocument();
       expect(screen.getByLabelText('Court ROI Cropping')).toBeInTheDocument();
-      expect(screen.getByRole('checkbox', { name: 'Enable Automatic Court Calibration' })).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Automatic court calibration', exact: true })).not.toBeChecked();
     });
 
     it('supports automatic calibration from video upload without manual corners', async () => {
       render(<BadmintonTrackingLab />);
       await waitFor(() => expect(aiTrackingService.checkBackendHealth).toHaveBeenCalled());
       fireEvent.click(screen.getByRole('button', { name: /Advanced settings/i }));
-      fireEvent.click(screen.getByRole('checkbox', { name: 'Enable Automatic Court Calibration' }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic court calibration', exact: true }));
 
       const fileInput = screen.getByLabelText('Select video file');
       fireEvent.change(fileInput, {

@@ -254,13 +254,46 @@ class TestSplitSafetyAndLeakageGuard(unittest.TestCase):
         self.assertEqual(len(grouped["court_2"]), 1)
 
 
-class TestBenchmarkProvenanceAndPathSanitization(unittest.TestCase):
     def test_path_sanitization_strips_sensitive_local_paths(self):
-        """Sanitizer preserves relative logical references and strips Windows/Unix user paths."""
+        """Sanitizer handles Windows drive, UNC, Unix, mixed separators, Unicode, and parent directory traversal."""
+        # 1. Windows drive paths
         self.assertEqual(sanitize_path_reference("yolov8n.pt"), "yolov8n.pt")
         self.assertEqual(sanitize_path_reference("C:\\Users\\SecretUser\\models\\custom_yolo.engine"), "custom_yolo.engine")
+        self.assertEqual(sanitize_path_reference("D:/datasets/badminton/videos/B01.mp4"), "B01.mp4")
+
+        # 2. UNC network paths
+        self.assertEqual(sanitize_path_reference(r"\\server\share\videos\match.mp4"), "match.mp4")
+        self.assertEqual(sanitize_path_reference("//nas.local/datasets/clip.mp4"), "clip.mp4")
+
+        # 3. Unix absolute paths
         self.assertEqual(sanitize_path_reference("/home/runner/work/SportsScout/models/weights.pt"), "weights.pt")
+        self.assertEqual(sanitize_path_reference("/var/tmp/data.json"), "data.json")
+
+        # 4. Mixed separators
+        self.assertEqual(sanitize_path_reference("C:\\Users/admin\\test/foo.pt"), "foo.pt")
+        self.assertEqual(sanitize_path_reference(r"videos\badminton/doubles\clip.mp4"), "videos/badminton/doubles/clip.mp4")
+
+        # 5. Unicode paths (e.g. Thai, spaces)
+        self.assertEqual(sanitize_path_reference("C:\\Users\\ผู้ฝึกสอน\\Videos\\แบดมินตัน_รอบชิง.mp4"), "แบดมินตัน_รอบชิง.mp4")
+        self.assertEqual(sanitize_path_reference("videos/ผู้ฝึกสอน/แบดมินตัน.mp4"), "videos/ผู้ฝึกสอน/แบดมินตัน.mp4")
+
+        # 6. Parent directory traversal (prevents leaking parent directory structure)
+        self.assertEqual(sanitize_path_reference("../../secret/passwords.txt"), "passwords.txt")
+        self.assertEqual(sanitize_path_reference(r"..\..\private\model.pt"), "model.pt")
+        self.assertEqual(sanitize_path_reference("models/../../secret/model.pt"), "model.pt")
+
+        # 7. Safe relative logical dataset paths preserved
+        self.assertEqual(sanitize_path_reference("videos/B01_singles_center.mp4"), "videos/B01_singles_center.mp4")
+        self.assertEqual(sanitize_path_reference("ground_truth/cuts/B01_cuts.json"), "ground_truth/cuts/B01_cuts.json")
+
+        # 8. Empty and invalid inputs
         self.assertIsNone(sanitize_path_reference(None))
+        self.assertIsNone(sanitize_path_reference(""))
+        self.assertIsNone(sanitize_path_reference("   "))
+        self.assertIsNone(sanitize_path_reference(True))
+        self.assertIsNone(sanitize_path_reference({"path": "secret"}))
+        self.assertEqual(sanitize_path_reference(123), "123")
+
 
     def test_phase3_benchmark_provenance_output(self):
         """Full benchmark evaluation produces clean provenance without sensitive paths."""
@@ -307,6 +340,70 @@ class TestBackwardCompatibility(unittest.TestCase):
         self.assertIsNone(clip.camera_id)
         self.assertFalse(clip.calibration_ground_truth_available)
         self.assertFalse(clip.camera_cut_ground_truth_available)
+
+
+class TestScenarioBucketsAndThresholds(unittest.TestCase):
+    def test_missing_human_gt_triggers_annotation_blocker(self):
+        """When human GT is not available, report records explicit annotation manifest blocker."""
+        clip = BenchmarkClipEntry(
+            id="clip_no_gt",
+            name="No GT Clip",
+            sport="badminton",
+            game_type="singles",
+            player_count=2,
+            camera_type="static_rear",
+            camera_motion="static",
+            ground_truth_available=False,
+            scenario_buckets=["rear_court", "camera_cut"],
+        )
+        report = evaluate_phase3_benchmark(clip=clip)
+        self.assertFalse(report.overall_passed)
+        self.assertGreater(len(report.annotation_manifest_blockers), 0)
+        self.assertIn("missing human ground truth annotations", report.annotation_manifest_blockers[0].lower())
+        summary = report.format_text_summary()
+        self.assertIn("--- ANNOTATION MANIFEST BLOCKERS ---", summary)
+        self.assertIn("[BLOCKER]", summary)
+
+    def test_bucket_failure_cannot_be_masked_by_aggregate_score(self):
+        """If any scenario bucket fails its frozen threshold, overall status must be False."""
+        clip = BenchmarkClipEntry(
+            id="clip_with_gt",
+            name="GT Clip",
+            sport="badminton",
+            game_type="singles",
+            player_count=2,
+            camera_type="static_rear",
+            camera_motion="static",
+            ground_truth_available=True,
+            camera_cut_ground_truth_available=True,
+            scenario_buckets=["camera_cut"],
+        )
+        # GT has 2 cuts, prediction misses both (FN=2, F1=0.0) -> fails min_camera_cut_f1 (0.90)
+        report = evaluate_phase3_benchmark(
+            clip=clip,
+            ground_truth_cuts=[2.0, 5.0],
+            predicted_cuts=[],
+        )
+        self.assertFalse(report.overall_passed)
+        self.assertIn("camera_cut", report.by_scenario)
+        sm = report.by_scenario["camera_cut"]
+        self.assertFalse(sm.passed_thresholds)
+        self.assertTrue(any("F1" in r for r in sm.failure_reasons))
+
+    def test_match_id_leakage_is_prevented(self):
+        """Cross-split sharing of the same matchId is detected as data leakage."""
+        clip1 = BenchmarkClipEntry(
+            id="c1", name="C1", sport="badminton", game_type="singles", player_count=2,
+            camera_type="static_rear", camera_motion="static", match_id="match-olympics-final-2024",
+        )
+        clip2 = BenchmarkClipEntry(
+            id="c2", name="C2", sport="badminton", game_type="singles", player_count=2,
+            camera_type="static_rear", camera_motion="static", match_id="match-olympics-final-2024",
+        )
+        splits = {"train": [clip1], "val": [clip2]}
+        valid, errors = validate_split_leakage(splits)
+        self.assertFalse(valid)
+        self.assertTrue(any("matchId='match-olympics-final-2024'" in e for e in errors))
 
 
 if __name__ == "__main__":

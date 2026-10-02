@@ -167,12 +167,12 @@ class TestProcessingConfigAndPresets(unittest.TestCase):
 
     def test_auto_preset_cpu_vs_cuda(self):
         cfg_cpu = resolve_processing_config({"profile": "auto"}, runtime_device="cpu")
-        self.assertEqual(cfg_cpu["detectorInputSize"], 416)
-        self.assertEqual(cfg_cpu["frameStride"], 3)
-        self.assertEqual(cfg_cpu["poseStride"], 2)
+        self.assertEqual(cfg_cpu["detectorInputSize"], 640)
+        self.assertEqual(cfg_cpu["frameStride"], 2)
+        self.assertEqual(cfg_cpu["poseStride"], 1)
 
         cfg_cuda = resolve_processing_config({"profile": "auto"}, runtime_device="cuda")
-        self.assertEqual(cfg_cuda["detectorInputSize"], 512)
+        self.assertEqual(cfg_cuda["detectorInputSize"], 640)
         self.assertEqual(cfg_cuda["frameStride"], 2)
         self.assertEqual(cfg_cuda["poseStride"], 1)
 
@@ -333,22 +333,22 @@ class TestPhase4PerformanceAndQualityHardening(unittest.TestCase):
         # Auto on CPU
         cfg_cpu = resolve_processing_config({"profile": "auto", "device": "auto"}, runtime_device="cpu")
         self.assertEqual(cfg_cpu["requestedProfile"], "auto")
-        self.assertEqual(cfg_cpu["effectiveProfile"], "fast")
+        self.assertEqual(cfg_cpu["effectiveProfile"], "reference")
         self.assertEqual(cfg_cpu["requestedDevice"], "auto")
         self.assertEqual(cfg_cpu["effectiveDevice"], "cpu")
         self.assertNotEqual(cfg_cpu["effectiveDevice"], "auto")
-        self.assertEqual(cfg_cpu["detectorInputSize"], 416)
-        self.assertEqual(cfg_cpu["frameStride"], 3)
-        self.assertEqual(cfg_cpu["poseStride"], 2)
+        self.assertEqual(cfg_cpu["detectorInputSize"], 640)
+        self.assertEqual(cfg_cpu["frameStride"], 2)
+        self.assertEqual(cfg_cpu["poseStride"], 1)
 
         # Auto on CUDA
         cfg_cuda = resolve_processing_config({"profile": "auto", "device": "auto"}, runtime_device="cuda")
         self.assertEqual(cfg_cuda["requestedProfile"], "auto")
-        self.assertEqual(cfg_cuda["effectiveProfile"], "balanced")
+        self.assertEqual(cfg_cuda["effectiveProfile"], "reference")
         self.assertEqual(cfg_cuda["requestedDevice"], "auto")
         self.assertEqual(cfg_cuda["effectiveDevice"], "cuda")
         self.assertNotEqual(cfg_cuda["effectiveDevice"], "auto")
-        self.assertEqual(cfg_cuda["detectorInputSize"], 512)
+        self.assertEqual(cfg_cuda["detectorInputSize"], 640)
         self.assertEqual(cfg_cuda["frameStride"], 2)
         self.assertEqual(cfg_cuda["poseStride"], 1)
 

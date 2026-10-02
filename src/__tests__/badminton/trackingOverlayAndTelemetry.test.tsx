@@ -35,7 +35,11 @@ vi.mock('../../utils/videoFileStore', () => ({
 }));
 
 vi.mock('../../services/storage/trackingStorage', () => ({
+  MAX_TRACKING_PAGE_SIZE: 250,
   listTrackingAnalyses: vi.fn().mockResolvedValue([]),
+  listTrackingAnalysisPage: vi.fn().mockResolvedValue({ analyses: [], nextCursor: null, hasMore: false }),
+  getLatestTrackingAnalysisForProject: vi.fn().mockResolvedValue(null),
+  getTrackingSampleChunkPage: vi.fn().mockResolvedValue({ chunks: [], nextCursor: null, hasMore: false }),
   getTrackingSampleChunks: vi.fn().mockResolvedValue([]),
   saveTrackingAnalysis: vi.fn().mockResolvedValue(undefined),
   downsampleAndChunkTrackingSamples: vi.fn().mockReturnValue({ chunks: [], summary: { players: {} }, quality: {} }),

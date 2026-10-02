@@ -1,0 +1,291 @@
+{
+  "mediaName": "Badminton test.mp4",
+  "secondsRequested": 5,
+  "cpuThreads": 1,
+  "runs": [
+    {
+      "id": "baseline",
+      "status": "COMPLETED",
+      "error": null,
+      "processingSec": 55.297,
+      "videoSec": 5.0,
+      "config": {
+        "profile": "reference",
+        "requestedProfile": "reference",
+        "effectiveProfile": "reference",
+        "device": "cpu",
+        "requestedDevice": "cpu",
+        "effectiveDevice": "cpu",
+        "fallbackReason": null,
+        "detectorInputSize": 640,
+        "useCourtRoi": false,
+        "courtRoiMarginPx": 60,
+        "courtRoiMarginM": 0.5,
+        "frameStride": 2,
+        "poseStride": 1,
+        "detectorModel": "yolov8n.pt",
+        "detectorFamily": "yolov8",
+        "poseModel": "yolov8n-pose.pt",
+        "poseFamily": "yolov8",
+        "poseArchitecture": "roi_pose",
+        "trackerName": "bytetrack",
+        "trackerConfigPath": null,
+        "trackerConfig": null,
+        "reidEnabled": false,
+        "reidModel": null,
+        "runtime": "pytorch",
+        "precision": "fp32",
+        "modelArtifactReference": null,
+        "confidenceThreshold": 0.35,
+        "shuttleEnabled": false,
+        "shuttleProvider": "opencv_onnx",
+        "shuttleModelPath": null,
+        "shuttleWindowSize": 3,
+        "shuttleInputWidth": 512,
+        "shuttleInputHeight": 288,
+        "shuttleConfidenceThreshold": 0.5,
+        "shuttleCentroidRelativeThreshold": 0.8,
+        "shuttleCandidateMode": "centroid",
+        "shuttleRecoveryEnabled": true,
+        "shuttleDevice": "cpu",
+        "shuttleRuntime": "opencv_dnn",
+        "shuttlePrecision": "fp32",
+        "shuttleAuxiliaryDetector": null,
+        "shuttleBuildTrajectory": false,
+        "autoCourtCalibrationEnabled": false
+      },
+      "committedCount": 75,
+      "maxWindow": 75,
+      "ramReadings": [
+        {
+          "elapsedSec": 0.22,
+          "rssBytes": 264404992,
+          "frame": 0,
+          "window": 0
+        },
+        {
+          "elapsedSec": 5.22,
+          "rssBytes": 559771648,
+          "frame": 7,
+          "window": 3
+        },
+        {
+          "elapsedSec": 10.22,
+          "rssBytes": 577277952,
+          "frame": 23,
+          "window": 11
+        },
+        {
+          "elapsedSec": 15.22,
+          "rssBytes": 589193216,
+          "frame": 41,
+          "window": 20
+        },
+        {
+          "elapsedSec": 20.22,
+          "rssBytes": 591249408,
+          "frame": 57,
+          "window": 28
+        },
+        {
+          "elapsedSec": 25.22,
+          "rssBytes": 589402112,
+          "frame": 73,
+          "window": 36
+        },
+        {
+          "elapsedSec": 30.22,
+          "rssBytes": 569520128,
+          "frame": 87,
+          "window": 43
+        },
+        {
+          "elapsedSec": 35.22,
+          "rssBytes": 570331136,
+          "frame": 103,
+          "window": 51
+        },
+        {
+          "elapsedSec": 40.22,
+          "rssBytes": 579420160,
+          "frame": 121,
+          "window": 60
+        },
+        {
+          "elapsedSec": 45.22,
+          "rssBytes": 580620288,
+          "frame": 135,
+          "window": 67
+        },
+        {
+          "elapsedSec": 50.22,
+          "rssBytes": 587657216,
+          "frame": 149,
+          "window": 74
+        },
+        {
+          "elapsedSec": 55.22,
+          "rssBytes": 532692992,
+          "frame": 150,
+          "window": 75
+        }
+      ],
+      "resume": {
+        "available": false,
+        "mode": null,
+        "reason": null
+      }
+    },
+    {
+      "id": "recovered",
+      "status": "COMPLETED",
+      "error": null,
+      "processingSec": 55.797,
+      "videoSec": 5.0,
+      "config": {
+        "profile": "reference",
+        "requestedProfile": "reference",
+        "effectiveProfile": "reference",
+        "device": "cpu",
+        "requestedDevice": "cpu",
+        "effectiveDevice": "cpu",
+        "fallbackReason": null,
+        "detectorInputSize": 640,
+        "useCourtRoi": false,
+        "courtRoiMarginPx": 60,
+        "courtRoiMarginM": 0.5,
+        "frameStride": 2,
+        "poseStride": 1,
+        "detectorModel": "yolov8n.pt",
+        "detectorFamily": "yolov8",
+        "poseModel": "yolov8n-pose.pt",
+        "poseFamily": "yolov8",
+        "poseArchitecture": "roi_pose",
+        "trackerName": "bytetrack",
+        "trackerConfigPath": null,
+        "trackerConfig": null,
+        "reidEnabled": false,
+        "reidModel": null,
+        "runtime": "pytorch",
+        "precision": "fp32",
+        "modelArtifactReference": null,
+        "confidenceThreshold": 0.35,
+        "shuttleEnabled": false,
+        "shuttleProvider": "opencv_onnx",
+        "shuttleModelPath": null,
+        "shuttleWindowSize": 3,
+        "shuttleInputWidth": 512,
+        "shuttleInputHeight": 288,
+        "shuttleConfidenceThreshold": 0.5,
+        "shuttleCentroidRelativeThreshold": 0.8,
+        "shuttleCandidateMode": "centroid",
+        "shuttleRecoveryEnabled": true,
+        "shuttleDevice": "cpu",
+        "shuttleRuntime": "opencv_dnn",
+        "shuttlePrecision": "fp32",
+        "shuttleAuxiliaryDetector": null,
+        "shuttleBuildTrajectory": false,
+        "autoCourtCalibrationEnabled": false
+      },
+      "committedCount": 75,
+      "maxWindow": 75,
+      "ramReadings": [
+        {
+          "elapsedSec": 0.22,
+          "rssBytes": 535109632,
+          "frame": 0,
+          "window": 0
+        },
+        {
+          "elapsedSec": 5.27,
+          "rssBytes": 535134208,
+          "frame": 0,
+          "window": 0
+        },
+        {
+          "elapsedSec": 5.72,
+          "rssBytes": 535359488,
+          "frame": 0,
+          "window": 0
+        },
+        {
+          "elapsedSec": 10.72,
+          "rssBytes": 711897088,
+          "frame": 13,
+          "window": 6
+        },
+        {
+          "elapsedSec": 15.72,
+          "rssBytes": 716099584,
+          "frame": 33,
+          "window": 16
+        },
+        {
+          "elapsedSec": 20.72,
+          "rssBytes": 716713984,
+          "frame": 49,
+          "window": 24
+        },
+        {
+          "elapsedSec": 25.72,
+          "rssBytes": 713723904,
+          "frame": 65,
+          "window": 32
+        },
+        {
+          "elapsedSec": 30.72,
+          "rssBytes": 714223616,
+          "frame": 81,
+          "window": 40
+        },
+        {
+          "elapsedSec": 35.72,
+          "rssBytes": 714268672,
+          "frame": 97,
+          "window": 48
+        },
+        {
+          "elapsedSec": 40.73,
+          "rssBytes": 718176256,
+          "frame": 115,
+          "window": 57
+        },
+        {
+          "elapsedSec": 45.73,
+          "rssBytes": 718745600,
+          "frame": 131,
+          "window": 65
+        },
+        {
+          "elapsedSec": 50.73,
+          "rssBytes": 716451840,
+          "frame": 145,
+          "window": 72
+        },
+        {
+          "elapsedSec": 55.73,
+          "rssBytes": 643526656,
+          "frame": 150,
+          "window": 75
+        }
+      ],
+      "resume": {
+        "available": true,
+        "mode": "SAFE_BOUNDARY_REPROCESS",
+        "reason": "Committed chunks are retained; recent source frames are replayed only to warm tracker/shuttle state before new frames are committed. Metric continuity is broken at the resume boundary.",
+        "reprocessingFromFrame": 0,
+        "reprocessingThroughFrame": 0,
+        "sequence": 1,
+        "temporalStateRestoredExactly": false
+      }
+    }
+  ],
+  "recoveryStartupSec": 0.391,
+  "parity": {
+    "tolerance": "exact canonical fields listed in script, frozen before run",
+    "count": 75,
+    "mismatchedRows": 0,
+    "duplicateOrReorderedFrames": 0,
+    "status": "PASS"
+  }
+}

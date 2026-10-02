@@ -4,7 +4,8 @@ import type {
   TrackingLivePlayerStatus,
 } from '../../types';
 import {
-  listTrackingAnalyses,
+  listTrackingAnalysisPage,
+  MAX_TRACKING_PAGE_SIZE,
   type TrackingAnalysis,
 } from '../../services/storage/trackingStorage';
 import {
@@ -36,27 +37,41 @@ export default function TrackingLabInspector({
   const th = language === 'th';
   const [activeTab, setActiveTab] = useState<'analysis' | 'video' | 'performance' | 'research'>('analysis');
   const [storedHistory, setStoredHistory] = useState<TrackingAnalysis[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   // Load benchmark history if not provided externally
   useEffect(() => {
     if (externalHistory) return;
-    if (!projectId) return;
+    if (!projectId || !videoFingerprint) {
+      setStoredHistory([]);
+      setHistoryCursor(null);
+      setHistoryHasMore(false);
+      return;
+    }
+    setStoredHistory([]);
+    setHistoryCursor(null);
+    setHistoryHasMore(false);
 
     let isMounted = true;
-    listTrackingAnalyses(projectId)
-      .then((analyses) => {
+    listTrackingAnalysisPage({ projectId, limit: MAX_TRACKING_PAGE_SIZE })
+      .then((page) => {
         if (isMounted) {
-          setStoredHistory(analyses);
+          setStoredHistory(page.analyses);
+          setHistoryCursor(page.nextCursor);
+          setHistoryHasMore(page.hasMore);
+          setHistoryError(null);
         }
       })
-      .catch(() => {
-        // Graceful error ignore on storage read
+      .catch((error) => {
+        if (isMounted) setHistoryError(error instanceof Error ? error.message : 'Unable to load benchmark history');
       });
 
     return () => {
       isMounted = false;
     };
-  }, [projectId, externalHistory]);
+  }, [projectId, videoFingerprint, externalHistory]);
 
   const allHistory = externalHistory || storedHistory;
 
@@ -72,6 +87,23 @@ export default function TrackingLabInspector({
         run.id !== status?.sessionId
     );
   }, [allHistory, videoFingerprint, status?.sessionId]);
+
+  const loadNextHistoryPage = async () => {
+    if (!projectId || !historyCursor || externalHistory) return;
+    try {
+      const page = await listTrackingAnalysisPage({
+        projectId,
+        after: historyCursor,
+        limit: MAX_TRACKING_PAGE_SIZE,
+      });
+      setStoredHistory(page.analyses);
+      setHistoryCursor(page.nextCursor);
+      setHistoryHasMore(page.hasMore);
+      setHistoryError(null);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : 'Unable to load benchmark history');
+    }
+  };
 
   // Optical derived shutter angle calculation
   const derivedShutterAngle: number | null = useMemo(() => {
@@ -750,13 +782,15 @@ export default function TrackingLabInspector({
                     {th ? 'ประวัติการทดสอบฮาร์ดแวร์ (Benchmark History)' : 'Benchmark History (Same Video Fingerprint)'}
                   </h5>
                   <span className="text-[10px] text-slate-500 font-mono">
-                    {matchingBenchmarkRuns.length} {th ? 'การทดสอบก่อนหน้า' : 'prior runs'}
+                    {matchingBenchmarkRuns.length} {th ? (historyHasMore ? 'รายการในหน้านี้' : 'การทดสอบก่อนหน้า') : (historyHasMore ? 'runs on this page' : 'prior runs')}
                   </span>
                 </div>
 
                 {matchingBenchmarkRuns.length === 0 ? (
                   <p className="text-xs text-slate-500 italic p-3 bg-slate-900/60 border border-slate-800 rounded">
-                    {th
+                    {historyHasMore
+                      ? th ? 'หน้านี้ไม่มีผลทดสอบของวิดีโอนี้ ลองดูหน้าถัดไป' : 'No matching runs on this page; check the next page.'
+                      : th
                       ? 'ไม่มีประวัติการทดสอบก่อนหน้าสำหรับวิดีโอนี้'
                       : 'No previous benchmark runs for this video fingerprint.'}
                   </p>
@@ -819,6 +853,17 @@ export default function TrackingLabInspector({
                       );
                     })}
                   </div>
+                )}
+                {historyError && <p role="alert" className="text-xs text-rose-300">{historyError}</p>}
+                {historyHasMore && (
+                  <button
+                    type="button"
+                    onClick={() => void loadNextHistoryPage()}
+                    className="text-xs text-sky-300 underline underline-offset-2"
+                    data-testid="benchmark-history-next-page"
+                  >
+                    {th ? 'โหลดประวัติหน้าถัดไป' : 'Load next history page'}
+                  </button>
                 )}
               </div>
             </div>

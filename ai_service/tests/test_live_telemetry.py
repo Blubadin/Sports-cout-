@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 import numpy as np
 import sys
 from pathlib import Path
@@ -7,18 +8,32 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from analyzer_v2 import BadmintonAnalyzerV2
+import server
 from server import TrackingSession, get_session_status, get_session_results, tracking_sessions
+from analysis_job_store import AnalysisJobStore
 
 
 class TestLiveTelemetryAndSessionStatus(unittest.TestCase):
     def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.prior_store = server.analysis_job_store
+        server.analysis_job_store = AnalysisJobStore(Path(self.temp_dir.name))
         tracking_sessions.clear()
+
+    def tearDown(self):
+        tracking_sessions.clear()
+        server.analysis_job_store = self.prior_store
+        self.temp_dir.cleanup()
+
+    def register_session(self, session: TrackingSession):
+        session.job_store.create_job(session.session_id, identity={}, metadata={})
+        tracking_sessions[session.session_id] = session
 
     def test_session_status_expanded_fields(self):
         """Phase 3.9: Verify all required typed session status fields exist and adhere to spec."""
         session_id = "test_status_sess_1"
         session = TrackingSession(session_id, game_type="singles", tracked_player_count=2)
-        tracking_sessions[session_id] = session
+        self.register_session(session)
 
         status = get_session_status(session_id)
 
@@ -58,7 +73,7 @@ class TestLiveTelemetryAndSessionStatus(unittest.TestCase):
         session.frame_stride = 2
         session.analyzed_frames = 120
         session.elapsed_sec = 10.0
-        tracking_sessions[session_id] = session
+        self.register_session(session)
 
         status = get_session_status(session_id)
         # sourceFps: nominal source video FPS
@@ -93,17 +108,20 @@ class TestLiveTelemetryAndSessionStatus(unittest.TestCase):
         """Phase 3.11: Incremental bounded results with cursor parameter."""
         session_id = "test_cursor_sess"
         session = TrackingSession(session_id, game_type="singles", tracked_player_count=2)
-        tracking_sessions[session_id] = session
+        self.register_session(session)
 
         # Simulate 5 telemetry frames
+        rows = []
         for i in range(5):
-            session.results.append({
+            rows.append({
                 "schemaVersion": 1,
                 "analysisId": session_id,
                 "timestampSec": round(i * 0.1, 2),
                 "frameIndex": i + 1,
                 "players": [],
             })
+        session.results.extend(rows)
+        session.job_store.append_result_chunk(session_id, 1, rows)
 
         # Fetch without cursor (returns all)
         res_all = get_session_results(session_id)

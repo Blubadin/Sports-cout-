@@ -1,5 +1,6 @@
 import unittest
 import threading
+from unittest.mock import patch
 from types import SimpleNamespace
 
 import cv2
@@ -54,6 +55,7 @@ class TestCapturedVideoTimestampOrder(unittest.TestCase):
             duration_sec=0.0,
             frame_stride=1,
             _cancel=False,
+            is_resuming=False,
             current_frame=0,
             progress_pct=0.0,
             analyzed_frames=0,
@@ -63,9 +65,14 @@ class TestCapturedVideoTimestampOrder(unittest.TestCase):
             _state_lock=threading.RLock(),
         )
 
-        _analyze_captured_frames(session, DuplicateTimestampCapture(), start_time=0.0)
+        def append_result(target, telemetry):
+            target.results.append(telemetry)
+            target.analyzed_frames += 1
+        with patch("ai_service.server._append_session_result", side_effect=append_result):
+            terminal_status = _analyze_captured_frames(session, DuplicateTimestampCapture(), start_time=0.0)
 
-        self.assertEqual(session.status, "COMPLETED")
+        self.assertEqual(terminal_status, "COMPLETED")
+        self.assertEqual(session.status, "PROCESSING")  # The worker still must durably commit.
         self.assertEqual(session.analyzed_frames, 3)
         self.assertTrue(all(
             later > earlier

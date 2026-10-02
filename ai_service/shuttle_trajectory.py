@@ -141,6 +141,7 @@ class ShuttleTrajectoryBuilder:
     def _raw_points(self, raw: list[ShuttleObservation]) -> dict[int, DerivedTrajectoryPoint]:
         points: dict[int, DerivedTrajectoryPoint] = {}
         previous_valid_timestamp: float | None = None
+        previous_camera_segment_id: str | None = None
         segment_id = -1
         for observation in raw:
             if observation.position_px is None or observation.state not in {"observed", "predicted", "interpolated"}:
@@ -148,7 +149,14 @@ class ShuttleTrajectoryBuilder:
 
             if previous_valid_timestamp is None:
                 segment_id = 0
-            elif observation.timestamp_sec - previous_valid_timestamp > self.config.continuity_gap_seconds:
+            elif (
+                observation.timestamp_sec - previous_valid_timestamp > self.config.continuity_gap_seconds
+                or (
+                    previous_camera_segment_id is not None
+                    and observation.camera_segment_id is not None
+                    and observation.camera_segment_id != previous_camera_segment_id
+                )
+            ):
                 segment_id += 1
 
             position = ShuttlePositionPx(observation.position_px.x, observation.position_px.y)
@@ -162,6 +170,7 @@ class ShuttleTrajectoryBuilder:
                 segment_id=segment_id,
             )
             previous_valid_timestamp = observation.timestamp_sec
+            previous_camera_segment_id = observation.camera_segment_id
         return points
 
     def _add_short_gap_interpolation(
@@ -181,6 +190,12 @@ class ShuttleTrajectoryBuilder:
             if not self._observed_endpoint(before) or not self._observed_endpoint(after):
                 continue
             assert before is not None and after is not None
+            if (
+                before.camera_segment_id is not None
+                and after.camera_segment_id is not None
+                and before.camera_segment_id != after.camera_segment_id
+            ):
+                continue
             before_point = points_by_frame.get(before.frame_index)
             after_point = points_by_frame.get(after.frame_index)
             if before_point is None or after_point is None or before_point.segment_id != after_point.segment_id:

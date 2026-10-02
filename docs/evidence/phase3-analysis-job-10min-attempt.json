@@ -1,0 +1,245 @@
+{
+  "status": "NOT VALIDATED",
+  "reason": "Evaluation interrupted before ten minutes of source video completed; only partial throughput/RAM observations are evidence. No recovery or output parity claim.",
+  "mediaName": "01 Badminton.mp4",
+  "requestedVideoSec": 600,
+  "cpuThreads": 1,
+  "profile": "reference",
+  "model": "yolov8n.pt/yolov8n-pose.pt",
+  "precision": "fp32",
+  "frameStride": 2,
+  "shuttleEnabled": false,
+  "ramReadings": [
+    {
+      "run": "baseline",
+      "elapsedSec": 0.11,
+      "rssBytes": 263073792,
+      "frame": 0,
+      "window": 0
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 5.11,
+      "rssBytes": 561934336,
+      "frame": 1,
+      "window": 0
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 10.11,
+      "rssBytes": 578420736,
+      "frame": 7,
+      "window": 3
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 15.11,
+      "rssBytes": 579710976,
+      "frame": 15,
+      "window": 7
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 20.11,
+      "rssBytes": 589844480,
+      "frame": 21,
+      "window": 10
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 25.11,
+      "rssBytes": 583467008,
+      "frame": 29,
+      "window": 14
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 30.11,
+      "rssBytes": 582422528,
+      "frame": 37,
+      "window": 18
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 35.11,
+      "rssBytes": 592519168,
+      "frame": 43,
+      "window": 21
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 40.12,
+      "rssBytes": 584892416,
+      "frame": 49,
+      "window": 24
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 45.12,
+      "rssBytes": 587268096,
+      "frame": 55,
+      "window": 27
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 50.12,
+      "rssBytes": 579772416,
+      "frame": 59,
+      "window": 29
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 55.12,
+      "rssBytes": 593686528,
+      "frame": 63,
+      "window": 31
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 60.12,
+      "rssBytes": 588124160,
+      "frame": 71,
+      "window": 35
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 65.12,
+      "rssBytes": 593592320,
+      "frame": 75,
+      "window": 37
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 70.12,
+      "rssBytes": 593108992,
+      "frame": 83,
+      "window": 41
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 75.12,
+      "rssBytes": 591466496,
+      "frame": 89,
+      "window": 44
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 80.12,
+      "rssBytes": 594333696,
+      "frame": 97,
+      "window": 48
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 85.12,
+      "rssBytes": 586256384,
+      "frame": 103,
+      "window": 51
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 90.12,
+      "rssBytes": 596295680,
+      "frame": 109,
+      "window": 54
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 95.12,
+      "rssBytes": 589709312,
+      "frame": 117,
+      "window": 58
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 100.12,
+      "rssBytes": 590602240,
+      "frame": 121,
+      "window": 60
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 105.12,
+      "rssBytes": 603770880,
+      "frame": 127,
+      "window": 63
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 110.14,
+      "rssBytes": 598986752,
+      "frame": 135,
+      "window": 67
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 115.14,
+      "rssBytes": 595456000,
+      "frame": 141,
+      "window": 70
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 120.14,
+      "rssBytes": 595640320,
+      "frame": 149,
+      "window": 74
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 125.14,
+      "rssBytes": 599781376,
+      "frame": 155,
+      "window": 77
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 130.14,
+      "rssBytes": 599130112,
+      "frame": 161,
+      "window": 80
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 135.14,
+      "rssBytes": 602169344,
+      "frame": 169,
+      "window": 84
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 140.14,
+      "rssBytes": 602099712,
+      "frame": 177,
+      "window": 88
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 145.14,
+      "rssBytes": 600002560,
+      "frame": 185,
+      "window": 92
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 150.14,
+      "rssBytes": 593915904,
+      "frame": 193,
+      "window": 96
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 155.14,
+      "rssBytes": 595738624,
+      "frame": 199,
+      "window": 99
+    },
+    {
+      "run": "baseline",
+      "elapsedSec": 160.14,
+      "rssBytes": 600727552,
+      "frame": 207,
+      "window": 103
+    }
+  ]
+}

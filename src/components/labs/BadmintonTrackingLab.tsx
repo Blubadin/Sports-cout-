@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
-import type { BackendCapabilities } from '../../services/trackingSessionApi';
+import { isCompatibleResumableTrackingSession, MAX_TRACKING_RESULTS_PAGE_SIZE, type BackendCapabilities } from '../../services/trackingSessionApi';
 import type { AIConnectionSnapshot } from '../../services/aiConnection';
 import type {
   TrackingTelemetryV1,
@@ -14,14 +14,21 @@ import type {
   ShuttleTrackingStatus,
 } from '../../types';
 import { loadProjectVideoFileHandle } from '../../utils/videoFileStore';
+import { isMetricCalibrationValid } from '../../types/calibration';
 import {
-  listTrackingAnalyses,
-  getLatestTrackingAnalysis,
-  getTrackingSampleChunks,
+  getLatestTrackingAnalysisForProject,
+  getTrackingSampleChunkPage,
 } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
-import TrackingVideoOverlay from './TrackingVideoOverlay';
+import TrackingVideoOverlay, { resolveOverlayAtTime } from './TrackingVideoOverlay';
 import { ShuttleOverlay, ShuttleControls, ShuttleDiagnostics, type ShuttleMode } from './ShuttleOverlay';
+import {
+  framesForCameraSegmentAtTime,
+  TrackingOverlayWindowLoader,
+  trackingOverlayStatusText,
+  trackingOverlayWindowContainsTime,
+  type TrackingOverlayWindow,
+} from './trackingOverlayWindow';
 import TrackingLabInspector from './TrackingLabInspector';
 import {
   useProjectTrackingSession,
@@ -31,6 +38,10 @@ import {
 function formatDiagnosticCount(val: number | null | undefined): string {
   if (val === null || val === undefined) return '—';
   return String(val);
+}
+
+function telemetryCoversTime(items: TrackingTelemetryV1[], target: number): boolean {
+  return items.length > 0 && target >= items[0].timestampSec && target <= items[items.length - 1].timestampSec;
 }
 
 export function deriveShuttleEngineStatus(params: {
@@ -235,19 +246,32 @@ export default function BadmintonTrackingLab() {
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [time, setTime] = useState(0);
   const [shuttleMode, setShuttleMode] = useState<ShuttleMode>('off');
+  const [overlayWindow, setOverlayWindow] = useState<TrackingOverlayWindow | null>(null);
+  const [overlayWindowStatus, setOverlayWindowStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable' | 'error'>('idle');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const generation = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upload = useRef<AbortController | null>(null);
+  const overlayWindowLoader = useRef(new TrackingOverlayWindowLoader());
+  const overlayRequestId = useRef(0);
+  const overlayRequest = useRef<{ projectId: string; sessionId: string; timeSec: number; coverageSec: number } | null>(null);
+  const overlayOwner = useRef({ projectId: activeProjectId, sessionId: state.sessionId });
+  overlayOwner.current = { projectId: activeProjectId, sessionId: state.sessionId };
+  const overlayTime = useRef(time);
+  overlayTime.current = time;
 
   const file = state.file;
-  const processing = state.status === 'PROCESSING' || state.status === 'UPLOADING';
+  const processing = state.status === 'PROCESSING' || state.status === 'CANCEL_REQUESTED' || state.status === 'UPLOADING';
   const progress = state.progress;
   const gameType = state.gameType;
   const trackedPlayerCount = state.trackedPlayerCount;
   const corners = state.corners;
+  const autoCourtCalibrationEnabled = state.processingConfig?.autoCourtCalibrationEnabled ?? false;
+  const existingPreparedSession = !!state.sessionId &&
+    ['READY_TO_ANALYZE', 'INTERRUPTED', 'CANCELLED'].includes(state.status);
+  const calibrationReadyToStart = autoCourtCalibrationEnabled || corners.length === 4 || existingPreparedSession;
   const frames = state.telemetry;
   const latestFrame = frames.length ? frames[frames.length - 1] : null;
   const latestLostSegmentId = state.status === 'PROCESSING' &&
@@ -262,6 +286,132 @@ export default function BadmintonTrackingLab() {
   const chunks = state.chunks;
   const error = state.error;
   const overlayMode = state.uiPreferences.overlayMode;
+
+  useEffect(() => {
+    overlayRequestId.current += 1;
+    overlayRequest.current = null;
+    overlayWindowLoader.current.cancel();
+    setOverlayWindow(null);
+    setOverlayWindowStatus('idle');
+  }, [activeProjectId, state.sessionId]);
+
+  const loadOverlayWindow = useCallback(async (targetTime: number, force = false) => {
+    const sessionId = state.sessionId;
+    const projectId = activeProjectId;
+    if (telemetryCoversTime(frames, targetTime)) {
+      overlayRequestId.current += 1;
+      overlayRequest.current = null;
+      overlayWindowLoader.current.cancel();
+      setOverlayWindowStatus('idle');
+      return;
+    }
+
+    if (
+      overlayWindow && overlayWindow.projectId === projectId && overlayWindow.sessionId === sessionId
+      && trackingOverlayWindowContainsTime(overlayWindow, targetTime)
+      && (framesForCameraSegmentAtTime(overlayWindow.frames, targetTime)[0]?.cameraSegmentId ?? null) === overlayWindow.cameraSegmentId
+    ) return;
+
+    if (!force && overlayRequest.current?.projectId === projectId && overlayRequest.current.sessionId === sessionId) {
+      const activeRequest = overlayRequest.current;
+      if (Math.abs(targetTime - activeRequest.timeSec) <= Math.max(2, activeRequest.coverageSec / 2)) return;
+    }
+
+    if (!projectId || !sessionId) {
+      setOverlayWindow(null);
+      setOverlayWindowStatus('unavailable');
+      return;
+    }
+
+    const requestId = ++overlayRequestId.current;
+    setOverlayWindow(null);
+    setOverlayWindowStatus('loading');
+    overlayRequest.current = {
+      projectId,
+      sessionId,
+      timeSec: targetTime,
+      coverageSec: state.sessionStatus?.committedResultCursor && state.sessionStatus.videoDurationSec
+        ? (MAX_TRACKING_RESULTS_PAGE_SIZE * state.sessionStatus.videoDurationSec) / state.sessionStatus.committedResultCursor
+        : 5,
+    };
+
+    try {
+      const result = await overlayWindowLoader.current.load(
+        { projectId, sessionId, timeSec: targetTime, status: state.sessionStatus },
+        (id, signal) => aiTrackingService.getSessionStatus(id, signal),
+        (id, cursor, limit, signal) => aiTrackingService.getSessionResults(id, cursor, limit, signal),
+      );
+      if (
+        requestId !== overlayRequestId.current
+        || overlayOwner.current.projectId !== projectId
+        || overlayOwner.current.sessionId !== sessionId
+      ) return;
+      if (result.status === 'stale') return;
+      if (result.status === 'unavailable') {
+        setOverlayWindow(null);
+        setOverlayWindowStatus('unavailable');
+        return;
+      }
+
+      const currentTime = overlayTime.current;
+      const currentSegment = framesForCameraSegmentAtTime(result.window.frames, currentTime)[0]?.cameraSegmentId ?? null;
+      if (currentSegment !== result.window.cameraSegmentId) {
+        setOverlayWindow(null);
+        setOverlayWindowStatus('loading');
+        void loadOverlayWindow(currentTime, true);
+        return;
+      }
+
+      setOverlayWindow(result.window);
+      const scopedFrames = framesForCameraSegmentAtTime(result.window.frames, targetTime);
+      const playerResolution = resolveOverlayAtTime(scopedFrames, targetTime);
+      const firstTime = result.window.frames[0]?.timestampSec;
+      const lastTime = result.window.frames[result.window.frames.length - 1]?.timestampSec;
+      if (playerResolution.status !== 'resolved' || targetTime < (firstTime ?? Infinity) || targetTime > (lastTime ?? -Infinity)) {
+        setOverlayWindowStatus('unavailable');
+      } else {
+        setOverlayWindowStatus('ready');
+      }
+    } catch {
+      if (
+        requestId === overlayRequestId.current
+        && overlayOwner.current.projectId === projectId
+        && overlayOwner.current.sessionId === sessionId
+      ) {
+        setOverlayWindow(null);
+        setOverlayWindowStatus('error');
+      }
+    } finally {
+      if (requestId === overlayRequestId.current) overlayRequest.current = null;
+    }
+  }, [activeProjectId, frames, overlayWindow, state.sessionId, state.sessionStatus]);
+  const overlayLoadCallback = useRef(loadOverlayWindow);
+  overlayLoadCallback.current = loadOverlayWindow;
+
+  const activeRemoteWindow = overlayWindow && overlayWindow.projectId === activeProjectId
+    && overlayWindow.sessionId === state.sessionId && trackingOverlayWindowContainsTime(overlayWindow, time)
+    && (framesForCameraSegmentAtTime(overlayWindow.frames, time)[0]?.cameraSegmentId ?? null) === overlayWindow.cameraSegmentId
+    ? overlayWindow : null;
+  const hasLiveOverlayWindow = telemetryCoversTime(frames, time);
+  const sourceOverlayFrames = hasLiveOverlayWindow
+    ? frames
+    : activeRemoteWindow?.frames ?? [];
+  const displayFrames = framesForCameraSegmentAtTime(sourceOverlayFrames, time);
+  const overlayFrame = [...displayFrames].reverse().find((frame) => frame.timestampSec <= time) ?? null;
+  const displayResolutionStatus = displayFrames.length ? resolveOverlayAtTime(displayFrames, time).status : 'unavailable';
+  const acceptedCourtCorners = overlayFrame?.calibration?.corners;
+  const courtOverlayCorners = displayResolutionStatus === 'resolved' && overlayFrame?.calibrationState === 'CALIBRATED' &&
+    isMetricCalibrationValid(overlayFrame) && dimensions.width > 0 && dimensions.height > 0 &&
+    Array.isArray(acceptedCourtCorners) && acceptedCourtCorners.length === 4 && acceptedCourtCorners.every(point =>
+      Array.isArray(point) && point.length === 2 && point.every(Number.isFinite) && point[0] >= 0 && point[0] < dimensions.width &&
+      point[1] >= 0 && point[1] < dimensions.height)
+    ? acceptedCourtCorners : null;
+  const overlayStatusKey = hasLiveOverlayWindow
+    ? 'idle'
+    : overlayWindowStatus === 'loading' || overlayWindowStatus === 'error'
+      ? overlayWindowStatus
+      : displayResolutionStatus === 'resolved' ? 'idle' : 'unavailable';
+  const overlayStatus = trackingOverlayStatusText(overlayStatusKey, th);
 
   const effectiveShuttleProv =
     sessionStatus?.shuttle ||
@@ -300,6 +450,7 @@ export default function BadmintonTrackingLab() {
     let callbackId = 0;
     const tick: VideoFrameRequestCallback = (_now, metadata) => {
       setTime(metadata.mediaTime);
+      void overlayLoadCallback.current(metadata.mediaTime);
       callbackId = video.requestVideoFrameCallback(tick);
     };
     callbackId = video.requestVideoFrameCallback(tick);
@@ -352,7 +503,7 @@ export default function BadmintonTrackingLab() {
   // 2. Profile configuration helper
   const selectProfile = (nextProfile: ProcessingProfile) => {
     setProfile(nextProfile);
-    if (nextProfile === 'reference') {
+    if (nextProfile === 'reference' || nextProfile === 'auto') {
       setDetectorInputSize(640);
       setUseCourtRoi(false);
       setCourtRoiMarginPx(60);
@@ -376,21 +527,6 @@ export default function BadmintonTrackingLab() {
       setCourtRoiMarginPx(60);
       setFrameStride(3);
       setPoseStride(2);
-    } else if (nextProfile === 'auto') {
-      const isCuda = capabilities?.cudaAvailable;
-      if (isCuda) {
-        setDetectorInputSize(512);
-        setUseCourtRoi(true);
-        setCourtRoiMarginPx(60);
-        setFrameStride(2);
-        setPoseStride(1);
-      } else {
-        setDetectorInputSize(416);
-        setUseCourtRoi(true);
-        setCourtRoiMarginPx(60);
-        setFrameStride(3);
-        setPoseStride(2);
-      }
     }
   };
 
@@ -412,15 +548,16 @@ export default function BadmintonTrackingLab() {
   useEffect(() => {
     let alive = true;
     if (activeProjectId && !state.analysis) {
-      void listTrackingAnalyses(activeProjectId)
-        .then(async (records) => {
-          const latest = getLatestTrackingAnalysis(records);
+      void getLatestTrackingAnalysisForProject(activeProjectId)
+        .then(async (latest) => {
           if (!latest || !alive) return;
-          const saved = await getTrackingSampleChunks(latest.id);
+          const page = await getTrackingSampleChunkPage(latest.id);
           if (alive) {
             update({
               analysis: latest,
-              chunks: saved,
+              chunks: page.chunks,
+              chunksNextCursor: page.nextCursor,
+              chunksHasMore: page.hasMore,
               trackedPlayerCount: latest.trackedPlayerCount ?? state.trackedPlayerCount,
               gameType: latest.gameType ?? state.gameType,
             });
@@ -464,13 +601,20 @@ export default function BadmintonTrackingLab() {
 
           const currentState = store.getProjectState(activeProjectId);
           const cur = currentState?.cursor ?? 0;
-          const partial = await aiTrackingService.getSessionResults(sessionId, cur);
-          if (!current()) return;
+          if (latestStatus.status !== 'COMPLETED' && latestStatus.status !== 'ERROR') {
+            const committedCursor = latestStatus.committedResultCursor;
+            const requestCursor = typeof committedCursor === 'number' && Number.isSafeInteger(committedCursor)
+              ? Math.min(cur, committedCursor)
+              : cur;
+            if (requestCursor !== cur) update({ cursor: requestCursor });
+            const partial = await aiTrackingService.getSessionResults(sessionId, requestCursor);
+            if (!current()) return;
 
-          if (partial.telemetry && partial.telemetry.length > 0) {
-            store.appendTelemetry(activeProjectId!, partial.telemetry, partial.nextCursor);
-          } else if (partial.nextCursor !== undefined && partial.nextCursor !== cur) {
-            update({ cursor: partial.nextCursor });
+            if (partial.telemetry && partial.telemetry.length > 0) {
+              await store.appendTelemetry(activeProjectId!, partial.telemetry, partial.nextCursor);
+            } else if (partial.nextCursor !== undefined && partial.nextCursor !== requestCursor) {
+              update({ cursor: partial.nextCursor });
+            }
           }
 
           update({
@@ -482,8 +626,14 @@ export default function BadmintonTrackingLab() {
             status:
               latestStatus.status === 'ERROR'
                 ? 'ERROR'
-                : latestStatus.status === 'COMPLETED'
-                ? 'COMPLETED'
+              : latestStatus.status === 'COMPLETED'
+                ? 'PROCESSING'
+                : latestStatus.status === 'CANCEL_REQUESTED'
+                ? 'CANCEL_REQUESTED'
+                : latestStatus.status === 'INTERRUPTED'
+                ? 'INTERRUPTED'
+                : latestStatus.status === 'CANCELLED'
+                ? 'CANCELLED'
                 : 'PROCESSING',
             error: latestStatus.error || null,
           });
@@ -497,6 +647,8 @@ export default function BadmintonTrackingLab() {
             if (freshState) {
               await store.persistCompletedAnalysis(activeProjectId!, freshState);
             }
+          } else if (latestStatus.status === 'INTERRUPTED' || latestStatus.status === 'CANCELLED') {
+            return;
           } else {
             timer.current = setTimeout(() => void poll(), 500);
           }
@@ -524,13 +676,13 @@ export default function BadmintonTrackingLab() {
       // Case A: active project already has a sessionId in store
       if (
         state.sessionId &&
-        ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'UPLOADING', 'COMPLETED', 'ERROR'].includes(state.status)
+        ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCEL_REQUESTED', 'CANCELLED', 'INTERRUPTED', 'UPLOADING', 'COMPLETED', 'ERROR'].includes(state.status)
       ) {
         // Enforce fingerprint match if file is loaded
         if (file && state.videoFingerprint) {
           if (state.videoFingerprint !== computeVideoFingerprint(file)) {
             // Mismatch: clear old non-processing session to force recreation
-            if (['VIDEO_READY', 'READY_TO_ANALYZE', 'ERROR'].includes(state.status)) {
+            if (['VIDEO_READY', 'READY_TO_ANALYZE', 'CANCELLED', 'INTERRUPTED', 'ERROR'].includes(state.status)) {
               void aiTrackingService.deleteSession(state.sessionId).catch(() => {});
               update({ sessionId: null, status: 'IDLE', sessionStatus: null });
             }
@@ -556,16 +708,25 @@ export default function BadmintonTrackingLab() {
           } else if (currentStatus.status === 'PROCESSING') {
             update({ status: 'PROCESSING' });
             pollSession(state.sessionId, runId);
+          } else if (currentStatus.status === 'CANCEL_REQUESTED') {
+            update({ status: 'CANCEL_REQUESTED' });
+            pollSession(state.sessionId, runId);
+          } else if (currentStatus.status === 'INTERRUPTED' || currentStatus.status === 'CANCELLED') {
+            update({ status: currentStatus.status });
           } else if (currentStatus.status === 'COMPLETED') {
-            update({ status: 'COMPLETED' });
-            const cur = state.cursor;
-            const partial = await aiTrackingService.getSessionResults(state.sessionId, cur);
-            if (partial.telemetry && partial.telemetry.length > 0) {
-              store.appendTelemetry(activeProjectId, partial.telemetry, partial.nextCursor);
-            }
             const freshState = store.getProjectState(activeProjectId);
-            if (freshState && !freshState.analysis) {
-              await store.persistCompletedAnalysis(activeProjectId, freshState);
+            if (freshState) {
+              update({ status: 'PROCESSING' });
+              try {
+                await store.persistCompletedAnalysis(activeProjectId, freshState);
+              } catch (err) {
+                if (alive) {
+                  update({
+                    status: 'ERROR',
+                    error: err instanceof Error ? err.message : 'Unable to persist completed analysis',
+                  });
+                }
+              }
             }
           } else if (currentStatus.status === 'ERROR') {
             update({ status: 'ERROR', error: currentStatus.error || 'Unknown backend error' });
@@ -578,19 +739,44 @@ export default function BadmintonTrackingLab() {
 
       // Case B: No sessionId in store, discover from backend listSessions
       try {
-        const rawSessions = await aiTrackingService.listSessions(activeProjectId);
-        if (!alive) return;
-        const sessions = Array.isArray(rawSessions)
-          ? rawSessions
-          : (rawSessions as any)?.sessions || [];
-        const candidate = sessions.find(
-          (item: any) =>
-            (!item.projectId || item.projectId === activeProjectId) &&
-            ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'COMPLETED'].includes(item.status) &&
-            (!file || !item.videoFingerprint || item.videoFingerprint === computeVideoFingerprint(file))
-        );
+        const fingerprint = state.videoFingerprint || (file ? computeVideoFingerprint(file) : null);
+        const recoveryIssues: string[] = [];
+        let recoveryIssueCount = 0;
+        let recoveryIssuesTruncated = false;
+        let cursor: string | null = null;
+        let firstPage = true;
+        let candidate = null;
+        if (fingerprint) {
+          do {
+            const page = await aiTrackingService.listSessions(activeProjectId, cursor);
+            if (!alive) return;
+            if (firstPage) {
+              recoveryIssues.push(...page.recoveryIssues.slice(0, 3));
+              recoveryIssueCount = page.recoveryIssueCount;
+              recoveryIssuesTruncated = page.recoveryIssuesTruncated;
+              firstPage = false;
+            }
+            recoveryIssueCount += page.pageIssueCount;
+            for (const issue of page.pageIssues) {
+              if (recoveryIssues.length < 3) recoveryIssues.push(issue);
+            }
+            recoveryIssuesTruncated ||= page.pageIssuesTruncated || page.pageIssueCount > 3;
+            candidate = page.sessions.find((item) => isCompatibleResumableTrackingSession(item, {
+              projectId: activeProjectId,
+              videoFingerprint: fingerprint,
+              processingConfig: state.processingConfig,
+            })) ?? null;
+            if (candidate || !page.nextCursor) break;
+            if (page.nextCursor === cursor) throw new Error('Tracking job listing repeated a cursor');
+            cursor = page.nextCursor;
+          } while (alive);
+        }
+        const recoveryNotice = recoveryIssueCount > 0
+          ? `${th ? 'พบปัญหาการกู้คืน' : 'Recovery diagnostics'} (${recoveryIssueCount}): ${recoveryIssues.slice(0, 3).join('; ')}${recoveryIssuesTruncated || recoveryIssueCount > 3 ? '…' : ''}`
+          : !fingerprint ? (th ? 'ยังเลือกงานกู้คืนไม่ได้: ไม่พบ fingerprint ของวิดีโอสำหรับยืนยันสื่อ' : 'Resume job not selected: video fingerprint is unavailable for media verification') : null;
         if (candidate) {
           update({
+            error: recoveryNotice,
             sessionId: candidate.sessionId,
             status: candidate.status as any,
             gameType: candidate.gameType,
@@ -605,12 +791,14 @@ export default function BadmintonTrackingLab() {
               ? { ...state.processingConfig, ...candidate.processingConfig }
               : state.processingConfig,
           });
-          if (candidate.status === 'PROCESSING' || candidate.status === 'COMPLETED') {
+          if (['PROCESSING', 'CANCEL_REQUESTED', 'COMPLETED'].includes(candidate.status)) {
             pollSession(candidate.sessionId, runId);
           }
+        } else if (recoveryNotice) {
+          update({ error: recoveryNotice });
         }
-      } catch {
-        // Backend list error
+      } catch (error) {
+        update({ error: error instanceof Error ? error.message : 'Unable to list compatible tracking jobs' });
       }
     };
 
@@ -636,7 +824,15 @@ export default function BadmintonTrackingLab() {
       timer.current = null;
     }
     upload.current?.abort();
-    await cancelSession();
+    try {
+      await cancelSession();
+      const latest = activeProjectId ? store.getProjectState(activeProjectId) : null;
+      if (latest?.status === 'CANCEL_REQUESTED' && latest.sessionId) {
+        pollSession(latest.sessionId, generation.current);
+      }
+    } catch (err) {
+      update({ error: err instanceof Error ? err.message : 'Unable to cancel analysis' });
+    }
   };
 
   const choose = (next: File | undefined) => {
@@ -668,7 +864,7 @@ export default function BadmintonTrackingLab() {
     if (
       !file ||
       online !== true ||
-      (corners.length !== 4 && state.processingConfig?.autoCourtCalibrationEnabled !== true) ||
+      !calibrationReadyToStart ||
       processing ||
       matchInfo.sportType !== 'badminton'
     )
@@ -680,7 +876,7 @@ export default function BadmintonTrackingLab() {
     const currentBackendStatus = state.status;
     const isResumable =
       id &&
-      ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING'].includes(currentBackendStatus) &&
+      ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCELLED', 'INTERRUPTED'].includes(currentBackendStatus) &&
       (!file || !state.videoFingerprint || state.videoFingerprint === computeVideoFingerprint(file));
 
     const fail = (err: unknown) => {
@@ -704,8 +900,8 @@ export default function BadmintonTrackingLab() {
         courtRoiMarginM: 0.5,
         frameStride: effectiveFrameStride,
         poseStride,
-        autoCourtCalibrationEnabled: state.processingConfig?.autoCourtCalibrationEnabled ?? false,
         shuttleEnabled: shuttleTrackingEnabled,
+        autoCourtCalibrationEnabled,
         ...(shuttleTrackingEnabled
           ? {
               shuttleProvider: capabilities?.shuttle?.provider ?? 'opencv_onnx',
@@ -723,7 +919,7 @@ export default function BadmintonTrackingLab() {
       };
 
       if (!isResumable) {
-        if (id && ['VIDEO_READY', 'READY_TO_ANALYZE', 'ERROR'].includes(currentBackendStatus)) {
+        if (id && ['VIDEO_READY', 'READY_TO_ANALYZE', 'CANCELLED', 'INTERRUPTED', 'ERROR'].includes(currentBackendStatus)) {
           void aiTrackingService.deleteSession(id).catch(() => {});
         }
         update({
@@ -767,18 +963,16 @@ export default function BadmintonTrackingLab() {
       // Resume flow picks up from here using the existing id
       const activeStatus = store.getProjectState(activeProjectId!)?.status || 'VIDEO_READY';
 
-      if (activeStatus === 'VIDEO_READY' || activeStatus === 'IDLE' || activeStatus === 'CREATED') {
-        if (corners.length === 4) {
-          await aiTrackingService.calibrateSession(id!, corners, gameType);
-          if (!current()) return;
-        } else if (processingConfig.autoCourtCalibrationEnabled !== true) {
-          return;
-        }
+      if ((activeStatus === 'VIDEO_READY' || activeStatus === 'IDLE' || activeStatus === 'CREATED') &&
+          !autoCourtCalibrationEnabled) {
+        await aiTrackingService.calibrateSession(id!, corners, gameType);
+        if (!current()) return;
         update({ status: 'READY_TO_ANALYZE' });
       }
 
       const activeStatus2 = store.getProjectState(activeProjectId!)?.status || 'READY_TO_ANALYZE';
-      if (activeStatus2 === 'READY_TO_ANALYZE') {
+      if (['READY_TO_ANALYZE', 'INTERRUPTED', 'CANCELLED'].includes(activeStatus2) ||
+          (activeStatus2 === 'VIDEO_READY' && autoCourtCalibrationEnabled)) {
         await aiTrackingService.startSessionAnalysis(id!);
         if (!current()) return;
         update({ status: 'PROCESSING' });
@@ -794,7 +988,7 @@ export default function BadmintonTrackingLab() {
     matchInfo.sportType === 'badminton' &&
     online === true &&
     !!file &&
-    (corners.length === 4 || state.processingConfig?.autoCourtCalibrationEnabled === true) &&
+    calibrationReadyToStart &&
     !processing;
   const applyManualRecovery = async () => {
     if (!state.sessionId || !lostSegmentId || recoverySelectionKey !== lostSegmentKey ||
@@ -817,7 +1011,7 @@ export default function BadmintonTrackingLab() {
     }
   };
   const button =
-    'rounded-lg border border-slate-600 px-3 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed';
+    'rounded-lg border border-slate-600 px-3 py-2 text-sm transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 motion-reduce:transform-none motion-reduce:transition-none disabled:opacity-40 disabled:cursor-not-allowed';
 
   return (
     <div className="h-full overflow-y-auto bg-[#0c1721] text-slate-200 p-4 space-y-4">
@@ -984,23 +1178,6 @@ export default function BadmintonTrackingLab() {
             </label>
           </div>
           <div className="flex items-center gap-4 pt-1">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                aria-label="Enable Automatic Court Calibration"
-                disabled={processing}
-                checked={state.processingConfig?.autoCourtCalibrationEnabled ?? false}
-                onChange={(e) => {
-                  update({ processingConfig: {
-                    ...state.processingConfig,
-                    autoCourtCalibrationEnabled: e.target.checked,
-                  } });
-                  setProfile('custom');
-                }}
-                className="rounded bg-slate-800 border-slate-700 text-sky-500"
-              />
-              <span>{th ? 'ปรับเทียบสนามอัตโนมัติ' : 'Enable Automatic Court Calibration'}</span>
-            </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -1179,6 +1356,27 @@ export default function BadmintonTrackingLab() {
         </p>
       )}
 
+      <div className="space-y-1 text-sm">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={autoCourtCalibrationEnabled}
+            disabled={processing || (!!state.sessionId && ['VIDEO_READY', 'READY_TO_ANALYZE', 'INTERRUPTED', 'CANCELLED'].includes(state.status))}
+            onChange={(e) => update({ processingConfig: {
+              ...state.processingConfig, autoCourtCalibrationEnabled: e.target.checked,
+            } })}
+            className="rounded bg-slate-800 border-slate-700 text-sky-500 focus-visible:ring-2 focus-visible:ring-sky-500"
+          />
+          <span>{th ? 'ตรวจจับสนามอัตโนมัติ' : 'Automatic court calibration'}</span>
+        </label>
+        <p className="text-xs text-slate-400">
+          {autoCourtCalibrationEnabled
+            ? (th ? 'เริ่มได้โดยไม่ต้องเลือกมุมสนาม ค่าสนามจะแสดงเมื่อระบบตรวจสอบการปรับเทียบผ่านเท่านั้น'
+              : 'Start without marking corners. Court metrics become available only after calibration is validated.')
+            : (th ? 'เลือกมุมสนาม 4 จุดก่อนเริ่มวิเคราะห์' : 'Mark four court corners before starting analysis.')}
+        </p>
+      </div>
+
       {/* Video Selection & Reconnection */}
       <div className="space-y-2">
         <span className="block text-sm">{th ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select video file'}</span>
@@ -1293,34 +1491,140 @@ export default function BadmintonTrackingLab() {
               src={url}
               controls={!calibrating}
               className="w-full h-full"
-              onLoadedMetadata={(e) =>
+              onLoadedMetadata={(e) => {
                 setDimensions({
                   width: e.currentTarget.videoWidth,
                   height: e.currentTarget.videoHeight,
-                })
-              }
+                });
+                const savedTime = state.videoFingerprint && file
+                  && state.videoFingerprint === computeVideoFingerprint(file)
+                  ? state.uiPreferences.videoCurrentTime
+                  : 0;
+                const restoredTime = Number.isFinite(savedTime) && savedTime > 0
+                  ? (Number.isFinite(e.currentTarget.duration) ? Math.min(savedTime, e.currentTarget.duration) : savedTime)
+                  : 0;
+                if (restoredTime > 0) {
+                  e.currentTarget.currentTime = restoredTime;
+                }
+                setTime(restoredTime);
+                void loadOverlayWindow(restoredTime, true);
+              }}
               onTimeUpdate={(e) => {
                 const cur = e.currentTarget.currentTime;
                 setTime(cur);
                 setUIPreference('videoCurrentTime', cur);
+                void loadOverlayWindow(cur);
               }}
               onSeeked={(e) => {
                 const cur = e.currentTarget.currentTime;
                 setTime(cur);
                 setUIPreference('videoCurrentTime', cur);
+                void loadOverlayWindow(cur, true);
                 setRecoveryViewReady(Boolean(recoverySelectionFrame &&
                   Math.abs(cur - recoverySelectionFrame.timestampSec) <= 0.05));
               }}
               onSeeking={() => setRecoveryViewReady(false)}
             />
             <TrackingVideoOverlay
-              frames={frames}
+              frames={displayFrames}
               time={time}
               mode={overlayMode}
               isProcessing={processing}
             />
-            <ShuttleOverlay frames={frames} time={time} mode={shuttleMode} width={dimensions.width} height={dimensions.height} />
-            {(calibrating || corners.length > 0) && (
+            <ShuttleOverlay frames={displayFrames} time={time} mode={shuttleMode} width={dimensions.width} height={dimensions.height} />
+            {overlayStatus && (
+              <div
+                role={overlayWindowStatus === 'error' ? 'alert' : 'status'}
+                aria-live={overlayWindowStatus === 'error' ? 'assertive' : 'polite'}
+                className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 rounded border border-slate-600 bg-slate-950/90 px-3 py-1.5 text-xs text-slate-200 shadow"
+              >
+                {overlayStatus}
+              </div>
+            )}
+            {overlayFrame && (
+              <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 pointer-events-none z-10 text-[11px] font-mono">
+                {overlayFrame.sceneState && (
+                  <span className={`px-2 py-0.5 rounded border font-semibold ${
+                    overlayFrame.sceneState === 'COURT_PLAY'
+                      ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                      : overlayFrame.sceneState === 'REPLAY'
+                        ? 'bg-rose-950/80 border-rose-500/50 text-rose-300'
+                        : overlayFrame.sceneState === 'SIDE_PLAY'
+                          ? 'bg-cyan-950/80 border-cyan-500/50 text-cyan-300'
+                          : overlayFrame.sceneState === 'CAMERA_TRANSITION'
+                            ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                            : 'bg-slate-900/80 border-slate-700 text-slate-300'
+                  }`}>
+                    {overlayFrame.sceneState}
+                  </span>
+                )}
+                {overlayFrame.cameraSegmentId && (
+                  <span className="px-2 py-0.5 rounded border border-slate-700 bg-slate-900/80 text-slate-300">
+                    {overlayFrame.cameraSegmentId}
+                  </span>
+                )}
+                {overlayFrame.calibrationState && (
+                  <span className={`px-2 py-0.5 rounded border ${
+                    overlayFrame.calibrationState === 'CALIBRATED'
+                      ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                      : overlayFrame.calibrationState === 'RECALIBRATING'
+                        ? 'bg-amber-950/90 border-amber-500 text-amber-200 animate-pulse motion-reduce:animate-none'
+                        : 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                  }`}
+                  title={overlayFrame.calibrationUnavailableReason || overlayFrame.calibrationState}>
+                    {overlayFrame.calibrationState}
+                  </span>
+                )}
+                {overlayFrame.canTrackPlayer !== undefined && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded border ${
+                      overlayFrame.canTrackPlayer
+                        ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                        : 'bg-slate-900/80 border-slate-700 text-slate-500 line-through'
+                    }`}
+                    title={overlayFrame.capabilities?.canTrackPlayer?.reason || 'Player tracking'}
+                  >
+                    2D
+                  </span>
+                )}
+                {overlayFrame.canUseCourtMetric !== undefined && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded border ${
+                      overlayFrame.canUseCourtMetric
+                        ? 'bg-sky-950/80 border-sky-500/40 text-sky-300'
+                        : 'bg-slate-900/80 border-slate-700 text-slate-500 line-through'
+                    }`}
+                    title={overlayFrame.capabilities?.canUseCourtMetric?.reason || 'Court metric'}
+                  >
+                    METRIC
+                  </span>
+                )}
+                {overlayFrame.canWriteCanonicalMatchData !== undefined && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded border ${
+                      overlayFrame.canWriteCanonicalMatchData
+                        ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                        : 'bg-slate-900/80 border-slate-700 text-slate-500 line-through'
+                    }`}
+                    title={overlayFrame.capabilities?.canWriteCanonicalMatchData?.reason || 'Canonical writes'}
+                  >
+                    CANONICAL
+                  </span>
+                )}
+              </div>
+            )}
+            {!calibrating && courtOverlayCorners && (
+              <svg
+                aria-label={th ? 'สนามที่ผ่านการตรวจสอบการปรับเทียบ' : 'Validated court calibration'}
+                viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
+                className="absolute inset-0 w-full h-full pointer-events-none"
+              >
+                <polygon points={courtOverlayCorners.map(point => point.join(',')).join(' ')}
+                  fill="none" stroke="#38bdf8" strokeWidth={dimensions.width / 400} />
+              </svg>
+            )}
+            {(calibrating || (corners.length > 0 && !state.sessionId && frames.length === 0) ||
+              (corners.length > 0 && lostSegmentKey && recoverySelectionKey === lostSegmentKey)) && (
               <svg
                 aria-label="Court calibration"
                 viewBox={`0 0 ${dimensions.width || 1} ${dimensions.height || 1}`}
@@ -1369,7 +1673,7 @@ export default function BadmintonTrackingLab() {
             )}
           </div>
           <ShuttleControls mode={shuttleMode} onChange={setShuttleMode} />
-          <ShuttleDiagnostics frames={frames} time={time} />
+          <ShuttleDiagnostics frames={displayFrames} time={time} />
           <button
             className={button}
             disabled={(processing && !lostSegmentId) || !dimensions.width}
@@ -1389,18 +1693,62 @@ export default function BadmintonTrackingLab() {
           >
             {th ? 'เลือก 4 มุมสนามจากภาพวิดีโอ' : 'Calibrate four court corners'}
           </button>
+          {latestFrame?.calibrationState === 'RECALIBRATING' && (
+            <div role="status" className="p-3 rounded-lg border border-amber-500/40 bg-amber-950/30 text-amber-200 text-xs space-y-1">
+              <p className="font-semibold text-amber-300">
+                {th ? 'กำลังปรับเทียบสนามใหม่ (Recalibrating)' : 'Court Recalibration In Progress'}
+              </p>
+              <p className="text-slate-300">
+                {latestFrame.calibrationUnavailableReason ||
+                  (th
+                    ? 'ตรวจพบการตัดภาพหรือการเคลื่อนไหวของกล้อง กำลังค้นหาเส้นสนามหรือรอการกู้คืนด้วยตนเอง'
+                    : 'Camera cut or motion drift detected. System is searching for court lines or awaiting manual recovery.')}
+              </p>
+            </div>
+          )}
           {lostSegmentId && (
-            <div role="status" className="text-sm text-amber-300 space-y-2">
-              <p>{th ? 'ต้องปรับเทียบสนามใหม่ เลือกมุมสนาม 4 จุดจากภาพของช่วงกล้องปัจจุบัน' :
+            <div role="status" className="text-sm text-amber-300 space-y-2 p-3 rounded-lg border border-amber-600/40 bg-amber-950/20">
+              <p>{th ? 'การปรับเทียบสนามสูญหาย เลือกมุมสนาม 4 จุดจากภาพของช่วงกล้องปัจจุบัน' :
                 'Court calibration unavailable. Select four corners on the current camera segment.'}</p>
+              {(() => {
+                const suggested = (state.sessionStatus?.runtimeProvenance?.calibration as any)?.suggestedCorners;
+                const suggestedConf = (state.sessionStatus?.runtimeProvenance?.calibration as any)?.suggestedConfidence;
+                if (!suggested || !Array.isArray(suggested) || suggested.length !== 4) return null;
+                return (
+                  <div className="flex items-center justify-between gap-2 text-xs text-sky-300 bg-sky-950/40 p-2 rounded border border-sky-800/50">
+                    <span>
+                      {th
+                        ? `ข้อเสนอ Hybrid: ตรวจพบจุดสนาม (${Math.round((suggestedConf || 0) * 100)}% ความมั่นใจ)`
+                        : `Hybrid Proposal: Candidate corners detected (${Math.round((suggestedConf || 0) * 100)}% conf)`}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-medium transition-transform active:scale-95 motion-reduce:transform-none"
+                      onClick={() => {
+                        videoRef.current?.pause();
+                        if (!latestFrame || !videoRef.current) return;
+                        videoRef.current.currentTime = latestFrame.timestampSec;
+                        setRecoverySelectionFrame({ frameIndex: latestFrame.frameIndex, timestampSec: latestFrame.timestampSec });
+                        setRecoveryViewReady(false);
+                        update({ corners: suggested });
+                        setRecoverySelectionKey(lostSegmentKey);
+                      }}
+                    >
+                      {th ? 'ใช้จุดแนะนำ' : 'Use suggested corners'}
+                    </button>
+                  </div>
+                );
+              })()}
               <button
                 className={button}
                 disabled={corners.length !== 4 || recoverySelectionKey !== lostSegmentKey || !recoverySelectionFrame || !recoveryViewReady || recoveryPending}
                 onClick={() => void applyManualRecovery()}
               >
-                {th ? 'ใช้การปรับเทียบด้วยตนเอง' : 'Apply manual calibration'}
+                {recoveryPending
+                  ? (th ? 'กำลังบันทึก...' : 'Applying...')
+                  : (th ? 'ใช้การปรับเทียบด้วยตนเอง' : 'Apply manual calibration')}
               </button>
-              {recoveryError && <p role="alert" className="text-red-300">{recoveryError}</p>}
+              {recoveryError && <p role="alert" className="text-red-300 text-xs">{recoveryError}</p>}
             </div>
           )}
           <p className="text-sm text-slate-400">
@@ -1450,8 +1798,10 @@ export default function BadmintonTrackingLab() {
           <span>
             {th ? 'กำลังวิเคราะห์' : 'Analyzing'} {progress}%
           </span>
-          <button className={button} onClick={cancel}>
-            {th ? 'ยกเลิก' : 'Cancel analysis'}
+          <button className={button} onClick={cancel} disabled={state.status === 'CANCEL_REQUESTED'}>
+            {state.status === 'CANCEL_REQUESTED'
+              ? th ? 'กำลังหยุด…' : 'Stopping…'
+              : th ? 'ยกเลิก' : 'Cancel analysis'}
           </button>
         </div>
       ) : (
@@ -1481,6 +1831,8 @@ export default function BadmintonTrackingLab() {
         <BadmintonMovementDashboard
           analysis={analysis}
           chunks={chunks}
+          hasMoreChunks={state.chunksHasMore}
+          language={th ? 'th' : 'en'}
           title={th ? 'ผลการเคลื่อนที่ของผู้เล่น' : 'Player movement results'}
         />
       )}

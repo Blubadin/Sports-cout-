@@ -38,6 +38,21 @@ class RecoveryTests(unittest.TestCase):
         return self.tracker.process_frame(np.zeros((100, 100, 3), dtype=np.uint8),
             self.index / 30 if timestamp is None else timestamp, self.index)
 
+    def test_warming_up_transitions_through_reacquiring_to_tracking(self):
+        self.assertEqual(self.tracker.state.value, "WARMING_UP")
+
+        first = self.step()
+        self.assertEqual(first.state, "unknown")
+        self.assertEqual(self.tracker.state.value, "WARMING_UP")
+
+        pending = self.step()
+        self.assertEqual(pending.state, "unknown")
+        self.assertEqual(self.tracker.state.value, "REACQUIRING")
+
+        confirmed = self.step()
+        self.assertEqual(confirmed.state, "observed")
+        self.assertEqual(self.tracker.state.value, "TRACKING")
+
     def lock(self):
         for _ in range(4):
             self.step()

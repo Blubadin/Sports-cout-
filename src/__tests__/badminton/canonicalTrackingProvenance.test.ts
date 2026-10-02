@@ -230,4 +230,202 @@ describe('Phase 1: Canonical Tracking Data Provenance & Integrity', () => {
     expect(getLatestTrackingAnalysis([analysisB, analysisA])?.id).toBe('analysis_new');
     expect(getLatestTrackingAnalysis([])).toBeNull();
   });
+
+  it('preserves full canonical provenance fields and athleteId in toTrackingTelemetryV1', () => {
+    const rawFrame = {
+      analysisId: 'analysis_01',
+      pipelineRunId: 'pipe_run_99',
+      timestamp: 3.5,
+      frame_idx: 105,
+      timebase: 'pts',
+      sceneState: 'active_court',
+      modelVersion: 'badminton-v2.1',
+      modelArtifactHash: 'sha256:fedcba9876543210',
+      runtime: 'tensorrt',
+      requestedDevice: 'cuda:0',
+      effectiveDevice: 'cuda:0',
+      precision: 'fp16',
+      supersededBy: 'pipe_run_100',
+      observationState: 'observed',
+      reviewState: 'reviewed',
+      players: [
+        {
+          id: 1,
+          athleteId: 'ath_kunlavut_01',
+          trackId: 7,
+          observationState: 'observed',
+          reviewState: 'reviewed',
+          detectionConfidence: 0.95,
+          court_pos_m: { x: 2.5, y: 11.2 },
+          court_pos_pct: { x: 41.0, y: 83.5 },
+        },
+      ],
+    };
+
+    const telemetry = toTrackingTelemetryV1(rawFrame);
+    expect(telemetry.pipelineRunId).toBe('pipe_run_99');
+    expect(telemetry.timebase).toBe('pts');
+    expect(telemetry.sceneState).toBe('active_court');
+    expect(telemetry.modelVersion).toBe('badminton-v2.1');
+    expect(telemetry.modelArtifactHash).toBe('sha256:fedcba9876543210');
+    expect(telemetry.runtime).toBe('tensorrt');
+    expect(telemetry.requestedDevice).toBe('cuda:0');
+    expect(telemetry.effectiveDevice).toBe('cuda:0');
+    expect(telemetry.precision).toBe('fp16');
+    expect(telemetry.supersededBy).toBe('pipe_run_100');
+    expect(telemetry.reviewState).toBe('reviewed');
+
+    expect(telemetry.players[0].athleteId).toBe('ath_kunlavut_01');
+    expect(telemetry.players[0].trackId).toBe(7);
+    expect(telemetry.players[0].reviewState).toBe('reviewed');
+    expect(telemetry.players[0].observationState).toBe('observed');
+  });
+
+  it('marks prior run as supersededBy when reprocess creates new pipelineRunId', () => {
+    const originalRun: TrackingAnalysis = {
+      id: 'analysis_01',
+      projectId: 'project_01',
+      pipelineRunId: 'pipe_run_v1',
+      sportType: 'badminton',
+      gameType: 'singles',
+      status: 'completed',
+      engineVersion: '1.0.0',
+      detectorModel: 'yolov8n',
+      trackerModel: 'bytetrack',
+      sampleRateHz: 10,
+      createdAt: '2026-09-30T10:00:00Z',
+      players: [],
+      summary: { durationSeconds: 60, sampleCount: 600, players: {} },
+    };
+
+    // When reprocessed:
+    const newPipelineRunId = 'pipe_run_v2';
+    const supersededRun: TrackingAnalysis = {
+      ...originalRun,
+      supersededBy: newPipelineRunId,
+    };
+
+    const newRun: TrackingAnalysis = {
+      id: 'analysis_02',
+      projectId: 'project_01',
+      pipelineRunId: newPipelineRunId,
+      sportType: 'badminton',
+      gameType: 'singles',
+      status: 'completed',
+      engineVersion: '1.0.0',
+      detectorModel: 'yolo11n',
+      trackerModel: 'bytetrack',
+      sampleRateHz: 10,
+      createdAt: '2026-09-30T11:00:00Z',
+      players: [],
+      summary: { durationSeconds: 60, sampleCount: 600, players: {} },
+    };
+
+    expect(supersededRun.supersededBy).toBe('pipe_run_v2');
+    expect(newRun.pipelineRunId).toBe('pipe_run_v2');
+    expect(newRun.supersededBy).toBeUndefined();
+  });
+
+  it('R04: player in lost state has null observationState and null groundPointProvenance across toTrackingTelemetryV1 and downsampling', () => {
+    const rawFrame = {
+      analysisId: 'analysis_lost_test',
+      pipelineRunId: 'pipe_run_lost',
+      timestamp: 4.0,
+      frame_idx: 120,
+      players: [
+        {
+          id: 1,
+          trackId: 10,
+          state: 'lost',
+          is_active: false,
+          observationState: null,
+          groundPointProvenance: null,
+          bboxPct: null,
+          groundPointPct: null,
+          courtPosition: null,
+        },
+        {
+          id: 2,
+          trackId: 11,
+          state: 'observed',
+          is_active: true,
+          observationState: 'observed',
+          groundPointProvenance: 'pose_both_ankles',
+          courtPosition: { xM: 2.0, yM: 4.0, xPct: 30, yPct: 40 },
+          totalDistanceM: 5.0,
+        },
+      ],
+    };
+
+    const telemetry = toTrackingTelemetryV1(rawFrame);
+    const lostPlayer = telemetry.players.find((p) => p.playerId === 'P1')!;
+    const observedPlayer = telemetry.players.find((p) => p.playerId === 'P2')!;
+
+    expect(lostPlayer.state).toBe('lost');
+    expect(lostPlayer.observationState).toBeNull();
+    expect(lostPlayer.groundPointProvenance).toBeNull();
+    expect(lostPlayer.bboxPct).toBeNull();
+    expect(lostPlayer.groundPointPct).toBeNull();
+
+    expect(observedPlayer.state).toBe('observed');
+    expect(observedPlayer.observationState).toBe('observed');
+    expect(observedPlayer.groundPointProvenance).toBe('pose_both_ankles');
+  });
+
+  it('R04: predicted and manual observationState and groundPointProvenance are preserved through downsampling', () => {
+    const rawFrames: TrackingTelemetryV1[] = [
+      {
+        schemaVersion: 1,
+        analysisId: 'analysis_provenance_states',
+        pipelineRunId: 'run_provenance',
+        timestampSec: 1.0,
+        frameIndex: 30,
+        canUseCourtMetric: true,
+        isMetricValid: true,
+        calibrationState: 'CALIBRATED',
+        cameraSegmentId: 'seg_1',
+        calibrationId: 'cal_1',
+        calibration: {
+          state: 'CALIBRATED',
+          cameraSegmentId: 'seg_1',
+          calibrationId: 'cal_1',
+          source: 'automatic',
+          createdAtFrame: 0,
+          createdAtTimestampSec: 0.0,
+          confidence: 0.95,
+        },
+        players: [
+          {
+            playerId: 'P1',
+            trackId: 1,
+            state: 'predicted',
+            observationState: 'predicted',
+            groundPointProvenance: 'bbox_bottom_center',
+            courtPosition: { xM: 2.0, yM: 3.0, xPct: 32.8, yPct: 22.4 },
+          },
+          {
+            playerId: 'P2',
+            trackId: 2,
+            state: 'observed',
+            observationState: 'manual',
+            groundPointProvenance: 'pose_both_ankles',
+            courtPosition: { xM: 4.0, yM: 10.0, xPct: 65.0, yPct: 75.0 },
+          },
+        ],
+      },
+    ];
+
+    const result = downsampleAndChunkTrackingSamples('analysis_provenance_states', rawFrames, 10, 15);
+    const p1Sample = result.chunks[0].samples.find((s) => s.playerId === 'P1')!;
+    const p2Sample = result.chunks[0].samples.find((s) => s.playerId === 'P2')!;
+
+    expect(p1Sample.trackingState).toBe('predicted');
+    expect(p1Sample.observationState).toBe('predicted');
+    expect(p1Sample.groundPointProvenance).toBe('bbox_bottom_center');
+
+    expect(p2Sample.trackingState).toBe('tracked');
+    expect(p2Sample.observationState).toBe('manual');
+    expect(p2Sample.groundPointProvenance).toBe('pose_both_ankles');
+  });
 });
+
