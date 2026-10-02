@@ -59,73 +59,73 @@
       "ramReadings": [
         {
           "elapsedSec": 0.22,
-          "rssBytes": 263221248,
+          "rssBytes": 264404992,
           "frame": 0,
           "window": 0
         },
         {
           "elapsedSec": 5.22,
-          "rssBytes": 559616000,
+          "rssBytes": 559771648,
           "frame": 7,
           "window": 3
         },
         {
           "elapsedSec": 10.22,
-          "rssBytes": 576663552,
+          "rssBytes": 577277952,
           "frame": 23,
           "window": 11
         },
         {
           "elapsedSec": 15.22,
-          "rssBytes": 588726272,
+          "rssBytes": 589193216,
           "frame": 41,
           "window": 20
         },
         {
           "elapsedSec": 20.22,
-          "rssBytes": 586604544,
-          "frame": 55,
-          "window": 27
+          "rssBytes": 591249408,
+          "frame": 57,
+          "window": 28
         },
         {
           "elapsedSec": 25.22,
-          "rssBytes": 586661888,
-          "frame": 71,
-          "window": 35
+          "rssBytes": 589402112,
+          "frame": 73,
+          "window": 36
         },
         {
           "elapsedSec": 30.22,
-          "rssBytes": 586792960,
-          "frame": 85,
-          "window": 42
+          "rssBytes": 569520128,
+          "frame": 87,
+          "window": 43
         },
         {
           "elapsedSec": 35.22,
-          "rssBytes": 585383936,
-          "frame": 101,
-          "window": 50
+          "rssBytes": 570331136,
+          "frame": 103,
+          "window": 51
         },
         {
           "elapsedSec": 40.22,
-          "rssBytes": 585719808,
-          "frame": 118,
-          "window": 59
+          "rssBytes": 579420160,
+          "frame": 121,
+          "window": 60
         },
         {
           "elapsedSec": 45.22,
-          "rssBytes": 592384000,
-          "frame": 133,
-          "window": 66
+          "rssBytes": 580620288,
+          "frame": 135,
+          "window": 67
         },
         {
           "elapsedSec": 50.22,
-          "rssBytes": 602767360,
-          "frame": 145,
-          "window": 72
+          "rssBytes": 587657216,
+          "frame": 149,
+          "window": 74
         },
         {
           "elapsedSec": 55.22,
-          "rssBytes": 535490560,
+          "rssBytes": 532692992,
           "frame": 150,
           "window": 75
         }
@@ -140,7 +140,7 @@
       "id": "recovered",
       "status": "COMPLETED",
       "error": null,
-      "processingSec": 55.812,
+      "processingSec": 55.797,
       "videoSec": 5.0,
       "config": {
         "profile": "reference",
@@ -192,79 +192,79 @@
       "ramReadings": [
         {
           "elapsedSec": 0.22,
-          "rssBytes": 537563136,
+          "rssBytes": 535109632,
           "frame": 0,
           "window": 0
         },
         {
-          "elapsedSec": 5.28,
-          "rssBytes": 537681920,
+          "elapsedSec": 5.27,
+          "rssBytes": 535134208,
           "frame": 0,
           "window": 0
         },
         {
-          "elapsedSec": 5.73,
-          "rssBytes": 537841664,
+          "elapsedSec": 5.72,
+          "rssBytes": 535359488,
           "frame": 0,
           "window": 0
         },
         {
-          "elapsedSec": 10.73,
-          "rssBytes": 716242944,
+          "elapsedSec": 10.72,
+          "rssBytes": 711897088,
           "frame": 13,
           "window": 6
         },
         {
-          "elapsedSec": 15.73,
-          "rssBytes": 718462976,
-          "frame": 31,
-          "window": 15
+          "elapsedSec": 15.72,
+          "rssBytes": 716099584,
+          "frame": 33,
+          "window": 16
         },
         {
-          "elapsedSec": 20.73,
+          "elapsedSec": 20.72,
+          "rssBytes": 716713984,
+          "frame": 49,
+          "window": 24
+        },
+        {
+          "elapsedSec": 25.72,
+          "rssBytes": 713723904,
+          "frame": 65,
+          "window": 32
+        },
+        {
+          "elapsedSec": 30.72,
+          "rssBytes": 714223616,
+          "frame": 81,
+          "window": 40
+        },
+        {
+          "elapsedSec": 35.72,
+          "rssBytes": 714268672,
+          "frame": 97,
+          "window": 48
+        },
+        {
+          "elapsedSec": 40.73,
+          "rssBytes": 718176256,
+          "frame": 115,
+          "window": 57
+        },
+        {
+          "elapsedSec": 45.73,
           "rssBytes": 718745600,
-          "frame": 47,
-          "window": 23
+          "frame": 131,
+          "window": 65
         },
         {
-          "elapsedSec": 25.73,
-          "rssBytes": 716181504,
-          "frame": 61,
-          "window": 30
+          "elapsedSec": 50.73,
+          "rssBytes": 716451840,
+          "frame": 145,
+          "window": 72
         },
         {
-          "elapsedSec": 30.73,
-          "rssBytes": 710131712,
-          "frame": 77,
-          "window": 38
-        },
-        {
-          "elapsedSec": 35.73,
-          "rssBytes": 714280960,
-          "frame": 93,
-          "window": 46
-        },
-        {
-          "elapsedSec": 40.75,
-          "rssBytes": 716218368,
-          "frame": 109,
-          "window": 54
-        },
-        {
-          "elapsedSec": 45.75,
-          "rssBytes": 722636800,
-          "frame": 125,
-          "window": 62
-        },
-        {
-          "elapsedSec": 50.75,
-          "rssBytes": 722190336,
-          "frame": 139,
-          "window": 69
-        },
-        {
-          "elapsedSec": 55.75,
-          "rssBytes": 646049792,
+          "elapsedSec": 55.73,
+          "rssBytes": 643526656,
           "frame": 150,
           "window": 75
         }
@@ -280,7 +280,7 @@
       }
     }
   ],
-  "recoveryStartupSec": 0.39,
+  "recoveryStartupSec": 0.391,
   "parity": {
     "tolerance": "exact canonical fields listed in script, frozen before run",
     "count": 75,
