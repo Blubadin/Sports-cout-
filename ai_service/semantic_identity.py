@@ -220,6 +220,15 @@ def match_tracks_to_profiles_with_reid(
                 p.last_real_pos = d["real_pos"]
                 p.last_bbox = d["bbox"]
                 p.missed_frames = 0
+                if "ground_pt" in d:
+                    p.last_ground_pt = d["ground_pt"]
+                if "envelope_zone" in d:
+                    p.last_envelope_zone = d["envelope_zone"].value if hasattr(d["envelope_zone"], "value") else str(d["envelope_zone"])
+                if "eligibility" in d:
+                    p.last_eligibility_status = d["eligibility"].status.value if hasattr(d["eligibility"].status, "value") else str(d["eligibility"].status)
+                if "pose_obj" in d and d["pose_obj"] is not None:
+                    p.last_pose = d["pose_obj"]
+                    p.last_pose_age = 0
                 if p.team == 0 and d["real_pos"] is not None:
                     p.team = 1 if d["real_pos"][1] < net_y else 2
                 p.update_appearance(frame, d["bbox"])
@@ -330,6 +339,15 @@ def match_tracks_to_profiles_with_reid(
             p.last_real_pos = d["real_pos"]
             p.last_bbox = d["bbox"]
             p.missed_frames = 0
+            if "ground_pt" in d:
+                p.last_ground_pt = d["ground_pt"]
+            if "envelope_zone" in d:
+                p.last_envelope_zone = d["envelope_zone"].value if hasattr(d["envelope_zone"], "value") else str(d["envelope_zone"])
+            if "eligibility" in d:
+                p.last_eligibility_status = d["eligibility"].status.value if hasattr(d["eligibility"].status, "value") else str(d["eligibility"].status)
+            if "pose_obj" in d and d["pose_obj"] is not None:
+                p.last_pose = d["pose_obj"]
+                p.last_pose_age = 0
             if p.team == 0 and d["real_pos"] is not None:
                 p.team = 1 if d["real_pos"][1] < net_y else 2
             p.update_appearance(frame, d["bbox"])

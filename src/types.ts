@@ -457,6 +457,11 @@ export interface FootTelemetryV1 {
   positionPct?: { x: number; y: number } | null;
   confidence?: number | null;
   courtPositionM?: { xM: number; yM: number } | null;
+  source?: string;
+  ageFrames?: number;
+  ageSec?: number;
+  isStale?: boolean;
+  staleReason?: string | null;
 }
 
 export interface TrackingPlayerV1 {
@@ -485,6 +490,13 @@ export interface TrackingPlayerV1 {
   rightFootCourtM?: { xM: number; yM: number } | null;
   leftFoot?: FootTelemetryV1 | null;
   rightFoot?: FootTelemetryV1 | null;
+  envelopeZone?: 'IN_COURT' | 'NEAR_COURT' | 'FAR_OUTSIDE' | null;
+  eligibilityStatus?: 'ELIGIBLE' | 'CANDIDATE' | 'SPECTATOR_OR_OFFICIAL' | 'UNRESOLVED' | null;
+  poseSource?: string | null;
+  poseAgeFrames?: number | null;
+  poseAgeSec?: number | null;
+  isPoseStale?: boolean | null;
+  staleReason?: string | null;
   courtPosition?: {
     xM: number;
     yM: number;
