@@ -153,6 +153,7 @@ export interface TrackingSample {
   confidence: number | null; // 0..1
   trackingState: 'tracked' | 'predicted' | 'lost';
   observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual' | null;
+  groundPointProvenance?: import('../../types').GroundPointProvenance | null;
   reviewState?: 'unreviewed' | 'reviewed' | 'corrected' | null;
   sceneState?: string | null;
   pipelineRunId?: string;
@@ -1596,6 +1597,8 @@ export function downsampleAndChunkTrackingSamples(
         speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
         confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
+        observationState: p.observationState ?? (p.state === 'predicted' ? 'predicted' : p.state === 'lost' ? null : 'observed'),
+        groundPointProvenance: p.state === 'lost' ? null : (p.groundPointProvenance ?? null),
         cameraSegmentId: frame.cameraSegmentId,
         calibrationId: frame.calibrationId,
         metricRunId: runIds.get(frame),
@@ -1643,6 +1646,8 @@ export function downsampleAndChunkTrackingSamples(
         speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
         confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
+        observationState: p.observationState ?? (p.state === 'predicted' ? 'predicted' : p.state === 'lost' ? null : 'observed'),
+        groundPointProvenance: p.state === 'lost' ? null : (p.groundPointProvenance ?? null),
         cameraSegmentId: frame.cameraSegmentId,
         calibrationId: frame.calibrationId,
         metricRunId: runIds.get(frame),
@@ -1769,6 +1774,8 @@ function streamingSample(
     speed: typeof player.speedMps === 'number' ? Number(player.speedMps.toFixed(2)) : null,
     confidence: typeof player.detectionConfidence === 'number' ? Number(player.detectionConfidence.toFixed(2)) : null,
     trackingState: player.state === 'lost' ? 'lost' : player.state === 'predicted' ? 'predicted' : 'tracked',
+    observationState: player.observationState ?? (player.state === 'predicted' ? 'predicted' : player.state === 'lost' ? null : 'observed'),
+    groundPointProvenance: player.state === 'lost' ? null : (player.groundPointProvenance ?? null),
     cameraSegmentId: frame.cameraSegmentId,
     calibrationId: frame.calibrationId,
     metricRunId,

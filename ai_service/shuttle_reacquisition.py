@@ -85,6 +85,19 @@ class RecoveringShuttleTracker:
         self._last_input = None
         self._closed = False
 
+    def reset(self):
+        """Reset internal recovery tracking state across camera cuts or segment boundaries."""
+        self.state = TrackingState.LOST
+        self._last = None
+        self._previous = None
+        self._pending = None
+        self._confirmations = 0
+        self._weak = 0
+        self._lost_start = None
+        self._last_input = None
+        if hasattr(self.temporal, "reset"):
+            self.temporal.reset()
+
     def _consistent(self, candidate, reference):
         dt = candidate.timestamp_sec - reference.timestamp_sec
         return dt > 0 and math.hypot(candidate.position_px.x - reference.position_px.x,

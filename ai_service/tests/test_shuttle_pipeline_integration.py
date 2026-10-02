@@ -525,6 +525,179 @@ class TestShuttlePipelineIntegration(unittest.TestCase):
                 # Shuttle is None because model was unavailable
                 self.assertIsNone(frame_telemetry.get("shuttle"))
 
+    # =========================================================================
+    # J. R02 & R03 REGRESSION: CROSS-CUT RESET, STALE REJECTION & EVIDENCE FUSION
+    # =========================================================================
+    def test_j_cross_cut_shuttle_window_resets_and_enters_warming_up(self):
+        """Cross-cut window resets: enters warming up without blending across camera segments."""
+        provider = DeterministicShuttleProvider()
+        pipeline = create_shuttle_pipeline(
+            {"shuttle_enabled": True, "shuttle_window_size": 3, "shuttle_build_trajectory": True, "shuttle_recovery_enabled": False},
+            custom_provider=provider,
+        )
+        frame = np.full((288, 512, 3), 40, dtype=np.uint8)
+
+        # Segment 0: 4 frames
+        for i in range(1, 5):
+            obs = pipeline.process_frame(
+                frame, timestamp_sec=i * 0.033, frame_index=i,
+                camera_segment_id="segment-0", pipeline_run_id="run-1",
+            )
+            if i < 3:
+                self.assertEqual(obs.state, "unknown")
+            else:
+                self.assertEqual(obs.state, "observed")
+                self.assertEqual(obs.camera_segment_id, "segment-0")
+                self.assertEqual(obs.pipeline_run_id, "run-1")
+
+        # Camera Cut to Segment 1 occurs!
+        pipeline.reset_for_camera_segment("segment-1", "run-1")
+
+        # First frame of new segment: must enter WINDOW INITIALIZING / warming up!
+        cut_frame_1 = pipeline.process_frame(
+            frame, timestamp_sec=0.165, frame_index=5,
+            camera_segment_id="segment-1", pipeline_run_id="run-1",
+        )
+        self.assertEqual(cut_frame_1.state, "unknown")
+        self.assertIsNone(cut_frame_1.position_px)
+        self.assertEqual(cut_frame_1.camera_segment_id, "segment-1")
+
+        # Second frame of new segment: still warming up (window size 3 requires 3 frames)
+        cut_frame_2 = pipeline.process_frame(
+            frame, timestamp_sec=0.198, frame_index=6,
+            camera_segment_id="segment-1", pipeline_run_id="run-1",
+        )
+        self.assertEqual(cut_frame_2.state, "unknown")
+        self.assertIsNone(cut_frame_2.position_px)
+
+        # Third frame of new segment: now warm, emits observed in segment-1
+        cut_frame_3 = pipeline.process_frame(
+            frame, timestamp_sec=0.231, frame_index=7,
+            camera_segment_id="segment-1", pipeline_run_id="run-1",
+        )
+        self.assertEqual(cut_frame_3.state, "observed")
+        self.assertIsNotNone(cut_frame_3.position_px)
+        self.assertEqual(cut_frame_3.camera_segment_id, "segment-1")
+
+        # Trajectory points must not interpolate across the camera segment cut
+        trajectory = pipeline.trajectory_builder.build(list(pipeline._trajectory_working_history))
+        seg0_points = [p for p in trajectory.points if p.frame_index <= 4]
+        seg1_points = [p for p in trajectory.points if p.frame_index >= 7]
+        self.assertTrue(len(seg0_points) > 0)
+        self.assertTrue(len(seg1_points) > 0)
+        self.assertNotEqual(seg0_points[0].segment_id, seg1_points[0].segment_id)
+
+    def test_j_reject_stale_async_output_from_prior_segment_or_run(self):
+        """Pipeline rejects stale async outputs with mismatched segment or run ID."""
+        provider = DeterministicShuttleProvider()
+        pipeline = create_shuttle_pipeline(
+            {"shuttle_enabled": True},
+            custom_provider=provider,
+        )
+        pipeline.reset_for_camera_segment("segment-2", "run-42")
+
+        stale_segment = ShuttleObservation(
+            timestamp_sec=1.0, frame_index=30, state="observed",
+            position_px=ShuttlePositionPx(100.0, 100.0), confidence=0.9,
+            camera_segment_id="segment-1", pipeline_run_id="run-42",
+        )
+        self.assertFalse(pipeline.is_observation_accepted(stale_segment))
+
+        stale_run = ShuttleObservation(
+            timestamp_sec=1.0, frame_index=30, state="observed",
+            position_px=ShuttlePositionPx(100.0, 100.0), confidence=0.9,
+            camera_segment_id="segment-2", pipeline_run_id="run-41",
+        )
+        self.assertFalse(pipeline.is_observation_accepted(stale_run))
+
+        valid = ShuttleObservation(
+            timestamp_sec=1.0, frame_index=30, state="observed",
+            position_px=ShuttlePositionPx(100.0, 100.0), confidence=0.9,
+            camera_segment_id="segment-2", pipeline_run_id="run-42",
+        )
+        self.assertTrue(pipeline.is_observation_accepted(valid))
+
+    def test_j_bright_static_distractor_suppressed_by_motion_evidence_fusion(self):
+        """Bright static distractor decays under persistence while moving shuttle wins with motion."""
+        class TwoPeakProvider:
+            def __init__(self):
+                self.frame_idx = 0
+            def availability(self):
+                return ProviderAvailability(available=True, status="READY", reason="OK")
+            def infer(self, frames):
+                self.frame_idx += 1
+                # 288x512 heatmap
+                hmap = np.zeros((288, 512), dtype=np.float32)
+                # Static distractor at (50, 50): conf 0.85
+                hmap[48:53, 48:53] = 0.85
+                # Moving shuttle: starts at (150, 100) moving right by 15px each frame
+                sx = min(500, 100 + self.frame_idx * 15)
+                hmap[148:153, sx-2:sx+3] = 0.70
+                return TemporalModelOutput(probability_map=hmap)
+            def scale_coordinate(self, val, hmap_ext, src_ext):
+                return float(val)
+
+        provider = TwoPeakProvider()
+        pipeline = create_shuttle_pipeline(
+            {"shuttle_enabled": True, "shuttle_window_size": 2, "shuttle_recovery_enabled": False},
+            custom_provider=provider,
+        )
+
+        # Feed 15 frames where pixels at (50, 50) remain static, but pixels at shuttle move
+        for i in range(1, 16):
+            img = np.full((288, 512, 3), 50, dtype=np.uint8)
+            # Static distractor region: always constant white dot
+            img[48:53, 48:53] = 255
+            # Moving shuttle: moving white dot that changes position
+            sx = min(500, 100 + i * 15)
+            img[148:153, sx-2:sx+3] = 255
+
+            obs = pipeline.process_frame(img, timestamp_sec=i * 0.033, frame_index=i)
+            if i >= 10:
+                # By frame 10+, static distractor persistence has decayed and moving shuttle wins!
+                self.assertIsNotNone(obs)
+                self.assertEqual(obs.state, "observed")
+                # X coordinate must track the moving shuttle (y ~ 150), NOT the static distractor (y ~ 50)!
+                self.assertAlmostEqual(obs.position_px.y, 150.0, delta=10.0)
+
+    def test_j_short_stationary_shuttle_preserves_100_percent_recall(self):
+        """Short stationary shuttle (1-5 frames) maintains 100% recall without false rejection."""
+        class StationaryShuttleProvider:
+            def availability(self):
+                return ProviderAvailability(available=True, status="READY", reason="OK")
+            def infer(self, frames):
+                hmap = np.zeros((288, 512), dtype=np.float32)
+                # Stationary shuttle at (140, 120) with conf 0.75
+                hmap[138:143, 118:123] = 0.75
+                return TemporalModelOutput(probability_map=hmap)
+            def scale_coordinate(self, val, hmap_ext, src_ext):
+                return float(val)
+
+        provider = StationaryShuttleProvider()
+        pipeline = create_shuttle_pipeline(
+            {"shuttle_enabled": True, "shuttle_window_size": 2, "shuttle_recovery_enabled": False},
+            custom_provider=provider,
+        )
+
+        img = np.full((288, 512, 3), 50, dtype=np.uint8)
+        img[138:143, 118:123] = 240  # Stationary shuttle
+
+        # Frames 1..5: Pre-serve hold
+        for i in range(1, 6):
+            obs = pipeline.process_frame(img, timestamp_sec=i * 0.033, frame_index=i)
+            if i >= 2:  # After window size 2
+                self.assertEqual(obs.state, "observed")
+                self.assertIsNotNone(obs.position_px)
+                self.assertAlmostEqual(obs.position_px.x, 120.0, delta=5.0)
+                self.assertAlmostEqual(obs.position_px.y, 140.0, delta=5.0)
+
+        # Even on frame 8 without competing distractor, static = never shuttle is NOT used
+        pipeline.process_frame(img, timestamp_sec=6 * 0.033, frame_index=6)
+        pipeline.process_frame(img, timestamp_sec=7 * 0.033, frame_index=7)
+        obs8 = pipeline.process_frame(img, timestamp_sec=8 * 0.033, frame_index=8)
+        self.assertEqual(obs8.state, "observed")
+        self.assertIsNotNone(obs8.position_px)
+
 
 if __name__ == "__main__":
     unittest.main()

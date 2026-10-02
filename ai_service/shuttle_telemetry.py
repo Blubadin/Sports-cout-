@@ -103,9 +103,11 @@ class ShuttleObservation:
     trajectory_id: Optional[Union[str, int]] = None
     velocity_px_per_sec: Optional[ShuttleVelocityPx] = None
     speed_px_per_sec: Optional[float] = None
+    camera_segment_id: Optional[str] = None
+    pipeline_run_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d: Dict[str, Any] = {
             "timestampSec": self.timestamp_sec,
             "frameIndex": self.frame_index,
             "state": self.state,
@@ -118,6 +120,11 @@ class ShuttleObservation:
             else None,
             "speedPxPerSec": self.speed_px_per_sec,
         }
+        if self.camera_segment_id is not None:
+            d["cameraSegmentId"] = self.camera_segment_id
+        if self.pipeline_run_id is not None:
+            d["pipelineRunId"] = self.pipeline_run_id
+        return d
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ShuttleObservation:
@@ -137,6 +144,8 @@ class ShuttleObservation:
             trajectory_id=data.get("trajectoryId"),
             velocity_px_per_sec=vel,
             speed_px_per_sec=_optional_float(data.get("speedPxPerSec")),
+            camera_segment_id=data.get("cameraSegmentId", data.get("camera_segment_id")),
+            pipeline_run_id=data.get("pipelineRunId", data.get("pipeline_run_id")),
         )
 
     def validate(self) -> List[str]:

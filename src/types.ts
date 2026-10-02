@@ -510,7 +510,7 @@ export interface TrackingPlayerV1 {
   detectionConfidence?: number | null;
   confidence?: number | null;
   state: 'observed' | 'predicted' | 'lost';
-  observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual';
+  observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual' | null;
   reviewState?: 'unreviewed' | 'reviewed' | 'corrected';
   pose?: TrackingPoseV1 | null;
 }
@@ -550,7 +550,7 @@ export interface TrackingTelemetryV1 {
   calibrationConfidence?: number | null;
   calibration?: import('./types/calibration').CalibrationProvenance | null;
   confidence?: number | null;
-  observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual';
+  observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual' | null;
   reviewState?: 'unreviewed' | 'reviewed' | 'corrected';
   supersededBy?: string | null;
   isSynthetic?: boolean;

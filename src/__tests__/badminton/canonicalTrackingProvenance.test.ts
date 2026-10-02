@@ -325,5 +325,107 @@ describe('Phase 1: Canonical Tracking Data Provenance & Integrity', () => {
     expect(newRun.pipelineRunId).toBe('pipe_run_v2');
     expect(newRun.supersededBy).toBeUndefined();
   });
+
+  it('R04: player in lost state has null observationState and null groundPointProvenance across toTrackingTelemetryV1 and downsampling', () => {
+    const rawFrame = {
+      analysisId: 'analysis_lost_test',
+      pipelineRunId: 'pipe_run_lost',
+      timestamp: 4.0,
+      frame_idx: 120,
+      players: [
+        {
+          id: 1,
+          trackId: 10,
+          state: 'lost',
+          is_active: false,
+          observationState: null,
+          groundPointProvenance: null,
+          bboxPct: null,
+          groundPointPct: null,
+          courtPosition: null,
+        },
+        {
+          id: 2,
+          trackId: 11,
+          state: 'observed',
+          is_active: true,
+          observationState: 'observed',
+          groundPointProvenance: 'pose_both_ankles',
+          courtPosition: { xM: 2.0, yM: 4.0, xPct: 30, yPct: 40 },
+          totalDistanceM: 5.0,
+        },
+      ],
+    };
+
+    const telemetry = toTrackingTelemetryV1(rawFrame);
+    const lostPlayer = telemetry.players.find((p) => p.playerId === 'P1')!;
+    const observedPlayer = telemetry.players.find((p) => p.playerId === 'P2')!;
+
+    expect(lostPlayer.state).toBe('lost');
+    expect(lostPlayer.observationState).toBeNull();
+    expect(lostPlayer.groundPointProvenance).toBeNull();
+    expect(lostPlayer.bboxPct).toBeNull();
+    expect(lostPlayer.groundPointPct).toBeNull();
+
+    expect(observedPlayer.state).toBe('observed');
+    expect(observedPlayer.observationState).toBe('observed');
+    expect(observedPlayer.groundPointProvenance).toBe('pose_both_ankles');
+  });
+
+  it('R04: predicted and manual observationState and groundPointProvenance are preserved through downsampling', () => {
+    const rawFrames: TrackingTelemetryV1[] = [
+      {
+        schemaVersion: 1,
+        analysisId: 'analysis_provenance_states',
+        pipelineRunId: 'run_provenance',
+        timestampSec: 1.0,
+        frameIndex: 30,
+        canUseCourtMetric: true,
+        isMetricValid: true,
+        calibrationState: 'CALIBRATED',
+        cameraSegmentId: 'seg_1',
+        calibrationId: 'cal_1',
+        calibration: {
+          state: 'CALIBRATED',
+          cameraSegmentId: 'seg_1',
+          calibrationId: 'cal_1',
+          source: 'automatic',
+          createdAtFrame: 0,
+          createdAtTimestampSec: 0.0,
+          confidence: 0.95,
+        },
+        players: [
+          {
+            playerId: 'P1',
+            trackId: 1,
+            state: 'predicted',
+            observationState: 'predicted',
+            groundPointProvenance: 'bbox_bottom_center',
+            courtPosition: { xM: 2.0, yM: 3.0, xPct: 32.8, yPct: 22.4 },
+          },
+          {
+            playerId: 'P2',
+            trackId: 2,
+            state: 'observed',
+            observationState: 'manual',
+            groundPointProvenance: 'pose_both_ankles',
+            courtPosition: { xM: 4.0, yM: 10.0, xPct: 65.0, yPct: 75.0 },
+          },
+        ],
+      },
+    ];
+
+    const result = downsampleAndChunkTrackingSamples('analysis_provenance_states', rawFrames, 10, 15);
+    const p1Sample = result.chunks[0].samples.find((s) => s.playerId === 'P1')!;
+    const p2Sample = result.chunks[0].samples.find((s) => s.playerId === 'P2')!;
+
+    expect(p1Sample.trackingState).toBe('predicted');
+    expect(p1Sample.observationState).toBe('predicted');
+    expect(p1Sample.groundPointProvenance).toBe('bbox_bottom_center');
+
+    expect(p2Sample.trackingState).toBe('tracked');
+    expect(p2Sample.observationState).toBe('manual');
+    expect(p2Sample.groundPointProvenance).toBe('pose_both_ankles');
+  });
 });
 

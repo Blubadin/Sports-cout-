@@ -673,13 +673,36 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
             }
           : undefined);
 
+      const state =
+        p.state ||
+        (p.is_active !== undefined
+          ? p.is_active
+            ? 'observed'
+            : 'lost'
+          : p.observationState === 'predicted'
+            ? 'predicted'
+            : 'observed');
+      const observationState =
+        p.observationState !== undefined
+          ? p.observationState
+          : p.observation_state !== undefined
+            ? p.observation_state
+            : state === 'predicted'
+              ? 'predicted'
+              : state === 'lost'
+                ? null
+                : 'observed';
+      const groundPointProvenance =
+        state === 'lost' ? null : (p.groundPointProvenance || p.ground_point_provenance || null);
+
       return {
         playerId: p.playerId || `P${p.id}`,
         athleteId: p.athleteId || p.athlete_id || null,
         trackId: p.trackId,
         teamCode: p.teamCode || (p.team ? `team${p.team}` : undefined),
-        bboxPct: p.bboxPct || p.video_bbox_pct,
-        groundPointPct: groundPoint,
+        bboxPct: state === 'lost' ? null : (p.bboxPct || p.video_bbox_pct),
+        groundPointPct: state === 'lost' ? null : groundPoint,
+        groundPointProvenance,
         courtPosition: metricValid ? courtPos : null,
         absoluteZone: metricValid ? (p.absoluteZone ?? p.zone) : null,
         playerRelativeZone: metricValid ? (p.playerRelativeZone ?? p.zone) : null,
@@ -687,10 +710,10 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         totalDistanceM: p.totalDistanceM ?? p.total_dist_m,
         detectionConfidence: typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null,
         confidence: typeof p.confidence === 'number' ? p.confidence : (typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null),
-        state: p.state || (p.is_active ? 'observed' : 'lost'),
-        observationState: p.observationState || p.observation_state || (p.state === 'predicted' ? 'predicted' : 'observed'),
+        state,
+        observationState,
         reviewState: p.reviewState || p.review_state || 'unreviewed',
-        pose: p.pose,
+        pose: state === 'lost' ? null : p.pose,
       };
     }),
     shuttle: frame.shuttle

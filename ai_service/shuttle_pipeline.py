@@ -258,6 +258,9 @@ class ProductionShuttlePipeline:
         self._stream_ended: bool = False
         self._observation_counts: Optional[Dict[str, int]] = None
 
+        self.current_camera_segment_id: Optional[str] = None
+        self.current_pipeline_run_id: Optional[str] = None
+
         if not self.config.enabled:
             self.status = STATUS_DISABLED
             self.status_reason = "Shuttle tracking disabled by configuration"
@@ -298,6 +301,47 @@ class ProductionShuttlePipeline:
             self.trajectory_builder = ShuttleTrajectoryBuilder(trajectory_config)
             self._trajectory_working_history = deque(maxlen=trajectory_config.max_runtime_history_points)
 
+    def reset_for_camera_segment(
+        self,
+        camera_segment_id: Optional[str] = None,
+        pipeline_run_id: Optional[str] = None,
+    ) -> None:
+        """Reset temporal window and recovery state at camera cut / segment boundary."""
+        self.current_camera_segment_id = camera_segment_id
+        if pipeline_run_id is not None:
+            self.current_pipeline_run_id = pipeline_run_id
+        if self.recovery_tracker is not None:
+            self.recovery_tracker.reset()
+        elif self.temporal_tracker is not None:
+            self.temporal_tracker.reset_window()
+
+    def is_observation_accepted(
+        self,
+        observation: Union[ShuttleObservation, Dict[str, Any], None],
+    ) -> bool:
+        """Reject stale async outputs from prior camera segments or runs."""
+        if observation is None:
+            return False
+        seg_id = getattr(observation, "camera_segment_id", None)
+        if seg_id is None and isinstance(observation, dict):
+            seg_id = observation.get("cameraSegmentId", observation.get("camera_segment_id"))
+        run_id = getattr(observation, "pipeline_run_id", None)
+        if run_id is None and isinstance(observation, dict):
+            run_id = observation.get("pipelineRunId", observation.get("pipeline_run_id"))
+        if (
+            self.current_camera_segment_id is not None
+            and seg_id is not None
+            and seg_id != self.current_camera_segment_id
+        ):
+            return False
+        if (
+            self.current_pipeline_run_id is not None
+            and run_id is not None
+            and run_id != self.current_pipeline_run_id
+        ):
+            return False
+        return True
+
     @property
     def is_active(self) -> bool:
         """True if shuttle tracking is requested, enabled, and operational."""
@@ -308,6 +352,8 @@ class ProductionShuttlePipeline:
         image: np.ndarray,
         timestamp_sec: float,
         frame_index: int,
+        camera_segment_id: Optional[str] = None,
+        pipeline_run_id: Optional[str] = None,
     ) -> Optional[ShuttleObservation]:
         """Process a single analyzed video frame and emit canonical ShuttleObservation.
 
@@ -323,6 +369,18 @@ class ProductionShuttlePipeline:
         if self._stream_ended:
             raise RuntimeError("Cannot process frames after end_stream() has been called")
 
+        if camera_segment_id is not None:
+            if (
+                self.current_camera_segment_id is not None
+                and camera_segment_id != self.current_camera_segment_id
+            ):
+                self.reset_for_camera_segment(camera_segment_id, pipeline_run_id)
+            else:
+                self.current_camera_segment_id = camera_segment_id
+
+        if pipeline_run_id is not None:
+            self.current_pipeline_run_id = pipeline_run_id
+
         active_tracker: Union[RecoveringShuttleTracker, TemporalShuttleTracker, None] = (
             self.recovery_tracker if self.recovery_tracker is not None else self.temporal_tracker
         )
@@ -332,6 +390,9 @@ class ProductionShuttlePipeline:
         try:
             observation = active_tracker.process_frame(image, timestamp_sec, frame_index)
             self.last_failure = None
+            if observation is not None:
+                observation.camera_segment_id = camera_segment_id or self.current_camera_segment_id
+                observation.pipeline_run_id = pipeline_run_id or self.current_pipeline_run_id
             return self._record_observation(observation)
         except InferenceExecutionError:
             self.status = 'ERROR'
@@ -356,15 +417,16 @@ class ProductionShuttlePipeline:
             logger.error('Shuttle inference failed')
             self.last_failure = 'Shuttle inference failed; see local service logs'
             # Recoverable inference failure: emit canonical lost observation
-            return self._record_observation(
-                ShuttleObservation(
-                    timestamp_sec=float(timestamp_sec),
-                    frame_index=int(frame_index),
-                    state="lost",
-                    source="temporal_tracker",
-                    position_px=None,
-                )
+            obs = ShuttleObservation(
+                timestamp_sec=float(timestamp_sec),
+                frame_index=int(frame_index),
+                state="lost",
+                source="temporal_tracker",
+                position_px=None,
+                camera_segment_id=camera_segment_id or self.current_camera_segment_id,
+                pipeline_run_id=pipeline_run_id or self.current_pipeline_run_id,
             )
+            return self._record_observation(obs)
         except Exception as err:
             logger.error('Shuttle processing failed (%s)', type(err).__name__)
             # Check if this error was caused by missing model

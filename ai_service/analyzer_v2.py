@@ -465,6 +465,12 @@ class BadmintonAnalyzerV2:
             profile.last_eligibility_status = None
             profile.last_ground_pt = None
 
+        if self.shuttle_pipeline is not None and hasattr(self.shuttle_pipeline, "reset_for_camera_segment"):
+            self.shuttle_pipeline.reset_for_camera_segment(
+                camera_segment_id=self.calibration_context.camera_segment_id,
+                pipeline_run_id=getattr(self, "pipeline_run_id", getattr(self, "analysis_id", "live_session")),
+            )
+
     def is_observation_accepted(self, camera_segment_id: str | None) -> bool:
         """Reject late or stale observations from older camera segments."""
         return self.scene_lifecycle.is_observation_accepted(camera_segment_id)
@@ -910,28 +916,46 @@ class BadmintonAnalyzerV2:
             left_foot_dict = ground_pt.left_foot.to_dict() if ground_pt is not None else None
             right_foot_dict = ground_pt.right_foot.to_dict() if ground_pt is not None else None
 
+            if tracking_state == "lost":
+                obs_state = None
+                ground_provenance = None
+                bbox_pct = None
+                ground_pt_pct = None
+                ground_pos_m = None
+                court_position = None
+                confidence = None
+                left_foot_dict = None
+                right_foot_dict = None
+                pose_obj = None
+            elif tracking_state == "predicted":
+                obs_state = getattr(p, "observation_state", None) or "predicted"
+                ground_provenance = ground_pt.provenance if ground_pt is not None else "last_known_bbox"
+            else:
+                obs_state = getattr(p, "observation_state", None) or "observed"
+                ground_provenance = ground_pt.provenance if ground_pt is not None else None
+
             player_data = {
                 # Canonical V1 Tracking Protocol (PDF §45)
                 "playerId": f"P{pid}",
-                "trackId": p.track_id,
+                "trackId": p.track_id if tracking_state != "lost" else None,
                 "teamCode": f"team{p.team}" if p.team in (1, 2) else "unknown",
                 "bboxPct": bbox_pct,
                 "groundPointPct": ground_pt_pct,
-                "groundPointProvenance": ground_pt.provenance if ground_pt is not None else None,
+                "groundPointProvenance": ground_provenance,
                 "groundPositionM": ground_pos_m,
                 "courtPositionM": ground_pos_m,
                 "courtPosition": court_position,
-                "absoluteZone": abs_zone,
-                "playerRelativeZone": rel_zone,
-                "speedMps": stats.get("current_speed_ms") if (metric_valid and court_position is not None and transition.allow_canonical_writes) else None,
+                "absoluteZone": abs_zone if tracking_state != "lost" else None,
+                "playerRelativeZone": rel_zone if tracking_state != "lost" else None,
+                "speedMps": stats.get("current_speed_ms") if (metric_valid and court_position is not None and transition.allow_canonical_writes and tracking_state != "lost") else None,
                 "totalDistanceM": stats.get("total_dist_m") if self.dist_tracker.has_metric_observation(pid) else None,
                 "detectionConfidence": confidence,
                 "confidence": confidence,
                 "state": tracking_state,
-                "observationState": tracking_state if tracking_state in ("observed", "predicted") else "observed",
-                "reviewState": "unreviewed",
+                "observationState": obs_state,
+                "reviewState": getattr(p, "review_state", "unreviewed"),
                 "athleteId": getattr(p, "athlete_id", None),
-                "identityCosts": self._last_cost_breakdowns.get(pid).to_dict() if (hasattr(self, "_last_cost_breakdowns") and pid in self._last_cost_breakdowns) else None,
+                "identityCosts": self._last_cost_breakdowns.get(pid).to_dict() if (hasattr(self, "_last_cost_breakdowns") and pid in self._last_cost_breakdowns and tracking_state != "lost") else None,
                 "leftFootPx": left_foot_dict["positionPx"] if left_foot_dict else None,
                 "rightFootPx": right_foot_dict["positionPx"] if right_foot_dict else None,
                 "leftFootConfidence": left_foot_dict["confidence"] if left_foot_dict else None,
@@ -940,25 +964,25 @@ class BadmintonAnalyzerV2:
                 "rightFootCourtM": right_foot_dict["courtPositionM"] if right_foot_dict else None,
                 "leftFoot": left_foot_dict,
                 "rightFoot": right_foot_dict,
-                "envelopeZone": getattr(p, "last_envelope_zone", None),
-                "eligibilityStatus": getattr(p, "last_eligibility_status", None),
-                "poseSource": ground_pt.pose_source if ground_pt is not None else None,
-                "poseAgeFrames": ground_pt.pose_age_frames if ground_pt is not None else 0,
-                "poseAgeSec": ground_pt.pose_age_sec if ground_pt is not None else 0.0,
-                "isPoseStale": ground_pt.is_stale if ground_pt is not None else False,
-                "staleReason": ground_pt.stale_reason if ground_pt is not None else None,
+                "envelopeZone": getattr(p, "last_envelope_zone", None) if tracking_state != "lost" else None,
+                "eligibilityStatus": getattr(p, "last_eligibility_status", None) if tracking_state != "lost" else None,
+                "poseSource": ground_pt.pose_source if (ground_pt is not None and tracking_state != "lost") else None,
+                "poseAgeFrames": ground_pt.pose_age_frames if (ground_pt is not None and tracking_state != "lost") else 0,
+                "poseAgeSec": ground_pt.pose_age_sec if (ground_pt is not None and tracking_state != "lost") else 0.0,
+                "isPoseStale": ground_pt.is_stale if (ground_pt is not None and tracking_state != "lost") else False,
+                "staleReason": ground_pt.stale_reason if (ground_pt is not None and tracking_state != "lost") else None,
 
                 # Backward compatibility aliases
                 "id": pid,
                 "team": p.team,
                 "name": p.name,
-                "bbox": bbox,
-                "court_pos_pct": pos_pct if metric_valid else None,
-                "court_pos_m": pos_m if metric_valid else None,
-                "zone": abs_zone,
-                "speed_ms": stats.get("current_speed_ms") if (metric_valid and court_position is not None and transition.allow_canonical_writes) else None,
+                "bbox": bbox if tracking_state != "lost" else None,
+                "court_pos_pct": pos_pct if (metric_valid and tracking_state != "lost") else None,
+                "court_pos_m": pos_m if (metric_valid and tracking_state != "lost") else None,
+                "zone": abs_zone if tracking_state != "lost" else None,
+                "speed_ms": stats.get("current_speed_ms") if (metric_valid and court_position is not None and transition.allow_canonical_writes and tracking_state != "lost") else None,
                 "total_dist_m": stats.get("total_dist_m") if self.dist_tracker.has_metric_observation(pid) else None,
-                "is_active": p.missed_frames < 10,
+                "is_active": p.missed_frames < 10 and tracking_state != "lost",
                 "video_bbox_pct": bbox_pct,
             }
             if pose_obj is not None:
@@ -971,6 +995,8 @@ class BadmintonAnalyzerV2:
                 frame,
                 timestamp_sec=t_sec,
                 frame_index=self.frame_count,
+                camera_segment_id=self.calibration_context.camera_segment_id,
+                pipeline_run_id=getattr(self, "pipeline_run_id", getattr(self, "analysis_id", "live_session")),
             )
 
         return {

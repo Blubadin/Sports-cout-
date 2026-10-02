@@ -318,7 +318,8 @@ def select_eligible_player_candidates(
     """
     eligible_pairs = [
         (d, e) for d, e in zip(detections, eligibilities)
-        if e.is_eligible_for_profile and e.status != EligibilityStatus.SPECTATOR_OR_OFFICIAL
+        if (e.is_eligible_for_profile or e.status == EligibilityStatus.CANDIDATE)
+        and e.status != EligibilityStatus.SPECTATOR_OR_OFFICIAL
     ]
 
     if not eligible_pairs:

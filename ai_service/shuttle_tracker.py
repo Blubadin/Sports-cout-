@@ -11,7 +11,10 @@ loads an explicitly configured local ONNX artifact and reports
 """
 
 from __future__ import annotations
-from device_runtime import InferenceExecutionError, artifact_sha256, package_version
+try:
+    from ai_service.device_runtime import InferenceExecutionError, artifact_sha256, package_version
+except ImportError:
+    from device_runtime import InferenceExecutionError, artifact_sha256, package_version
 
 from abc import ABC, abstractmethod
 from collections import deque
@@ -291,32 +294,63 @@ def extract_shuttle_candidate(
 ) -> ShuttleCandidate | None:
     """Extract one thresholded candidate from a finite 2D probability map."""
 
+    candidates = extract_shuttle_candidates(
+        probability_map,
+        confidence_threshold=confidence_threshold,
+        mode=mode,
+        centroid_relative_threshold=centroid_relative_threshold,
+        max_candidates=1,
+    )
+    return candidates[0] if candidates else None
+
+
+def extract_shuttle_candidates(
+    probability_map: np.ndarray | None,
+    *,
+    confidence_threshold: float,
+    mode: str = "centroid",
+    centroid_relative_threshold: float = 0.8,
+    max_candidates: int = 5,
+) -> list[ShuttleCandidate]:
+    """Extract distinct thresholded candidates from a finite 2D probability map."""
     heatmap = _validated_heatmap(probability_map)
     if heatmap is None:
-        return None
-    peak_flat_index = int(np.argmax(heatmap))
-    peak_y, peak_x = np.unravel_index(peak_flat_index, heatmap.shape)
-    confidence = float(heatmap[peak_y, peak_x])
-    if confidence < confidence_threshold:
-        return None
-    if mode == "peak":
-        return ShuttleCandidate(float(peak_x), float(peak_y), confidence)
+        return []
+    working = heatmap.copy()
+    min_peak_thresh = max(0.15, confidence_threshold * 0.6)
+    candidates: list[ShuttleCandidate] = []
+    for _ in range(max_candidates):
+        peak_flat_index = int(np.argmax(working))
+        peak_y, peak_x = np.unravel_index(peak_flat_index, working.shape)
+        confidence = float(working[peak_y, peak_x])
+        if confidence < min_peak_thresh:
+            break
+        component_threshold = max(min_peak_thresh, confidence * centroid_relative_threshold)
+        active = working >= component_threshold
+        component = _connected_component(active, peak_y, peak_x)
+        if not component:
+            working[peak_y, peak_x] = 0.0
+            continue
+        for cy, cx in component:
+            working[cy, cx] = 0.0
 
-    component_threshold = max(confidence_threshold, confidence * centroid_relative_threshold)
-    active = heatmap >= component_threshold
-    component = _connected_component(active, peak_y, peak_x)
-    if not component:
-        return None
-    weights = np.asarray([float(heatmap[y, x]) for y, x in component], dtype=np.float64)
-    if not np.all(np.isfinite(weights)) or float(weights.sum()) <= 0.0:
-        return None
-    xs = np.asarray([x for _, x in component], dtype=np.float64)
-    ys = np.asarray([y for y, _ in component], dtype=np.float64)
-    return ShuttleCandidate(
-        x_heatmap=float(np.average(xs, weights=weights)),
-        y_heatmap=float(np.average(ys, weights=weights)),
-        confidence=confidence,
-    )
+        if mode == "peak":
+            candidates.append(ShuttleCandidate(float(peak_x), float(peak_y), confidence))
+        else:
+            weights = np.asarray([float(heatmap[y, x]) for y, x in component], dtype=np.float64)
+            if not np.all(np.isfinite(weights)) or float(weights.sum()) <= 0.0:
+                candidates.append(ShuttleCandidate(float(peak_x), float(peak_y), confidence))
+            else:
+                xs = np.asarray([x for _, x in component], dtype=np.float64)
+                ys = np.asarray([y for y, _ in component], dtype=np.float64)
+                candidates.append(
+                    ShuttleCandidate(
+                        x_heatmap=float(np.average(xs, weights=weights)),
+                        y_heatmap=float(np.average(ys, weights=weights)),
+                        confidence=confidence,
+                    )
+                )
+    return candidates
 
 
 def _connected_component(mask: np.ndarray, start_y: int, start_x: int) -> list[tuple[int, int]]:
@@ -360,10 +394,23 @@ class TemporalShuttleTracker:
         self._inference_seconds = 0.0
         self._processing_seconds = 0.0
         self._last_failure: str | None = None
+        self._static_tracks: list[dict] = []
 
     @property
     def buffered_frame_count(self) -> int:
         return len(self._frames)
+
+    def reset_window(self) -> None:
+        """Reset temporal window across camera cuts or segment boundaries."""
+        self._frames.clear()
+        self._has_observed = False
+        self._last_failure = "WINDOW INITIALIZING"
+        self._last_frame_index = None
+        self._last_timestamp_sec = None
+        self._static_tracks.clear()
+
+    def reset(self) -> None:
+        self.reset_window()
 
     def process_frame(
         self,
@@ -419,7 +466,7 @@ class TemporalShuttleTracker:
 
         try:
             self._candidate_extraction_calls += 1
-            candidate = extract_shuttle_candidate(
+            candidates = extract_shuttle_candidates(
                 output.probability_map,
                 confidence_threshold=self.config.confidence_threshold,
                 mode=self.config.candidate_mode,
@@ -429,22 +476,82 @@ class TemporalShuttleTracker:
             self._last_failure = "INVALID MODEL OUTPUT"
             return finish(self._missing_observation(timestamp_sec, frame_index))
 
-        if candidate is None:
+        if not candidates:
             self._last_failure = "NO SHUTTLE CANDIDATE"
             return finish(self._missing_observation(timestamp_sec, frame_index))
 
         source_height, source_width = image.shape[:2]
         heatmap = _validated_heatmap(output.probability_map)
         assert heatmap is not None
-        x_px = self.provider.scale_coordinate(candidate.x_heatmap, heatmap.shape[1], source_width)
-        y_px = self.provider.scale_coordinate(candidate.y_heatmap, heatmap.shape[0], source_height)
+
+        scored_candidates = []
+        for cand in candidates:
+            cand_x_px = self.provider.scale_coordinate(cand.x_heatmap, heatmap.shape[1], source_width)
+            cand_y_px = self.provider.scale_coordinate(cand.y_heatmap, heatmap.shape[0], source_height)
+
+            # 1. Motion evidence from frame difference
+            motion_score = 0.0
+            if len(self._frames) >= 2:
+                prev_img = self._frames[-2].image
+                px1 = max(0, int(cand_x_px - 8))
+                py1 = max(0, int(cand_y_px - 8))
+                px2 = min(source_width, int(cand_x_px + 8))
+                py2 = min(source_height, int(cand_y_px + 8))
+                if px2 > px1 and py2 > py1:
+                    patch_curr = image[py1:py2, px1:px2]
+                    patch_prev = prev_img[py1:py2, px1:px2]
+                    diff = np.abs(patch_curr.astype(np.float32) - patch_prev.astype(np.float32))
+                    motion_score = float(min(1.0, np.mean(diff) / 10.0))
+
+            # 2. Static persistence weighting:
+            # For 1..5 frames (short stationary shuttle), persistence weight is 1.0 (100% recall).
+            # For > 5 frames, gentle decay floored at 0.4 (never static = never shuttle).
+            matched_trk = None
+            for trk in self._static_tracks:
+                if math.hypot(cand_x_px - trk["x"], cand_y_px - trk["y"]) <= 8.0:
+                    matched_trk = trk
+                    break
+
+            cand_stat_frames = (matched_trk["frames"] + 1) if matched_trk else 1
+            if cand_stat_frames <= 5:
+                persistence_weight = 1.0
+            else:
+                persistence_weight = max(0.4, 1.0 - 0.08 * (cand_stat_frames - 5))
+
+            fused_score = cand.confidence * persistence_weight * (1.0 + 0.25 * motion_score)
+            scored_candidates.append((fused_score, cand, cand_x_px, cand_y_px, cand_stat_frames, matched_trk))
+
+        # Update static tracks for observed candidates on this frame
+        new_static_tracks = []
+        matched_prior_track_ids = set()
+        for cand_entry in scored_candidates:
+            new_static_tracks.append({
+                "x": cand_entry[2],
+                "y": cand_entry[3],
+                "frames": cand_entry[4],
+                "last_frame": frame_index,
+            })
+            if cand_entry[5] is not None:
+                matched_prior_track_ids.add(id(cand_entry[5]))
+        for old_trk in self._static_tracks:
+            if id(old_trk) not in matched_prior_track_ids and (frame_index - old_trk["last_frame"]) <= 2:
+                new_static_tracks.append(old_trk)
+        self._static_tracks = new_static_tracks
+
+        scored_candidates.sort(key=lambda item: item[0], reverse=True)
+        best_fused_score, best_cand, best_x_px, best_y_px, best_stat_frames, _ = scored_candidates[0]
+
+        if best_cand.confidence < self.config.confidence_threshold and best_fused_score < self.config.confidence_threshold:
+            self._last_failure = "NO SHUTTLE CANDIDATE"
+            return finish(self._missing_observation(timestamp_sec, frame_index))
+
         observation = ShuttleObservation(
             timestamp_sec=float(timestamp_sec),
             frame_index=frame_index,
             state="observed",
             source="temporal_tracker",
-            position_px=ShuttlePositionPx(x=x_px, y=y_px),
-            confidence=candidate.confidence,
+            position_px=ShuttlePositionPx(x=best_x_px, y=best_y_px),
+            confidence=best_cand.confidence,
             trajectory_id=None,
         )
         self._has_observed = True
