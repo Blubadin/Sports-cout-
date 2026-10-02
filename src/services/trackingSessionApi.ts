@@ -651,6 +651,16 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     isSynthetic,
     source: frame.source || (isSynthetic ? 'synthetic_demo' : 'real_tracking'),
     trackedPlayerCount: frame.trackedPlayerCount ?? frame.tracked_player_count,
+    rawPlayerDetections: (frame.rawPlayerDetections || frame.raw_player_detections || []).map((d: any) => {
+      const bbox = d.bboxPx || d.bbox;
+      return {
+        trackId: d.trackId ?? d.track_id ?? null,
+        bboxPx: [Number(bbox[0]), Number(bbox[1]), Number(bbox[2]), Number(bbox[3])] as [number, number, number, number],
+        confidence: typeof d.confidence === 'number' ? d.confidence : (typeof d.conf === 'number' ? d.conf : null),
+        pose: d.pose ?? d.pose_obj ?? null,
+        eligibility: d.eligibility ?? null,
+      };
+    }),
     players: (frame.players || []).map((p: any) => {
       const posPct = p.court_pos_pct;
       const posM = p.court_pos_m;
@@ -683,7 +693,9 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
             ? 'predicted'
             : 'observed');
       const observationState =
-        p.observationState !== undefined
+        state === 'lost'
+          ? null
+          : p.observationState !== undefined
           ? p.observationState
           : p.observation_state !== undefined
             ? p.observation_state
@@ -733,6 +745,12 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
           trajectoryId: frame.shuttle.trajectoryId ?? null,
           velocityPxPerSec: frame.shuttle.velocityPxPerSec ?? null,
           speedPxPerSec: frame.shuttle.speedPxPerSec ?? null,
+          ...(typeof (frame.shuttle.cameraSegmentId || frame.shuttle.camera_segment_id) === 'string'
+            ? { cameraSegmentId: frame.shuttle.cameraSegmentId || frame.shuttle.camera_segment_id }
+            : {}),
+          ...(typeof (frame.shuttle.pipelineRunId || frame.shuttle.pipeline_run_id) === 'string'
+            ? { pipelineRunId: frame.shuttle.pipelineRunId || frame.shuttle.pipeline_run_id }
+            : {}),
         }
       : null,
   };

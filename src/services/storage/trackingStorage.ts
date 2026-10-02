@@ -286,6 +286,25 @@ function cursorKey(analysisId: string, cursor: number): string {
   return `${analysisId}:${String(cursor).padStart(20, '0')}`;
 }
 
+function normalizeLostPlayerProvenance(frame: TrackingTelemetryV1): TrackingTelemetryV1 {
+  return {
+    ...frame,
+    players: frame.players.map((player) => player.state === 'lost'
+      ? { ...player, observationState: null }
+      : player),
+  };
+}
+
+function normalizeTelemetryPage(page: TrackingTelemetryPage): TrackingTelemetryPage {
+  return { ...page, frames: page.frames.map(normalizeLostPlayerProvenance) };
+}
+
+function observationStateForSample(player: TrackingTelemetryV1['players'][number]) {
+  return player.state === 'lost'
+    ? null
+    : player.observationState ?? (player.state === 'predicted' ? 'predicted' : 'observed');
+}
+
 function ensureTrackingIndexes(db: IDBDatabase, transaction: IDBTransaction | null): void {
   if (!transaction) return;
   const ensureIndex = (storeName: string, name: string, keyPath: string | string[]) => {
@@ -645,21 +664,22 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
   }
 
   async saveTelemetryPage(page: TrackingTelemetryPage): Promise<void> {
-    validateTelemetryPage(page);
+    const normalizedPage = normalizeTelemetryPage(page);
+    validateTelemetryPage(normalizedPage);
     const db = await openTrackingDatabase();
     if (!db) throw new Error("Persistent tracking storage is unavailable");
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('trackingTelemetryPages', 'readwrite');
       const store = tx.objectStore('trackingTelemetryPages');
-      const request = store.get(page.id);
+      const request = store.get(normalizedPage.id);
       request.onsuccess = () => {
         const existing = request.result as TrackingTelemetryPage | undefined;
-        if (existing && JSON.stringify(existing) !== JSON.stringify(page)) {
+        if (existing && JSON.stringify(normalizeTelemetryPage(existing)) !== JSON.stringify(normalizedPage)) {
           tx.abort();
           reject(new Error('Telemetry cursor page conflicts with an existing persisted page'));
           return;
         }
-        if (!existing) store.put(page, page.id);
+        if (!existing) store.put(normalizedPage, normalizedPage.id);
       };
       request.onerror = () => reject(request.error ?? transactionError(tx));
       tx.oncomplete = () => resolve();
@@ -705,7 +725,7 @@ export class IndexedDbTrackingDriver implements TrackingStorageDriver {
         nextRequest.onerror = () => reject(nextRequest.error ?? transactionError(tx));
       };
       coveringRequest.onerror = () => reject(coveringRequest.error ?? transactionError(tx));
-      tx.oncomplete = () => resolve(page);
+      tx.oncomplete = () => resolve(page ? normalizeTelemetryPage(page) : null);
       tx.onerror = () => reject(transactionError(tx));
       tx.onabort = () => reject(transactionError(tx));
     });
@@ -884,18 +904,20 @@ export class MemoryTrackingDriver implements TrackingStorageDriver {
   }
 
   async saveTelemetryPage(page: TrackingTelemetryPage): Promise<void> {
-    validateTelemetryPage(page);
-    const existing = this.telemetryPages.get(page.id);
-    if (existing && JSON.stringify(existing) !== JSON.stringify(page)) {
+    const normalizedPage = normalizeTelemetryPage(page);
+    validateTelemetryPage(normalizedPage);
+    const existing = this.telemetryPages.get(normalizedPage.id);
+    if (existing && JSON.stringify(normalizeTelemetryPage(existing)) !== JSON.stringify(normalizedPage)) {
       throw new Error('Telemetry cursor page conflicts with an existing persisted page');
     }
-    this.telemetryPages.set(page.id, page);
+    this.telemetryPages.set(normalizedPage.id, normalizedPage);
   }
 
   async getTelemetryPage(analysisId: string, afterCursor: number): Promise<TrackingTelemetryPage | null> {
-    return Array.from(this.telemetryPages.values())
+    const page = Array.from(this.telemetryPages.values())
       .filter((page) => page.analysisId === analysisId && page.endCursor > afterCursor)
       .sort((a, b) => a.startCursor - b.startCursor)[0] ?? null;
+    return page ? normalizeTelemetryPage(page) : null;
   }
 
   async deleteTelemetryPages(analysisId: string): Promise<void> {
@@ -1597,7 +1619,7 @@ export function downsampleAndChunkTrackingSamples(
         speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
         confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
-        observationState: p.observationState ?? (p.state === 'predicted' ? 'predicted' : p.state === 'lost' ? null : 'observed'),
+        observationState: observationStateForSample(p),
         groundPointProvenance: p.state === 'lost' ? null : (p.groundPointProvenance ?? null),
         cameraSegmentId: frame.cameraSegmentId,
         calibrationId: frame.calibrationId,
@@ -1646,7 +1668,7 @@ export function downsampleAndChunkTrackingSamples(
         speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
         confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
-        observationState: p.observationState ?? (p.state === 'predicted' ? 'predicted' : p.state === 'lost' ? null : 'observed'),
+        observationState: observationStateForSample(p),
         groundPointProvenance: p.state === 'lost' ? null : (p.groundPointProvenance ?? null),
         cameraSegmentId: frame.cameraSegmentId,
         calibrationId: frame.calibrationId,
@@ -1774,7 +1796,7 @@ function streamingSample(
     speed: typeof player.speedMps === 'number' ? Number(player.speedMps.toFixed(2)) : null,
     confidence: typeof player.detectionConfidence === 'number' ? Number(player.detectionConfidence.toFixed(2)) : null,
     trackingState: player.state === 'lost' ? 'lost' : player.state === 'predicted' ? 'predicted' : 'tracked',
-    observationState: player.observationState ?? (player.state === 'predicted' ? 'predicted' : player.state === 'lost' ? null : 'observed'),
+    observationState: observationStateForSample(player),
     groundPointProvenance: player.state === 'lost' ? null : (player.groundPointProvenance ?? null),
     cameraSegmentId: frame.cameraSegmentId,
     calibrationId: frame.calibrationId,

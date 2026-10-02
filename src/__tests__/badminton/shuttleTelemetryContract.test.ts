@@ -11,6 +11,7 @@ import {
   type ShuttleObservation,
   type ShuttleRunConfig,
   type TrackingFrame,
+  type ShuttleTrackerState,
 } from '../../types/shuttleTelemetry';
 import { toTrackingTelemetryV1 } from '../../services/trackingSessionApi';
 
@@ -40,6 +41,20 @@ describe('Phase 2.1 — Canonical Shuttle Telemetry Contract', () => {
         expect(obs.positionPx.x).toBe(960.5);
         expect(obs.positionPx.y).toBe(340.2);
       }
+    });
+
+    it('retains optional camera and pipeline ownership metadata in the builder', () => {
+      const obs = createShuttleObservation({
+        timestampSec: 1.45,
+        frameIndex: 43,
+        state: 'observed',
+        positionPx: { x: 960.5, y: 340.2 },
+        cameraSegmentId: 'segment-2',
+        pipelineRunId: 'run-42',
+      });
+
+      expect(obs.cameraSegmentId).toBe('segment-2');
+      expect(obs.pipelineRunId).toBe('run-42');
     });
 
     it('rejects an observed shuttle when positionPx is missing or null', () => {
@@ -288,6 +303,62 @@ describe('Phase 2.1 — Canonical Shuttle Telemetry Contract', () => {
       expect(v1Telemetry.shuttle?.positionPx?.x).toBe(800.0);
       expect(v1Telemetry.shuttle?.positionPx?.y).toBe(400.0);
       expect(v1Telemetry.shuttle?.speedPxPerSec).toBe(350.0);
+    });
+
+    it('preserves shuttle owner IDs and raw detections when normalizing live telemetry', () => {
+      const v1Telemetry = toTrackingTelemetryV1({
+        analysisId: 'run-42',
+        pipelineRunId: 'run-42',
+        timestampSec: 12.0,
+        frameIndex: 360,
+        players: [],
+        rawPlayerDetections: [{
+          trackId: 99,
+          bboxPx: [10, 20, 30, 60],
+          confidence: 0.88,
+          pose: { keypoints: [], metrics: {} },
+        }],
+        shuttle: {
+          timestampSec: 12.0,
+          frameIndex: 360,
+          state: 'observed',
+          source: 'temporal_tracker',
+          positionPx: { x: 800, y: 400 },
+          confidence: 0.98,
+          trajectoryId: null,
+          cameraSegmentId: 'segment-2',
+          pipelineRunId: 'run-42',
+        },
+      });
+
+      expect(v1Telemetry.shuttle?.cameraSegmentId).toBe('segment-2');
+      expect(v1Telemetry.shuttle?.pipelineRunId).toBe('run-42');
+      expect(v1Telemetry.rawPlayerDetections?.[0].trackId).toBe(99);
+      expect(v1Telemetry.rawPlayerDetections?.[0]).not.toHaveProperty('playerId');
+    });
+
+    it('clears legacy observed provenance when the player state is lost', () => {
+      const v1Telemetry = toTrackingTelemetryV1({
+        analysisId: 'legacy-lost',
+        timestampSec: 1.0,
+        frameIndex: 30,
+        players: [{
+          playerId: 'P1',
+          state: 'lost',
+          observationState: 'observed',
+          groundPointProvenance: 'pose_both_ankles',
+          pose: { keypoints: [], metrics: {} },
+        }],
+      });
+
+      expect(v1Telemetry.players[0].observationState).toBeNull();
+      expect(v1Telemetry.players[0].groundPointProvenance).toBeNull();
+      expect(v1Telemetry.players[0].pose).toBeNull();
+    });
+
+    it('accepts the additive WARMING_UP tracker state in the TypeScript provenance contract', () => {
+      const trackingState: ShuttleTrackerState = 'WARMING_UP';
+      expect(trackingState).toBe('WARMING_UP');
     });
   });
 

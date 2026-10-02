@@ -549,6 +549,8 @@ class TestShuttlePipelineIntegration(unittest.TestCase):
                 self.assertEqual(obs.state, "observed")
                 self.assertEqual(obs.camera_segment_id, "segment-0")
                 self.assertEqual(obs.pipeline_run_id, "run-1")
+                self.assertEqual(obs.to_dict()["cameraSegmentId"], "segment-0")
+                self.assertEqual(obs.to_dict()["pipelineRunId"], "run-1")
 
         # Camera Cut to Segment 1 occurs!
         pipeline.reset_for_camera_segment("segment-1", "run-1")
@@ -578,6 +580,9 @@ class TestShuttlePipelineIntegration(unittest.TestCase):
         self.assertEqual(cut_frame_3.state, "observed")
         self.assertIsNotNone(cut_frame_3.position_px)
         self.assertEqual(cut_frame_3.camera_segment_id, "segment-1")
+        self.assertEqual(cut_frame_3.pipeline_run_id, "run-1")
+        self.assertEqual(cut_frame_3.to_dict()["cameraSegmentId"], "segment-1")
+        self.assertEqual(cut_frame_3.to_dict()["pipelineRunId"], "run-1")
 
         # Trajectory points must not interpolate across the camera segment cut
         trajectory = pipeline.trajectory_builder.build(list(pipeline._trajectory_working_history))
@@ -616,6 +621,35 @@ class TestShuttlePipelineIntegration(unittest.TestCase):
             camera_segment_id="segment-2", pipeline_run_id="run-42",
         )
         self.assertTrue(pipeline.is_observation_accepted(valid))
+
+    def test_j_process_frame_does_not_relabel_or_record_stale_async_output(self):
+        pipeline = create_shuttle_pipeline(
+            {"shuttle_enabled": True, "shuttle_recovery_enabled": False, "shuttle_build_trajectory": True},
+            custom_provider=DeterministicShuttleProvider(),
+        )
+        pipeline.reset_for_camera_segment("segment-2", "run-42")
+        stale = ShuttleObservation(
+            timestamp_sec=1.0,
+            frame_index=30,
+            state="observed",
+            position_px=ShuttlePositionPx(100.0, 100.0),
+            confidence=0.9,
+            camera_segment_id="segment-1",
+            pipeline_run_id="run-42",
+        )
+        pipeline.temporal_tracker.process_frame = lambda *_args, **_kwargs: stale
+
+        result = pipeline.process_frame(
+            np.zeros((288, 512, 3), dtype=np.uint8),
+            timestamp_sec=1.0,
+            frame_index=30,
+            camera_segment_id="segment-2",
+            pipeline_run_id="run-42",
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(pipeline.get_trajectory_working_history_size(), 0)
+        self.assertEqual(pipeline._observation_counts["observed"], 0)
 
     def test_j_bright_static_distractor_suppressed_by_motion_evidence_fusion(self):
         """Bright static distractor decays under persistence while moving shuttle wins with motion."""
@@ -697,6 +731,64 @@ class TestShuttlePipelineIntegration(unittest.TestCase):
         obs8 = pipeline.process_frame(img, timestamp_sec=8 * 0.033, frame_index=8)
         self.assertEqual(obs8.state, "observed")
         self.assertIsNotNone(obs8.position_px)
+
+    def test_j_static_only_candidate_loses_acceptance_after_twenty_frames(self):
+        class StaticBackgroundProvider:
+            def availability(self):
+                return ProviderAvailability(available=True, status="READY", reason="OK")
+            def infer(self, frames):
+                heatmap = np.zeros((288, 512), dtype=np.float32)
+                heatmap[138:143, 118:123] = 0.6
+                return TemporalModelOutput(probability_map=heatmap)
+            def scale_coordinate(self, value, heatmap_extent, source_extent):
+                return float(value)
+
+        pipeline = create_shuttle_pipeline(
+            {"shuttle_enabled": True, "shuttle_window_size": 2, "shuttle_recovery_enabled": False},
+            custom_provider=StaticBackgroundProvider(),
+        )
+        image = np.full((288, 512, 3), 50, dtype=np.uint8)
+        image[138:143, 118:123] = 240
+
+        observations = [
+            pipeline.process_frame(image, timestamp_sec=index / 30, frame_index=index)
+            for index in range(1, 22)
+        ]
+
+        self.assertTrue(all(observation is not None for observation in observations))
+        self.assertEqual(observations[1].state, "observed")
+        self.assertNotEqual(observations[-1].state, "observed")
+
+    def test_j_recent_trajectory_context_supports_a_subthreshold_candidate(self):
+        class MovingProvider:
+            def __init__(self):
+                self.inference_count = 0
+            def availability(self):
+                return ProviderAvailability(available=True, status="READY", reason="OK")
+            def infer(self, frames):
+                self.inference_count += 1
+                heatmap = np.zeros((288, 512), dtype=np.float32)
+                confidence = 0.9 if self.inference_count <= 2 else 0.42
+                x = 100 + self.inference_count * 5
+                heatmap[100, x] = confidence
+                return TemporalModelOutput(probability_map=heatmap)
+            def scale_coordinate(self, value, heatmap_extent, source_extent):
+                return float(value)
+
+        pipeline = create_shuttle_pipeline(
+            {"shuttle_enabled": True, "shuttle_window_size": 2, "shuttle_recovery_enabled": False},
+            custom_provider=MovingProvider(),
+        )
+        image = np.zeros((288, 512, 3), dtype=np.uint8)
+        pipeline.process_frame(image, timestamp_sec=0.0, frame_index=0)
+        first = pipeline.process_frame(image, timestamp_sec=1 / 30, frame_index=1)
+        second = pipeline.process_frame(image, timestamp_sec=2 / 30, frame_index=2)
+        context_supported = pipeline.process_frame(image, timestamp_sec=3 / 30, frame_index=3)
+
+        self.assertEqual(first.state, "observed")
+        self.assertEqual(second.state, "observed")
+        self.assertEqual(context_supported.state, "observed")
+        self.assertAlmostEqual(context_supported.confidence, 0.42)
 
 
 if __name__ == "__main__":

@@ -395,6 +395,12 @@ class TemporalShuttleTracker:
         self._processing_seconds = 0.0
         self._last_failure: str | None = None
         self._static_tracks: list[dict] = []
+        self._observed_trajectory: deque[tuple[float, float, float]] = deque(maxlen=3)
+        self.tracking_state = "WARMING_UP"
+
+    @property
+    def is_warming_up(self) -> bool:
+        return len(self._frames) < self.config.window_size
 
     @property
     def buffered_frame_count(self) -> int:
@@ -408,6 +414,8 @@ class TemporalShuttleTracker:
         self._last_frame_index = None
         self._last_timestamp_sec = None
         self._static_tracks.clear()
+        self._observed_trajectory.clear()
+        self.tracking_state = "WARMING_UP"
 
     def reset(self) -> None:
         self.reset_window()
@@ -431,12 +439,16 @@ class TemporalShuttleTracker:
             # A missing frame breaks temporal continuity. Never bridge the gap
             # as though the provider had received a contiguous frame sequence.
             self._frames.clear()
+            self._observed_trajectory.clear()
+            self.tracking_state = "WARMING_UP"
             return finish(self._missing_observation(timestamp_sec, frame_index))
 
         if self._last_frame_index is not None and frame_index > self._last_frame_index + 1:
             # A caller may omit a frame entirely rather than submit a bad image.
             # Restart the window so the temporal model never sees a hidden gap.
             self._frames.clear()
+            self._observed_trajectory.clear()
+            self.tracking_state = "WARMING_UP"
 
         current = TemporalFrame(image=image.copy(), timestamp_sec=float(timestamp_sec), frame_index=frame_index)
         self._frames.append(current)
@@ -446,6 +458,7 @@ class TemporalShuttleTracker:
 
         if len(self._frames) < self.config.window_size:
             self._last_failure = "WINDOW INITIALIZING"
+            self.tracking_state = "WARMING_UP"
             return finish(self._missing_observation(timestamp_sec, frame_index, force_unknown=True))
 
         availability = self.provider.availability()
@@ -474,10 +487,12 @@ class TemporalShuttleTracker:
             )
         except (TypeError, ValueError):
             self._last_failure = "INVALID MODEL OUTPUT"
+            self.tracking_state = "LOST"
             return finish(self._missing_observation(timestamp_sec, frame_index))
 
         if not candidates:
             self._last_failure = "NO SHUTTLE CANDIDATE"
+            self.tracking_state = "LOST"
             return finish(self._missing_observation(timestamp_sec, frame_index))
 
         source_height, source_width = image.shape[:2]
@@ -518,7 +533,15 @@ class TemporalShuttleTracker:
             else:
                 persistence_weight = max(0.4, 1.0 - 0.08 * (cand_stat_frames - 5))
 
-            fused_score = cand.confidence * persistence_weight * (1.0 + 0.25 * motion_score)
+            trajectory_support = self._trajectory_support_score(
+                timestamp_sec=float(timestamp_sec),
+                x=cand_x_px,
+                y=cand_y_px,
+            )
+            fused_score = (
+                cand.confidence * persistence_weight * (1.0 + 0.25 * motion_score)
+                + trajectory_support
+            )
             scored_candidates.append((fused_score, cand, cand_x_px, cand_y_px, cand_stat_frames, matched_trk))
 
         # Update static tracks for observed candidates on this frame
@@ -541,8 +564,9 @@ class TemporalShuttleTracker:
         scored_candidates.sort(key=lambda item: item[0], reverse=True)
         best_fused_score, best_cand, best_x_px, best_y_px, best_stat_frames, _ = scored_candidates[0]
 
-        if best_cand.confidence < self.config.confidence_threshold and best_fused_score < self.config.confidence_threshold:
+        if best_fused_score < self.config.confidence_threshold:
             self._last_failure = "NO SHUTTLE CANDIDATE"
+            self.tracking_state = "LOST"
             return finish(self._missing_observation(timestamp_sec, frame_index))
 
         observation = ShuttleObservation(
@@ -554,9 +578,35 @@ class TemporalShuttleTracker:
             confidence=best_cand.confidence,
             trajectory_id=None,
         )
+        self._observed_trajectory.append((float(timestamp_sec), best_x_px, best_y_px))
         self._has_observed = True
         self._last_failure = None
+        self.tracking_state = "TRACKING"
         return finish(observation)
+
+    def _trajectory_support_score(self, *, timestamp_sec: float, x: float, y: float) -> float:
+        """Add a small score only when a candidate continues recent image-space motion."""
+        if len(self._observed_trajectory) < 2:
+            return 0.0
+
+        previous = self._observed_trajectory[-2]
+        latest = self._observed_trajectory[-1]
+        interval = latest[0] - previous[0]
+        elapsed = timestamp_sec - latest[0]
+        if interval <= 0.0 or elapsed < 0.0 or elapsed > 0.15:
+            return 0.0
+
+        dx = latest[1] - previous[1]
+        dy = latest[2] - previous[2]
+        movement = math.hypot(dx, dy)
+        if movement < 4.0:
+            return 0.0
+
+        predicted_x = latest[1] + dx * elapsed / interval
+        predicted_y = latest[2] + dy * elapsed / interval
+        error = math.hypot(x - predicted_x, y - predicted_y)
+        tolerance = max(16.0, min(40.0, movement * 0.75))
+        return 0.12 if error <= tolerance else 0.0
 
     def end_stream(self) -> ShuttleTrackerMetrics:
         """Finish a stream without padding or fabricating trailing observations."""

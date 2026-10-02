@@ -188,6 +188,7 @@ class BadmintonAnalyzerV2:
         self.dist_tracker = DistanceTracker(self.mapper, fps=self.fps)
         self.calibration_context = CalibrationContext()
         self.camera_cut_detector = CameraCutDetector()
+        self._camera_cut_pending_semantic_reset = False
         self.court_corners_px: np.ndarray | None = None
         self.manual_calibration_provider = ManualCourtCalibrationProvider()
         self.auto_calibration_provider = (
@@ -447,6 +448,7 @@ class BadmintonAnalyzerV2:
 
     def _invalidate_for_camera_cut(self) -> None:
         """Break all metric state before processing the first frame of a cut."""
+        self._camera_cut_pending_semantic_reset = True
         self.temporal_stability_validator.invalidate()
         self.calibration_context.start_camera_segment()
         self.mapper.invalidate()
@@ -591,6 +593,8 @@ class BadmintonAnalyzerV2:
             is_replay_cue=getattr(self, "is_replay", False),
             cut_detected=cut_detected,
         )
+        camera_cut_boundary = cut_detected or self._camera_cut_pending_semantic_reset
+        self._camera_cut_pending_semantic_reset = False
 
         # Pan/tilt/zoom motion drift suspends metrics and invalidates court homography
         if transition.evidence.is_pan_tilt_zoom:
@@ -787,12 +791,15 @@ class BadmintonAnalyzerV2:
             d["eligibility"] = elig
 
         # 4. Select Player Candidates
-        eligible_candidates = select_eligible_player_candidates(
-            detections=raw_detections,
-            eligibilities=[d.get("eligibility") for d in raw_detections if "eligibility" in d],
-            max_players=self.max_players,
-            active_profiles=self.profiles,
-        )
+        if camera_cut_boundary or transition.to_state is SceneState.CLOSE_UP:
+            eligible_candidates = []
+        else:
+            eligible_candidates = select_eligible_player_candidates(
+                detections=raw_detections,
+                eligibilities=[d.get("eligibility") for d in raw_detections if "eligibility" in d],
+                max_players=self.max_players,
+                active_profiles=self.profiles,
+            )
 
         # 5. Temporal Identity Association (Bipartite Hungarian Matching)
         matched_players = self._match_tracks_to_profiles(
@@ -999,6 +1006,22 @@ class BadmintonAnalyzerV2:
                 pipeline_run_id=getattr(self, "pipeline_run_id", getattr(self, "analysis_id", "live_session")),
             )
 
+        raw_player_detections = [
+            {
+                "trackId": detection.get("track_id"),
+                "bboxPx": list(detection["bbox"]),
+                "confidence": detection.get("conf"),
+                "pose": detection.get("pose_obj"),
+                "eligibility": (
+                    detection["eligibility"].to_dict()
+                    if hasattr(detection.get("eligibility"), "to_dict")
+                    else None
+                ),
+            }
+            for detection in raw_detections
+            if detection.get("bbox") is not None
+        ]
+
         return {
             # Canonical V1 Protocol (PDF §45 & §47)
             "schemaVersion": 1,
@@ -1039,6 +1062,7 @@ class BadmintonAnalyzerV2:
             "actualModel": getattr(self.detector_adapter, "actual_model", None) or self.engine_config.model_artifact_reference or getattr(self, "model_path", "yolov8n.pt"),
             "device": self.device,
             "players": player_telemetry,
+            "rawPlayerDetections": raw_player_detections,
             "shuttle": shuttle_obs.to_dict() if shuttle_obs is not None else None,
 
             # Backward compatibility aliases

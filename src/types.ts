@@ -515,6 +515,20 @@ export interface TrackingPlayerV1 {
   pose?: TrackingPoseV1 | null;
 }
 
+/** Fresh detector output retained independently from semantic P1–P4 profiles. */
+export interface RawPlayerDetectionV1 {
+  trackId: number | null;
+  bboxPx: [number, number, number, number];
+  confidence: number | null;
+  pose: TrackingPoseV1 | null;
+  eligibility?: {
+    status: 'ELIGIBLE' | 'CANDIDATE' | 'SPECTATOR_OR_OFFICIAL' | 'UNRESOLVED';
+    isEligibleForProfile: boolean;
+    reasons?: string[];
+    [key: string]: unknown;
+  } | null;
+}
+
 export interface TrackingTelemetryV1 {
   schemaVersion: 1;
   analysisId: string;
@@ -557,6 +571,8 @@ export interface TrackingTelemetryV1 {
   source?: 'real_tracking' | 'synthetic_demo' | string;
   trackedPlayerCount?: number;
   players: TrackingPlayerV1[];
+  /** Raw MOT detections/poses are separate from semantic player profiles. */
+  rawPlayerDetections?: RawPlayerDetectionV1[];
   /** Canonical separate shuttlecock observation stream (Phase 2.1) */
   shuttle?: import('./types/shuttleTelemetry').ShuttleObservation | null;
 }
@@ -816,6 +832,7 @@ export interface ShuttleProvenance extends InferenceProviderProvenance {
   requested: boolean;
   active: boolean;
   status: ShuttleTrackingStatus;
+  trackingState?: import('./types/shuttleTelemetry').ShuttleTrackerState | null;
   provider: string;
   model: string | null;
   runtime: string;

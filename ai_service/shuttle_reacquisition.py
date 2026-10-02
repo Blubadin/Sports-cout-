@@ -13,6 +13,7 @@ except ImportError:
 
 
 class TrackingState(str, Enum):
+    WARMING_UP = 'WARMING_UP'
     TRACKING = 'TRACKING'
     WEAK = 'WEAK'
     LOST = 'LOST'
@@ -72,7 +73,7 @@ class RecoveringShuttleTracker:
     def __init__(self, temporal: TemporalShuttleTracker, auxiliary: AuxiliaryShuttleDetector | None = None,
                  config: RecoveryConfig = RecoveryConfig()):
         self.temporal, self.auxiliary, self.config = temporal, auxiliary, config
-        self.state = TrackingState.LOST
+        self.state = TrackingState.WARMING_UP
         self.events: list[dict] = []
         self.reacquisition_attempts = 0
         self.auxiliary_calls = 0
@@ -87,7 +88,7 @@ class RecoveringShuttleTracker:
 
     def reset(self):
         """Reset internal recovery tracking state across camera cuts or segment boundaries."""
-        self.state = TrackingState.LOST
+        self.state = TrackingState.WARMING_UP
         self._last = None
         self._previous = None
         self._pending = None
@@ -122,10 +123,15 @@ class RecoveringShuttleTracker:
             self._confirmations = 0
         self._last_input = (frame_index, timestamp_sec)
         raw = self.temporal.process_frame(image, timestamp_sec, frame_index)
+        temporal_warming_up = self.temporal.is_warming_up
         valid_image = getattr(image, 'ndim', 0) == 3 and image.shape[2] == 3 and min(image.shape[:2]) > 0
         height, width = image.shape[:2] if valid_image else (0, 0)
         candidate = raw if (raw.state == 'observed' and raw.confidence is not None
                             and raw.confidence >= self.config.confidence_threshold) else None
+        if self.state is TrackingState.WARMING_UP:
+            if temporal_warming_up and candidate is None and self.auxiliary is None:
+                return self._missing(timestamp_sec, frame_index, width, height)
+            self.state = TrackingState.LOST
         if self.state in (TrackingState.TRACKING, TrackingState.WEAK):
             if candidate and self._consistent(candidate, self._last):
                 return self._accept(candidate)
@@ -163,7 +169,7 @@ class RecoveringShuttleTracker:
             else:
                 self._pending = None
                 self._confirmations = 0
-                self.state = TrackingState.LOST
+                self.state = TrackingState.WARMING_UP if temporal_warming_up else TrackingState.LOST
         return self._missing(timestamp_sec, frame_index, width, height)
 
     def _accept(self, candidate):

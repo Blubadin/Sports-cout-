@@ -324,6 +324,25 @@ class TestPlayerCandidateSelection(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0]["track_id"], 1)
 
+    def test_profile_ineligible_candidate_is_not_sent_to_semantic_matcher(self):
+        detection = {"track_id": 99, "conf": 0.9, "bbox": [500, 200, 560, 400]}
+        eligibility = PlayerEligibility(
+            status=EligibilityStatus.CANDIDATE,
+            envelope_zone=CourtEnvelopeZone.IN_COURT,
+            envelope_distance_m=1.0,
+            envelope_distance_px=50.0,
+            confidence=0.45,
+            is_eligible_for_profile=False,
+        )
+
+        candidates = select_eligible_player_candidates(
+            detections=[detection],
+            eligibilities=[eligibility],
+            max_players=1,
+        )
+
+        self.assertEqual(candidates, [])
+
     def test_candidate_budget_ranking_prioritizes_in_court_over_near_court(self):
         """When more detections qualify than allowed budget, rank by known player and IN_COURT."""
         d1 = {"track_id": 1, "conf": 0.85, "bbox": [100, 100, 150, 300]}
@@ -474,6 +493,54 @@ class TestAnalyzerFullPipeline(unittest.TestCase):
         # Initial frame after recalibration establishes baseline WITHOUT jumping distance!
         dist_after_recal = p_recal["totalDistanceM"]
         self.assertEqual(dist_after_recal, dist_before_cut)
+
+    def test_new_track_after_camera_cut_stays_raw_and_does_not_become_p1(self):
+        analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1)
+        analyzer._detector = "dummy"
+        analyzer.set_court_corners(self.corners)
+        analyzer.detect_and_track = lambda frame: [
+            {"bbox": [600, 350, 660, 520], "center": (630, 435), "conf": 0.92, "track_id": 10}
+        ]
+        analyzer.process_frame(self.frame, timestamp_sec=0.0)
+
+        analyzer.start_camera_segment()
+        analyzer.detect_and_track = lambda frame: [
+            {"bbox": [400, 250, 460, 400], "center": (430, 325), "conf": 0.92, "track_id": 99}
+        ]
+        analyzer._estimate_pose = lambda frame, bbox: {
+            "keypoints": [(430.0, 330.0, 0.9) for _ in range(17)],
+            "metrics": {},
+        }
+
+        result = analyzer.process_frame(self.frame, timestamp_sec=0.2)
+
+        p1 = next(player for player in result["players"] if player["playerId"] == "P1")
+        self.assertEqual(p1["state"], "lost")
+        self.assertIsNone(p1["trackId"])
+        self.assertEqual(result["rawPlayerDetections"][0]["trackId"], 99)
+        self.assertIsNotNone(result["rawPlayerDetections"][0]["pose"])
+        self.assertNotIn("playerId", result["rawPlayerDetections"][0])
+
+    def test_close_up_detection_and_pose_remain_outside_semantic_player_stream(self):
+        analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1)
+        analyzer._detector = "dummy"
+        analyzer.set_court_corners(self.corners)
+        detection = {"bbox": [600, 350, 660, 520], "center": (630, 435), "conf": 0.92, "track_id": 10}
+        analyzer.detect_and_track = lambda frame: [detection]
+        analyzer._estimate_pose = lambda frame, bbox: {
+            "keypoints": [(630.0, 430.0, 0.9) for _ in range(17)],
+            "metrics": {},
+        }
+        analyzer.process_frame(self.frame, timestamp_sec=0.0)
+
+        analyzer.set_manual_scene_override(SceneState.CLOSE_UP, "reviewer", "close-up view")
+        analyzer.detect_and_track = lambda frame: [dict(detection)]
+        result = analyzer.process_frame(self.frame, timestamp_sec=0.1)
+
+        p1 = next(player for player in result["players"] if player["playerId"] == "P1")
+        self.assertEqual(p1["state"], "predicted")
+        self.assertEqual(result["rawPlayerDetections"][0]["trackId"], 10)
+        self.assertIsNotNone(result["rawPlayerDetections"][0]["pose"])
 
     def test_singles_net_crossing_penalty_prevents_swap(self):
         """Singles players approaching net closely do not swap identities due to court side penalty."""

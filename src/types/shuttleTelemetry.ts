@@ -30,6 +30,9 @@
  */
 export type ShuttleState = 'observed' | 'predicted' | 'interpolated' | 'lost' | 'unknown';
 
+/** Tracker lifecycle state, kept separate from a frame's canonical observation state. */
+export type ShuttleTrackerState = 'WARMING_UP' | 'TRACKING' | 'WEAK' | 'LOST' | 'REACQUIRING';
+
 /**
  * Origin source producing the shuttle observation.
  */
@@ -94,6 +97,10 @@ export interface ShuttleObservation {
   velocityPxPerSec?: ShuttleVelocityPx | null;
   /** Optional scalar speed in pixels per second (only if genuinely measured/derived) */
   speedPxPerSec?: number | null;
+  /** Camera segment that owned this observation. */
+  cameraSegmentId?: string;
+  /** Pipeline run that owned this observation. */
+  pipelineRunId?: string;
 }
 
 /**
@@ -194,6 +201,8 @@ export function createShuttleObservation(
     trajectoryId: params.trajectoryId ?? null,
     velocityPxPerSec: params.velocityPxPerSec ?? null,
     speedPxPerSec: params.speedPxPerSec ?? null,
+    ...(params.cameraSegmentId ? { cameraSegmentId: params.cameraSegmentId } : {}),
+    ...(params.pipelineRunId ? { pipelineRunId: params.pipelineRunId } : {}),
   };
 }
 

@@ -330,13 +330,11 @@ class ProductionShuttlePipeline:
             run_id = observation.get("pipelineRunId", observation.get("pipeline_run_id"))
         if (
             self.current_camera_segment_id is not None
-            and seg_id is not None
             and seg_id != self.current_camera_segment_id
         ):
             return False
         if (
             self.current_pipeline_run_id is not None
-            and run_id is not None
             and run_id != self.current_pipeline_run_id
         ):
             return False
@@ -391,8 +389,12 @@ class ProductionShuttlePipeline:
             observation = active_tracker.process_frame(image, timestamp_sec, frame_index)
             self.last_failure = None
             if observation is not None:
-                observation.camera_segment_id = camera_segment_id or self.current_camera_segment_id
-                observation.pipeline_run_id = pipeline_run_id or self.current_pipeline_run_id
+                if observation.camera_segment_id is None:
+                    observation.camera_segment_id = camera_segment_id or self.current_camera_segment_id
+                if observation.pipeline_run_id is None:
+                    observation.pipeline_run_id = pipeline_run_id or self.current_pipeline_run_id
+                if not self.is_observation_accepted(observation):
+                    return None
             return self._record_observation(observation)
         except InferenceExecutionError:
             self.status = 'ERROR'
@@ -532,6 +534,11 @@ class ProductionShuttlePipeline:
             'unknownCount': counts['unknown'] if counts is not None else None,
             'candidateExtractionCalls': metrics.candidate_extraction_calls if metrics is not None else None,
             **execution,
+            "trackingState": (
+                self.recovery_tracker.state.value
+                if self.recovery_tracker is not None
+                else self.temporal_tracker.tracking_state if self.temporal_tracker is not None else None
+            ),
         }
 
 

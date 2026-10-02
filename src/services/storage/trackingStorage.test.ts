@@ -10,16 +10,19 @@ import {
   computePlayerMovementMetrics,
   computeMultiPlayerMovementMetrics,
   getTrackingAnalysis,
+  getTrackingTelemetryPage,
   getTrackingSamples,
   getTrackingMovementMetrics,
   listTrackingAnalysisPage,
   getLatestTrackingAnalysisForProject,
   setTrackingStorageDriver,
+  saveTrackingTelemetryPage,
   MAX_TRACKING_PAGE_SIZE,
   type TrackingTelemetryPage,
   type TrackingAnalysis,
   type TrackingSampleChunk,
 } from './trackingStorage';
+import type { TrackingTelemetryV1 } from '../../types';
 
 describe('tracking IndexedDB schema', () => {
   it('creates every required object store during one upgrade', () => {
@@ -255,6 +258,75 @@ describe('bounded tracking telemetry persistence', () => {
     expect(page?.endCursor).toBe(2);
     expect(await driver.getTelemetryPage('a', page?.endCursor ?? 0)).toEqual(second);
     expect(MAX_TRACKING_PAGE_SIZE).toBe(250);
+  });
+
+  it('round-trips shuttle camera and run ownership through saved telemetry pages', async () => {
+    const driver = new MemoryTrackingDriver();
+    setTrackingStorageDriver(driver);
+    const frame: TrackingTelemetryV1 = {
+      schemaVersion: 1,
+      analysisId: 'shuttle-owners',
+      pipelineRunId: 'run-42',
+      timestampSec: 1,
+      frameIndex: 30,
+      players: [],
+      shuttle: {
+        timestampSec: 1,
+        frameIndex: 30,
+        positionPx: { x: 320, y: 180 },
+        confidence: 0.9,
+        state: 'observed',
+        source: 'temporal_tracker',
+        trajectoryId: null,
+        cameraSegmentId: 'segment-2',
+        pipelineRunId: 'run-42',
+      },
+    };
+
+    await saveTrackingTelemetryPage({
+      id: 'shuttle-owners:00000000000000000000',
+      analysisId: 'shuttle-owners',
+      startCursor: 0,
+      endCursor: 1,
+      frames: [frame],
+    });
+
+    const restored = await getTrackingTelemetryPage('shuttle-owners', 0);
+    expect(restored?.frames[0].shuttle?.cameraSegmentId).toBe('segment-2');
+    expect(restored?.frames[0].shuttle?.pipelineRunId).toBe('run-42');
+  });
+
+  it('normalizes legacy lost provenance on persistence, reload, and sample export', async () => {
+    const driver = new MemoryTrackingDriver();
+    setTrackingStorageDriver(driver);
+    const legacyFrame: TrackingTelemetryV1 = {
+      schemaVersion: 1,
+      analysisId: 'legacy-lost',
+      timestampSec: 1,
+      frameIndex: 30,
+      players: [{
+        playerId: 'P1',
+        state: 'lost',
+        observationState: 'observed',
+        groundPointProvenance: 'pose_both_ankles',
+        courtPosition: { xM: 2, yM: 3, xPct: 32.8, yPct: 22.4 },
+      }],
+    };
+
+    await saveTrackingTelemetryPage({
+      id: 'legacy-lost:00000000000000000000',
+      analysisId: 'legacy-lost',
+      startCursor: 0,
+      endCursor: 1,
+      frames: [legacyFrame],
+    });
+    const restored = await getTrackingTelemetryPage('legacy-lost', 0);
+    expect(restored?.frames[0].players[0].observationState).toBeNull();
+
+    const exported = downsampleAndChunkTrackingSamples('legacy-lost', [legacyFrame]);
+    const sample = exported.chunks.flatMap((chunk) => chunk.samples)[0];
+    expect(sample.observationState).toBeNull();
+    expect(sample.groundPointProvenance).toBeNull();
   });
 
   it('rejects conflicting retries and pages larger than the configured hard maximum', async () => {

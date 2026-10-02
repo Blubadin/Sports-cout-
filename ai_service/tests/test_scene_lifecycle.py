@@ -136,7 +136,13 @@ class TestSceneLifecycleAndSegmentManager(unittest.TestCase):
         self.assertFalse(close_frame["allowCanonicalWrites"])
         self.assertIsNone(close_frame["players"][0]["courtPosition"])
         # 2D tracking preserved
-        self.assertIsNotNone(close_frame["players"][0]["bboxPct"])
+        self.assertIsNone(close_frame["players"][0]["trackId"])
+        self.assertIsNone(close_frame["players"][0]["bboxPct"])
+        close_up_detection = next(
+            d for d in close_frame["rawPlayerDetections"] if d["trackId"] == 42
+        )
+        self.assertEqual(close_up_detection["bboxPx"], [100, 50, 540, 430])
+        self.assertIsNotNone(close_up_detection["pose"])
 
         # 4. Return to court view (new calibration accepted)
         self.feet_x = 200
