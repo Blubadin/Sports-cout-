@@ -370,6 +370,11 @@ Run lint:
 
 npm run lint
 
+Run TypeScript checks, ESLint, frontend/Python tests, icon validation, build,
+and browser acceptance using the commands in
+[Frontend verification](docs/FRONTEND-VERIFICATION.md). ESLint covers frontend
+TypeScript/TSX under `src/`; `npm run typecheck` remains a separate check.
+
 Build production:
 
 npm run build

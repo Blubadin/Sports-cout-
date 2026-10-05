@@ -1,0 +1,812 @@
+{
+  "formatVersion": 1,
+  "scope": "src/**/*.{ts,tsx}",
+  "counts": {
+    "src/__tests__/badminton/AITracking.test.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 8,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/consumerCapabilityGates.test.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/detectorCandidates.test.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/scoutingQuality.test.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/shuttleBenchmarkProtocol.test.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/shuttleRuntimeActivation.test.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/shuttleRuntimeDiagnostics.test.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 9,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/trackingBenchmarkFoundation.test.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/trackingInspectorTabs.test.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/trackingLifecycleHardening.test.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 11,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/trackingNavigationPersistence.test.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 32,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/trackingOverlayAndTelemetry.test.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/__tests__/badminton/visionBenchmarkProtocol.test.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/__tests__/components/TimelinePanel.test.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/__tests__/context/WorkspaceContext.test.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/__tests__/controller/gamepadRuntime.test.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/__tests__/featureFlags.test.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/__tests__/sports/sportRules.test.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/__tests__/utils/eventDecoder.test.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/__tests__/utils/projectPersistenceSession.test.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/__tests__/utils/projectSyncChannel.test.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/__tests__/utils/scoutData.test.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 5,
+        "warning": 0
+      }
+    },
+    "src/App.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/benchmarks/shuttleBenchmarkManifest.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/benchmarks/visionBenchmarkManifest.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/analytics/BadmintonMovementDashboard.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 3
+      }
+    },
+    "src/components/area/AreaBoundaryFrame.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/badminton/BadmintonTouchCourt.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 9,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/badminton/BadmintonTouchPadModal.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/charts/FieldSequenceMap.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/components/charts/ResultDistributionChart.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/charts/SportSpecificKPIs.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/charts/TeamComparisonChart.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/CourtAreaSelector.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 12,
+        "warning": 0
+      }
+    },
+    "src/components/CreateProjectWizard.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 3,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 10,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/Dashboard.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 5,
+        "warning": 0
+      }
+    },
+    "src/components/DiagnosticLogs.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/EditEventModal.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 3,
+        "warning": 0
+      }
+    },
+    "src/components/football/FootballPiccoPitch.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/components/GeneralInfo.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/components/hud/HUDFoulSelector.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/components/hud/HUDMiniCourtSelector.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 3,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/hud/HUDResultSelector.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/components/hud/HUDSequenceHistoryDrawer.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/components/hud/HUDSkillRadial.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/hud/HUDSkillWheel.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/components/hud/HUDTeamSelector.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/hud/HUDTopStatsBar.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/components/hud/HUDVideoControls.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 3,
+        "warning": 0
+      }
+    },
+    "src/components/hud/PhoneLandscapeGamepadMode.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 7,
+        "warning": 0
+      }
+    },
+    "src/components/hud/PhoneLandscapeSkillStrip.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/hud/PhoneScoutMode.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 15,
+        "warning": 0
+      }
+    },
+    "src/components/hud/PhoneSkillSheet.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/hud/PhoneVideoControls.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/components/hud/ProAreaCommandPad.tsx": {
+      "react-hooks/rules-of-hooks": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/hud/ProDonutCommandWheel.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 1,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 1
+      }
+    },
+    "src/components/hud/ProFoulCommandWheel.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/hud/ScoutHUDMode.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 12,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 11,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 2
+      }
+    },
+    "src/components/InputPanel.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 9,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/components/labs/BadmintonTrackingLab.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 3,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 4
+      }
+    },
+    "src/components/labs/TrackingLabInspector.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/labs/trackingOverlayWindow.test.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/labs/TrackingVideoOverlay.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/components/MatchInfoModal.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 3,
+        "warning": 0
+      }
+    },
+    "src/components/report/FullCoachReport.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 11,
+        "warning": 0
+      }
+    },
+    "src/components/ReportClipModal.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 3,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/components/ScoutingTable.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/components/SegmentPreviewPanel.tsx": {
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 1
+      }
+    },
+    "src/components/SettingsModal.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 4,
+        "warning": 0
+      }
+    },
+    "src/components/video/TelestrationCanvas.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/components/video/TimelinePanel.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 5
+      }
+    },
+    "src/components/VideoPlayer.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 3,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 11,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 1
+      }
+    },
+    "src/components/WorkspaceMenu.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 5,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 5,
+        "warning": 0
+      }
+    },
+    "src/components/workstation/WorkstationChrome.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 10,
+        "warning": 0
+      }
+    },
+    "src/context/ScoutContext.tsx": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 3,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 4,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 6
+      }
+    },
+    "src/context/WorkspaceContext.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 7,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 2
+      }
+    },
+    "src/controller/controllerMapping.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/hooks/useGamepadRuntime.ts": {
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 1
+      }
+    },
+    "src/hooks/useLocalStorage.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 2,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/hooks/useProHUDMarkingController.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 7,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 1
+      }
+    },
+    "src/hooks/useScreenMarkingMode.ts": {
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 1
+      }
+    },
+    "src/hooks/useVideoGestures.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/hooks/useVideoPlayback.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 3,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 1
+      }
+    },
+    "src/hooks/useVideoResize.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      },
+      "react-hooks/exhaustive-deps": {
+        "error": 0,
+        "warning": 1
+      }
+    },
+    "src/main.tsx": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 3,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      },
+      "prefer-rest-params": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/protocol/protocolDefinition.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 3,
+        "warning": 0
+      }
+    },
+    "src/services/aiConnection.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/services/trackingSessionApi.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 6,
+        "warning": 0
+      }
+    },
+    "src/services/trackingSessionStore.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 3,
+        "warning": 0
+      }
+    },
+    "src/sports/rules/badmintonRules.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/sports/rules/basketballRules.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/sports/rules/footballRules.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/sports/rules/registry.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/sports/rules/volleyballRules.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      }
+    },
+    "src/utils.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/utils/analyticsEngine.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/utils/dashboardStats.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 2,
+        "warning": 0
+      },
+      "prefer-const": {
+        "error": 5,
+        "warning": 0
+      }
+    },
+    "src/utils/eventDecoder.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 9,
+        "warning": 0
+      },
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/utils/reportGenerator.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/utils/scoutData.ts": {
+      "@typescript-eslint/no-explicit-any": {
+        "error": 1,
+        "warning": 0
+      }
+    },
+    "src/volleyball/volleyballDomain.ts": {
+      "@typescript-eslint/no-unused-vars": {
+        "error": 1,
+        "warning": 0
+      }
+    }
+  }
+}

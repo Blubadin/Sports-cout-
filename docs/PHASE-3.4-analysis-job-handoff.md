@@ -73,3 +73,19 @@ Canonical comparison: **0 mismatched rows; 0 duplicate/reordered frames** across
 | AJ-05 | P2 evidence | Real five-second smoke predates the final additional checkpoint/profile/history hardening. | Astra / evaluation owner: rerun short and long evidence at the implementation SHA above. | Exact-SHA real-media validation. |
 
 Pre-existing dirty `analyzer_v2.py`, `ground_position.py`, `semantic_identity.py`, player eligibility files/tests and their unrelated `src/types.ts` hunks were preserved outside this implementation commit. No Astra high agent was used. Stop here for Astra review; this handoff does not close the Phase 3 gate or start another phase.
+
+## Verification tooling follow-up — 2026-10-05
+
+AJ-04's repository tooling action is implemented on `feat/phase-three-camera-cut`:
+`npm run typecheck` remains TypeScript, while `npm run lint` invokes ESLint for
+`src/**/*.{ts,tsx}`. The Quality workflow runs both checks. The pre-change
+source baseline contained 462 ESLint findings in 101 files; CI now fails when
+per-file/rule/severity counts exceed that explicit baseline. This establishes
+regression verification but does not claim a zero-debt or whole-repository
+lint pass. See [frontend verification](FRONTEND-VERIFICATION.md) for commands
+and the baseline policy. Local verification on Node 24.19.0 passed typecheck,
+ESLint baseline comparison, all 1,004 Vitest tests, icon validation and build.
+The required Python run executed 649 tests with 11 errors and 4 skips because
+the local environment lacks `ultralytics` and `torch`; it is not counted as a
+pass. The CI workflow installs `ai_service/requirements.txt`. This follow-up
+does not close the other Phase 3 gates.
