@@ -20,6 +20,7 @@ from typing import Any
 import cv2
 import numpy as np
 from device_runtime import InferenceExecution, artifact_sha256, package_version
+from pose_coordinate_space import POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS
 from ultralytics_runtime import runtime_predictor, precision_options
 
 # 17 COCO Keypoint Indices
@@ -122,7 +123,8 @@ class YoloPoseDetector:
     ) -> dict[str, Any]:
         """
         Estimate 17 keypoints for a specific tracked athlete ROI (PDF §81).
-        player_bbox: [x1, y1, x2, y2] in full frame coordinates.
+        player_bbox: [x1, y1, x2, y2] in source-frame pixel coordinates. Returned
+        keypoints use source-frame pixels after adding the ROI origin.
         """
         if self._model is None:
             self._init_model()
@@ -133,11 +135,17 @@ class YoloPoseDetector:
         y2 = min(h, int(player_bbox[3]))
 
         if x2 <= x1 or y2 <= y1:
-            return {"keypoints": [], "metrics": {}}
+            return {
+                "keypoints": [], "metrics": {},
+                "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+            }
 
         roi = frame[y1:y2, x1:x2]
         if roi.size == 0:
-            return {"keypoints": [], "metrics": {}}
+            return {
+                "keypoints": [], "metrics": {},
+                "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+            }
 
         keypoints: list[list[float]] = []
 
@@ -169,11 +177,19 @@ class YoloPoseDetector:
 
         # If model is unavailable or no person detected in ROI, return empty
         if len(keypoints) < 17:
-            return {"keypoints": keypoints, "metrics": {}}
+            return {
+                "keypoints": keypoints,
+                "metrics": {},
+                "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+            }
 
         # Compute 2D body metrics according to PDF §82-85
         metrics = self.compute_2d_body_metrics(keypoints, [x1, y1, x2, y2])
-        return {"keypoints": keypoints, "metrics": metrics}
+        return {
+            "keypoints": keypoints,
+            "metrics": metrics,
+            "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        }
 
     def compute_2d_body_metrics(
         self,

@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 
 from engine_config import ModelNotFoundError
+from pose_coordinate_space import POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS
 from pose_detector import YoloPoseDetector
 
 
@@ -28,11 +29,12 @@ class PoseArchitectureNotImplementedError(RuntimeError):
 
 @dataclass(frozen=True)
 class FullFramePoseCandidate:
-    """Future full-frame pose result, expressed in source-frame coordinates."""
+    """Full-frame pose result whose bbox and keypoints use source-frame pixels."""
 
     bbox: tuple[float, float, float, float]
     keypoints: list[list[float]]
     metrics: dict[str, Any]
+    keypoint_coordinate_space: str = POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS
 
 
 class BasePoseAdapter(ABC):
@@ -58,7 +60,9 @@ class BasePoseAdapter(ABC):
     ) -> dict[str, Any]:
         """
         Estimate 17 keypoints and biomechanical metrics for an athlete ROI.
-        Must return: {"keypoints": [...], "metrics": {...}}
+        Must return keypoints in source-frame pixels and identify them with
+        ``keypointCoordinateSpace: "pixel"``. The same contract applies to
+        ``FullFramePoseCandidate.keypoint_coordinate_space``.
         """
         pass
 
@@ -288,6 +292,7 @@ class UltralyticsFullFramePoseAdapter(BasePoseAdapter):
                         bbox=box_coords,
                         keypoints=keypoints,
                         metrics=metrics,
+                        keypoint_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
                     )
                 )
 
@@ -315,7 +320,11 @@ class DisabledPoseAdapter(BasePoseAdapter):
         frame: np.ndarray,
         player_bbox: list[float] | tuple[float, float, float, float],
     ) -> dict[str, Any]:
-        return {"keypoints": [], "metrics": {}}
+        return {
+            "keypoints": [],
+            "metrics": {},
+            "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        }
 
     def estimate_full_frame(self, frame: np.ndarray) -> list[FullFramePoseCandidate]:
         return []

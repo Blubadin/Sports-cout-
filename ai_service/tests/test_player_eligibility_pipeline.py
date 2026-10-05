@@ -43,6 +43,7 @@ from ground_position import (
     CANONICAL_PROVENANCE_RIGHT_ANKLE,
     CANONICAL_PROVENANCE_BBOX,
 )
+from pose_coordinate_space import POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS
 from player_eligibility import (
     CourtEnvelopeZone,
     CourtEnvelopeConfig,
@@ -254,6 +255,58 @@ class TestPlayerEligibilityEvaluation(unittest.TestCase):
         self.assertTrue(elig.is_eligible_for_profile)
         self.assertIn("player_near_court_excursion", elig.reasons)
 
+    def test_small_source_pixel_ankles_drive_court_projection_and_eligibility(self):
+        class RecordingCourtMapper:
+            is_calibrated = True
+            court_w = 5.18
+            court_l = 13.40
+
+            def __init__(self):
+                self.projected_points = []
+
+            def pixel_to_real(self, point):
+                self.projected_points.append(point)
+                return 2.5, 6.7
+
+        det = {"bbox": [40.0, 40.0, 60.0, 100.0], "conf": 0.9, "track_id": 17}
+        kps = make_coco_keypoints(la=(50.0, 90.0, 0.9), ra=(50.0, 90.0, 0.9))
+        mapper = RecordingCourtMapper()
+        ground_pt = resolve_canonical_ground_point(
+            bbox=det["bbox"],
+            frame_width=1280,
+            frame_height=720,
+            pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+            court_mapper=mapper,
+            is_metric_valid=True,
+        )
+        zone, dist_m, dist_px = classify_court_envelope(
+            ground_px=ground_pt.ground_px,
+            ground_m=ground_pt.ground_position_m,
+            court_corners_px=self.corners,
+            court_mapper=mapper,
+            is_metric_valid=True,
+            config=self.config,
+        )
+        elig = evaluate_player_eligibility(
+            detection=det,
+            ground_point=ground_pt,
+            envelope_zone=zone,
+            envelope_dist_m=dist_m,
+            envelope_dist_px=dist_px,
+            active_profiles={},
+            scene_state=SceneState.COURT_PLAY,
+            is_metric_valid=True,
+            config=self.config,
+        )
+
+        self.assertEqual(ground_pt.ground_px, (50.0, 90.0))
+        self.assertEqual(ground_pt.ground_position_m, (2.5, 6.7))
+        self.assertEqual(mapper.projected_points, [(50.0, 90.0)] * 3)
+        self.assertEqual(zone, CourtEnvelopeZone.IN_COURT)
+        self.assertTrue(elig.is_eligible_for_profile)
+        self.assertEqual(elig.status, EligibilityStatus.ELIGIBLE)
+
     def test_non_gameplay_scene_blocks_new_player(self):
         """Scene states like CLOSE_UP or REPLAY block promoting new unknown tracks to players."""
         det = {"bbox": [300.0, 100.0, 600.0, 650.0], "conf": 0.95, "track_id": 77}
@@ -437,7 +490,11 @@ class TestAnalyzerFullPipeline(unittest.TestCase):
 
         kps = [(630.0, 510.0, 0.90) for _ in range(17)]
         analyzer.pose_adapter = MagicMock()
-        analyzer.pose_adapter.estimate_pose_in_roi.return_value = {"keypoints": kps, "metrics": {}}
+        analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
+            "keypoints": kps,
+            "metrics": {},
+            "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        }
 
         analyzer.detect_and_track = lambda f: [
             {"bbox": [600, 350, 660, 520], "center": (630, 435), "conf": 0.94, "track_id": 10}
@@ -510,6 +567,7 @@ class TestAnalyzerFullPipeline(unittest.TestCase):
         analyzer._estimate_pose = lambda frame, bbox: {
             "keypoints": [(430.0, 330.0, 0.9) for _ in range(17)],
             "metrics": {},
+            "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
         }
 
         result = analyzer.process_frame(self.frame, timestamp_sec=0.2)
@@ -530,6 +588,7 @@ class TestAnalyzerFullPipeline(unittest.TestCase):
         analyzer._estimate_pose = lambda frame, bbox: {
             "keypoints": [(630.0, 430.0, 0.9) for _ in range(17)],
             "metrics": {},
+            "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
         }
         analyzer.process_frame(self.frame, timestamp_sec=0.0)
 

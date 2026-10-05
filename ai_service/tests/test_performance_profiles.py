@@ -252,6 +252,7 @@ class TestPoseStrideHonesty(unittest.TestCase):
         mock_pose_detector.estimate_pose_in_roi.return_value = {
             "keypoints": [(50, 50, 0.9), (60, 60, 0.85)],
             "metrics": {"trunkAngleDeg": 5.0},
+            "keypointCoordinateSpace": "pixel",
         }
         analyzer._pose_detector = mock_pose_detector
 

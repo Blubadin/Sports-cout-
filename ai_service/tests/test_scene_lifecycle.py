@@ -95,6 +95,7 @@ class TestSceneLifecycleAndSegmentManager(unittest.TestCase):
         self.analyzer.pose_adapter = MagicMock()
         self.analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
             "keypoints": [(100, 150, 0.9)], "metrics": {},
+            "keypointCoordinateSpace": "pixel",
         }
         self.feet_x = 170
         self.analyzer.detect_and_track = lambda frame: [{

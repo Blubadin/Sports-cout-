@@ -2,6 +2,8 @@
 pose_association.py — Deterministic Pose-to-Track Association for SportsScout Tracking Lab.
 
 Invariants:
+- Athlete and pose candidate bboxes use source-frame pixel coordinates; pose
+  keypoints retain that same coordinate space through association.
 - Pose candidates never dictate player identities (P1..P4).
 - Deterministic 1-to-1 matching via Hungarian algorithm (linear_sum_assignment).
 - Each pose candidate matches at most one athlete.

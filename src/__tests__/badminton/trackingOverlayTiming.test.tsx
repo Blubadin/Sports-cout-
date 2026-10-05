@@ -134,7 +134,7 @@ describe('Phase 0.4 overlay time resolver', () => {
   it('does not reuse an incompatible pose on an otherwise interpolated player', () => {
     const beforePlayer = {
       ...player('observed', 10),
-      pose: { keypoints: [{ x: 10, y: 20, score: 0.8 }] },
+      pose: { keypoints: [{ x: 10, y: 20, score: 0.8 }], keypointCoordinateSpace: 'normalized_percent' as const },
     };
     const afterPlayer = player('observed', 20);
     const result = resolveOverlayAtTime([
@@ -145,6 +145,23 @@ describe('Phase 0.4 overlay time resolver', () => {
     expect(result.players[0].provenance).toBe('interpolated');
     expect(result.players[0].player.bboxPct?.x).toBeCloseTo(15);
     expect(result.players[0].player.pose).toBeNull();
+  });
+
+  it('does not infer feet from unmarked or out-of-range legacy pose coordinates', () => {
+    const unknownPosePlayer: TrackingPlayerV1 = {
+      playerId: 'P1', state: 'observed', bboxPct: null,
+      pose: { keypoints: Array.from({ length: 17 }, () => ({ x: 50, y: 90, score: 0.9 })) },
+    };
+    const outOfRangePosePlayer: TrackingPlayerV1 = {
+      ...unknownPosePlayer,
+      pose: {
+        keypointCoordinateSpace: 'normalized_percent',
+        keypoints: Array.from({ length: 17 }, (_, index) => ({ x: index >= 15 ? 120 : 50, y: 90, score: 0.9 })),
+      },
+    };
+
+    expect(resolveFeetPosition(unknownPosePlayer)).toBeNull();
+    expect(resolveFeetPosition(outOfRangePosePlayer)).toBeNull();
   });
 
   it('keeps the legacy frame API on source telemetry without leaking interpolation', () => {
