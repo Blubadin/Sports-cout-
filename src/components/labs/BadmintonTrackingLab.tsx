@@ -282,6 +282,7 @@ export default function BadmintonTrackingLab() {
   const lostSegmentId = latestLostKey !== recoveredKey ? latestLostSegmentId : null;
   const lostSegmentKey = lostSegmentId && state.sessionId ? `${state.sessionId}:${lostSegmentId}` : null;
   const sessionStatus = state.sessionStatus;
+  const actualInferenceDevice = sessionStatus?.effectiveDevice ?? sessionStatus?.device ?? inferenceDevice;
   const analysis = state.analysis;
   const chunks = state.chunks;
   const error = state.error;
@@ -874,9 +875,11 @@ export default function BadmintonTrackingLab() {
 
     let id: string | null = state.sessionId;
     const currentBackendStatus = state.status;
+    const sameDeviceRequest = (state.processingConfig?.requestedDevice ?? state.processingConfig?.device ?? 'auto') === devicePreference;
     const isResumable =
       id &&
       ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCELLED', 'INTERRUPTED'].includes(currentBackendStatus) &&
+      sameDeviceRequest &&
       (!file || !state.videoFingerprint || state.videoFingerprint === computeVideoFingerprint(file));
 
     const fail = (err: unknown) => {
@@ -910,7 +913,7 @@ export default function BadmintonTrackingLab() {
               shuttleInputHeight: capabilities?.shuttle?.inputHeight ?? 288,
               shuttleRuntime: capabilities?.shuttle?.runtime,
               shuttlePrecision: capabilities?.shuttle?.precision,
-              shuttleDevice: capabilities?.shuttle?.device,
+              shuttleDevice: devicePreference,
               shuttleConfidenceThreshold: 0.5,
               shuttleRecoveryEnabled: true,
               shuttleBuildTrajectory: false,
@@ -919,7 +922,7 @@ export default function BadmintonTrackingLab() {
       };
 
       if (!isResumable) {
-        if (id && ['VIDEO_READY', 'READY_TO_ANALYZE', 'CANCELLED', 'INTERRUPTED', 'ERROR'].includes(currentBackendStatus)) {
+        if (id && sameDeviceRequest && ['VIDEO_READY', 'READY_TO_ANALYZE', 'CANCELLED', 'INTERRUPTED', 'ERROR'].includes(currentBackendStatus)) {
           void aiTrackingService.deleteSession(id).catch(() => {});
         }
         update({
@@ -1033,8 +1036,8 @@ export default function BadmintonTrackingLab() {
         {connectionStatusText(connection, th)}
       </div>
 
-      {inferenceDevice && (
-        <p className="text-xs text-slate-400">Inference device: {inferenceDevice}</p>
+      {actualInferenceDevice && (
+        <p className="text-xs text-slate-400">Inference device: {actualInferenceDevice}</p>
       )}
 
       {/* Primary Control: Processing Profile Hierarchy (Phase 4) */}
@@ -1075,7 +1078,7 @@ export default function BadmintonTrackingLab() {
         </button>
 
         <span className="text-xs px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded font-mono text-slate-300">
-          {th ? 'อุปกรณ์ฮาร์ดแวร์:' : 'Inference:'} <span className="uppercase text-sky-400 font-semibold">{devicePreference === 'auto' ? `Auto (${inferenceDevice || 'CPU'})` : devicePreference}</span>
+          {th ? 'อุปกรณ์ฮาร์ดแวร์:' : 'Inference:'} <span className="uppercase text-sky-400 font-semibold">{devicePreference === 'auto' ? `Auto (${actualInferenceDevice || 'CPU'})` : devicePreference}</span>
         </span>
 
         <button

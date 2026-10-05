@@ -2497,9 +2497,21 @@ def delete_tracking_session(session_id: str):
     return {"status": "deleted", "sessionId": session_id}
 
 
+def configure_server_event_loop() -> str:
+    """Avoid Windows IOCP accept failures closing the local listening socket."""
+    import sys
+    if sys.platform == "win32":
+        import asyncio
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        # Let asyncio use the configured policy rather than Uvicorn's Proactor
+        # factory. No subprocess pipes are used by this HTTP service.
+        return "none"
+    return "auto"
+
+
 if __name__ == "__main__":
     import uvicorn
     security_settings = SecuritySettings.from_env()
     security_settings.validate_bind()
     print(f"[AI Service] Starting SportsScout Badminton AI Service on {security_settings.host}:8000 ...")
-    uvicorn.run(app, host=security_settings.host, port=8000)
+    uvicorn.run(app, host=security_settings.host, port=8000, loop=configure_server_event_loop())

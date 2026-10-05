@@ -95,6 +95,39 @@ class TestDynamicCourtCalibrationFoundation(unittest.TestCase):
     def setUp(self):
         self.court_corners = [[70, 35], [570, 35], [570, 445], [70, 445]]
 
+    def test_oblique_ground_markings_lock_without_using_elevated_net(self):
+        frame = np.full((480, 640, 3), (60, 115, 35), dtype=np.uint8)
+        for x in (70, 108, 320, 532, 570):
+            cv2.line(frame, (x, 35), (x, 445), (230, 230, 230), 3)
+        # Physical court landmarks: short service lines and doubles long service.
+        for y in (35, 58, 179, 301, 422, 445):
+            cv2.line(frame, (70, y), (570, y), (230, 230, 230), 3)
+        target = np.float32([[180, 160], [460, 160], [575, 460], [65, 460]])
+        transform = cv2.getPerspectiveTransform(np.float32(self.court_corners), target)
+        view = cv2.warpPerspective(frame, transform, (640, 480))
+        # High contrast broadcast graphics outside the playing surface.
+        cv2.rectangle(view, (5, 5), (620, 100), (240, 240, 240), 3)
+        cv2.putText(view, 'SCORE 21 19', (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        candidate = AutomaticCourtCalibrationProvider().get_candidate(view)
+        self.assertIsNotNone(candidate)
+        self.assertTrue(validate_automatic_candidate_acceptance(candidate)[0])
+        self.assertNotIn('net', candidate.supporting_evidence['length_landmarks'])
+        self.assertEqual(candidate.supporting_evidence['reprojection_points_count'], 9)
+        self.assertLess(np.max(np.linalg.norm(np.asarray(candidate.corners_px) - target, axis=1)), 8)
+
+    def test_confirmation_gap_budget_never_locks_on_missing_evidence(self):
+        candidate = AutomaticCourtCalibrationProvider().get_candidate(synthetic_court_frame())
+        validator = TemporalStabilityValidator(max_missing_frames=2)
+        for value in (candidate, None, candidate, None):
+            self.assertIsNone(validator.observe(value, 'segment-0'))
+        self.assertIsNotNone(validator.observe(candidate, 'segment-0'))
+        validator.invalidate()
+        for value in (candidate, None, candidate, None, None, candidate):
+            self.assertIsNone(validator.observe(value, 'segment-0'))
+        # Candidates may never confirm across different camera segments.
+        self.assertIsNone(validator.observe(candidate, 'segment-1'))
+        self.assertEqual(len(validator.streak), 1)
+
     def test_non_court_geometry_never_locks_automatic_calibration(self):
         for name, image in non_court_geometry_frames().items():
             with self.subTest(name=name):
