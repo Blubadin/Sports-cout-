@@ -26,7 +26,11 @@ class RealTrackingTests(unittest.TestCase):
         analyzer.set_court_corners([[0,0],[200,0],[200,100],[0,100]])
         analyzer.detect_and_track = Mock(return_value=[{'bbox':[20,10,60,30], 'center':(40,30), 'conf':0.73, 'track_id':42}])
         analyzer._pose_detector = Mock()
-        analyzer._pose_detector.estimate_pose_in_roi.return_value = {'keypoints':[[40,20,0.61]], 'metrics':{'stance_width_px':10}}
+        analyzer._pose_detector.estimate_pose_in_roi.return_value = {
+            'keypoints': [[40, 20, 0.61]],
+            'metrics': {'stance_width_px': 10},
+            'keypointCoordinateSpace': 'pixel',
+        }
         frame=np.zeros((100,200,3),dtype=np.uint8)
         player=analyzer.process_frame(frame)['players'][0]
         self.assertEqual(player['trackId'],42)

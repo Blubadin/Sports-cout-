@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 
-from ai_service.server import _analyze_captured_frames
+from ai_service.server import _analyze_captured_frames, _video_frame_timestamp
 
 
 class DuplicateTimestampCapture:
@@ -45,6 +45,24 @@ class StrictTimestampAnalyzer:
 
 
 class TestCapturedVideoTimestampOrder(unittest.TestCase):
+    def test_zero_origin_pts_matches_seeked_resume_timestamps(self):
+        uninterrupted = []
+        previous = None
+        for source_frame in range(1, 151):
+            previous = _video_frame_timestamp(source_frame, 30, (source_frame - 1) * 1000 / 30, previous)
+            uninterrupted.append(previous)
+        self.assertEqual(uninterrupted[0], 0.0)
+        self.assertAlmostEqual(uninterrupted[1], 1 / 30)
+        previous = None
+        for source_frame in range(69, 151):
+            previous = _video_frame_timestamp(source_frame, 30, (source_frame - 1) * 1000 / 30, previous)
+            self.assertAlmostEqual(previous, uninterrupted[source_frame - 1], places=9)
+
+    def test_unavailable_pts_uses_zero_based_source_time(self):
+        for invalid in (None, float("nan"), float("inf"), -1):
+            self.assertEqual(_video_frame_timestamp(1, 30, invalid), 0.0)
+            self.assertAlmostEqual(_video_frame_timestamp(130, 30, invalid), 129 / 30)
+
     def test_repeated_decoder_pts_falls_back_to_monotonic_source_frame_time(self):
         analyzer = StrictTimestampAnalyzer()
         session = SimpleNamespace(

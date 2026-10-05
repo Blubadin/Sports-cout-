@@ -439,7 +439,11 @@ export interface TrackingPoseV1 {
     isReused?: boolean;
     ageFrames?: number;
   }[];
-  /** Coordinate units for x/y. API-normalized legacy poses are explicitly marked at ingestion. */
+  /**
+   * Coordinate units for x/y. `pixel` means source-video-frame pixels (not ROI
+   * crop pixels); `normalized_percent` means 0..100 relative to the source frame.
+   * Unmarked legacy poses are accepted only from the known schemaVersion 1 API.
+   */
   keypointCoordinateSpace?: 'normalized_percent' | 'pixel';
   metrics?: PoseMetrics2D;
   action?: string;
@@ -455,7 +459,9 @@ export type GroundPointProvenance =
   | 'bbox_bottom_center';
 
 export interface FootTelemetryV1 {
+  /** Source-frame pixel coordinates. */
   positionPx?: { x: number; y: number } | null;
+  /** Position normalized to 0..100 relative to the source frame. */
   positionPct?: { x: number; y: number } | null;
   confidence?: number | null;
   courtPositionM?: { xM: number; yM: number } | null;
@@ -477,6 +483,7 @@ export interface TrackingPlayerV1 {
     width: number;
     height: number;
   } | null;
+  /** Ground point normalized to 0..100 relative to the source frame. */
   groundPointPct?: {
     x: number;
     y: number;
@@ -484,7 +491,9 @@ export interface TrackingPlayerV1 {
   groundPointProvenance?: GroundPointProvenance | null;
   groundPositionM?: { xM: number; yM: number } | null;
   courtPositionM?: { xM: number; yM: number } | null;
+  /** Source-frame pixel coordinates. */
   leftFootPx?: { x: number; y: number } | null;
+  /** Source-frame pixel coordinates. */
   rightFootPx?: { x: number; y: number } | null;
   leftFootConfidence?: number | null;
   rightFootConfidence?: number | null;
@@ -546,6 +555,7 @@ export interface TrackingTelemetryV1 {
   canTrackShuttle?: boolean;
   canUseCourtMetric?: boolean;
   canBuildHeatmap?: boolean;
+  /** Fresh image-space input readiness only; not evidence that a hit/contact occurred. */
   canEstimateHit?: boolean;
   canWriteCanonicalMatchData?: boolean;
   isMetricValid?: boolean;

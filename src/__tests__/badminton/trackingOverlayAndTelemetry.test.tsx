@@ -69,6 +69,7 @@ describe('Phase 3 — Tracking Overlays & Pure Resolvers', () => {
       const player = createMockPlayer({
         bboxPct: { x: 40, y: 30, width: 20, height: 40 },
         pose: {
+          keypointCoordinateSpace: 'normalized_percent',
           keypoints: mockKeypoints({
             5: { x: 45, y: 35, score: 0.8 }, // left shoulder
             6: { x: 55, y: 35, score: 0.8 }, // right shoulder -> shoulderCenter = (50, 35)
@@ -89,6 +90,7 @@ describe('Phase 3 — Tracking Overlays & Pure Resolvers', () => {
       const player = createMockPlayer({
         bboxPct: { x: 40, y: 30, width: 20, height: 40 },
         pose: {
+          keypointCoordinateSpace: 'normalized_percent',
           keypoints: mockKeypoints({
             5: { x: 45, y: 35, score: 0.1 }, // low conf
             6: { x: 55, y: 35, score: 0.1 },
@@ -129,6 +131,7 @@ describe('Phase 3 — Tracking Overlays & Pure Resolvers', () => {
     it('calculates midpoint of two reliable ankles with pose_ankles provenance', () => {
       const player = createMockPlayer({
         pose: {
+          keypointCoordinateSpace: 'normalized_percent',
           keypoints: mockKeypoints({
             15: { x: 48, y: 80, score: 0.8 }, // left ankle
             16: { x: 52, y: 82, score: 0.8 }, // right ankle
@@ -145,6 +148,7 @@ describe('Phase 3 — Tracking Overlays & Pure Resolvers', () => {
     it('uses single reliable ankle with pose_single_ankle provenance', () => {
       const player = createMockPlayer({
         pose: {
+          keypointCoordinateSpace: 'normalized_percent',
           keypoints: mockKeypoints({
             15: { x: 45, y: 78, score: 0.85 }, // left ankle reliable
             16: { x: 55, y: 78, score: 0.2 }, // right ankle occluded/low conf
@@ -174,6 +178,7 @@ describe('Phase 3 — Tracking Overlays & Pure Resolvers', () => {
         groundPointProvenance: 'pose_both_ankles',
         groundPointPct: { x: 49.5, y: 80.2 },
         pose: {
+          keypointCoordinateSpace: 'normalized_percent',
           keypoints: mockKeypoints({
             15: { x: 30, y: 70, score: 0.9 },
             16: { x: 32, y: 70, score: 0.9 },
@@ -215,6 +220,7 @@ describe('Phase 3 — Tracking Overlays & Pure Resolvers', () => {
       state: 'observed',
       bboxPct: { x: 20, y: 20, width: 10, height: 20 },
       pose: {
+        keypointCoordinateSpace: 'normalized_percent',
         keypoints: mockKeypoints({
           5: { x: 23, y: 24, score: 0.9 },
           6: { x: 27, y: 24, score: 0.9 },

@@ -88,17 +88,17 @@ describe('calibration contract', () => {
   it('round trips image-space feet observations through persistent analysis storage', async () => {
     const canonicalPlayer = {
       ...player,
-      groundPointPct: { x: 4.5, y: 8.25 },
+      groundPointPct: { x: 3.91, y: 12.5 },
       groundPointProvenance: 'pose_left_ankle',
       groundPositionM: null,
-      leftFootPx: { x: 12, y: 8 },
-      rightFootPx: { x: 16, y: 9 },
+      leftFootPx: { x: 50, y: 90 },
+      rightFootPx: { x: 50, y: 90 },
       leftFootConfidence: 0.8,
       rightFootConfidence: 0.7,
       leftFootCourtM: null,
       rightFootCourtM: null,
-      leftFoot: { positionPx: { x: 12, y: 8 }, positionPct: { x: 4.5, y: 8.25 }, confidence: 0.8, courtPositionM: null },
-      rightFoot: { positionPx: { x: 16, y: 9 }, positionPct: { x: 5, y: 9.25 }, confidence: 0.7, courtPositionM: null },
+      leftFoot: { positionPx: { x: 50, y: 90 }, positionPct: { x: 3.91, y: 12.5 }, confidence: 0.8, courtPositionM: null },
+      rightFoot: { positionPx: { x: 50, y: 90 }, positionPct: { x: 3.91, y: 12.5 }, confidence: 0.7, courtPositionM: null },
     };
     const client = new TrackingSessionApiClient();
     client.setBaseUrl('http://127.0.0.1:8000');
@@ -111,7 +111,8 @@ describe('calibration contract', () => {
       }] }),
     } as Response);
     const telemetry = (await client.getSessionResults('a1')).telemetry;
-    const saved = downsampleAndChunkTrackingSamples('a1', telemetry);
+    const jsonRoundTrip = JSON.parse(JSON.stringify(telemetry)) as TrackingTelemetryV1[];
+    const saved = downsampleAndChunkTrackingSamples('a1', jsonRoundTrip);
     const analysis: TrackingAnalysis = {
       id: 'a1', projectId: 'p1', sportType: 'badminton', gameType: 'singles', status: 'completed',
       engineVersion: '1', detectorModel: 'yolo', trackerModel: 'bytetrack', sampleRateHz: 1,
@@ -136,10 +137,31 @@ describe('calibration contract', () => {
 
   it('marks normalized pose keypoint coordinates explicitly at the API boundary', () => {
     const normalized = toTrackingTelemetryV1({
-      timestampSec: 0, frameIndex: 0,
+      schemaVersion: 1, timestampSec: 0, frameIndex: 0,
       players: [{ ...player, pose: { keypoints: [{ x: 4, y: 8, score: 0.9 }] } }],
     });
     expect(normalized.players[0].pose?.keypointCoordinateSpace).toBe('normalized_percent');
+  });
+
+  it('preserves explicit source-frame pixels and leaves unknown legacy pose units unavailable', () => {
+    const pixels = toTrackingTelemetryV1({
+      schemaVersion: 1, timestampSec: 0, frameIndex: 0,
+      players: [{
+        ...player,
+        pose: {
+          keypoints: [{ x: 50, y: 90, score: 0.9 }],
+          keypointCoordinateSpace: 'pixel',
+        },
+      }],
+    });
+    expect(pixels.players[0].pose?.keypointCoordinateSpace).toBe('pixel');
+    expect(pixels.players[0].pose?.keypoints[0]).toMatchObject({ x: 50, y: 90 });
+
+    const unknown = toTrackingTelemetryV1({
+      timestampSec: 0, frameIndex: 0,
+      players: [{ ...player, pose: { keypoints: [{ x: 50, y: 90, score: 0.9 }] } }],
+    });
+    expect(unknown.players[0].pose).toBeUndefined();
   });
 
   it('preserves calibrated identity and rejects uncalibrated metric values', () => {

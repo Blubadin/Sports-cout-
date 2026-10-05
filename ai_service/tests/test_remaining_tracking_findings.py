@@ -33,7 +33,9 @@ class TestPostCutIdentity(unittest.TestCase):
         analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=max_players)
         analyzer._detector = "test fixture"
         analyzer.pose_adapter = MagicMock()
-        analyzer.pose_adapter.estimate_pose_in_roi.return_value = {"keypoints": [(100, 150, .9)], "metrics": {}}
+        analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
+            "keypoints": [(100, 150, .9)], "metrics": {}, "keypointCoordinateSpace": "pixel",
+        }
         analyzer.detect_and_track = lambda _: [{
             "bbox": [150, 150, 190, 260], "center": (170, 260), "conf": .9, "track_id": 42,
         }]

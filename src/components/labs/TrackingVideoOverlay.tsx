@@ -37,7 +37,20 @@ export interface OverlayTimeResolution {
 }
 
 function isPointReliable(pt?: { x: number; y: number; score: number }): boolean {
-  return !!pt && pt.score >= CONFIDENCE_THRESHOLD && Number.isFinite(pt.x) && Number.isFinite(pt.y);
+  return !!pt
+    && pt.score >= CONFIDENCE_THRESHOLD
+    && Number.isFinite(pt.x)
+    && Number.isFinite(pt.y)
+    && pt.x >= 0 && pt.x < 100
+    && pt.y >= 0 && pt.y < 100;
+}
+
+function isImagePercentPoint(pt?: { x: number; y: number } | null): boolean {
+  return !!pt
+    && Number.isFinite(pt.x)
+    && Number.isFinite(pt.y)
+    && pt.x >= 0 && pt.x <= 100
+    && pt.y >= 0 && pt.y <= 100;
 }
 
 /**
@@ -50,7 +63,9 @@ function isPointReliable(pt?: { x: number; y: number; score: number }): boolean 
  * Fallback: Bounding box center (provenance: 'bbox')
  */
 export function resolveBodyCenterProxy(player: TrackingPlayerV1): BodyCenterProxy | null {
-  const kps = player.pose?.keypoints;
+  const kps = player.pose?.keypointCoordinateSpace === 'normalized_percent'
+    ? player.pose.keypoints
+    : undefined;
   let hipCenter: { x: number; y: number } | null = null;
   let shoulderCenter: { x: number; y: number } | null = null;
 
@@ -116,9 +131,7 @@ export function resolveFeetPosition(player: TrackingPlayerV1): FeetPositionProxy
   // Task 7: Prefer canonical backend feet/ground telemetry when available
   if (
     player.groundPointProvenance &&
-    player.groundPointPct &&
-    Number.isFinite(player.groundPointPct.x) &&
-    Number.isFinite(player.groundPointPct.y)
+    isImagePercentPoint(player.groundPointPct)
   ) {
     return {
       xPct: player.groundPointPct.x,
@@ -127,12 +140,10 @@ export function resolveFeetPosition(player: TrackingPlayerV1): FeetPositionProxy
     };
   }
 
-  // Legacy fallback for stored/unannotated sessions
-  const kps = player.pose?.keypoints;
-  const legacyPoseUnitsArePercent = player.pose?.keypointCoordinateSpace == null;
-  const poseCoordinatesArePercent = player.pose?.keypointCoordinateSpace === 'normalized_percent'
-    || legacyPoseUnitsArePercent;
-  if (poseCoordinatesArePercent && kps && kps.length >= 17) {
+  const kps = player.pose?.keypointCoordinateSpace === 'normalized_percent'
+    ? player.pose.keypoints
+    : undefined;
+  if (kps && kps.length >= 17) {
     const la = kps[15];
     const ra = kps[16];
     const laValid = isPointReliable(la);
@@ -161,7 +172,7 @@ export function resolveFeetPosition(player: TrackingPlayerV1): FeetPositionProxy
     }
   }
 
-  if (player.groundPointPct && Number.isFinite(player.groundPointPct.x) && Number.isFinite(player.groundPointPct.y)) {
+  if (isImagePercentPoint(player.groundPointPct)) {
     return {
       xPct: player.groundPointPct.x,
       yPct: player.groundPointPct.y,
@@ -213,6 +224,8 @@ function interpolateDisplayPlayer(
   const canInterpolatePose = !!from.pose
     && !!to.pose
     && from.pose.keypointCoordinateSpace === to.pose.keypointCoordinateSpace
+    && (from.pose.keypointCoordinateSpace === 'pixel'
+      || from.pose.keypointCoordinateSpace === 'normalized_percent')
     && from.pose.keypoints.length === to.pose.keypoints.length;
   if (!canInterpolateBbox && !canInterpolateGroundPoint && !canInterpolatePose) return null;
 
@@ -387,8 +400,7 @@ export default function TrackingVideoOverlay({
       {resolution.players.filter(({ provenance }) => provenance !== 'lost').map(({ player: p, provenance }) => {
         const bodyCenter = effectiveMode === 'center' ? resolveBodyCenterProxy(p) : null;
         const feet = effectiveMode === 'feet' ? resolveFeetPosition(p) : null;
-        const poseUsesPercentCoordinates = p.pose?.keypointCoordinateSpace == null
-          || p.pose.keypointCoordinateSpace === 'normalized_percent';
+        const poseUsesPercentCoordinates = p.pose?.keypointCoordinateSpace === 'normalized_percent';
         const opacity = provenance === 'predicted' ? 0.65 : provenance === 'interpolated' ? 0.85 : 1;
 
         return (

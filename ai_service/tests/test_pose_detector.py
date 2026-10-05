@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+from types import SimpleNamespace
 from ai_service.pose_detector import (
     YoloPoseDetector,
     calculate_2d_angle,
@@ -17,6 +18,7 @@ from ai_service.pose_detector import (
     KPT_L_ANKLE,
     KPT_R_ANKLE,
 )
+from ai_service.pose_coordinate_space import POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS
 
 
 class TestYoloPoseDetector(unittest.TestCase):
@@ -74,6 +76,38 @@ class TestYoloPoseDetector(unittest.TestCase):
 
         metrics = self.detector.compute_2d_body_metrics(kpts)
         self.assertTrue(metrics.get("overhead_arm_detected"))
+
+    def test_roi_pose_returns_source_frame_pixels_with_explicit_space(self):
+        class FakeTensor:
+            def __init__(self, value):
+                self.value = value
+
+            def cpu(self):
+                return self
+
+            def numpy(self):
+                return self.value
+
+        class FakeKeypoints(SimpleNamespace):
+            def __len__(self):
+                return len(self.xy.value)
+
+        xy = np.zeros((1, 17, 2), dtype=np.float32)
+        xy[0, :, :] = (2.0, 3.0)
+        confidence = np.full((1, 17), 0.9, dtype=np.float32)
+        keypoints = FakeKeypoints(xy=FakeTensor(xy), conf=FakeTensor(confidence))
+
+        self.detector._model = object()
+        self.detector.predict = lambda _roi: [SimpleNamespace(keypoints=keypoints)]
+        self.detector.compute_2d_body_metrics = lambda *_args, **_kwargs: {}
+
+        pose = self.detector.estimate_pose_in_roi(
+            np.zeros((720, 1280, 3), dtype=np.uint8),
+            [40, 50, 80, 100],
+        )
+
+        self.assertEqual(pose["keypointCoordinateSpace"], POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS)
+        self.assertEqual(pose["keypoints"][15], [42.0, 53.0, 0.9])
 
     def test_airborne_candidate_and_no_jump_height(self):
         """PDF §84-85: Must NOT claim jump height, but may label airborne candidate."""

@@ -1,0 +1,9 @@
+"""Coordinate-space labels shared by pose producers and consumers."""
+
+POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS = "pixel"
+POSE_COORDINATE_SPACE_NORMALIZED_PERCENT = "normalized_percent"
+
+SUPPORTED_POSE_COORDINATE_SPACES = frozenset({
+    POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+    POSE_COORDINATE_SPACE_NORMALIZED_PERCENT,
+})

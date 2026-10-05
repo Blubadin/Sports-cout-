@@ -17,6 +17,7 @@ from scene_lifecycle import (
     SceneState,
     SceneStateTransition,
 )
+from shuttle_telemetry import ShuttleObservation, ShuttlePositionPx
 
 
 def court_frame(player_bbox: tuple[int, int, int, int] | None = None) -> np.ndarray:
@@ -95,6 +96,7 @@ class TestSceneLifecycleAndSegmentManager(unittest.TestCase):
         self.analyzer.pose_adapter = MagicMock()
         self.analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
             "keypoints": [(100, 150, 0.9)], "metrics": {},
+            "keypointCoordinateSpace": "pixel",
         }
         self.feet_x = 170
         self.analyzer.detect_and_track = lambda frame: [{
@@ -249,6 +251,40 @@ class TestSceneLifecycleAndSegmentManager(unittest.TestCase):
 
         # Clear replay override
         self.analyzer.clear_manual_scene_override()
+
+    def test_analyzer_exports_side_view_hit_readiness_from_current_image_observations(self):
+        """Image-space readiness is emitted after observed inputs, without opening court gates."""
+        self.analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
+            "keypoints": [(200.0, 180.0, 0.9) for _ in range(17)],
+            "metrics": {},
+            "keypointCoordinateSpace": "pixel",
+        }
+        self.analyzer.is_side_view = True
+        self.analyzer.shuttle_pipeline = MagicMock()
+        self.analyzer.shuttle_pipeline.process_frame.return_value = ShuttleObservation(
+            timestamp_sec=1 / 30,
+            frame_index=1,
+            state="observed",
+            source="temporal_tracker",
+            position_px=ShuttlePositionPx(250.0, 180.0),
+            confidence=0.88,
+            camera_segment_id="segment-0",
+        )
+
+        frame = self.analyzer.process_frame(court_frame((150, 150, 190, 260)), timestamp_sec=1 / 30)
+
+        self.assertEqual(frame["sceneState"], SceneState.SIDE_PLAY.value)
+        self.assertTrue(frame["canEstimateHit"])
+        self.assertTrue(frame["capabilities"]["canEstimateHit"]["enabled"])
+        self.assertIn("readiness only", frame["capabilities"]["canEstimateHit"]["reason"])
+        self.assertTrue(frame["sceneTransition"]["canEstimateHit"])
+        self.assertTrue(frame["sceneTransition"]["capabilities"]["canEstimateHit"]["enabled"])
+        self.assertFalse(frame["canUseCourtMetric"])
+        self.assertFalse(frame["canBuildHeatmap"])
+        self.assertFalse(frame["canWriteCanonicalMatchData"])
+        self.assertFalse(frame["allowCanonicalWrites"])
+        self.assertNotIn("hit", frame)
+        self.assertNotIn("contact", frame)
 
     def test_delayed_observation_rejection(self):
         """Observations from an older camera segment must be rejected."""

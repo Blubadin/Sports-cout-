@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "sportsscout-phase3-evidence-and-annotation-plan-2026-10",
+  "updatedAt": "2026-10-05T00:00:00+07:00",
+  "purpose": "annotation_plan_only",
+  "status": "PREPARATION_ONLY",
+  "evaluatorInput": false,
+  "claims": {
+    "completedPhase3Evaluation": false,
+    "heldOutScenarioBucketsReady": [],
+    "independentReviewerQualifiedGroundTruthReady": false,
+    "realModelRunsInThisPlan": false,
+    "syntheticAnnotationsAdded": false,
+    "scopeLimit": "The existing manually reviewed shuttle labels cover only source frames 180-209 (1 second) from one development recording. They do not establish full-match, multi-view, or held-out Phase 3 validation."
+  },
+  "mediaInventory": [
+    {
+      "mediaId": "asian-double-men-2026",
+      "videoReference": "local-review/Asian Double Men 2026.mp4",
+      "resolvedLocalPath": "C:\\Users\\sport\\OneDrive\\Documents\\Vedio Bad\\Asian Double Men 2026.mp4",
+      "availability": "PRESENT_HASHED_AND_PROBED",
+      "sha256": "84160d026a350716e227cb2f6f4c4c3d35cf52ab6aac6977d8e787b0299a6817",
+      "sizeBytes": 124951301,
+      "durationSec": 978.633333,
+      "frameCount": 29359,
+      "width": 1280,
+      "height": 720,
+      "fps": 30.0,
+      "codec": "H.264",
+      "recordingGroup": "sha256:84160d026a350716e227cb2f6f4c4c3d35cf52ab6aac6977d8e787b0299a6817",
+      "matchIdentity": "Asian doubles broadcast per existing GT note; event/match identifier not independently recorded",
+      "split": "development",
+      "splitReason": "The only checked-in real-video shuttle GT interval from this exact source is already development. All intervals from this source and any known alternate cuts must stay in the same split group.",
+      "inspection": "SHA-256 and stream metadata verified with OpenCV; first frame decoded. Full-video scenario screening not performed.",
+      "existingGroundTruthReference": "src/benchmarks/reviewedRealShuttleGt.json#clips[asian_doubles_2026_frames_180_209]"
+    },
+    {
+      "mediaId": "watanabe-all-england-2020",
+      "videoReference": "local-review/Watanabe _ All England 2020.mp4",
+      "resolvedLocalPath": "C:\\Users\\sport\\OneDrive\\Documents\\Vedio Bad\\Watanabe _ All England 2020.mp4",
+      "availability": "PRESENT_HASHED_AND_PROBED",
+      "sha256": "1ac8b3d811f5a5d42e419902b6ebbe2aab3fd8bb1b509cdb8b13da4308508074",
+      "sizeBytes": 123251424,
+      "durationSec": 811.166667,
+      "frameCount": 24335,
+      "width": 1280,
+      "height": 720,
+      "fps": 30.0,
+      "codec": "H.264",
+      "recordingGroup": "sha256:1ac8b3d811f5a5d42e419902b6ebbe2aab3fd8bb1b509cdb8b13da4308508074",
+      "matchIdentity": "Filename suggests All England 2020; match/recording relationship to other files is UNCONFIRMED",
+      "split": "UNASSIGNED_PENDING_MATCH_GROUP_AUDIT",
+      "splitReason": "Do not allocate to holdout/blind_test until match, replay, and alternate-recording relationships are checked against the other available files.",
+      "inspection": "SHA-256 and stream metadata verified with OpenCV; first frame decoded. Full-video scenario screening not performed.",
+      "existingGroundTruthReference": null
+    },
+    {
+      "mediaId": "badminton-test",
+      "videoReference": "local-review/Badminton test.mp4",
+      "resolvedLocalPath": "C:\\Users\\sport\\OneDrive\\Documents\\Vedio Bad\\Badminton test.mp4",
+      "availability": "PRESENT_HASHED_AND_PROBED",
+      "sha256": "e7c5581bdf88f622aff88901bab139133fea50f93c25c0a928056294a2bc9a4e",
+      "sizeBytes": 43799902,
+      "durationSec": 295.633333,
+      "frameCount": 8869,
+      "width": 1280,
+      "height": 720,
+      "fps": 30.0,
+      "codec": "H.264",
+      "recordingGroup": "sha256:e7c5581bdf88f622aff88901bab139133fea50f93c25c0a928056294a2bc9a4e",
+      "matchIdentity": "UNCONFIRMED",
+      "split": "UNASSIGNED_PENDING_MATCH_GROUP_AUDIT",
+      "splitReason": "Do not allocate to holdout/blind_test until match, replay, and alternate-recording relationships are checked against the other available files.",
+      "inspection": "SHA-256 and stream metadata verified with OpenCV; first frame decoded. Full-video scenario screening not performed.",
+      "existingGroundTruthReference": null
+    }
+  ],
+  "evidenceInventory": [
+    {
+      "evidenceId": "reviewed-real-shuttle-180-209",
+      "evidenceClass": "MANUALLY_REVIEWED_REAL_GT_LIMITED_SCOPE",
+      "reference": "src/benchmarks/reviewedRealShuttleGt.json; docs/benchmarks/2026-09-24-reviewed-real-shuttle.md",
+      "mediaId": "asian-double-men-2026",
+      "scope": "Original source frames 180-209 inclusive (6.000-6.967 seconds), 30 frames, one fixed elevated end-court view, development split.",
+      "labels": {
+        "visible": 20,
+        "absent": 0,
+        "occluded": 0,
+        "unknown": 10
+      },
+      "annotationMethod": "Manual review of decoded originals and enlarged crops before examining RallyLens output; motion-difference listing aided object localization.",
+      "predictionIndependentAnnotationDocumented": true,
+      "reviewerIdentityRecorded": false,
+      "independentSecondReviewRecorded": false,
+      "modelExecution": "Real RallyLens CPU/FP32 run documented; checkpoint SHA-256 08b7e904dae4fd5250d51cd82c4d58d1663351f32037df6aed77547065f026a5; 30 inference calls plus warm-up. This is a scoped execution/evaluation record, not held-out Phase 3 validation.",
+      "evaluationResultScope": "The recorded 30 px matching evaluation applies only to this 1-second interval and its 20 visible labels. Unknown frames were unscored; no absent/occluded GT or reacquisition event was present.",
+      "qualification": "Real human-reviewed labels are present, but reviewer identity and independent second review are not recorded. Development-only and one-second scope."
+    },
+    {
+      "evidenceId": "reviewed-real-shuttle-model-execution",
+      "evidenceClass": "REAL_MODEL_EXECUTION_ON_REAL_VIDEO",
+      "reference": "docs/benchmarks/2026-09-24-reviewed-real-shuttle.md",
+      "mediaId": "asian-double-men-2026",
+      "scope": "Source frames 172-209 decoded; 8 warm-up frames and 30 real inference calls for the temporal shuttle pipeline.",
+      "model": "RallyLens checkpoint SHA-256 08b7e904dae4fd5250d51cd82c4d58d1663351f32037df6aed77547065f026a5; CPU/FP32; input [1,27,288,512], output [1,8,288,512].",
+      "qualification": "Real model execution is documented. This is a one-second scoped run, not held-out Phase 3 validation; GPU execution is not validated."
+    },
+    {
+      "evidenceId": "reviewed-real-shuttle-evaluation-180-209",
+      "evidenceClass": "COMPLETED_SCOPED_SHUTTLE_EVALUATION",
+      "reference": "docs/benchmarks/2026-09-24-reviewed-real-shuttle.md",
+      "mediaId": "asian-double-men-2026",
+      "scope": "Only the 20 visible labels in source frames 180-209; 10 unknown frames unscored; no absent/occluded labels or reacquisition event.",
+      "recordedMatchingTolerancePx": 30,
+      "recordedResult": {"truePositives": 20, "falsePositives": 0, "falseNegatives": 0, "visibleFrameRecall": 1.0, "conditionalPrecision": 1.0, "meanErrorPx": 2.78, "medianErrorPx": 1.71, "p95ErrorPx": 6.22},
+      "qualification": "Completed only for this one-second development sample. Do not generalize to full match, multiple views, negative-frame precision, or reacquisition quality."
+    },
+    {
+      "evidenceId": "shuttle-manifest-s01",
+      "evidenceClass": "INCOMPLETE_UNVERIFIED_ANNOTATION_EXAMPLE",
+      "reference": "src/benchmarks/shuttleBenchmarkManifest.json#clips[S01_singles_clear_rally]",
+      "mediaReference": "benchmarks/videos/shuttle/S01_singles_clear_rally.mp4",
+      "mediaStatus": "MISSING_MEDIA",
+      "scope": "Five example frame labels for a declared 15-second, 30 fps clip; only 5 of 450 expected frames are listed.",
+      "qualification": "groundTruthAvailable/reviewed flags and example labels do not establish a reviewed real dataset. No binary, media hash, reviewer identity, or complete frame GT is present locally."
+    },
+    {
+      "evidenceId": "vision-and-shuttle-logical-manifests",
+      "evidenceClass": "PROTOCOL_OR_EXAMPLE_FIXTURES",
+      "references": ["src/benchmarks/visionBenchmarkManifest.json", "src/benchmarks/shuttleBenchmarkManifest.json"],
+      "mediaStatus": "REFERENCED_BINARIES_MISSING_LOCALLY",
+      "legacySplitInventory": "Vision B01-B05 have no assigned split; shuttle S01/S02 are development, S03 is validation, and S04/S05 are test. None has a locally present referenced video. These legacy split labels are not mapped automatically to Phase 3 development/holdout/blind_test.",
+      "qualification": "Logical scenario tags and planned segments are not visually verified coverage. No predictions or GT were synthesized from these entries."
+    },
+    {
+      "evidenceId": "phase3-analysis-job-short-real",
+      "evidenceClass": "REAL_MODEL_EXECUTION_RECOVERY_SMOKE",
+      "reference": "docs/evidence/phase3-analysis-job-short-real.json",
+      "scope": "Two completed short jobs on real decoded video; 5-second source scope per the evidence record.",
+      "qualification": "Recovery/canonical parity smoke only. It has no independently reviewed Phase 3 scene GT or model artifact SHA and does not establish tracking quality."
+    },
+    {
+      "evidenceId": "phase3-analysis-job-10min-attempt",
+      "evidenceClass": "INTERRUPTED_INCOMPLETE_ATTEMPT",
+      "reference": "docs/evidence/phase3-analysis-job-10min-attempt.json",
+      "qualification": "Explicitly NOT VALIDATED; interrupted before completing ten minutes of source. Partial frames and resource observations are not a completed long-video run."
+    },
+    {
+      "evidenceId": "phase3-completed-evaluation",
+      "evidenceClass": "COMPLETED_HELD_OUT_PHASE3_EVALUATION",
+      "status": "NONE_FOUND",
+      "qualification": "No completed held-out, per-scenario Phase 3 evaluation with independently reviewed GT was found in the reviewed manifests and handoffs."
+    }
+  ],
+  "phase3Thresholds": {
+    "status": "UNSET",
+    "reason": "No approval/freezing record for Phase3QualityThresholds was found in the current Phase 3 handoff or benchmark documentation.",
+    "implementationDefaultsAreNotApproval": {
+      "maxReprojectionErrorPx": 12.0,
+      "maxCourtPositionErrorM": 0.35,
+      "minCameraCutF1": 0.9,
+      "maxCameraCutLatencySec": 0.5,
+      "maxRelockLatencySec": 1.0,
+      "maxFalseValidCalibrationCount": 0,
+      "maxIdSwitchesPer10Min": 2.0,
+      "minShuttlePrecision": 0.85,
+      "minShuttleRecall": 0.85,
+      "maxReacquisitionDurationSec": 1.5
+    },
+    "existingOneSecondShuttleMatchTolerancePx": {
+      "value": 30,
+      "scope": "Reproduction of the previously documented 1-second development result only",
+      "phase3AcceptanceThreshold": false
+    }
+  },
+  "coverageMatrix": [
+    {"scenarioBucket": "rear_court", "currentEvidence": "PARTIAL_DEVELOPMENT_SHUTTLE_GT_ONLY", "annotationTaskId": "annotate-rear-court", "heldOutReady": false},
+    {"scenarioBucket": "rear_low", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-rear-low", "heldOutReady": false},
+    {"scenarioBucket": "side_low_angle", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-side-low", "heldOutReady": false},
+    {"scenarioBucket": "camera_cut", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-camera-cut", "heldOutReady": false},
+    {"scenarioBucket": "pan_zoom", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-pan-zoom", "heldOutReady": false},
+    {"scenarioBucket": "close_up", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-close-up", "heldOutReady": false},
+    {"scenarioBucket": "replay", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-replay", "heldOutReady": false},
+    {"scenarioBucket": "return_to_court", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-return-to-court", "heldOutReady": false},
+    {"scenarioBucket": "spectator_official", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-spectator-official", "heldOutReady": false},
+    {"scenarioBucket": "player_outside_court", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-player-outside-court", "heldOutReady": false},
+    {"scenarioBucket": "doubles_crossing", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-doubles-crossing", "heldOutReady": false},
+    {"scenarioBucket": "bright_lights_background", "currentEvidence": "NO_QUALIFYING_GT", "annotationTaskId": "annotate-bright-background", "heldOutReady": false},
+    {"scenarioBucket": "shuttle_false_positives", "currentEvidence": "PREDICTION_SEEDED_VISUAL_FP_LEADS_ONLY", "annotationTaskId": "annotate-shuttle-fp", "heldOutReady": false},
+    {"scenarioBucket": "lost_reacquisition", "currentEvidence": "NO_REVIEWED_LOSS_REACQUISITION_GT", "annotationTaskId": "annotate-lost-reacquisition", "heldOutReady": false}
+  ],
+  "annotationContract": {
+    "visibilityStates": ["visible", "absent", "occluded", "unknown"],
+    "unknownIsAbsent": false,
+    "visibleRequiresReviewedImageCoordinates": true,
+    "absentRequiresHumanConfirmationObjectNotPresent": true,
+    "occludedRequiresHumanConfirmationVisibilityBlocked": true,
+    "unknownRequiresNullCoordinates": true,
+    "predictionOutputMayBeUsedAsGroundTruth": false,
+    "reviewRequiredFields": ["reviewerId", "independentReviewerId", "independentReviewStatus", "reviewMethod", "reviewedAt", "predictionBlindingStatus", "sourceMediaSha256", "sourceFrameIndex", "visibility", "scenarioEvidence"],
+    "splitRule": "Assign by match/recording group before splitting; all windows, alternate cuts, and adjacent frames from one group remain in one split. Unknown group relationships block held-out assignment.",
+    "schemaNote": "The legacy ShuttleBenchmarkFrame schema uses not_visible while the Phase 3 schema uses absent. Do not automatically convert these terms; require a documented, human-reviewed semantic mapping."
+  },
+  "annotationTasks": [
+    {"taskId": "annotate-rear-court", "scenarioBucket": "rear_court", "status": "DEVELOPMENT_EXTENSION_REQUIRED", "mediaReference": "local-review/Asian Double Men 2026.mp4#frames=180-209", "scopeLimit": "Existing 30 frames have shuttle GT only; add no labels until a reviewer separately annotates requested player/court streams.", "splitGroupId": "sha256:84160d026a350716e227cb2f6f4c4c3d35cf52ab6aac6977d8e787b0299a6817", "split": "development"},
+    {"taskId": "annotate-rear-low", "scenarioBucket": "rear_low", "status": "SCREENING_REQUIRED", "mediaCandidates": ["watanabe-all-england-2020", "badminton-test"], "segmentRef": null, "split": "UNASSIGNED_PENDING_MATCH_GROUP_AUDIT"},
+    {"taskId": "annotate-side-low", "scenarioBucket": "side_low_angle", "status": "SCREENING_REQUIRED", "mediaCandidates": ["watanabe-all-england-2020", "badminton-test"], "segmentRef": null, "split": "UNASSIGNED_PENDING_MATCH_GROUP_AUDIT"},
+    {"taskId": "annotate-camera-cut", "scenarioBucket": "camera_cut", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null},
+    {"taskId": "annotate-pan-zoom", "scenarioBucket": "pan_zoom", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null},
+    {"taskId": "annotate-close-up", "scenarioBucket": "close_up", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null},
+    {"taskId": "annotate-replay", "scenarioBucket": "replay", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null},
+    {"taskId": "annotate-return-to-court", "scenarioBucket": "return_to_court", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null},
+    {"taskId": "annotate-spectator-official", "scenarioBucket": "spectator_official", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null},
+    {"taskId": "annotate-player-outside-court", "scenarioBucket": "player_outside_court", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null},
+    {"taskId": "annotate-doubles-crossing", "scenarioBucket": "doubles_crossing", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null},
+    {"taskId": "annotate-bright-background", "scenarioBucket": "bright_lights_background", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null},
+    {"taskId": "annotate-shuttle-fp", "scenarioBucket": "shuttle_false_positives", "status": "DEVELOPMENT_ONLY_PREDICTION_SEEDED_REANNOTATION_REQUIRED", "mediaReference": "local-review/Asian Double Men 2026.mp4#frames=499-508", "splitGroupId": "sha256:84160d026a350716e227cb2f6f4c4c3d35cf52ab6aac6977d8e787b0299a6817", "split": "development", "scopeLimit": "Frames 507-508 have model-seeded scoreboard FP observations in prior evidence. This is a lead only, not independent GT. Reannotate the interval with model outputs hidden; exclude from holdout."},
+    {"taskId": "annotate-lost-reacquisition", "scenarioBucket": "lost_reacquisition", "status": "SCREENING_REQUIRED", "mediaCandidates": ["asian-double-men-2026", "watanabe-all-england-2020", "badminton-test"], "segmentRef": null}
+  ],
+  "longVideoInventory": {
+    "10_minutes": {
+      "sourceAvailable": true,
+      "candidateMediaIds": ["asian-double-men-2026", "watanabe-all-england-2020"],
+      "runsCompleted": false,
+      "note": "Both individual sources exceed ten minutes. This is source-duration availability, not a completed 10-minute analysis run."
+    },
+    "30_minutes": {"sourceAvailable": false, "status": "MISSING_MEDIA", "required": "One verified continuous source recording of at least 30 minutes; do not concatenate or loop shorter video."},
+    "60_minutes": {"sourceAvailable": false, "status": "MISSING_MEDIA", "required": "One verified continuous source recording of at least 60 minutes; do not concatenate or loop shorter video."}
+  },
+  "evaluatorPreparation": {
+    "phase3Harness": "ai_service.phase3_benchmark.evaluate_phase3_benchmark (Python API; no CLI entry point)",
+    "phase3SupportedMetricStreams": ["camera cuts", "calibration", "ground position", "player identity"],
+    "phase3NotMeasured": ["shuttle false-positive precision/recall", "shuttle lost/reacquisition duration"],
+    "phase3HarnessGateLimitations": ["Ground-truth readiness is derived from clip-level boolean flags; the API has no reviewer/media-hash provenance input.", "A single clip-level GT flag is reused across scenario buckets rather than validating per-bucket/per-stream annotations.", "The shuttle_false_positives scenario has no metric branch and can appear passed when a GT flag is true even though shuttle metrics are null."],
+    "thresholdParserCaveat": "Phase3QualityThresholds.from_dict supplies defaults for falsy/missing values and can replace maxIdSwitchesPer10Min=0 with 2.0. Future runs must validate all ten finite threshold keys and construct Phase3QualityThresholds directly; compare serialized values with the approved record.",
+    "phase3InputsRequired": ["one BenchmarkClipEntry with explicit split and recordingGroup", "external reviewer/media provenance qualification and explicit required/qualified scenario:metric pairs", "reviewed GT arrays for the evaluated stream", "real-model prediction arrays kept separate from GT", "model/config/checkpoint SHA/runtime/device provenance", "all approved frozen Phase 3 thresholds explicitly supplied and round-trip checked"],
+    "phase3OutputsRequired": ["provenance", "cameraCuts", "calibration", "groundPosition", "identity", "byScenario", "annotationManifestBlockers", "thresholds", "overallPassed"],
+    "shuttleHarness": "ai_service.shuttle_benchmark.run_benchmark_on_manifest(manifest, predictions_by_clip=...)",
+    "shuttleInputRequirement": "Complete independently reviewed frame labels over the exact clip duration, contiguous clip-local frame indices from zero, and real model observations keyed by clip ID. The harness reports measurements but does not certify Phase 3 thresholds; compare outputs externally with approved thresholds. Do not run with omitted predictions and interpret empty-output metrics as a model result.",
+    "shuttleOutputsRequired": ["status", "metrics", "report"],
+    "readyNow": false,
+    "blockers": ["No held-out independently reviewed scenario GT", "match/recording groups for two candidate videos are unconfirmed", "Phase 3 thresholds are UNSET", "scenario intervals in candidate videos have not been screened/verified", "no prediction file for a new held-out run", "phase3_benchmark requires an external provenance and per-bucket GT preflight and must not be used to score shuttle FP/reacquisition"]
+  }
+}

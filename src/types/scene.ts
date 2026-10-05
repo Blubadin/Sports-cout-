@@ -95,6 +95,7 @@ export function parseSceneTransition(value: unknown): SceneStateTransition | nul
 
   const fromStateStr = String(tr.fromState || tr.from_state || 'UNKNOWN');
   const fromState = isSceneState(fromStateStr) ? fromStateStr : 'UNKNOWN';
+  const capabilities = parseSegmentCapabilities(tr.capabilities);
 
   return {
     transitionId: String(tr.transitionId || tr.transition_id || ''),
@@ -119,12 +120,13 @@ export function parseSceneTransition(value: unknown): SceneStateTransition | nul
     },
     isMetricValid: Boolean(tr.isMetricValid ?? tr.is_metric_valid),
     allowCanonicalWrites: Boolean(tr.allowCanonicalWrites ?? tr.allow_canonical_writes),
-    capabilities: parseSegmentCapabilities(tr.capabilities),
+    capabilities,
     canTrackPlayer: typeof tr.canTrackPlayer === 'boolean' ? tr.canTrackPlayer : undefined,
     canTrackShuttle: typeof tr.canTrackShuttle === 'boolean' ? tr.canTrackShuttle : undefined,
     canUseCourtMetric: typeof tr.canUseCourtMetric === 'boolean' ? tr.canUseCourtMetric : undefined,
     canBuildHeatmap: typeof tr.canBuildHeatmap === 'boolean' ? tr.canBuildHeatmap : undefined,
-    canEstimateHit: typeof tr.canEstimateHit === 'boolean' ? tr.canEstimateHit : undefined,
+    // Boolean-only legacy payloads cannot prove current observations; fail closed.
+    canEstimateHit: capabilities?.canEstimateHit.enabled ?? false,
     canWriteCanonicalMatchData: typeof tr.canWriteCanonicalMatchData === 'boolean' ? tr.canWriteCanonicalMatchData : undefined,
   };
 }

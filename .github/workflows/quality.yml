@@ -47,6 +47,9 @@ jobs:
       - name: TypeScript Typecheck
         run: npm run typecheck
 
+      - name: ESLint (src TypeScript and React)
+        run: npm run lint
+
       - name: Run frontend tests
         run: npm test
 

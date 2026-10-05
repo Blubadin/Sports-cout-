@@ -26,7 +26,15 @@ from court_calibration import (
     validate_court_geometry,
 )
 from camera_cut_detector import CameraCutDetector
-from scene_lifecycle import CameraSegmentLifecycleManager, SceneState, SceneStateTransition
+from scene_lifecycle import (
+    CameraSegmentLifecycleManager,
+    ImageSpaceHitEvidence,
+    ImageSpacePlayerObservation,
+    ImageSpaceShuttleObservation,
+    SceneState,
+    SceneStateTransition,
+    compute_image_space_hit_capability,
+)
 from court_roi import calculate_court_roi, inverse_transform_bbox
 from device_runtime import resolve_device
 from engine_config import (
@@ -38,6 +46,11 @@ from engine_config import (
 from detector_adapter import BaseDetectorAdapter, UltralyticsDetectorAdapter
 from tracker_adapter import NormalizedTrackResult, TrackerProvenance
 from pose_adapter import BasePoseAdapter, create_pose_provider, FullFramePoseCandidate
+from pose_coordinate_space import (
+    POSE_COORDINATE_SPACE_NORMALIZED_PERCENT,
+    POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+    SUPPORTED_POSE_COORDINATE_SPACES,
+)
 from pose_association import associate_poses_to_athletes
 from reid_adapter import BaseReIDAdapter, create_reid_provider
 from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts
@@ -702,7 +715,11 @@ class BadmintonAnalyzerV2:
                                 best_cand = cand
                     if best_cand is not None:
                         pose_kps = best_cand.keypoints
-                        pose_res = {"keypoints": pose_kps, "metrics": best_cand.metrics}
+                        pose_res = {
+                            "keypoints": pose_kps,
+                            "metrics": best_cand.metrics,
+                            "keypointCoordinateSpace": best_cand.keypoint_coordinate_space,
+                        }
                         is_pose_reused = False
                         pose_age_frames = 0
                     elif matched_prof is not None and matched_prof.last_pose is not None and matched_prof.missed_frames < 15:
@@ -745,6 +762,7 @@ class BadmintonAnalyzerV2:
                 frame_width=w,
                 frame_height=h,
                 pose_keypoints=pose_kps,
+                pose_coordinate_space=(pose_res.get("keypointCoordinateSpace") if pose_res else None),
                 is_pose_reused=is_pose_reused,
                 pose_age_frames=pose_age_frames,
                 pose_age_sec=pose_age_sec,
@@ -756,15 +774,44 @@ class BadmintonAnalyzerV2:
             d["real_pos"] = d.get("real_pos") if d.get("real_pos") is not None else ground_pt.ground_position_m
 
             pose_obj = None
-            if pose_kps is not None:
+            pose_coordinate_space = pose_res.get("keypointCoordinateSpace") if pose_res else None
+            if pose_kps is not None and pose_coordinate_space in SUPPORTED_POSE_COORDINATE_SPACES:
                 pose_obj = {
                     "keypoints": [
-                        {"x": float(k[0]) / w * 100.0, "y": float(k[1]) / h * 100.0, "score": float(k[2])}
-                        if isinstance(k, (list, tuple)) and len(k) >= 3 else
-                        (k if isinstance(k, dict) else {"x": 0.0, "y": 0.0, "score": 0.0})
+                        {
+                            "x": (
+                                float(k[0]) / w * 100.0
+                                if pose_coordinate_space == POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS
+                                else float(k[0])
+                            ),
+                            "y": (
+                                float(k[1]) / h * 100.0
+                                if pose_coordinate_space == POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS
+                                else float(k[1])
+                            ),
+                            "score": float(k[2]) if len(k) >= 3 else 1.0,
+                        }
+                        if isinstance(k, (list, tuple)) and len(k) >= 2 else
+                        {
+                            **k,
+                            "x": (
+                                float(k["x"]) / w * 100.0
+                                if pose_coordinate_space == POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS
+                                else float(k["x"])
+                            ),
+                            "y": (
+                                float(k["y"]) / h * 100.0
+                                if pose_coordinate_space == POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS
+                                else float(k["y"])
+                            ),
+                            "score": float(k.get("score", k.get("conf", 0.0))),
+                        }
+                        if isinstance(k, dict) and "x" in k and "y" in k else
+                        {"x": 0.0, "y": 0.0, "score": 0.0}
                         for k in pose_kps
                     ],
                     "metrics": pose_res.get("metrics", {}) if pose_res else {},
+                    "keypointCoordinateSpace": POSE_COORDINATE_SPACE_NORMALIZED_PERCENT,
                     "isReused": is_pose_reused,
                     "ageFrames": pose_age_frames,
                     "ageSec": round(pose_age_sec, 3),
@@ -853,6 +900,9 @@ class BadmintonAnalyzerV2:
                     frame_width=w,
                     frame_height=h,
                     pose_keypoints=pose_kps,
+                    pose_coordinate_space=(
+                        pose_obj.get("keypointCoordinateSpace") if pose_obj is not None else None
+                    ),
                     is_pose_reused=is_reused,
                     pose_age_frames=p.last_pose_age,
                     pose_age_sec=p.last_pose_age / self.fps,
@@ -1012,6 +1062,65 @@ class BadmintonAnalyzerV2:
                 camera_segment_id=self.calibration_context.camera_segment_id,
                 pipeline_run_id=getattr(self, "pipeline_run_id", getattr(self, "analysis_id", "live_session")),
                 scene_evidence=transition.evidence.to_dict(),
+            )
+
+        # The lifecycle pass runs before shuttle inference, so finalize only the hit
+        # readiness gate here using measured same-frame image evidence. This gate
+        # does not create or assert a hit/contact event and does not affect metrics.
+        if transition.capabilities is not None:
+            image_players = []
+            for player in player_telemetry:
+                pose = player.get("pose")
+                raw_keypoints = pose.get("keypoints") if isinstance(pose, dict) else None
+                keypoints = tuple(
+                    (point.get("x"), point.get("y"), point.get("score"))
+                    for point in raw_keypoints
+                    if isinstance(point, dict)
+                ) if isinstance(raw_keypoints, (tuple, list)) else ()
+                image_players.append(ImageSpacePlayerObservation(
+                    frame_index=transition.frame_index,
+                    camera_segment_id=transition.camera_segment_id,
+                    state=player.get("state", "unknown"),
+                    detection_confidence=player.get("detectionConfidence"),
+                    pose_keypoints=keypoints,
+                    pose_coordinate_space=(pose.get("keypointCoordinateSpace") if isinstance(pose, dict) else None),
+                    pose_age_frames=player.get("poseAgeFrames"),
+                    pose_is_reused=(pose.get("isReused") is True if isinstance(pose, dict) else False),
+                    pose_is_stale=(
+                        player.get("isPoseStale") is True
+                        or (pose.get("isStale") is True if isinstance(pose, dict) else False)
+                        or player.get("poseSource") != "fresh"
+                    ),
+                ))
+
+            shuttle_position = getattr(shuttle_obs, "position_px", None)
+            image_shuttle = (
+                ImageSpaceShuttleObservation(
+                    frame_index=getattr(shuttle_obs, "frame_index", -1),
+                    camera_segment_id=getattr(shuttle_obs, "camera_segment_id", None),
+                    state=getattr(shuttle_obs, "state", "unknown"),
+                    position_px=(
+                        (getattr(shuttle_position, "x", None), getattr(shuttle_position, "y", None))
+                        if shuttle_position is not None
+                        else None
+                    ),
+                    confidence=getattr(shuttle_obs, "confidence", None),
+                )
+                if shuttle_obs is not None
+                else None
+            )
+            hit_evidence = ImageSpaceHitEvidence(
+                frame_index=transition.frame_index,
+                camera_segment_id=transition.camera_segment_id,
+                frame_width=w,
+                frame_height=h,
+                players=tuple(image_players),
+                shuttle=image_shuttle,
+            )
+            transition.capabilities.can_estimate_hit = compute_image_space_hit_capability(
+                transition.to_state,
+                transition.evidence,
+                hit_evidence,
             )
 
         raw_player_detections = [

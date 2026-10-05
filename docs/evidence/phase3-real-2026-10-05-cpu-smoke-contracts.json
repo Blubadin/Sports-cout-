@@ -1,0 +1,181 @@
+{
+  "scope": "Wire contracts and measured output availability only; no human GT accuracy",
+  "protocolSha256": "38a5bbf6fb6a20070ff534802e1b8440ea4bd507ed597562e07c7960f7f3d1e4",
+  "verifierSha256": "9ea644e822207f97b9e2d80759da155a861c1be96f2bd936d6d2d2129b0fad69",
+  "checkedAtUnix": 1791193278.6495023,
+  "runs": [
+    {
+      "id": "baseline",
+      "status": "PASS",
+      "violations": {
+        "heatmapWithoutMetricOrWriteGate": 0,
+        "hitReadinessWithoutShuttleObservation": 0,
+        "invalidCalibrationMetricLeak": 0,
+        "unknownPoseUnits": 0,
+        "invalidFeetPixelBounds": 0,
+        "feetPixelPercentConversionMismatch": 0
+      },
+      "counts": {
+        "frames": 120,
+        "isMetricValid": 0,
+        "canUseCourtMetric": 0,
+        "canBuildHeatmap": 0,
+        "canEstimateHit": 0,
+        "allowCanonicalWrites": 0,
+        "invalidCalibrationFrames": 120,
+        "playerSlots": 480,
+        "observedPlayers": 480,
+        "courtPositions": 0,
+        "feetPixelMeasurements": 780,
+        "shuttleObservationRows": 0
+      },
+      "sceneCounts": {
+        "COURT_IDLE": 120
+      },
+      "playerStateCounts": {
+        "observed": 480
+      },
+      "groundSourceCounts": {
+        "pose_both_ankles": 384,
+        "bbox_bottom_center": 84,
+        "pose_right_ankle": 4,
+        "pose_left_ankle": 8
+      },
+      "effectiveDeviceCounts": {
+        "cpu": 120
+      },
+      "contractCheckCoverage": {
+        "replayFrames": 0,
+        "unknownTransitionFrames": 0,
+        "invalidCalibrationFrames": 120,
+        "feetConversionSamples": 780
+      },
+      "validityCoverage": {
+        "courtMetricAvailableFrameFraction": 0.0,
+        "observedPlayerSlotFraction": 1.0,
+        "courtPositionAvailableSlotFraction": 0.0,
+        "shuttleMeasurementFraction": null,
+        "shuttleUnavailableReason": "Provider disabled: missing pinned model artifact"
+      },
+      "gtAccuracyStatus": "NOT VALIDATED",
+      "manualCorrectionPersistence": "NOT VALIDATED"
+    },
+    {
+      "id": "cancel_restart",
+      "status": "PASS",
+      "violations": {
+        "heatmapWithoutMetricOrWriteGate": 0,
+        "hitReadinessWithoutShuttleObservation": 0,
+        "invalidCalibrationMetricLeak": 0,
+        "unknownPoseUnits": 0,
+        "invalidFeetPixelBounds": 0,
+        "feetPixelPercentConversionMismatch": 0
+      },
+      "counts": {
+        "frames": 120,
+        "isMetricValid": 0,
+        "canUseCourtMetric": 0,
+        "canBuildHeatmap": 0,
+        "canEstimateHit": 0,
+        "allowCanonicalWrites": 0,
+        "invalidCalibrationFrames": 120,
+        "playerSlots": 480,
+        "observedPlayers": 426,
+        "courtPositions": 0,
+        "feetPixelMeasurements": 682,
+        "shuttleObservationRows": 0
+      },
+      "sceneCounts": {
+        "COURT_IDLE": 120
+      },
+      "playerStateCounts": {
+        "observed": 426,
+        "lost": 54
+      },
+      "groundSourceCounts": {
+        "pose_both_ankles": 337,
+        "bbox_bottom_center": 81,
+        "pose_right_ankle": 2,
+        "pose_left_ankle": 6,
+        "null": 54
+      },
+      "effectiveDeviceCounts": {
+        "cpu": 120
+      },
+      "contractCheckCoverage": {
+        "replayFrames": 0,
+        "unknownTransitionFrames": 0,
+        "invalidCalibrationFrames": 120,
+        "feetConversionSamples": 682
+      },
+      "validityCoverage": {
+        "courtMetricAvailableFrameFraction": 0.0,
+        "observedPlayerSlotFraction": 0.8875,
+        "courtPositionAvailableSlotFraction": 0.0,
+        "shuttleMeasurementFraction": null,
+        "shuttleUnavailableReason": "Provider disabled: missing pinned model artifact"
+      },
+      "gtAccuracyStatus": "NOT VALIDATED",
+      "manualCorrectionPersistence": "NOT VALIDATED"
+    },
+    {
+      "id": "process_kill",
+      "status": "PASS",
+      "violations": {
+        "heatmapWithoutMetricOrWriteGate": 0,
+        "hitReadinessWithoutShuttleObservation": 0,
+        "invalidCalibrationMetricLeak": 0,
+        "unknownPoseUnits": 0,
+        "invalidFeetPixelBounds": 0,
+        "feetPixelPercentConversionMismatch": 0
+      },
+      "counts": {
+        "frames": 120,
+        "isMetricValid": 0,
+        "canUseCourtMetric": 0,
+        "canBuildHeatmap": 0,
+        "canEstimateHit": 0,
+        "allowCanonicalWrites": 0,
+        "invalidCalibrationFrames": 120,
+        "playerSlots": 480,
+        "observedPlayers": 424,
+        "courtPositions": 0,
+        "feetPixelMeasurements": 678,
+        "shuttleObservationRows": 0
+      },
+      "sceneCounts": {
+        "COURT_IDLE": 120
+      },
+      "playerStateCounts": {
+        "observed": 424,
+        "lost": 56
+      },
+      "groundSourceCounts": {
+        "pose_both_ankles": 335,
+        "bbox_bottom_center": 81,
+        "pose_right_ankle": 2,
+        "pose_left_ankle": 6,
+        "null": 56
+      },
+      "effectiveDeviceCounts": {
+        "cpu": 120
+      },
+      "contractCheckCoverage": {
+        "replayFrames": 0,
+        "unknownTransitionFrames": 0,
+        "invalidCalibrationFrames": 120,
+        "feetConversionSamples": 678
+      },
+      "validityCoverage": {
+        "courtMetricAvailableFrameFraction": 0.0,
+        "observedPlayerSlotFraction": 0.8833333333333333,
+        "courtPositionAvailableSlotFraction": 0.0,
+        "shuttleMeasurementFraction": null,
+        "shuttleUnavailableReason": "Provider disabled: missing pinned model artifact"
+      },
+      "gtAccuracyStatus": "NOT VALIDATED",
+      "manualCorrectionPersistence": "NOT VALIDATED"
+    }
+  ],
+  "serializationRoundingPolicy": "Feet pixels round to 0.1 px and percent to 0.01 percentage points independently; conversion bound = 0.005 + 0.05*100/dimension + 1e-9. Schema rounding allowance, not a quality threshold."
+}

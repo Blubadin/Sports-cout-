@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from numbers import Integral, Real
 from typing import Any, Callable, Sequence
 from uuid import uuid4
 
@@ -19,6 +20,10 @@ import numpy as np
 
 from calibration_contract import CalibrationContext, CalibrationState
 from camera_cut_detector import CameraCutDetector
+from pose_coordinate_space import (
+    POSE_COORDINATE_SPACE_NORMALIZED_PERCENT,
+    POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+)
 
 
 class SceneState(str, Enum):
@@ -89,11 +94,237 @@ class SegmentCapabilities:
         }
 
 
+@dataclass(frozen=True)
+class ImageSpacePlayerObservation:
+    """Fresh player pose evidence with its explicit frame, segment, and units."""
+
+    frame_index: int
+    camera_segment_id: str
+    state: str
+    detection_confidence: float | None
+    pose_keypoints: tuple[tuple[float, float, float], ...]
+    pose_coordinate_space: str | None
+    pose_age_frames: int | None
+    pose_is_reused: bool
+    pose_is_stale: bool
+
+
+@dataclass(frozen=True)
+class ImageSpaceShuttleObservation:
+    """One canonical shuttle measurement, still in source-frame pixel units."""
+
+    frame_index: int
+    camera_segment_id: str | None
+    state: str
+    position_px: tuple[float, float] | None
+    confidence: float | None
+
+
+@dataclass(frozen=True)
+class ImageSpaceHitEvidence:
+    """Current-frame inputs for hit-estimation readiness, not a hit/contact event."""
+
+    frame_index: int
+    camera_segment_id: str | None
+    frame_width: int
+    frame_height: int
+    players: tuple[ImageSpacePlayerObservation, ...]
+    shuttle: ImageSpaceShuttleObservation | None
+
+
+def _finite_unit_confidence(value: Any) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, Real)
+        and math.isfinite(float(value))
+        and 0.0 <= float(value) <= 1.0
+    )
+
+
+def _valid_observation_index(value: Any) -> bool:
+    return isinstance(value, Integral) and not isinstance(value, bool) and value >= 0
+
+
+def _valid_pose_for_image_evidence(
+    player: ImageSpacePlayerObservation,
+    evidence: ImageSpaceHitEvidence,
+) -> tuple[float | None, str | None]:
+    if (
+        not _valid_observation_index(player.frame_index)
+        or not isinstance(player.camera_segment_id, str)
+        or not player.camera_segment_id
+    ):
+        return None, "player frame/segment provenance is invalid"
+    if player.state != "observed":
+        return None, "player observation is missing or not observed on this frame"
+    if player.frame_index != evidence.frame_index or player.camera_segment_id != evidence.camera_segment_id:
+        return None, "player observation is stale or belongs to another frame/segment"
+    if (
+        player.pose_is_reused is not False
+        or player.pose_is_stale is not False
+        or not _valid_observation_index(player.pose_age_frames)
+        or player.pose_age_frames != 0
+    ):
+        return None, "player pose is stale or reused"
+    if not _finite_unit_confidence(player.detection_confidence) or player.detection_confidence <= 0:
+        return None, "player detection confidence is unavailable"
+    if player.pose_coordinate_space not in (
+        POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        POSE_COORDINATE_SPACE_NORMALIZED_PERCENT,
+    ):
+        return None, "player pose coordinate space is unknown"
+    if not isinstance(player.pose_keypoints, (tuple, list)) or len(player.pose_keypoints) != 17:
+        return None, "fresh COCO pose evidence is unavailable"
+
+    visible_scores: list[float] = []
+    for keypoint in player.pose_keypoints:
+        if not isinstance(keypoint, (tuple, list)) or len(keypoint) != 3:
+            return None, "player pose keypoints are malformed"
+        x, y, score = keypoint
+        values = (x, y, score)
+        if any(isinstance(value, bool) or not isinstance(value, Real) for value in values):
+            return None, "player pose keypoints are malformed"
+        x, y, score = (float(value) for value in values)
+        if not all(math.isfinite(value) for value in (x, y, score)) or not 0.0 <= score <= 1.0:
+            return None, "player pose keypoints are non-finite or out of range"
+        if player.pose_coordinate_space == POSE_COORDINATE_SPACE_NORMALIZED_PERCENT:
+            in_bounds = 0.0 <= x < 100.0 and 0.0 <= y < 100.0
+        else:
+            in_bounds = 0.0 <= x < evidence.frame_width and 0.0 <= y < evidence.frame_height
+        if not in_bounds:
+            return None, "player pose keypoints are outside the source frame"
+        visible_scores.append(score)
+
+    pose_confidence = max(visible_scores, default=0.0)
+    if pose_confidence <= 0.0:
+        return None, "player pose has no measured keypoint evidence"
+    return min(float(player.detection_confidence), pose_confidence), None
+
+
+def compute_image_space_hit_capability(
+    target_state: SceneState,
+    evidence: SceneEvidence,
+    image_evidence: ImageSpaceHitEvidence | None,
+) -> CapabilityGate:
+    """Report image-space input readiness only; never assert that a hit occurred."""
+    if not isinstance(target_state, SceneState):
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: scene state is unknown or invalid",
+            confidence=0.0,
+        )
+    if target_state is SceneState.CAMERA_TRANSITION or evidence.camera_cut_detected:
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable during camera transition/cut; cross-segment continuity is prohibited",
+            confidence=0.0,
+        )
+    if target_state is SceneState.UNKNOWN:
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: scene state is UNKNOWN",
+            confidence=0.0,
+        )
+    if image_evidence is None:
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: current-frame player pose and shuttle observations are required",
+            confidence=0.0,
+        )
+    if (
+        not _valid_observation_index(image_evidence.frame_index)
+        or not isinstance(image_evidence.camera_segment_id, str)
+        or not image_evidence.camera_segment_id
+        or isinstance(image_evidence.frame_width, bool)
+        or isinstance(image_evidence.frame_height, bool)
+        or not isinstance(image_evidence.frame_width, Integral)
+        or not isinstance(image_evidence.frame_height, Integral)
+        or image_evidence.frame_width <= 0
+        or image_evidence.frame_height <= 0
+    ):
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: frame dimensions, index, or camera segment is invalid",
+            confidence=0.0,
+        )
+
+    if not isinstance(image_evidence.players, (tuple, list)) or any(
+        not isinstance(player, ImageSpacePlayerObservation) for player in image_evidence.players
+    ):
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: player observation contract is invalid",
+            confidence=0.0,
+        )
+
+    shuttle = image_evidence.shuttle
+    if not isinstance(shuttle, ImageSpaceShuttleObservation) or shuttle.state != "observed" or shuttle.position_px is None:
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: current observed shuttle measurement is missing",
+            confidence=0.0,
+        )
+    if (
+        not _valid_observation_index(shuttle.frame_index)
+        or not isinstance(shuttle.camera_segment_id, str)
+        or not shuttle.camera_segment_id
+        or shuttle.frame_index != image_evidence.frame_index
+        or shuttle.camera_segment_id != image_evidence.camera_segment_id
+    ):
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: shuttle observation is stale or belongs to another frame/segment",
+            confidence=0.0,
+        )
+    if (
+        not isinstance(shuttle.position_px, (tuple, list))
+        or len(shuttle.position_px) != 2
+        or any(isinstance(value, bool) or not isinstance(value, Real) for value in shuttle.position_px)
+        or not all(math.isfinite(float(value)) for value in shuttle.position_px)
+        or not (0.0 <= float(shuttle.position_px[0]) < image_evidence.frame_width)
+        or not (0.0 <= float(shuttle.position_px[1]) < image_evidence.frame_height)
+    ):
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: shuttle pixel measurement is invalid or outside the source frame",
+            confidence=0.0,
+        )
+    if not _finite_unit_confidence(shuttle.confidence) or shuttle.confidence <= 0:
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: observed shuttle confidence is missing",
+            confidence=0.0,
+        )
+
+    player_confidences = [
+        confidence
+        for player in image_evidence.players
+        for confidence, reason in [_valid_pose_for_image_evidence(player, image_evidence)]
+        if reason is None and confidence is not None
+    ]
+    if not player_confidences:
+        return CapabilityGate(
+            enabled=False,
+            reason="Hit evidence unavailable: no fresh current-frame player pose observation",
+            confidence=0.0,
+        )
+
+    return CapabilityGate(
+        enabled=True,
+        reason=(
+            "Image-space hit-estimation readiness only: fresh player pose and observed shuttle "
+            "share this frame/segment; no hit/contact event or court metric is asserted"
+        ),
+        confidence=round(min(max(player_confidences), float(shuttle.confidence)), 3),
+    )
+
+
 def compute_capabilities(
     target_state: SceneState,
     calibration_context: CalibrationContext,
     evidence: SceneEvidence,
     has_valid_ground_measurement: bool = True,
+    image_space_hit_evidence: ImageSpaceHitEvidence | None = None,
 ) -> SegmentCapabilities:
     """Unified source of truth deriving the 6 consumer capability gates.
 
@@ -238,28 +469,13 @@ def compute_capabilities(
             confidence=can_use_court_metric.confidence,
         )
 
-    # 5. canEstimateHit: Contract readiness gate for downstream hit/stroke engine
-    # Contract readiness only: verifies player, shuttle, and court metrics are all available.
-    if can_track_player.enabled and can_track_shuttle.enabled and can_use_court_metric.enabled:
-        hit_conf = min(can_track_player.confidence, can_track_shuttle.confidence, can_use_court_metric.confidence)
-        can_estimate_hit = CapabilityGate(
-            enabled=True,
-            reason="Hit estimation contract ready (player, shuttle, and court metrics available)",
-            confidence=round(hit_conf, 3),
-        )
-    else:
-        missing = []
-        if not can_track_player.enabled:
-            missing.append("player tracking")
-        if not can_track_shuttle.enabled:
-            missing.append("shuttle tracking")
-        if not can_use_court_metric.enabled:
-            missing.append("court metric calibration")
-        can_estimate_hit = CapabilityGate(
-            enabled=False,
-            reason=f"Hit estimation contract unavailable: requires {', '.join(missing)}",
-            confidence=0.0,
-        )
+    # 5. canEstimateHit reports fresh image-space input readiness, not a detected hit.
+    # Court calibration remains an independent gate for court-derived measurements.
+    can_estimate_hit = compute_image_space_hit_capability(
+        target_state,
+        evidence,
+        image_space_hit_evidence,
+    )
 
     # 6. canWriteCanonicalMatchData: authority to commit permanent match statistics
     # Strictly separated from raw/image-space observation storage.

@@ -23,6 +23,7 @@ Tests all Phase 3.3 Task 9 requirements:
 
 from __future__ import annotations
 import math
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -41,6 +42,10 @@ from ground_position import (
     CANONICAL_PROVENANCE_LEFT_ANKLE,
     CANONICAL_PROVENANCE_RIGHT_ANKLE,
     CANONICAL_PROVENANCE_BBOX,
+)
+from pose_coordinate_space import (
+    POSE_COORDINATE_SPACE_NORMALIZED_PERCENT,
+    POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
 )
 
 
@@ -77,6 +82,7 @@ class TestCanonicalGroundPointResolver(unittest.TestCase):
         pt = resolve_canonical_ground_point(
             self.bbox, self.w, self.h,
             pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
             court_mapper=self.mapper,
             is_metric_valid=True,
         )
@@ -97,6 +103,7 @@ class TestCanonicalGroundPointResolver(unittest.TestCase):
         pt = resolve_canonical_ground_point(
             self.bbox, self.w, self.h,
             pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
             court_mapper=self.mapper,
             is_metric_valid=True,
         )
@@ -113,6 +120,7 @@ class TestCanonicalGroundPointResolver(unittest.TestCase):
         pt = resolve_canonical_ground_point(
             self.bbox, self.w, self.h,
             pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
             court_mapper=self.mapper,
             is_metric_valid=True,
         )
@@ -128,6 +136,7 @@ class TestCanonicalGroundPointResolver(unittest.TestCase):
         pt = resolve_canonical_ground_point(
             self.bbox, self.w, self.h,
             pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
             court_mapper=self.mapper,
             is_metric_valid=True,
         )
@@ -156,6 +165,7 @@ class TestCanonicalGroundPointResolver(unittest.TestCase):
         pt = resolve_canonical_ground_point(
             self.bbox, self.w, self.h,
             pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
             is_pose_reused=True,
             court_mapper=self.mapper,
             is_metric_valid=True,
@@ -172,6 +182,7 @@ class TestCanonicalGroundPointResolver(unittest.TestCase):
         pt = resolve_canonical_ground_point(
             self.bbox, self.w, self.h,
             pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
             court_mapper=self.mapper,
             is_metric_valid=False,
         )
@@ -182,6 +193,104 @@ class TestCanonicalGroundPointResolver(unittest.TestCase):
         self.assertAlmostEqual(pt.ground_px[0], 250.0, places=1)
         self.assertAlmostEqual(pt.ground_px[1], 490.0, places=1)
         self.assertEqual(pt.provenance, CANONICAL_PROVENANCE_BOTH_ANKLES)
+
+    def test_source_frame_pixels_below_100_are_preserved_and_units_survive_json(self):
+        kps = make_coco_keypoints(la=(50.0, 90.0, 0.9), ra=(50.0, 90.0, 0.9))
+        pt = resolve_canonical_ground_point(
+            [40.0, 40.0, 60.0, 100.0], self.w, self.h,
+            pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        )
+
+        self.assertEqual(pt.ground_px, (50.0, 90.0))
+        self.assertEqual(pt.left_foot.position_px, (50.0, 90.0))
+        self.assertEqual(pt.right_foot.position_px, (50.0, 90.0))
+        self.assertEqual(pt.ground_pct, (3.91, 12.5))
+
+        restored = json.loads(json.dumps(pt.to_dict()))
+        self.assertEqual(restored["groundPx"], {"x": 50.0, "y": 90.0})
+        self.assertEqual(restored["groundPct"], {"x": 3.91, "y": 12.5})
+        self.assertEqual(restored["leftFoot"]["positionPx"], {"x": 50.0, "y": 90.0})
+        self.assertEqual(restored["leftFoot"]["positionPct"], {"x": 3.91, "y": 12.5})
+
+    def test_source_frame_pixel_points_at_origin_are_valid(self):
+        kps = make_coco_keypoints(la=(0.0, 0.0, 0.9), ra=(0.0, 0.0, 0.9))
+        pt = resolve_canonical_ground_point(
+            self.bbox, self.w, self.h,
+            pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        )
+        self.assertEqual(pt.ground_px, (0.0, 0.0))
+        self.assertEqual(pt.provenance, CANONICAL_PROVENANCE_BOTH_ANKLES)
+
+    def test_explicit_percent_coordinates_convert_once(self):
+        kps = make_coco_keypoints(la=(50.0, 90.0, 0.9), ra=(50.0, 90.0, 0.9))
+        pt = resolve_canonical_ground_point(
+            [40.0, 40.0, 60.0, 100.0], self.w, self.h,
+            pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_NORMALIZED_PERCENT,
+        )
+        self.assertEqual(pt.ground_px, (640.0, 648.0))
+        self.assertEqual(pt.left_foot.position_px, (640.0, 648.0))
+
+    def test_out_of_range_explicit_percent_uses_bbox_fallback_without_pixel_reinterpretation(self):
+        kps = make_coco_keypoints(la=(120.0, 90.0, 0.9), ra=(-1.0, 90.0, 0.9))
+        pt = resolve_canonical_ground_point(
+            [40.0, 40.0, 60.0, 100.0], self.w, self.h,
+            pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_NORMALIZED_PERCENT,
+        )
+        self.assertEqual(pt.ground_px, (50.0, 100.0))
+        self.assertEqual(pt.provenance, CANONICAL_PROVENANCE_BBOX)
+        self.assertIsNone(pt.left_foot.position_px)
+        self.assertIsNone(pt.right_foot.position_px)
+        self.assertEqual(pt.stale_reason, "ankle_coordinates_out_of_bounds")
+
+    def test_mixed_ankle_bounds_preserve_single_valid_ankle_and_bbox_fallback(self):
+        one_valid = make_coco_keypoints(la=(45.0, 95.0, 0.9), ra=(1280.0, 95.0, 0.9))
+        pt = resolve_canonical_ground_point(
+            self.bbox, self.w, self.h,
+            pose_keypoints=one_valid,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        )
+        self.assertEqual(pt.provenance, CANONICAL_PROVENANCE_LEFT_ANKLE)
+        self.assertEqual(pt.ground_px, (45.0, 95.0))
+        self.assertIsNone(pt.right_foot.position_px)
+        self.assertEqual(pt.right_foot.stale_reason, "coordinate_out_of_bounds")
+
+        none_valid = make_coco_keypoints(la=(-1.0, 95.0, 0.9), ra=(1280.0, 95.0, 0.9))
+        fallback = resolve_canonical_ground_point(
+            self.bbox, self.w, self.h,
+            pose_keypoints=none_valid,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        )
+        self.assertEqual(fallback.ground_px, (250.0, 500.0))
+        self.assertEqual(fallback.provenance, CANONICAL_PROVENANCE_BBOX)
+
+    def test_nonfinite_pose_points_are_unavailable_and_invalid_dimensions_raise(self):
+        kps = make_coco_keypoints(la=(math.nan, 90.0, 0.9), ra=(50.0, math.inf, 0.9))
+        pt = resolve_canonical_ground_point(
+            self.bbox, self.w, self.h,
+            pose_keypoints=kps,
+            pose_coordinate_space=POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        )
+        self.assertEqual(pt.ground_px, (250.0, 500.0))
+        self.assertTrue(math.isfinite(pt.ground_px[0]) and math.isfinite(pt.ground_px[1]))
+        self.assertIsNone(pt.left_foot.position_px)
+        self.assertIsNone(pt.right_foot.position_px)
+
+        for width, height in ((0, 720), (-1, 720), (math.nan, 720), (1280, math.inf), (1280, 0)):
+            with self.subTest(width=width, height=height), self.assertRaises(ValueError):
+                resolve_canonical_ground_point(self.bbox, width, height)
+
+    def test_unknown_pose_coordinate_space_is_rejected(self):
+        kps = make_coco_keypoints(la=(50.0, 90.0, 0.9), ra=(50.0, 90.0, 0.9))
+        with self.assertRaisesRegex(ValueError, "pose_coordinate_space"):
+            resolve_canonical_ground_point(
+                self.bbox, self.w, self.h,
+                pose_keypoints=kps,
+                pose_coordinate_space=None,
+            )
 
 
 class TestDistanceTrackerSegmentation(unittest.TestCase):
@@ -284,6 +393,7 @@ class TestAnalyzerCanonicalFeetTelemetry(unittest.TestCase):
                 for i in range(17)
             ],
             "metrics": {},
+            "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
         }
         frame = np.full((480, 640, 3), 100, dtype=np.uint8)
         result = self.analyzer.process_frame(frame, timestamp_sec=0.0)
@@ -300,6 +410,29 @@ class TestAnalyzerCanonicalFeetTelemetry(unittest.TestCase):
         self.assertIsNotNone(p["leftFootCourtM"])
         self.assertIsNotNone(p["rightFootCourtM"])
         self.assertIsNotNone(p["courtPosition"])
+        self.assertEqual(p["pose"]["keypointCoordinateSpace"], POSE_COORDINATE_SPACE_NORMALIZED_PERCENT)
+
+    def test_analyzer_uses_small_source_pixels_for_ground_and_court_projection(self):
+        self.feet_x = 50
+        self.feet_y = 90
+        self.analyzer.set_court_corners([[0, 0], [640, 0], [640, 480], [0, 480]])
+        self.analyzer.pose_adapter = MagicMock()
+        self.analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
+            "keypoints": [(50.0, 90.0, 0.9) for _ in range(17)],
+            "metrics": {},
+            "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
+        }
+        frame = np.full((480, 640, 3), 100, dtype=np.uint8)
+
+        result = self.analyzer.process_frame(frame, timestamp_sec=0.0)
+        player = result["players"][0]
+
+        self.assertEqual(player["leftFootPx"], {"x": 50.0, "y": 90.0})
+        self.assertEqual(player["rightFootPx"], {"x": 50.0, "y": 90.0})
+        self.assertEqual(player["groundPointPct"], {"x": 7.81, "y": 18.75})
+        self.assertIsNotNone(player["groundPositionM"])
+        self.assertEqual(player["pose"]["keypointCoordinateSpace"], POSE_COORDINATE_SPACE_NORMALIZED_PERCENT)
+        self.assertEqual(result["rawPlayerDetections"][0]["eligibility"]["status"], "ELIGIBLE")
 
     def test_analyzer_telemetry_null_on_calibration_lost(self):
         """When calibration is lost (e.g. camera cut), metric fields are None, not 0.0 or NaN."""
@@ -308,6 +441,7 @@ class TestAnalyzerCanonicalFeetTelemetry(unittest.TestCase):
         self.analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
             "keypoints": [(self.feet_x, self.feet_y, 0.9) for _ in range(17)],
             "metrics": {},
+            "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
         }
         frame = np.full((480, 640, 3), 100, dtype=np.uint8)
         self.analyzer.process_frame(frame, timestamp_sec=0.0)
@@ -340,6 +474,7 @@ class TestAnalyzerCanonicalFeetTelemetry(unittest.TestCase):
         self.analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
             "keypoints": [(self.feet_x, self.feet_y, 0.9) for _ in range(17)],
             "metrics": {},
+            "keypointCoordinateSpace": POSE_COORDINATE_SPACE_SOURCE_FRAME_PIXELS,
         }
         frame = np.full((480, 640, 3), 100, dtype=np.uint8)
         res = self.analyzer.process_frame(frame, timestamp_sec=0.0)

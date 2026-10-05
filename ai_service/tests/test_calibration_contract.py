@@ -25,7 +25,9 @@ class TestCalibrationContract(unittest.TestCase):
         self.analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1)
         self.analyzer._detector = "dummy"
         pose = MagicMock()
-        pose.estimate_pose_in_roi.return_value = {"keypoints": [(25, 30, 0.9)], "metrics": {}}
+        pose.estimate_pose_in_roi.return_value = {
+            "keypoints": [(25, 30, 0.9)], "metrics": {}, "keypointCoordinateSpace": "pixel",
+        }
         self.analyzer.pose_adapter = pose
         self.analyzer.detect_and_track = lambda frame: [{
             "bbox": [100, 100, 150, 200], "center": (125, 200),

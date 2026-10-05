@@ -106,7 +106,9 @@ class TestVisionEngineSeams(unittest.TestCase):
         pose_res = analyzer._estimate_pose(frame, bbox)
 
         self.assertIsInstance(analyzer.pose_adapter, DisabledPoseAdapter)
-        self.assertEqual(pose_res, {"keypoints": [], "metrics": {}})
+        self.assertEqual(pose_res, {
+            "keypoints": [], "metrics": {}, "keypointCoordinateSpace": "pixel",
+        })
         self.assertIsNone(analyzer.get_provenance()["poseModel"])
 
     def test_tracker_name_and_custom_config_resolution(self):

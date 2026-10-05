@@ -34,6 +34,19 @@ export type AIConnectionStatus = 'disconnected' | 'connecting' | 'connected' | '
 export type AIEngineMode = 'browser' | 'server';
 export const MAX_TRACKING_RESULTS_PAGE_SIZE = 250;
 
+function normalizePoseCoordinateSpace(pose: any, sourceSchemaVersion: unknown): any {
+  if (!pose || typeof pose !== 'object') return pose;
+  if (pose.keypointCoordinateSpace === 'pixel' || pose.keypointCoordinateSpace === 'normalized_percent') {
+    return pose;
+  }
+  // SchemaVersion 1 poses predate the marker but the backend serialized their
+  // x/y values as 0..100 source-frame percentages. Unknown schemas stay unavailable.
+  if (pose.keypointCoordinateSpace == null && sourceSchemaVersion === 1) {
+    return { ...pose, keypointCoordinateSpace: 'normalized_percent' };
+  }
+  return undefined;
+}
+
 export interface MarkingState {
   isMarking: boolean;
   step: number;
@@ -599,7 +612,10 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
   const metricValid = isMetricCalibrationValid({ calibrationState, cameraSegmentId, calibrationId, calibration });
 
   const sceneTransition = parseSceneTransition(frame.sceneTransition || frame.scene_transition);
-  const capabilities = parseSegmentCapabilities(frame.capabilities || frame.sceneTransition?.capabilities || sceneTransition?.capabilities);
+  const capabilities = parseSegmentCapabilities(frame.capabilities)
+    ?? parseSegmentCapabilities(frame.sceneTransition?.capabilities)
+    ?? sceneTransition?.capabilities
+    ?? null;
   const isMetricValid = frame.isMetricValid ?? frame.is_metric_valid ?? capabilities?.canUseCourtMetric.enabled ?? metricValid;
   const allowCanonicalWrites = frame.allowCanonicalWrites ?? frame.allow_canonical_writes ?? capabilities?.canWriteCanonicalMatchData.enabled ?? (metricValid && (frame.sceneState === 'COURT_PLAY' || !frame.sceneState));
 
@@ -626,9 +642,9 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     canBuildHeatmap: typeof frame.canBuildHeatmap === 'boolean'
       ? frame.canBuildHeatmap
       : capabilities?.canBuildHeatmap.enabled ?? isMetricValid,
-    canEstimateHit: typeof frame.canEstimateHit === 'boolean'
-      ? frame.canEstimateHit
-      : capabilities?.canEstimateHit.enabled ?? false,
+    // Structured capability is canonical. Boolean-only legacy payloads cannot
+    // prove current image observations, so they remain unavailable.
+    canEstimateHit: capabilities?.canEstimateHit.enabled ?? false,
     canWriteCanonicalMatchData: typeof frame.canWriteCanonicalMatchData === 'boolean'
       ? frame.canWriteCanonicalMatchData
       : capabilities?.canWriteCanonicalMatchData.enabled ?? allowCanonicalWrites,
@@ -664,7 +680,7 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         trackId: d.trackId ?? d.track_id ?? null,
         bboxPx: [Number(bbox[0]), Number(bbox[1]), Number(bbox[2]), Number(bbox[3])] as [number, number, number, number],
         confidence: typeof d.confidence === 'number' ? d.confidence : (typeof d.conf === 'number' ? d.conf : null),
-        pose: d.pose ?? d.pose_obj ?? null,
+        pose: normalizePoseCoordinateSpace(d.pose ?? d.pose_obj ?? null, frame.schemaVersion) ?? null,
         eligibility: d.eligibility ?? null,
       };
     }),
@@ -693,9 +709,7 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
       const normalizeFoot = (foot: any) => foot && typeof foot === 'object'
         ? { ...foot, ...(metricValid ? {} : { courtPositionM: null }) }
         : foot;
-      const pose = p.pose && typeof p.pose === 'object'
-        ? { ...p.pose, keypointCoordinateSpace: p.pose.keypointCoordinateSpace ?? 'normalized_percent' }
-        : p.pose;
+      const pose = normalizePoseCoordinateSpace(p.pose, frame.schemaVersion);
       const groundPositionM = metricValid
         ? (p.groundPositionM !== undefined ? p.groundPositionM : p.courtPositionM)
         : null;
