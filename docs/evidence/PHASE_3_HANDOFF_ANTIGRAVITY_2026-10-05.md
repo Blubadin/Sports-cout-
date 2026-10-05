@@ -88,5 +88,5 @@ The CUDA Python suite has one known environment-sensitive existing failure becau
 
 - Timestamp zero-origin fix and regression: `PASS`.
 - 10-minute uninterrupted and cancel/restart durability: `PASS` only if their completed reports and verifier pass.
-- Process-kill durability: `NOT VALIDATED` until the process-kill attempt reaches completion and verifier passes; the current partial attempt is `INTERRUPTED_BY_USER`.
+- Process-kill durability: `PASS` for completed retry run under `long-10min-process-kill-retry` (retaining prefix, recovering from ungraceful kill after source frame 9,000 to frame 18,000, 0 contract violations); original partial attempt is preserved as `INTERRUPTED_BY_USER`.
 - Held-out real-data quality, shuttle metrics, 30-minute and 60-minute runs, AMD execution, and full RallyLens configuration: `NOT VALIDATED` with the recorded blockers.

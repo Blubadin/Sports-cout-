@@ -82,11 +82,13 @@ The production observation/validity counts are separate from GT accuracy.
 Original source: 29,359 frames, 978.633333 seconds, 1280×720 at 30 FPS.
 The long run uses the same frozen NVIDIA reduced configuration for all passes.
 
-**Execution paused by user for handoff.** The uninterrupted baseline and
-cancel/restart recovery completed to source frame 18,000 (9,000 analyzed
-observations). The process-kill attempt was intentionally stopped after
-durable progress at source frame 1,067 / cursor 512; it is recorded as
-`INTERRUPTED_BY_USER`, not as a completed recovery or a PASS.
+**Long-video runs completed:** The uninterrupted baseline and cancel/restart
+recovery completed to source frame 18,000 (9,000 analyzed observations). The
+original process-kill attempt was stopped after durable progress at source frame
+1,067 / cursor 512 and is preserved as `INTERRUPTED_BY_USER`. A fresh process-kill
+retry run under `long-10min-process-kill-retry` reached completion at source frame
+18,000 (9,000 observations) with ungraceful process termination after frame 9,000,
+retaining every committed prefix chunk and passing all wire contract checks.
 
 Canonical `frameIndex` counts analyzed observations; checkpoint
 `lastProcessedFrame` counts decoded source frames. Source duration is computed

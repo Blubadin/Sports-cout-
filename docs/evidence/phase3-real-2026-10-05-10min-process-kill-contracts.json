@@ -1,0 +1,70 @@
+{
+  "scope": "Wire contracts and measured output availability only; no human GT accuracy",
+  "protocolSha256": "6b0abcaf5aa82839a064c1253408751a5f2625da2849cc7c9cbdd79fa08b7ce9",
+  "verifierSha256": "f642ec6ae3556bf073579dddf8643e7be0c1d3076dffd8580d4a7d1e5a371ca2",
+  "checkedAtUnix": 1791199927.5517006,
+  "runs": [
+    {
+      "id": "process_kill",
+      "status": "PASS",
+      "violations": {
+        "heatmapWithoutMetricOrWriteGate": 0,
+        "hitReadinessWithoutShuttleObservation": 0,
+        "invalidCalibrationMetricLeak": 0,
+        "unknownPoseUnits": 0,
+        "invalidFeetPixelBounds": 0,
+        "feetPixelPercentConversionMismatch": 0,
+        "unknownTransitionGateLeak": 0
+      },
+      "counts": {
+        "frames": 9000,
+        "isMetricValid": 0,
+        "canUseCourtMetric": 0,
+        "canBuildHeatmap": 0,
+        "canEstimateHit": 0,
+        "allowCanonicalWrites": 0,
+        "invalidCalibrationFrames": 9000,
+        "playerSlots": 36000,
+        "observedPlayers": 9738,
+        "courtPositions": 0,
+        "feetPixelMeasurements": 9220,
+        "shuttleObservationRows": 0
+      },
+      "sceneCounts": {
+        "COURT_IDLE": 8736,
+        "CAMERA_TRANSITION": 69,
+        "CLOSE_UP": 195
+      },
+      "playerStateCounts": {
+        "observed": 9738,
+        "lost": 26262
+      },
+      "groundSourceCounts": {
+        "pose_both_ankles": 4516,
+        "bbox_bottom_center": 5034,
+        "pose_right_ankle": 41,
+        "pose_left_ankle": 147,
+        "null": 26262
+      },
+      "effectiveDeviceCounts": {
+        "cuda": 9000
+      },
+      "contractCheckCoverage": {
+        "replayFrames": 0,
+        "unknownTransitionFrames": 69,
+        "invalidCalibrationFrames": 9000,
+        "feetConversionSamples": 9220
+      },
+      "validityCoverage": {
+        "courtMetricAvailableFrameFraction": 0.0,
+        "observedPlayerSlotFraction": 0.2705,
+        "courtPositionAvailableSlotFraction": 0.0,
+        "shuttleMeasurementFraction": null,
+        "shuttleUnavailableReason": "Provider disabled: missing pinned model artifact"
+      },
+      "gtAccuracyStatus": "NOT VALIDATED",
+      "manualCorrectionPersistence": "NOT VALIDATED"
+    }
+  ],
+  "serializationRoundingPolicy": "Feet pixels round to 0.1 px and percent to 0.01 percentage points independently; conversion bound = 0.005 + 0.05*100/dimension + 1e-9. Schema rounding allowance, not a quality threshold."
+}
