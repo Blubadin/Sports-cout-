@@ -7,6 +7,7 @@ import sys
 import time
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 # Add ai_service to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -129,11 +130,12 @@ class TestTrackingSessionAPI(unittest.TestCase):
         self.assertEqual(payload["sessions"][0]["videoFingerprint"], "rally.mp4:123:456")
 
     def test_unavailable_gpu_request_retains_request_and_uses_cpu(self):
-        res = self.client.post("/api/tracking/sessions", json={
-            "video_source": "demo",
-            "game_type": "singles",
-            "device": "cuda",
-        })
+        with patch("device_runtime._availability", return_value=(False, False)):
+            res = self.client.post("/api/tracking/sessions", json={
+                "video_source": "demo",
+                "game_type": "singles",
+                "device": "cuda",
+            })
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()['requestedDevice'], 'cuda')
         self.assertEqual(res.json()['effectiveDevice'], 'cpu')

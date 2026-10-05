@@ -190,7 +190,7 @@ describe('Phase 2.9A: Shuttle Runtime Activation & Frontend Config Plumbing', ()
     await waitFor(() => expect(aiTrackingService.createSession).toHaveBeenCalledWith(
       'singles', 'upload', expect.objectContaining({processingConfig: expect.objectContaining({
         shuttleProvider: 'rallylens_tracknet', shuttleWindowSize: 9, shuttleRuntime: 'pytorch',
-        shuttlePrecision: 'fp32', shuttleDevice: 'cpu', frameStride: 1,
+        shuttlePrecision: 'fp32', shuttleDevice: 'auto', frameStride: 1,
       })})
     ));
   });

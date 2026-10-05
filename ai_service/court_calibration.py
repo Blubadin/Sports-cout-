@@ -224,6 +224,7 @@ def _match_landmark_lines(
     required: dict[str, float],
     tolerance_m: float,
     allowed_extra: tuple[float, ...] = (),
+    minimum_coverage: dict[str, float] | None = None,
 ) -> dict[str, tuple[int, float, float]] | None:
     """Match distinct measured lines to court landmarks; reject unexplained strong lines."""
     selected: dict[str, tuple[int, float, float]] = {}
@@ -232,7 +233,7 @@ def _match_landmark_lines(
         options = sorted(
             (abs(position - expected), index)
             for index, (position, drift, _, coverage) in enumerate(samples)
-            if index not in used and drift <= 0.45 and coverage >= 0.45
+            if index not in used and drift <= 0.45 and coverage >= (minimum_coverage or {}).get(name, 0.45)
             and abs(position - expected) <= tolerance_m
         )
         if len(options) != 1:
@@ -373,6 +374,24 @@ class AutomaticCourtCalibrationProvider:
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(blurred, self.canny_low, self.canny_high)
 
+        # Broadcast graphics and advertising are often stronger edges than court
+        # markings. When a large green playing surface is visible, restrict line
+        # evidence to that surface. Other court colours retain the generic path.
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        surface = cv2.inRange(hsv, (35, 65, 45), (95, 255, 255))
+        surface = cv2.morphologyEx(surface, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+        contours, _ = cv2.findContours(surface, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            largest = max(contours, key=cv2.contourArea)
+            if cv2.contourArea(largest) >= h_img * w_img * 0.15:
+                mask = np.zeros((h_img, w_img), dtype=np.uint8)
+                cv2.fillConvexPoly(mask, cv2.convexHull(largest), 255)
+                # Retain white markings while excluding players, lettering on
+                # coloured boards, and the outer edge of the coloured carpet.
+                white = cv2.inRange(hsv, (0, 0, 150), (179, 95, 255))
+                white = cv2.dilate(white, np.ones((3, 3), np.uint8))
+                edges = cv2.bitwise_and(edges, cv2.bitwise_and(mask, white))
+
         # Hough probabilistic line segment detection
         raw_lines = cv2.HoughLinesP(
             edges, 1, np.pi / 180,
@@ -394,13 +413,30 @@ class AutomaticCourtCalibrationProvider:
                 continue
             angle = float(np.degrees(np.arctan2(abs(dy), abs(dx))))
             if angle <= self.transverse_max_angle_deg:
-                mid_y = (y1 + y2) / 2.0
+                if length < max(self.min_line_length, w_img * 0.04):
+                    continue
+                mid_y = y1 + (w_img / 2.0 - x1) * dy / dx if abs(dx) > 1e-6 else (y1 + y2) / 2.0
                 transverse_segs.append((mid_y, (x1, y1, x2, y2)))
             elif angle >= self.longitudinal_min_angle_deg:
-                mid_x = (x1 + x2) / 2.0
+                mid_x = x1 + (h_img * 0.65 - y1) * dx / dy if abs(dy) > 1e-6 else (x1 + x2) / 2.0
                 longitudinal_segs.append((mid_x, (x1, y1, x2, y2)))
 
         if len(transverse_segs) < 2 or len(longitudinal_segs) < 2:
+            return None
+
+        # Court cross-lines share an orientation. Short diagonal lettering can
+        # otherwise extrapolate into the same positional cluster as a baseline.
+        orientations = [float(np.degrees(np.arctan2(s[1][3] - s[1][1], s[1][2] - s[1][0])))
+                        for s in transverse_segs]
+        orientation_support: dict[int, float] = {}
+        for angle, (_, segment) in zip(orientations, transverse_segs):
+            bucket = round(angle / 5.0)
+            orientation_support[bucket] = orientation_support.get(bucket, 0.0) + np.hypot(
+                segment[2] - segment[0], segment[3] - segment[1])
+        dominant_angle = max(orientation_support, key=orientation_support.get) * 5.0
+        transverse_segs = [s for s, angle in zip(transverse_segs, orientations)
+                           if abs(angle - dominant_angle) <= 5.0]
+        if len(transverse_segs) < 2:
             return None
 
         # Cluster segments by coordinate position
@@ -409,7 +445,7 @@ class AutomaticCourtCalibrationProvider:
             clusters = []
             cur = [sorted_segs[0]]
             for s in sorted_segs[1:]:
-                if abs(s[0] - cur[-1][0]) <= self.cluster_threshold_px:
+                if abs(s[0] - cur[0][0]) <= min(self.cluster_threshold_px, max(6.0, h_img * 0.01)):
                     cur.append(s)
                 else:
                     clusters.append(cur)
@@ -420,6 +456,12 @@ class AutomaticCourtCalibrationProvider:
 
         t_clusters = cluster_segments(transverse_segs)
         l_clusters = cluster_segments(longitudinal_segs)
+        # A short logo stroke is not a court boundary. Require substantial
+        # observed extent before extrapolating a segment into an infinite line.
+        t_clusters = [c for c in t_clusters if max(s[1][2] for s in c) - min(s[1][0] for s in c) >= w_img * 0.2]
+        l_clusters = [c for c in l_clusters if _segment_coverage(
+            c, np.array((0.0, 0.0)), np.array((0.0, float(h_img))),
+        ) >= 0.25]
 
         if len(t_clusters) < 2 or len(l_clusters) < 2:
             return None
@@ -430,7 +472,7 @@ class AutomaticCourtCalibrationProvider:
                 pts.append([x1, y1])
                 pts.append([x2, y2])
             pts_arr = np.array(pts, dtype=np.float32)
-            [vx, vy, x0, y0] = cv2.fitLine(pts_arr, cv2.DIST_L2, 0, 0.01, 0.01).flatten()
+            [vx, vy, x0, y0] = cv2.fitLine(pts_arr, cv2.DIST_HUBER, 0, 0.01, 0.01).flatten()
             a = float(-vy)
             b = float(vx)
             c = float(vy * x0 - vx * y0)
@@ -519,12 +561,34 @@ class AutomaticCourtCalibrationProvider:
             "net": NET_Y_M,
             "near_short_service": FRONT_BOUNDARY_BOT_M,
         }
-        matched_width = _match_landmark_lines(vertical, width_landmarks, 0.40)
+        # Unlike sidelines, the painted centre line ends at the short service
+        # lines; players can occlude much of either half. Still require measured
+        # support spanning at least 35% of the full court length.
+        matched_width = _match_landmark_lines(vertical, width_landmarks, 0.40,
+                                              minimum_coverage={"center": 0.35})
         matched_length = _match_landmark_lines(
             horizontal, length_landmarks, 0.90,
             allowed_extra=(DOUBLES_LONG_SERVICE_OFFSET_M,
                            COURT_LENGTH_M - DOUBLES_LONG_SERVICE_OFFSET_M),
         )
+        # The net is elevated, so its tape cannot establish a ground-plane
+        # landmark in an oblique broadcast view. Use an observed doubles long
+        # service marking as the third independent length landmark instead.
+        if matched_length is None:
+            for name, position in (
+                ("near_long_service", COURT_LENGTH_M - DOUBLES_LONG_SERVICE_OFFSET_M),
+                ("far_long_service", DOUBLES_LONG_SERVICE_OFFSET_M),
+            ):
+                matched_length = _match_landmark_lines(
+                    horizontal,
+                    {"far_short_service": FRONT_BOUNDARY_TOP_M,
+                     "near_short_service": FRONT_BOUNDARY_BOT_M, name: position},
+                    0.40,
+                    allowed_extra=(NET_Y_M, DOUBLES_LONG_SERVICE_OFFSET_M,
+                                   COURT_LENGTH_M - DOUBLES_LONG_SERVICE_OFFSET_M),
+                )
+                if matched_length is not None:
+                    break
         if matched_width is None or matched_length is None:
             return None
 
@@ -555,6 +619,7 @@ class AutomaticCourtCalibrationProvider:
             "interior_transverse_count": len(horizontal),
             "interior_longitudinal_count": len(vertical),
             "badminton_landmark_count": 6,
+            "length_landmarks": list(matched_length),
             "reprojection_points_count": len(errors),
             "outer_boundary_coverage_min": round(float(boundary_coverage), 3),
             "max_line_drift_m": round(max([item[1] for item in vertical + horizontal]), 3),
@@ -599,7 +664,7 @@ def validate_automatic_candidate_acceptance(
     required_lines_per_axis = max(3, min_interior_clusters)
     if (evidence.get("interior_transverse_count", 0) < required_lines_per_axis
             or evidence.get("interior_longitudinal_count", 0) < required_lines_per_axis):
-        return False, "Service lines, net, singles sidelines and center line are required"
+        return False, "Three independent court markings on each axis are required"
     if evidence.get("outer_boundary_coverage_min", 0) < 0.65:
         return False, "Outer court boundaries lack measured line support"
     if evidence.get("max_line_drift_m", float("inf")) > 0.45:
@@ -618,7 +683,9 @@ def validate_automatic_candidate_acceptance(
 class TemporalStabilityValidator:
     """
     Temporal confirmation buffer and anti-churn stabilizer.
-    Requires a candidate to remain spatially consistent across N consecutive frames
+    Requires N spatially consistent observed candidates. By default every frame
+    must contain a candidate; an explicit missing-frame budget permits bounded
+    occlusion without adding any fabricated observations.
     before locking. Once locked, maintains calibration until invalidated or segment changes.
     """
     def __init__(
@@ -627,23 +694,28 @@ class TemporalStabilityValidator:
         max_corner_drift_px: float = 8.0,
         max_reprojection_error_px: float = 35.0,
         min_confidence: float = 0.55,
+        max_missing_frames: int = 0,
     ) -> None:
         self.required_consecutive_frames = max(1, required_consecutive_frames)
         self.max_corner_drift_px = float(max_corner_drift_px)
         self.max_reprojection_error_px = float(max_reprojection_error_px)
         self.min_confidence = float(min_confidence)
+        self.max_missing_frames = max(0, int(max_missing_frames))
+        self.missing_frames = 0
         self.current_segment_id: str | None = None
         self.streak: list[CourtCalibrationCandidate] = []
         self.is_locked: bool = False
         self.locked_candidate: CourtCalibrationCandidate | None = None
 
     def reset(self) -> None:
+        self.missing_frames = 0
         self.streak.clear()
         self.is_locked = False
         self.locked_candidate = None
         self.current_segment_id = None
 
     def invalidate(self) -> None:
+        self.missing_frames = 0
         self.streak.clear()
         self.is_locked = False
         self.locked_candidate = None
@@ -659,6 +731,7 @@ class TemporalStabilityValidator:
         """
         # Segment change immediately resets all stability and lock state
         if self.current_segment_id != camera_segment_id:
+            self.missing_frames = 0
             self.current_segment_id = camera_segment_id
             self.streak.clear()
             self.is_locked = False
@@ -668,7 +741,10 @@ class TemporalStabilityValidator:
             # If already locked, do not drop lock on temporary single-frame glitch (Task 9)
             if self.is_locked:
                 return self.locked_candidate
-            self.streak.clear()
+            self.missing_frames += 1
+            if self.missing_frames > self.max_missing_frames:
+                self.streak.clear()
+                self.missing_frames = 0
             return None
 
         # Check candidate acceptance gate before accumulating temporal streak (Part B)
@@ -681,6 +757,7 @@ class TemporalStabilityValidator:
             if self.is_locked:
                 return self.locked_candidate
             self.streak.clear()
+            self.missing_frames = 0
             return None
 
         if self.is_locked:
@@ -698,6 +775,7 @@ class TemporalStabilityValidator:
             if max_drift > self.max_corner_drift_px:
                 # Drift exceeded threshold: reset streak with the new candidate
                 self.streak = [candidate]
+                self.missing_frames = 0
                 return None
 
         self.streak.append(candidate)

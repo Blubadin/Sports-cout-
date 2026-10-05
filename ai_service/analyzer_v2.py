@@ -212,7 +212,9 @@ class BadmintonAnalyzerV2:
             if calibration_provider is not None
             else (AutomaticCourtCalibrationProvider() if auto_calibrate else None)
         )
-        self.temporal_stability_validator = TemporalStabilityValidator()
+        # Three measured, consistent candidates within at most five frames.
+        # Missing line evidence never creates a candidate; cuts/drift still reset.
+        self.temporal_stability_validator = TemporalStabilityValidator(max_missing_frames=2)
         self.scene_lifecycle = CameraSegmentLifecycleManager(
             calibration_context=self.calibration_context,
             camera_cut_detector=self.camera_cut_detector,
@@ -661,6 +663,9 @@ class BadmintonAnalyzerV2:
                         self.calibration_context.begin_recalibration()
             else:
                 self.temporal_stability_validator.observe(None, self.calibration_context.camera_segment_id)
+        elif not self.calibration_context.is_metric_valid:
+            # Do not join line observations across an excluded scene interval.
+            self.temporal_stability_validator.invalidate()
 
         # Pipeline: Person Detection -> Pose/Feet -> Eligibility -> Temporal Identity -> Player Candidate
         h, w = frame.shape[:2] if frame is not None else (720, 1280)

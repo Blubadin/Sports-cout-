@@ -46,6 +46,27 @@ it('provides a GPU mode button and disables it when CUDA is unavailable', async 
   expect(button).toBeDisabled();
   expect(button).toHaveAttribute('title', expect.stringMatching(/CUDA/i));
 });
+it('creates a new CUDA session when GPU is selected for a cancelled CPU analysis', async () => {
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  trackingSessionStore.updateProjectState('p1', {
+    file, sessionId: 'old-cpu', status: 'CANCELLED', videoFingerprint: computeVideoFingerprint(file),
+    processingConfig: { device: 'cpu', requestedDevice: 'cpu', autoCourtCalibrationEnabled: true,
+      detectorInputSize: 640, useCourtRoi: false, courtRoiMarginPx: 60, frameStride: 2, poseStride: 1 },
+  });
+  vi.mocked(aiTrackingService.getCapabilities).mockResolvedValueOnce({ selectedDevice: 'cuda', cudaAvailable: true, mpsAvailable: false });
+  vi.mocked(aiTrackingService.createSession).mockResolvedValue({ sessionId: 'new-cuda', status: 'READY', trackedPlayerCount: 2 });
+  vi.mocked(aiTrackingService.uploadSessionVideo).mockResolvedValue({ width: 1280, height: 720 });
+  render(<BadmintonTrackingLab />);
+  await screen.findByText(/Inference device: cuda/i);
+  fireEvent.click(screen.getByRole('button', { name: /Use GPU/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Run Movement Analysis/i }));
+  await waitFor(() => expect(aiTrackingService.startSessionAnalysis).toHaveBeenCalledWith('new-cuda'));
+  expect(aiTrackingService.createSession).toHaveBeenCalledWith('singles', 'upload', expect.objectContaining({
+    device: 'cuda', processingConfig: expect.objectContaining({ device: 'cuda' }),
+  }));
+  expect(aiTrackingService.startSessionAnalysis).not.toHaveBeenCalledWith('old-cpu');
+  expect(aiTrackingService.deleteSession).not.toHaveBeenCalledWith('old-cpu');
+});
 it('provides a clearly visible video file picker button', async () => {
   render(<BadmintonTrackingLab />);
   expect(await screen.findByRole('button', { name: /Choose video file/i })).toBeInTheDocument();

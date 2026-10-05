@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ai_service_dir = Path(__file__).parent.parent
 if str(ai_service_dir) not in sys.path:
@@ -408,11 +409,14 @@ class TestDetectorBenchmarkRunner(unittest.TestCase):
             config = build_detector_matrix(BenchmarkCommonConfig(device="cpu"))[0]
             calls = []
 
-            bundle = run_benchmark_matrix(
-                make_manifest(), root, configs=[config],
-                execute_one=lambda *_args: calls.append(True),
-                timestamp_factory=lambda: FIXED_TIME,
-            )
+            # Keep developer-installed weights outside this missing-model fixture.
+            with patch("benchmark_runner.Path.cwd", return_value=root), \
+                    patch("benchmark_runner.Path.home", return_value=root):
+                bundle = run_benchmark_matrix(
+                    make_manifest(), root, configs=[config],
+                    execute_one=lambda *_args: calls.append(True),
+                    timestamp_factory=lambda: FIXED_TIME,
+                )
 
             self.assertEqual(calls, [])
             self.assertEqual(bundle.results[0].status, "UNAVAILABLE")
