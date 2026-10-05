@@ -233,14 +233,14 @@ describe('Phase 5: Performance Profiles & Inspector Tabs', () => {
       expect(screen.getByLabelText('Frame Stride')).toBeInTheDocument();
       expect(screen.getByLabelText('Pose Stride')).toBeInTheDocument();
       expect(screen.getByLabelText('Court ROI Cropping')).toBeInTheDocument();
-      expect(screen.getByRole('checkbox', { name: 'Automatic court calibration', exact: true })).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Automatic court calibration' })).not.toBeChecked();
     });
 
     it('supports automatic calibration from video upload without manual corners', async () => {
       render(<BadmintonTrackingLab />);
       await waitFor(() => expect(aiTrackingService.checkBackendHealth).toHaveBeenCalled());
       fireEvent.click(screen.getByRole('button', { name: /Advanced settings/i }));
-      fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic court calibration', exact: true }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Automatic court calibration' }));
 
       const fileInput = screen.getByLabelText('Select video file');
       fireEvent.change(fileInput, {

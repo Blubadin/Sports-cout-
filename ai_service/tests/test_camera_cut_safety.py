@@ -239,6 +239,7 @@ class TestCutCalibrationSafety(unittest.TestCase):
             session.analyzer.set_court_corners(self.corners)
             session.analyzer.start_camera_segment()
             session.status = "PROCESSING"
+            session.analyzer.frame_count = 1
             session.results.append({
                 "frameIndex": 1, "timestampSec": 0.1,
                 "cameraSegmentId": "segment-1", "calibrationState": "CALIBRATION_LOST",
@@ -284,6 +285,7 @@ class TestCutCalibrationSafety(unittest.TestCase):
             session.analyzer.start_camera_segment()
             session.analyzer.calibration_context.begin_recalibration()
             session.status = "PROCESSING"
+            session.analyzer.frame_count = 8
             session.results.append({
                 "frameIndex": 7, "timestampSec": 0.233,
                 "cameraSegmentId": "segment-0", "calibrationState": "CALIBRATED",
