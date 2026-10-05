@@ -1,11 +1,15 @@
 param(
-    [string]$Python = 'python',
+    [string]$Python = '',
     [string]$ShuttleModelPath = $env:SHUTTLE_MODEL_PATH,
     [string]$ShuttleProvider = $env:SHUTTLE_PROVIDER
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+if (-not $Python) {
+    $localPython = Join-Path $projectRoot '.local-services/python/Scripts/python.exe'
+    $Python = if (Test-Path -LiteralPath $localPython -PathType Leaf) { $localPython } else { 'python' }
+}
 $logDirectory = Join-Path $projectRoot '.local-services'
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
 
