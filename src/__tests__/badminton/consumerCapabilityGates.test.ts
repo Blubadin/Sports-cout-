@@ -14,7 +14,11 @@ describe('Consumer Capability Gates & Lifecycle Truth', () => {
     canTrackShuttle: { enabled: true, reason: 'Shuttle visible in field', confidence: 0.90 },
     canUseCourtMetric: { enabled: true, reason: 'Court calibrated', confidence: 0.95 },
     canBuildHeatmap: { enabled: true, reason: 'Court metrics locked', confidence: 0.95 },
-    canEstimateHit: { enabled: true, reason: 'Contract ready', confidence: 0.90 },
+    canEstimateHit: {
+      enabled: true,
+      reason: 'Image-space readiness only; no hit/contact event is asserted',
+      confidence: 0.90,
+    },
     canWriteCanonicalMatchData: { enabled: true, reason: 'Live court play', confidence: 0.95 },
   };
 
@@ -79,16 +83,38 @@ describe('Consumer Capability Gates & Lifecycle Truth', () => {
         canTrackShuttle: true,
         canUseCourtMetric: true,
         canBuildHeatmap: true,
-        canEstimateHit: true,
+        canEstimateHit: false,
         canWriteCanonicalMatchData: true,
       };
 
       const parsed = parseSceneTransition(rawTransition);
       expect(parsed).not.toBeNull();
       expect(parsed?.capabilities?.canUseCourtMetric.enabled).toBe(true);
+      expect(parsed?.capabilities?.canEstimateHit.enabled).toBe(true);
+      expect(parsed?.canEstimateHit).toBe(true);
       expect(parsed?.canTrackPlayer).toBe(true);
       expect(parsed?.canUseCourtMetric).toBe(true);
       expect(parsed?.canWriteCanonicalMatchData).toBe(true);
+    });
+
+    it('fails closed for a boolean-only legacy hit flag', () => {
+      const parsed = parseSceneTransition({
+        transitionId: 'st-legacy-hit',
+        cameraSegmentId: 'segment-1',
+        frameIndex: 121,
+        timestampSec: 4.03,
+        fromState: 'COURT_PLAY',
+        toState: 'COURT_PLAY',
+        confidence: 0.9,
+        reason: 'Legacy transition',
+        evidence: {},
+        isMetricValid: true,
+        allowCanonicalWrites: true,
+        canEstimateHit: true,
+      });
+
+      expect(parsed?.capabilities).toBeNull();
+      expect(parsed?.canEstimateHit).toBe(false);
     });
   });
 
@@ -115,7 +141,7 @@ describe('Consumer Capability Gates & Lifecycle Truth', () => {
           },
           canEstimateHit: {
             enabled: false,
-            reason: 'Hit estimation contract unavailable: requires court metric calibration',
+            reason: 'Hit evidence unavailable: current-frame observations are missing',
             confidence: 0.0,
           },
           canWriteCanonicalMatchData: {
@@ -124,6 +150,8 @@ describe('Consumer Capability Gates & Lifecycle Truth', () => {
             confidence: 0.0,
           },
         },
+        // Legacy shortcut conflicts with the structured canonical gate.
+        canEstimateHit: true,
         players: [],
       };
 
@@ -137,6 +165,60 @@ describe('Consumer Capability Gates & Lifecycle Truth', () => {
       expect(norm.canWriteCanonicalMatchData).toBe(false);
       expect(norm.isMetricValid).toBe(false);
       expect(norm.calibrationUnavailableReason).toBe('Camera cut detected: searching for court lines');
+    });
+
+    it('preserves image-space readiness while court metrics remain unavailable', () => {
+      const norm = toTrackingTelemetryV1({
+        frameIndex: 46,
+        timestampSec: 1.53,
+        sceneState: 'SIDE_PLAY',
+        isMetricValid: false,
+        allowCanonicalWrites: false,
+        capabilities: {
+          ...validCapsPayload,
+          canUseCourtMetric: {
+            enabled: false,
+            reason: 'Side view has no valid court homography',
+            confidence: 0,
+          },
+          canBuildHeatmap: {
+            enabled: false,
+            reason: 'Heatmap requires calibrated court coordinates',
+            confidence: 0,
+          },
+          canEstimateHit: {
+            enabled: true,
+            reason: 'Image-space readiness only; no hit/contact event is asserted',
+            confidence: 0.82,
+          },
+          canWriteCanonicalMatchData: {
+            enabled: false,
+            reason: 'Side-view canonical writes are prohibited',
+            confidence: 0,
+          },
+        },
+        canEstimateHit: false,
+        players: [],
+      });
+
+      expect(norm.canEstimateHit).toBe(true);
+      expect(norm.capabilities?.canEstimateHit.enabled).toBe(true);
+      expect(norm.canUseCourtMetric).toBe(false);
+      expect(norm.canBuildHeatmap).toBe(false);
+      expect(norm.isMetricValid).toBe(false);
+      expect(norm.canWriteCanonicalMatchData).toBe(false);
+    });
+
+    it('fails closed when legacy telemetry has only a hit boolean shortcut', () => {
+      const norm = toTrackingTelemetryV1({
+        frameIndex: 47,
+        timestampSec: 1.57,
+        canEstimateHit: true,
+        players: [],
+      });
+
+      expect(norm.canEstimateHit).toBe(false);
+      expect(norm.capabilities).toBeNull();
     });
   });
 

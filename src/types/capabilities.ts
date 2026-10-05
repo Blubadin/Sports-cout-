@@ -13,6 +13,7 @@ export interface SegmentCapabilities {
   canTrackShuttle: CapabilityGate;
   canUseCourtMetric: CapabilityGate;
   canBuildHeatmap: CapabilityGate;
+  /** Fresh image-space input readiness only; does not mean a hit/contact was detected. */
   canEstimateHit: CapabilityGate;
   canWriteCanonicalMatchData: CapabilityGate;
 }

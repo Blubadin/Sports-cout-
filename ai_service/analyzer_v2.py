@@ -26,7 +26,15 @@ from court_calibration import (
     validate_court_geometry,
 )
 from camera_cut_detector import CameraCutDetector
-from scene_lifecycle import CameraSegmentLifecycleManager, SceneState, SceneStateTransition
+from scene_lifecycle import (
+    CameraSegmentLifecycleManager,
+    ImageSpaceHitEvidence,
+    ImageSpacePlayerObservation,
+    ImageSpaceShuttleObservation,
+    SceneState,
+    SceneStateTransition,
+    compute_image_space_hit_capability,
+)
 from court_roi import calculate_court_roi, inverse_transform_bbox
 from device_runtime import resolve_device
 from engine_config import (
@@ -1054,6 +1062,65 @@ class BadmintonAnalyzerV2:
                 camera_segment_id=self.calibration_context.camera_segment_id,
                 pipeline_run_id=getattr(self, "pipeline_run_id", getattr(self, "analysis_id", "live_session")),
                 scene_evidence=transition.evidence.to_dict(),
+            )
+
+        # The lifecycle pass runs before shuttle inference, so finalize only the hit
+        # readiness gate here using measured same-frame image evidence. This gate
+        # does not create or assert a hit/contact event and does not affect metrics.
+        if transition.capabilities is not None:
+            image_players = []
+            for player in player_telemetry:
+                pose = player.get("pose")
+                raw_keypoints = pose.get("keypoints") if isinstance(pose, dict) else None
+                keypoints = tuple(
+                    (point.get("x"), point.get("y"), point.get("score"))
+                    for point in raw_keypoints
+                    if isinstance(point, dict)
+                ) if isinstance(raw_keypoints, (tuple, list)) else ()
+                image_players.append(ImageSpacePlayerObservation(
+                    frame_index=transition.frame_index,
+                    camera_segment_id=transition.camera_segment_id,
+                    state=player.get("state", "unknown"),
+                    detection_confidence=player.get("detectionConfidence"),
+                    pose_keypoints=keypoints,
+                    pose_coordinate_space=(pose.get("keypointCoordinateSpace") if isinstance(pose, dict) else None),
+                    pose_age_frames=player.get("poseAgeFrames"),
+                    pose_is_reused=(pose.get("isReused") is True if isinstance(pose, dict) else False),
+                    pose_is_stale=(
+                        player.get("isPoseStale") is True
+                        or (pose.get("isStale") is True if isinstance(pose, dict) else False)
+                        or player.get("poseSource") != "fresh"
+                    ),
+                ))
+
+            shuttle_position = getattr(shuttle_obs, "position_px", None)
+            image_shuttle = (
+                ImageSpaceShuttleObservation(
+                    frame_index=getattr(shuttle_obs, "frame_index", -1),
+                    camera_segment_id=getattr(shuttle_obs, "camera_segment_id", None),
+                    state=getattr(shuttle_obs, "state", "unknown"),
+                    position_px=(
+                        (getattr(shuttle_position, "x", None), getattr(shuttle_position, "y", None))
+                        if shuttle_position is not None
+                        else None
+                    ),
+                    confidence=getattr(shuttle_obs, "confidence", None),
+                )
+                if shuttle_obs is not None
+                else None
+            )
+            hit_evidence = ImageSpaceHitEvidence(
+                frame_index=transition.frame_index,
+                camera_segment_id=transition.camera_segment_id,
+                frame_width=w,
+                frame_height=h,
+                players=tuple(image_players),
+                shuttle=image_shuttle,
+            )
+            transition.capabilities.can_estimate_hit = compute_image_space_hit_capability(
+                transition.to_state,
+                transition.evidence,
+                hit_evidence,
             )
 
         raw_player_detections = [

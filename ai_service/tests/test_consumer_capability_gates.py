@@ -33,6 +33,9 @@ from calibration_contract import (
 from scene_lifecycle import (
     CameraSegmentLifecycleManager,
     CapabilityGate,
+    ImageSpaceHitEvidence,
+    ImageSpacePlayerObservation,
+    ImageSpaceShuttleObservation,
     SceneEvidence,
     SceneState,
     SegmentCapabilities,
@@ -60,6 +63,56 @@ class TestConsumerCapabilityGates(unittest.TestCase):
             is_replay_cue=False,
         )
 
+    def image_hit_evidence(
+        self,
+        *,
+        frame_index: int = 10,
+        camera_segment_id: str = "segment-0",
+        frame_width: int = 1280,
+        frame_height: int = 720,
+        player_state: str = "observed",
+        player_frame_index: int | None = None,
+        player_segment_id: str | None = None,
+        detection_confidence: float | None = 0.9,
+        pose_keypoints: tuple[tuple[float, float, float], ...] | None = None,
+        pose_coordinate_space: str | None = "normalized_percent",
+        pose_age_frames: int = 0,
+        pose_is_reused: bool = False,
+        pose_is_stale: bool = False,
+        shuttle_state: str = "observed",
+        shuttle_frame_index: int | None = None,
+        shuttle_segment_id: str | None = None,
+        shuttle_position_px: tuple[float, float] | None = (50.0, 90.0),
+        shuttle_confidence: float | None = 0.88,
+    ) -> ImageSpaceHitEvidence:
+        points = pose_keypoints or tuple((10.0, 20.0, 0.9) for _ in range(17))
+        player = ImageSpacePlayerObservation(
+            frame_index=frame_index if player_frame_index is None else player_frame_index,
+            camera_segment_id=camera_segment_id if player_segment_id is None else player_segment_id,
+            state=player_state,
+            detection_confidence=detection_confidence,
+            pose_keypoints=points,
+            pose_coordinate_space=pose_coordinate_space,
+            pose_age_frames=pose_age_frames,
+            pose_is_reused=pose_is_reused,
+            pose_is_stale=pose_is_stale,
+        )
+        shuttle = ImageSpaceShuttleObservation(
+            frame_index=frame_index if shuttle_frame_index is None else shuttle_frame_index,
+            camera_segment_id=camera_segment_id if shuttle_segment_id is None else shuttle_segment_id,
+            state=shuttle_state,
+            position_px=shuttle_position_px,
+            confidence=shuttle_confidence,
+        )
+        return ImageSpaceHitEvidence(
+            frame_index=frame_index,
+            camera_segment_id=camera_segment_id,
+            frame_width=frame_width,
+            frame_height=frame_height,
+            players=(player,),
+            shuttle=shuttle,
+        )
+
     def test_uncalibrated_court_play_capabilities(self) -> None:
         """Uncalibrated court allows 2D tracking and shuttle tracking, but suspends court metrics."""
         self.cal_context.state = CalibrationState.UNCALIBRATED
@@ -76,7 +129,7 @@ class TestConsumerCapabilityGates(unittest.TestCase):
         self.assertFalse(caps.can_build_heatmap.enabled)
         self.assertIn("Heatmap accumulation requires locked court metric", caps.can_build_heatmap.reason)
         self.assertFalse(caps.can_estimate_hit.enabled)
-        self.assertIn("court metric calibration", caps.can_estimate_hit.reason)
+        self.assertIn("current-frame player pose and shuttle", caps.can_estimate_hit.reason)
         self.assertFalse(caps.can_write_canonical_match_data.enabled)
 
     def test_calibrated_court_play_all_gates_active(self) -> None:
@@ -90,7 +143,12 @@ class TestConsumerCapabilityGates(unittest.TestCase):
         self.evidence.calibration_state = "CALIBRATED"
         self.evidence.calibration_confidence = 0.96
 
-        caps = compute_capabilities(SceneState.COURT_PLAY, self.cal_context, self.evidence)
+        caps = compute_capabilities(
+            SceneState.COURT_PLAY,
+            self.cal_context,
+            self.evidence,
+            image_space_hit_evidence=self.image_hit_evidence(),
+        )
 
         self.assertTrue(caps.can_track_player.enabled)
         self.assertTrue(caps.can_track_shuttle.enabled)
@@ -122,13 +180,19 @@ class TestConsumerCapabilityGates(unittest.TestCase):
             timestamp_sec=0.333,
         )
         self.evidence.is_replay_cue = True
-        caps = compute_capabilities(SceneState.REPLAY, self.cal_context, self.evidence)
+        caps = compute_capabilities(
+            SceneState.REPLAY,
+            self.cal_context,
+            self.evidence,
+            image_space_hit_evidence=self.image_hit_evidence(),
+        )
 
         self.assertTrue(caps.can_track_player.enabled)
         self.assertTrue(caps.can_track_shuttle.enabled)
         self.assertFalse(caps.can_use_court_metric.enabled)
         self.assertFalse(caps.can_build_heatmap.enabled)
-        self.assertFalse(caps.can_estimate_hit.enabled)
+        self.assertTrue(caps.can_estimate_hit.enabled)
+        self.assertIn("readiness only", caps.can_estimate_hit.reason)
         self.assertFalse(caps.can_write_canonical_match_data.enabled)
         self.assertIn("Replay segment: canonical match writes prohibited", caps.can_write_canonical_match_data.reason)
 
@@ -152,7 +216,12 @@ class TestConsumerCapabilityGates(unittest.TestCase):
     def test_camera_transition_suspends_all_tracking(self) -> None:
         """Camera transition or hard cut temporarily suspends visual tracking and metric gates."""
         self.evidence.camera_cut_detected = True
-        caps = compute_capabilities(SceneState.CAMERA_TRANSITION, self.cal_context, self.evidence)
+        caps = compute_capabilities(
+            SceneState.CAMERA_TRANSITION,
+            self.cal_context,
+            self.evidence,
+            image_space_hit_evidence=self.image_hit_evidence(),
+        )
 
         self.assertFalse(caps.can_track_player.enabled)
         self.assertFalse(caps.can_track_shuttle.enabled)
@@ -160,6 +229,112 @@ class TestConsumerCapabilityGates(unittest.TestCase):
         self.assertFalse(caps.can_build_heatmap.enabled)
         self.assertFalse(caps.can_estimate_hit.enabled)
         self.assertFalse(caps.can_write_canonical_match_data.enabled)
+
+    def test_side_play_hit_readiness_is_independent_of_calibration(self) -> None:
+        self.cal_context.state = CalibrationState.UNCALIBRATED
+
+        caps = compute_capabilities(
+            SceneState.SIDE_PLAY,
+            self.cal_context,
+            self.evidence,
+            image_space_hit_evidence=self.image_hit_evidence(),
+        )
+
+        self.assertTrue(caps.can_estimate_hit.enabled)
+        self.assertIn("no hit/contact event", caps.can_estimate_hit.reason)
+        self.assertFalse(caps.can_use_court_metric.enabled)
+        self.assertFalse(caps.can_build_heatmap.enabled)
+        self.assertFalse(caps.can_write_canonical_match_data.enabled)
+
+    def test_uncalibrated_court_play_does_not_open_metric_gates_from_hit_readiness(self) -> None:
+        caps = compute_capabilities(
+            SceneState.COURT_PLAY,
+            self.cal_context,
+            self.evidence,
+            image_space_hit_evidence=self.image_hit_evidence(),
+        )
+
+        self.assertTrue(caps.can_estimate_hit.enabled)
+        self.assertFalse(caps.can_use_court_metric.enabled)
+        self.assertFalse(caps.can_build_heatmap.enabled)
+        self.assertFalse(caps.can_write_canonical_match_data.enabled)
+
+    def test_tracker_feasibility_alone_does_not_enable_hit_readiness(self) -> None:
+        caps = compute_capabilities(SceneState.COURT_PLAY, self.cal_context, self.evidence)
+
+        self.assertTrue(caps.can_track_player.enabled)
+        self.assertTrue(caps.can_track_shuttle.enabled)
+        self.assertFalse(caps.can_estimate_hit.enabled)
+        self.assertIn("current-frame player pose and shuttle", caps.can_estimate_hit.reason)
+
+    def test_missing_stale_or_cross_segment_observation_fails_closed(self) -> None:
+        invalid_cases = (
+            ("missing player", {"player_state": "lost"}),
+            ("predicted player", {"player_state": "predicted"}),
+            ("stale pose", {"pose_age_frames": 1}),
+            ("reused pose", {"pose_is_reused": True}),
+            ("stale pose flag", {"pose_is_stale": True}),
+            ("stale player frame", {"player_frame_index": 9}),
+            ("old player segment", {"player_segment_id": "segment-previous"}),
+            ("stale shuttle", {"shuttle_frame_index": 9}),
+            ("old shuttle segment", {"shuttle_segment_id": "segment-previous"}),
+            ("predicted shuttle", {"shuttle_state": "predicted"}),
+            ("missing shuttle", {"shuttle_position_px": None}),
+        )
+        for label, overrides in invalid_cases:
+            with self.subTest(label=label):
+                caps = compute_capabilities(
+                    SceneState.SIDE_PLAY,
+                    self.cal_context,
+                    self.evidence,
+                    image_space_hit_evidence=self.image_hit_evidence(**overrides),
+                )
+                self.assertFalse(caps.can_estimate_hit.enabled)
+
+    def test_invalid_shuttle_confidence_position_or_frame_dimensions_is_unavailable(self) -> None:
+        invalid_cases = (
+            {"shuttle_confidence": None},
+            {"shuttle_confidence": float("nan")},
+            {"shuttle_position_px": (1280.0, 90.0)},
+            {"shuttle_position_px": (float("inf"), 90.0)},
+            {"detection_confidence": float("nan")},
+            {
+                "pose_keypoints": ((100.0, 20.0, 0.9),)
+                + tuple((10.0, 20.0, 0.9) for _ in range(16))
+            },
+            {"pose_keypoints": tuple((10.0, 20.0, 0.0) for _ in range(17))},
+            {"frame_width": 0},
+            {"frame_height": -1},
+        )
+        for overrides in invalid_cases:
+            with self.subTest(overrides=overrides):
+                caps = compute_capabilities(
+                    SceneState.SIDE_PLAY,
+                    self.cal_context,
+                    self.evidence,
+                    image_space_hit_evidence=self.image_hit_evidence(**overrides),
+                )
+                self.assertFalse(caps.can_estimate_hit.enabled)
+
+    def test_camera_cut_and_unknown_block_image_evidence_readiness(self) -> None:
+        image_evidence = self.image_hit_evidence()
+        self.evidence.camera_cut_detected = True
+        cut_caps = compute_capabilities(
+            SceneState.SIDE_PLAY,
+            self.cal_context,
+            self.evidence,
+            image_space_hit_evidence=image_evidence,
+        )
+        self.assertFalse(cut_caps.can_estimate_hit.enabled)
+        self.evidence.camera_cut_detected = False
+
+        unknown_caps = compute_capabilities(
+            SceneState.UNKNOWN,
+            self.cal_context,
+            self.evidence,
+            image_space_hit_evidence=image_evidence,
+        )
+        self.assertFalse(unknown_caps.can_estimate_hit.enabled)
 
     def test_recalibrating_reports_unavailable_reason(self) -> None:
         """When state is RECALIBRATING, calibration fields and metric gates report unavailable reason."""

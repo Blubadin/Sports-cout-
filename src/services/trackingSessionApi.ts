@@ -612,7 +612,10 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
   const metricValid = isMetricCalibrationValid({ calibrationState, cameraSegmentId, calibrationId, calibration });
 
   const sceneTransition = parseSceneTransition(frame.sceneTransition || frame.scene_transition);
-  const capabilities = parseSegmentCapabilities(frame.capabilities || frame.sceneTransition?.capabilities || sceneTransition?.capabilities);
+  const capabilities = parseSegmentCapabilities(frame.capabilities)
+    ?? parseSegmentCapabilities(frame.sceneTransition?.capabilities)
+    ?? sceneTransition?.capabilities
+    ?? null;
   const isMetricValid = frame.isMetricValid ?? frame.is_metric_valid ?? capabilities?.canUseCourtMetric.enabled ?? metricValid;
   const allowCanonicalWrites = frame.allowCanonicalWrites ?? frame.allow_canonical_writes ?? capabilities?.canWriteCanonicalMatchData.enabled ?? (metricValid && (frame.sceneState === 'COURT_PLAY' || !frame.sceneState));
 
@@ -639,9 +642,9 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     canBuildHeatmap: typeof frame.canBuildHeatmap === 'boolean'
       ? frame.canBuildHeatmap
       : capabilities?.canBuildHeatmap.enabled ?? isMetricValid,
-    canEstimateHit: typeof frame.canEstimateHit === 'boolean'
-      ? frame.canEstimateHit
-      : capabilities?.canEstimateHit.enabled ?? false,
+    // Structured capability is canonical. Boolean-only legacy payloads cannot
+    // prove current image observations, so they remain unavailable.
+    canEstimateHit: capabilities?.canEstimateHit.enabled ?? false,
     canWriteCanonicalMatchData: typeof frame.canWriteCanonicalMatchData === 'boolean'
       ? frame.canWriteCanonicalMatchData
       : capabilities?.canWriteCanonicalMatchData.enabled ?? allowCanonicalWrites,

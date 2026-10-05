@@ -555,6 +555,7 @@ export interface TrackingTelemetryV1 {
   canTrackShuttle?: boolean;
   canUseCourtMetric?: boolean;
   canBuildHeatmap?: boolean;
+  /** Fresh image-space input readiness only; not evidence that a hit/contact occurred. */
   canEstimateHit?: boolean;
   canWriteCanonicalMatchData?: boolean;
   isMetricValid?: boolean;
