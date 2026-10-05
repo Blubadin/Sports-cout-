@@ -1,0 +1,362 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUnix": 1791191507.9939718,
+  "implementationBaselineSha": "06d5482b861835f9f132f90a9c3ab31260bb6b82",
+  "mainReferenceSha": "0856ba0660073b1d8ab180f4086fbfd07c96d719",
+  "manifestReference": "src\\benchmarks\\phase3AnnotationPlan.json",
+  "manifestSha256": "6f2e68dde0df42767d6479bcbebca6347a3a33be689d77c7e8b1c6f376c9aeb5",
+  "mediaInventoryReverified": [
+    {
+      "path": "C:\\Users\\sport\\OneDrive\\Documents\\Vedio Bad\\Asian Double Men 2026.mp4",
+      "sha256": "84160d026a350716e227cb2f6f4c4c3d35cf52ab6aac6977d8e787b0299a6817",
+      "bytes": 124951301,
+      "frameCount": 29359,
+      "fps": 30.0,
+      "durationSec": 978.6333333333333,
+      "width": 1280,
+      "height": 720,
+      "firstFrameDecoded": true,
+      "inventoryHashMatches": true,
+      "recordingGroup": "sha256:84160d026a350716e227cb2f6f4c4c3d35cf52ab6aac6977d8e787b0299a6817",
+      "split": "development"
+    },
+    {
+      "path": "C:\\Users\\sport\\OneDrive\\Documents\\Vedio Bad\\Watanabe _ All England 2020.mp4",
+      "sha256": "1ac8b3d811f5a5d42e419902b6ebbe2aab3fd8bb1b509cdb8b13da4308508074",
+      "bytes": 123251424,
+      "frameCount": 24335,
+      "fps": 30.0,
+      "durationSec": 811.1666666666666,
+      "width": 1280,
+      "height": 720,
+      "firstFrameDecoded": true,
+      "inventoryHashMatches": true,
+      "recordingGroup": "sha256:1ac8b3d811f5a5d42e419902b6ebbe2aab3fd8bb1b509cdb8b13da4308508074",
+      "split": "UNASSIGNED_PENDING_MATCH_GROUP_AUDIT"
+    },
+    {
+      "path": "C:\\Users\\sport\\OneDrive\\Documents\\Vedio Bad\\Badminton test.mp4",
+      "sha256": "e7c5581bdf88f622aff88901bab139133fea50f93c25c0a928056294a2bc9a4e",
+      "bytes": 43799902,
+      "frameCount": 8869,
+      "fps": 30.0,
+      "durationSec": 295.6333333333333,
+      "width": 1280,
+      "height": 720,
+      "firstFrameDecoded": true,
+      "inventoryHashMatches": true,
+      "recordingGroup": "sha256:e7c5581bdf88f622aff88901bab139133fea50f93c25c0a928056294a2bc9a4e",
+      "split": "UNASSIGNED_PENDING_MATCH_GROUP_AUDIT"
+    }
+  ],
+  "heldOutEvaluation": {
+    "status": "NOT VALIDATED",
+    "harness": "ai_service/phase3_benchmark.py::evaluate_phase3_benchmark",
+    "execution": "NOT RUN: external provenance/GT preflight fails; no predictions substituted for GT",
+    "approvedFrozenThresholds": "UNSET",
+    "qualifiedSampleCount": 0,
+    "coverage": null,
+    "buckets": [
+      {
+        "bucket": "rear_court",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "PARTIAL_DEVELOPMENT_SHUTTLE_GT_ONLY",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "rear_low",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "side_low_angle",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "camera_cut",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "pan_zoom",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "close_up",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "replay",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "return_to_court",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "spectator_official",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "player_outside_court",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "doubles_crossing",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "bright_lights_background",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_QUALIFYING_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "shuttle_false_positives",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "PREDICTION_SEEDED_VISUAL_FP_LEADS_ONLY",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      },
+      {
+        "bucket": "lost_reacquisition",
+        "status": "NOT VALIDATED",
+        "sampleCount": 0,
+        "coverage": null,
+        "currentEvidence": "NO_REVIEWED_LOSS_REACQUISITION_GT",
+        "reason": "No qualified reviewed held-out GT for required streams",
+        "metrics": {
+          "calibrationErrorPx": null,
+          "groundErrorM": null,
+          "idContinuity": null,
+          "idSwitches": null,
+          "cutF1": null,
+          "relockSec": null,
+          "shuttlePrecision": null,
+          "shuttleRecall": null,
+          "shuttleReacquisitionSec": null
+        }
+      }
+    ]
+  },
+  "existingDevelopmentGtScope": {
+    "sourceFrames": [
+      180,
+      209
+    ],
+    "frameCount": 30,
+    "visible": 20,
+    "unknown": 10,
+    "absent": 0,
+    "occluded": 0,
+    "independentReviewerQualified": false,
+    "heldOut": false,
+    "newModelEvaluation": "NOT VALIDATED: pinned RallyLens checkpoint missing"
+  },
+  "longVideoSourceGaps": {
+    "10min": "AVAILABLE: choose actual Asian source first 600 sec",
+    "30min": "NOT VALIDATED: MISSING_MEDIA",
+    "60min": "NOT VALIDATED: MISSING_MEDIA"
+  },
+  "gpuHardware": {
+    "nvidiaName": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "driverVersion": "577.09",
+    "vramMiB": 6141,
+    "amdName": "AMD Radeon(TM) 680M",
+    "executionStatus": "PENDING_CUDA_RUNTIME_PREFLIGHT",
+    "amdExecutionStatus": "NOT VALIDATED"
+  },
+  "blockers": [
+    "No qualified reviewed held-out scenario GT",
+    "No approved frozen Phase 3 quality thresholds",
+    "Pinned RallyLens checkpoint unavailable locally",
+    "No single continuous 30/60-minute source",
+    "No human corrections supplied for real-video correction persistence evaluation"
+  ]
+}

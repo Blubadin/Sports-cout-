@@ -1,0 +1,218 @@
+{
+  "reproduction": "Real source decode and seek, plus real-model smoke-v2 committed outputs. Not human GT.",
+  "baselineCodeSha": "06d5482b861835f9f132f90a9c3ab31260bb6b82",
+  "media": "C:\\Users\\sport\\OneDrive\\Documents\\Vedio Bad\\Asian Double Men 2026.mp4",
+  "mediaSha256": "84160d026a350716e227cb2f6f4c4c3d35cf52ab6aac6977d8e787b0299a6817",
+  "warmupSeekSourceOffset": 68,
+  "firstSourceFrame": {
+    "sourceFrame": 1,
+    "decoderPtsMs": 0.0,
+    "oldBaselineTimestampSec": 0.03333333333333333,
+    "correctedBaselineTimestampSec": 0.0
+  },
+  "sampleCount": 22,
+  "rows": [
+    {
+      "sourceFrame": 129,
+      "decoderPtsMs": 4266.666666666667,
+      "oldBaselineTimestampSec": 4.3,
+      "correctedBaselineTimestampSec": 4.266666666666667,
+      "seekedDecoderPtsMs": 4266.666666666667,
+      "oldResumeTimestampSec": 4.266666666666667,
+      "correctedResumeTimestampSec": 4.266666666666667
+    },
+    {
+      "sourceFrame": 130,
+      "decoderPtsMs": 4300.0,
+      "oldBaselineTimestampSec": 4.333333333333333,
+      "correctedBaselineTimestampSec": 4.3,
+      "seekedDecoderPtsMs": 4300.0,
+      "oldResumeTimestampSec": 4.3,
+      "correctedResumeTimestampSec": 4.3
+    },
+    {
+      "sourceFrame": 131,
+      "decoderPtsMs": 4333.333333333333,
+      "oldBaselineTimestampSec": 4.366666666666666,
+      "correctedBaselineTimestampSec": 4.333333333333333,
+      "seekedDecoderPtsMs": 4333.333333333333,
+      "oldResumeTimestampSec": 4.333333333333333,
+      "correctedResumeTimestampSec": 4.333333333333333
+    },
+    {
+      "sourceFrame": 132,
+      "decoderPtsMs": 4366.666666666666,
+      "oldBaselineTimestampSec": 4.4,
+      "correctedBaselineTimestampSec": 4.366666666666666,
+      "seekedDecoderPtsMs": 4366.666666666666,
+      "oldResumeTimestampSec": 4.366666666666666,
+      "correctedResumeTimestampSec": 4.366666666666666
+    },
+    {
+      "sourceFrame": 133,
+      "decoderPtsMs": 4400.0,
+      "oldBaselineTimestampSec": 4.433333333333334,
+      "correctedBaselineTimestampSec": 4.4,
+      "seekedDecoderPtsMs": 4400.0,
+      "oldResumeTimestampSec": 4.4,
+      "correctedResumeTimestampSec": 4.4
+    },
+    {
+      "sourceFrame": 134,
+      "decoderPtsMs": 4433.333333333334,
+      "oldBaselineTimestampSec": 4.466666666666667,
+      "correctedBaselineTimestampSec": 4.433333333333334,
+      "seekedDecoderPtsMs": 4433.333333333334,
+      "oldResumeTimestampSec": 4.433333333333334,
+      "correctedResumeTimestampSec": 4.433333333333334
+    },
+    {
+      "sourceFrame": 135,
+      "decoderPtsMs": 4466.666666666667,
+      "oldBaselineTimestampSec": 4.5,
+      "correctedBaselineTimestampSec": 4.466666666666667,
+      "seekedDecoderPtsMs": 4466.666666666667,
+      "oldResumeTimestampSec": 4.466666666666667,
+      "correctedResumeTimestampSec": 4.466666666666667
+    },
+    {
+      "sourceFrame": 136,
+      "decoderPtsMs": 4500.0,
+      "oldBaselineTimestampSec": 4.533333333333333,
+      "correctedBaselineTimestampSec": 4.5,
+      "seekedDecoderPtsMs": 4500.0,
+      "oldResumeTimestampSec": 4.5,
+      "correctedResumeTimestampSec": 4.5
+    },
+    {
+      "sourceFrame": 137,
+      "decoderPtsMs": 4533.333333333333,
+      "oldBaselineTimestampSec": 4.566666666666666,
+      "correctedBaselineTimestampSec": 4.533333333333333,
+      "seekedDecoderPtsMs": 4533.333333333333,
+      "oldResumeTimestampSec": 4.533333333333333,
+      "correctedResumeTimestampSec": 4.533333333333333
+    },
+    {
+      "sourceFrame": 138,
+      "decoderPtsMs": 4566.666666666666,
+      "oldBaselineTimestampSec": 4.6,
+      "correctedBaselineTimestampSec": 4.566666666666666,
+      "seekedDecoderPtsMs": 4566.666666666666,
+      "oldResumeTimestampSec": 4.566666666666666,
+      "correctedResumeTimestampSec": 4.566666666666666
+    },
+    {
+      "sourceFrame": 139,
+      "decoderPtsMs": 4600.0,
+      "oldBaselineTimestampSec": 4.633333333333334,
+      "correctedBaselineTimestampSec": 4.6,
+      "seekedDecoderPtsMs": 4600.0,
+      "oldResumeTimestampSec": 4.6,
+      "correctedResumeTimestampSec": 4.6
+    },
+    {
+      "sourceFrame": 140,
+      "decoderPtsMs": 4633.333333333333,
+      "oldBaselineTimestampSec": 4.666666666666667,
+      "correctedBaselineTimestampSec": 4.633333333333333,
+      "seekedDecoderPtsMs": 4633.333333333333,
+      "oldResumeTimestampSec": 4.633333333333333,
+      "correctedResumeTimestampSec": 4.633333333333333
+    },
+    {
+      "sourceFrame": 141,
+      "decoderPtsMs": 4666.666666666667,
+      "oldBaselineTimestampSec": 4.7,
+      "correctedBaselineTimestampSec": 4.666666666666667,
+      "seekedDecoderPtsMs": 4666.666666666667,
+      "oldResumeTimestampSec": 4.666666666666667,
+      "correctedResumeTimestampSec": 4.666666666666667
+    },
+    {
+      "sourceFrame": 142,
+      "decoderPtsMs": 4700.0,
+      "oldBaselineTimestampSec": 4.733333333333333,
+      "correctedBaselineTimestampSec": 4.7,
+      "seekedDecoderPtsMs": 4700.0,
+      "oldResumeTimestampSec": 4.7,
+      "correctedResumeTimestampSec": 4.7
+    },
+    {
+      "sourceFrame": 143,
+      "decoderPtsMs": 4733.333333333333,
+      "oldBaselineTimestampSec": 4.766666666666667,
+      "correctedBaselineTimestampSec": 4.733333333333333,
+      "seekedDecoderPtsMs": 4733.333333333333,
+      "oldResumeTimestampSec": 4.733333333333333,
+      "correctedResumeTimestampSec": 4.733333333333333
+    },
+    {
+      "sourceFrame": 144,
+      "decoderPtsMs": 4766.666666666667,
+      "oldBaselineTimestampSec": 4.8,
+      "correctedBaselineTimestampSec": 4.766666666666667,
+      "seekedDecoderPtsMs": 4766.666666666667,
+      "oldResumeTimestampSec": 4.766666666666667,
+      "correctedResumeTimestampSec": 4.766666666666667
+    },
+    {
+      "sourceFrame": 145,
+      "decoderPtsMs": 4800.0,
+      "oldBaselineTimestampSec": 4.833333333333333,
+      "correctedBaselineTimestampSec": 4.8,
+      "seekedDecoderPtsMs": 4800.0,
+      "oldResumeTimestampSec": 4.8,
+      "correctedResumeTimestampSec": 4.8
+    },
+    {
+      "sourceFrame": 146,
+      "decoderPtsMs": 4833.333333333333,
+      "oldBaselineTimestampSec": 4.866666666666666,
+      "correctedBaselineTimestampSec": 4.833333333333333,
+      "seekedDecoderPtsMs": 4833.333333333333,
+      "oldResumeTimestampSec": 4.833333333333333,
+      "correctedResumeTimestampSec": 4.833333333333333
+    },
+    {
+      "sourceFrame": 147,
+      "decoderPtsMs": 4866.666666666666,
+      "oldBaselineTimestampSec": 4.9,
+      "correctedBaselineTimestampSec": 4.866666666666666,
+      "seekedDecoderPtsMs": 4866.666666666666,
+      "oldResumeTimestampSec": 4.866666666666666,
+      "correctedResumeTimestampSec": 4.866666666666666
+    },
+    {
+      "sourceFrame": 148,
+      "decoderPtsMs": 4900.0,
+      "oldBaselineTimestampSec": 4.933333333333334,
+      "correctedBaselineTimestampSec": 4.9,
+      "seekedDecoderPtsMs": 4900.0,
+      "oldResumeTimestampSec": 4.9,
+      "correctedResumeTimestampSec": 4.9
+    },
+    {
+      "sourceFrame": 149,
+      "decoderPtsMs": 4933.333333333334,
+      "oldBaselineTimestampSec": 4.966666666666667,
+      "correctedBaselineTimestampSec": 4.933333333333334,
+      "seekedDecoderPtsMs": 4933.333333333334,
+      "oldResumeTimestampSec": 4.933333333333334,
+      "correctedResumeTimestampSec": 4.933333333333334
+    },
+    {
+      "sourceFrame": 150,
+      "decoderPtsMs": 4966.666666666667,
+      "oldBaselineTimestampSec": 5.0,
+      "correctedBaselineTimestampSec": 4.966666666666667,
+      "seekedDecoderPtsMs": 4966.666666666667,
+      "oldResumeTimestampSec": 4.966666666666667,
+      "correctedResumeTimestampSec": 4.966666666666667
+    }
+  ],
+  "correctedAlignmentAllSamples": true,
+  "oldMaximumDifferenceSec": 0.0333333333333341,
+  "oldSmokeReport": "smoke-v2/report.json",
+  "scope": "Timestamp correctness only; no tracking accuracy claim"
+}

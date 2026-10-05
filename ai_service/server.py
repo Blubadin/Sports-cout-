@@ -154,11 +154,13 @@ def _positive_finite(value):
 
 
 def _video_frame_timestamp(frame_index: int, fps: float, pos_msec, previous_timestamp: float | None = None) -> float:
-    reported_msec = _positive_finite(pos_msec)
+    # Decoder PTS zero is a valid first-frame time. Rejecting it shifts an
+    # uninterrupted run by one frame, while a seeked resume uses the real PTS.
+    reported_msec = float(pos_msec) if isinstance(pos_msec, (int, float)) and math.isfinite(pos_msec) and pos_msec >= 0 else None
     timestamp = reported_msec / 1000.0 if reported_msec is not None else None
-    if timestamp is None or (previous_timestamp is not None and timestamp <= previous_timestamp):
-        timestamp = frame_index / fps
-        if previous_timestamp is not None and timestamp <= previous_timestamp:
+    if timestamp is None or (previous_timestamp is not None and timestamp <= previous_timestamp + 1e-9):
+        timestamp = (frame_index - 1) / fps  # Decoder position is one-based after read().
+        if previous_timestamp is not None and timestamp <= previous_timestamp + 1e-9:
             timestamp = previous_timestamp + (1.0 / fps)
     return timestamp
 

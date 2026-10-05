@@ -1,0 +1,131 @@
+{
+  "scope": "Wire contracts and measured output availability only; no human GT accuracy",
+  "protocolSha256": "6b0abcaf5aa82839a064c1253408751a5f2625da2849cc7c9cbdd79fa08b7ce9",
+  "verifierSha256": "f642ec6ae3556bf073579dddf8643e7be0c1d3076dffd8580d4a7d1e5a371ca2",
+  "checkedAtUnix": 1791197408.7501256,
+  "runs": [
+    {
+      "id": "baseline",
+      "status": "PASS",
+      "violations": {
+        "heatmapWithoutMetricOrWriteGate": 0,
+        "hitReadinessWithoutShuttleObservation": 0,
+        "invalidCalibrationMetricLeak": 0,
+        "unknownPoseUnits": 0,
+        "invalidFeetPixelBounds": 0,
+        "feetPixelPercentConversionMismatch": 0,
+        "unknownTransitionGateLeak": 0
+      },
+      "counts": {
+        "frames": 9000,
+        "isMetricValid": 0,
+        "canUseCourtMetric": 0,
+        "canBuildHeatmap": 0,
+        "canEstimateHit": 0,
+        "allowCanonicalWrites": 0,
+        "invalidCalibrationFrames": 9000,
+        "playerSlots": 36000,
+        "observedPlayers": 12683,
+        "courtPositions": 0,
+        "feetPixelMeasurements": 10361,
+        "shuttleObservationRows": 0
+      },
+      "sceneCounts": {
+        "COURT_IDLE": 8736,
+        "CAMERA_TRANSITION": 69,
+        "CLOSE_UP": 195
+      },
+      "playerStateCounts": {
+        "observed": 12683,
+        "lost": 23317
+      },
+      "groundSourceCounts": {
+        "pose_both_ankles": 5067,
+        "bbox_bottom_center": 7389,
+        "pose_right_ankle": 56,
+        "pose_left_ankle": 171,
+        "null": 23317
+      },
+      "effectiveDeviceCounts": {
+        "cuda": 9000
+      },
+      "contractCheckCoverage": {
+        "replayFrames": 0,
+        "unknownTransitionFrames": 69,
+        "invalidCalibrationFrames": 9000,
+        "feetConversionSamples": 10361
+      },
+      "validityCoverage": {
+        "courtMetricAvailableFrameFraction": 0.0,
+        "observedPlayerSlotFraction": 0.35230555555555554,
+        "courtPositionAvailableSlotFraction": 0.0,
+        "shuttleMeasurementFraction": null,
+        "shuttleUnavailableReason": "Provider disabled: missing pinned model artifact"
+      },
+      "gtAccuracyStatus": "NOT VALIDATED",
+      "manualCorrectionPersistence": "NOT VALIDATED"
+    },
+    {
+      "id": "cancel_restart",
+      "status": "PASS",
+      "violations": {
+        "heatmapWithoutMetricOrWriteGate": 0,
+        "hitReadinessWithoutShuttleObservation": 0,
+        "invalidCalibrationMetricLeak": 0,
+        "unknownPoseUnits": 0,
+        "invalidFeetPixelBounds": 0,
+        "feetPixelPercentConversionMismatch": 0,
+        "unknownTransitionGateLeak": 0
+      },
+      "counts": {
+        "frames": 9000,
+        "isMetricValid": 0,
+        "canUseCourtMetric": 0,
+        "canBuildHeatmap": 0,
+        "canEstimateHit": 0,
+        "allowCanonicalWrites": 0,
+        "invalidCalibrationFrames": 9000,
+        "playerSlots": 36000,
+        "observedPlayers": 9749,
+        "courtPositions": 0,
+        "feetPixelMeasurements": 9241,
+        "shuttleObservationRows": 0
+      },
+      "sceneCounts": {
+        "COURT_IDLE": 8736,
+        "CAMERA_TRANSITION": 69,
+        "CLOSE_UP": 195
+      },
+      "playerStateCounts": {
+        "observed": 9749,
+        "lost": 26251
+      },
+      "groundSourceCounts": {
+        "pose_both_ankles": 4526,
+        "bbox_bottom_center": 5034,
+        "pose_right_ankle": 42,
+        "pose_left_ankle": 147,
+        "null": 26251
+      },
+      "effectiveDeviceCounts": {
+        "cuda": 9000
+      },
+      "contractCheckCoverage": {
+        "replayFrames": 0,
+        "unknownTransitionFrames": 69,
+        "invalidCalibrationFrames": 9000,
+        "feetConversionSamples": 9241
+      },
+      "validityCoverage": {
+        "courtMetricAvailableFrameFraction": 0.0,
+        "observedPlayerSlotFraction": 0.2708055555555556,
+        "courtPositionAvailableSlotFraction": 0.0,
+        "shuttleMeasurementFraction": null,
+        "shuttleUnavailableReason": "Provider disabled: missing pinned model artifact"
+      },
+      "gtAccuracyStatus": "NOT VALIDATED",
+      "manualCorrectionPersistence": "NOT VALIDATED"
+    }
+  ],
+  "serializationRoundingPolicy": "Feet pixels round to 0.1 px and percent to 0.01 percentage points independently; conversion bound = 0.005 + 0.05*100/dimension + 1e-9. Schema rounding allowance, not a quality threshold."
+}
