@@ -22,8 +22,8 @@ import { buildVolleyballPyramidSummary } from '../volleyball/volleyballPyramid';
 import VolleyballPyramidPanel from './VolleyballPyramidPanel';
 import FullCoachReport from './report/FullCoachReport';
 import {
-  listTrackingAnalyses,
-  getTrackingSampleChunks,
+  getLatestTrackingAnalysisForProject,
+  getTrackingSampleChunkPage,
   type TrackingAnalysis,
   type TrackingSampleChunk,
 } from '../services/storage/trackingStorage';
@@ -40,16 +40,21 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
   const [analyticsView, setAnalyticsView] = useState<'events' | 'movement'>('events');
   const [trackingAnalysis, setTrackingAnalysis] = useState<TrackingAnalysis | null>(null);
   const [trackingChunks, setTrackingChunks] = useState<TrackingSampleChunk[]>([]);
+  const [trackingChunksHaveMore, setTrackingChunksHaveMore] = useState(false);
 
   React.useEffect(() => {
     if (!activeProjectId) return;
-    listTrackingAnalyses(activeProjectId).then(async (analyses) => {
-      if (analyses.length > 0) {
-        const latest = analyses[analyses.length - 1];
+    getLatestTrackingAnalysisForProject(activeProjectId).then(async (latest) => {
+      if (latest) {
         setTrackingAnalysis(latest);
-        const chunks = await getTrackingSampleChunks(latest.id);
-        setTrackingChunks(chunks);
+        const page = await getTrackingSampleChunkPage(latest.id);
+        setTrackingChunks(page.chunks);
+        setTrackingChunksHaveMore(page.hasMore);
       }
+    }).catch(() => {
+      setTrackingAnalysis(null);
+      setTrackingChunks([]);
+      setTrackingChunksHaveMore(false);
     });
   }, [activeProjectId]);
 
@@ -827,6 +832,8 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
             <BadmintonMovementDashboard
               analysis={trackingAnalysis}
               chunks={trackingChunks}
+              hasMoreChunks={trackingChunksHaveMore}
+              language={settings.uiLanguage === 'th' ? 'th' : 'en'}
               onSeekTime={setSeekRequest}
             />
           </div>

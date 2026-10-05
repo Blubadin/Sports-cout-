@@ -30,6 +30,11 @@ try:
         Phase3BenchmarkReport,
         validate_split_leakage,
         partition_clips_by_group,
+        SCENARIO_BUCKETS,
+        GT_VISIBILITY_STATES,
+        BENCHMARK_SPLITS,
+        Phase3QualityThresholds,
+        ScenarioBenchmarkMetrics,
     )
 except ImportError:
     from benchmark_schema import (
@@ -43,23 +48,40 @@ except ImportError:
         Phase3BenchmarkReport,
         validate_split_leakage,
         partition_clips_by_group,
+        SCENARIO_BUCKETS,
+        GT_VISIBILITY_STATES,
+        BENCHMARK_SPLITS,
+        Phase3QualityThresholds,
+        ScenarioBenchmarkMetrics,
     )
 
 
-def sanitize_path_reference(path_or_str: Any) -> Optional[str]:
-    """
-    Strips sensitive local absolute paths (e.g. C:\\Users\\... or /home/...)
-    preserving only relative logical model references or file basenames.
-    """
-    if path_or_str is None:
-        return None
-    raw = str(path_or_str).strip()
-    if not raw:
-        return None
-    # If absolute Windows or Unix path, keep only logical basename or relative path
-    if re.match(r"^[a-zA-Z]:[\\/]", raw) or raw.startswith("/") or "\\Users\\" in raw or "/home/" in raw:
-        return Path(raw).name
-    return raw
+try:
+    from .path_utils import sanitize_path_reference
+except ImportError:
+    try:
+        from path_utils import sanitize_path_reference
+    except ImportError:
+        def sanitize_path_reference(path_or_str: Any) -> Optional[str]:
+            if path_or_str is None or isinstance(path_or_str, (bool, dict, list, set, tuple)):
+                return None
+            raw = str(path_or_str).strip()
+            if not raw:
+                return None
+            normalized = raw.replace("\\", "/")
+            if normalized.startswith("//") or re.match(r"^[a-zA-Z]:", normalized) or normalized.startswith("/"):
+                parts = [p for p in normalized.split("/") if p]
+                return parts[-1] if parts else None
+            lower_norm = normalized.lower()
+            if "/home/" in lower_norm or "/users/" in lower_norm:
+                parts = [p for p in normalized.split("/") if p]
+                return parts[-1] if parts else None
+            segments = [s for s in normalized.split("/") if s and s != "."]
+            if any(s == ".." for s in segments):
+                valid_segments = [s for s in segments if s != ".."]
+                return valid_segments[-1] if valid_segments else None
+            return "/".join(segments) if segments else None
+
 
 
 def _percentile(values: Sequence[float], q: float) -> Optional[float]:
@@ -519,6 +541,118 @@ def evaluate_identity(
     )
 
 
+def evaluate_scenario_breakdown(
+    clip: BenchmarkClipEntry,
+    cut_metrics: CameraCutBenchmarkMetrics,
+    cal_metrics: CalibrationBenchmarkMetrics,
+    ground_metrics: GroundPositionBenchmarkMetrics,
+    id_metrics: TrackingIdentityBenchmarkMetrics,
+    thresholds: Phase3QualityThresholds,
+) -> tuple[dict[str, ScenarioBenchmarkMetrics], list[str]]:
+    """
+    Evaluates scenario-specific quality metrics against frozen baseline thresholds.
+    Ensures missing human GT triggers an explicit annotation manifest blocker,
+    and aggregate scores cannot mask individual bucket failures.
+    """
+    by_scenario: dict[str, ScenarioBenchmarkMetrics] = {}
+    blockers: list[str] = []
+
+    buckets_to_evaluate = list(clip.scenario_buckets)
+    if not buckets_to_evaluate:
+        # Fallback to clip difficulty tags or default rear_court if none specified
+        for tag in clip.difficulty_tags:
+            if tag in SCENARIO_BUCKETS and tag not in buckets_to_evaluate:
+                buckets_to_evaluate.append(tag)
+        if not buckets_to_evaluate:
+            buckets_to_evaluate.append("rear_court")
+
+    has_human_gt = (
+        clip.ground_truth_available
+        or clip.calibration_ground_truth_available
+        or clip.player_identity_ground_truth_available
+        or clip.ground_position_ground_truth_available
+        or clip.camera_cut_ground_truth_available
+    )
+
+    if not has_human_gt:
+        blockers.append(
+            f"Clip '{clip.id}' missing human ground truth annotations (blocked from baseline certification)"
+        )
+
+    for bucket in buckets_to_evaluate:
+        failures: list[str] = []
+        bucket_has_gt = has_human_gt
+        sample_count = 1
+
+        # Check relevant metric domain based on bucket nature
+        if bucket in ("camera_cut", "replay", "pan_zoom", "close_up", "return_to_court"):
+            if cut_metrics.status == "MEASURED":
+                if cut_metrics.f1 is not None and cut_metrics.f1 < thresholds.min_camera_cut_f1:
+                    failures.append(f"Camera Cut F1 {cut_metrics.f1:.3f} < threshold {thresholds.min_camera_cut_f1}")
+                if cut_metrics.mean_detection_latency_sec is not None and cut_metrics.mean_detection_latency_sec > thresholds.max_camera_cut_latency_sec:
+                    failures.append(f"Cut latency {cut_metrics.mean_detection_latency_sec:.3f}s > threshold {thresholds.max_camera_cut_latency_sec}s")
+            elif cut_metrics.status == "FAILED_VALIDATION":
+                failures.append("Camera cut validation failed")
+            else:
+                bucket_has_gt = False
+
+        if bucket in ("rear_court", "rear_low", "side_low_angle", "bright_lights_background"):
+            if cal_metrics.status == "MEASURED":
+                if cal_metrics.reprojection_error_px_mean is not None and cal_metrics.reprojection_error_px_mean > thresholds.max_reprojection_error_px:
+                    failures.append(f"Reprojection error {cal_metrics.reprojection_error_px_mean:.2f}px > threshold {thresholds.max_reprojection_error_px}px")
+                if cal_metrics.false_valid_calibration_count is not None and cal_metrics.false_valid_calibration_count > thresholds.max_false_valid_calibration_count:
+                    failures.append(f"False valid calibration count {cal_metrics.false_valid_calibration_count} > threshold {thresholds.max_false_valid_calibration_count}")
+                if cal_metrics.relock_latency_sec is not None and cal_metrics.relock_latency_sec > thresholds.max_relock_latency_sec:
+                    failures.append(f"Relock latency {cal_metrics.relock_latency_sec:.2f}s > threshold {thresholds.max_relock_latency_sec}s")
+            elif cal_metrics.status == "FAILED_VALIDATION":
+                failures.append("Calibration validation failed")
+            else:
+                bucket_has_gt = False
+
+            if ground_metrics.status == "MEASURED":
+                if ground_metrics.court_position_error_m_mean is not None and ground_metrics.court_position_error_m_mean > thresholds.max_court_position_error_m:
+                    failures.append(f"Court position error {ground_metrics.court_position_error_m_mean:.3f}m > threshold {thresholds.max_court_position_error_m}m")
+            elif ground_metrics.status == "FAILED_VALIDATION":
+                failures.append("Ground position validation failed")
+
+        if bucket in ("doubles_crossing", "spectator_official", "player_outside_court", "lost_reacquisition"):
+            if id_metrics.status == "MEASURED":
+                if id_metrics.id_switches_per_10_min is not None and id_metrics.id_switches_per_10_min > thresholds.max_id_switches_per_10_min:
+                    failures.append(f"ID switches / 10m {id_metrics.id_switches_per_10_min:.2f} > threshold {thresholds.max_id_switches_per_10_min}")
+            elif id_metrics.status == "FAILED_VALIDATION":
+                failures.append("Tracking identity validation failed")
+            else:
+                bucket_has_gt = False
+
+        is_blocker = not bucket_has_gt
+        if is_blocker:
+            failures.append(f"Missing human ground truth annotation for scenario '{bucket}'")
+            passed = False
+        else:
+            passed = len(failures) == 0
+
+        by_scenario[bucket] = ScenarioBenchmarkMetrics(
+            bucket=bucket,
+            sample_count=sample_count,
+            coverage_pct=ground_metrics.coverage_pct if ground_metrics.status == "MEASURED" else None,
+            reprojection_error_px_mean=cal_metrics.reprojection_error_px_mean if cal_metrics.status == "MEASURED" else None,
+            court_position_error_m_mean=ground_metrics.court_position_error_m_mean if ground_metrics.status == "MEASURED" else None,
+            id_switches_per_10_min=id_metrics.id_switches_per_10_min if id_metrics.status == "MEASURED" else None,
+            false_valid_calibration_count=cal_metrics.false_valid_calibration_count if cal_metrics.status == "MEASURED" else None,
+            cut_latency_sec=cut_metrics.mean_detection_latency_sec if cut_metrics.status == "MEASURED" else None,
+            relock_latency_sec=cal_metrics.relock_latency_sec if cal_metrics.status == "MEASURED" else None,
+            shuttle_precision=None,
+            shuttle_recall=None,
+            reacquisition_duration_sec=None,
+            passed_thresholds=passed,
+            failure_reasons=failures,
+            human_gt_available=bucket_has_gt,
+            annotation_blocker=is_blocker,
+        )
+
+    return by_scenario, blockers
+
+
 def evaluate_phase3_benchmark(
     clip: BenchmarkClipEntry,
     engine_version: str = "1.0.0",
@@ -538,11 +672,14 @@ def evaluate_phase3_benchmark(
     predicted_positions: Optional[Sequence[Dict[str, Any]]] = None,
     ground_truth_tracks: Optional[Sequence[Dict[str, Any]]] = None,
     predicted_tracks: Optional[Sequence[Dict[str, Any]]] = None,
+    thresholds: Optional[Phase3QualityThresholds] = None,
 ) -> Phase3BenchmarkReport:
     """
     Evaluates complete Phase 3 benchmark suite against ground truth, enforcing
-    safe reporting invariants and path sanitization.
+    safe reporting invariants, per-scenario breakdown, path sanitization, and frozen thresholds.
     """
+    effective_thresholds = thresholds or Phase3QualityThresholds()
+
     prov = Phase3BenchmarkProvenance(
         manifest_version=1,
         dataset_id=clip.recording_group or clip.venue_id or "default_dataset",
@@ -563,10 +700,28 @@ def evaluate_phase3_benchmark(
     ground_metrics = evaluate_ground_position(ground_truth_positions, predicted_positions)
     id_metrics = evaluate_identity(ground_truth_tracks, predicted_tracks, duration_sec=clip.duration_sec)
 
+    by_scenario, blockers = evaluate_scenario_breakdown(
+        clip=clip,
+        cut_metrics=cut_metrics,
+        cal_metrics=cal_metrics,
+        ground_metrics=ground_metrics,
+        id_metrics=id_metrics,
+        thresholds=effective_thresholds,
+    )
+
+    statuses = [cut_metrics.status, cal_metrics.status, ground_metrics.status, id_metrics.status]
+    has_validation_failure = any(s == "FAILED_VALIDATION" for s in statuses)
+    all_scenarios_passed = len(by_scenario) > 0 and all(sm.passed_thresholds is True for sm in by_scenario.values())
+    overall_passed = (len(blockers) == 0) and (not has_validation_failure) and all_scenarios_passed
+
     return Phase3BenchmarkReport(
         provenance=prov,
         camera_cuts=cut_metrics,
         calibration=cal_metrics,
         ground_position=ground_metrics,
         identity=id_metrics,
+        by_scenario=by_scenario,
+        annotation_manifest_blockers=blockers,
+        overall_passed=overall_passed,
+        thresholds=effective_thresholds,
     )

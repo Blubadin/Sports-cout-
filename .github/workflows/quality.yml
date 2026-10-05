@@ -2,7 +2,7 @@ name: Quality
 
 on:
   push:
-    branches: [main]
+    branches: [main, refactor/*, feat/*, fix/*]
   pull_request:
 
 permissions:
@@ -10,11 +10,30 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'ai_service/requirements.txt'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ai_service/requirements.txt
+
+      - name: Run Python unit and contract checks
+        run: |
+          python -m unittest discover -s ai_service/tests -p "test_*.py"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -25,10 +44,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type check
-        run: npm run lint
+      - name: TypeScript Typecheck
+        run: npm run typecheck
 
-      - name: Run tests
+      - name: Run frontend tests
         run: npm test
 
       - name: Validate PWA icons
@@ -38,7 +57,7 @@ jobs:
         run: npm run build
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Run browser acceptance
         run: npm run test:e2e

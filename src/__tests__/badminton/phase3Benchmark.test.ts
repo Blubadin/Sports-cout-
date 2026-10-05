@@ -4,8 +4,10 @@ import {
   evaluateCameraCuts,
   formatPhase3ReportSummary,
   partitionClipsByGroup,
+  sanitizePathReference,
   validateSplitLeakage,
 } from '../../utils/phase3Benchmark';
+
 
 describe('Phase 3.4 Court, Position & Identity Benchmark Quality Gates', () => {
   const makeClip = (id: string, overrides: Partial<BenchmarkClipEntry> = {}): BenchmarkClipEntry => ({
@@ -164,4 +166,114 @@ describe('Phase 3.4 Court, Position & Identity Benchmark Quality Gates', () => {
       expect(summary).not.toContain('[Calibration] Reprojection Err Mean: 0');
     });
   });
+
+  describe('Path Reference Sanitization', () => {
+    it('sanitizes Windows drive paths, UNC paths, Unix paths, and parent traversals', () => {
+      expect(sanitizePathReference('C:\\Users\\SecretUser\\models\\custom_yolo.engine')).toBe('custom_yolo.engine');
+      expect(sanitizePathReference('D:/datasets/badminton/videos/B01.mp4')).toBe('B01.mp4');
+      expect(sanitizePathReference('\\\\server\\share\\videos\\match.mp4')).toBe('match.mp4');
+      expect(sanitizePathReference('//nas.local/datasets/clip.mp4')).toBe('clip.mp4');
+      expect(sanitizePathReference('/home/runner/work/SportsScout/models/weights.pt')).toBe('weights.pt');
+      expect(sanitizePathReference('C:\\Users/admin\\test/foo.pt')).toBe('foo.pt');
+      expect(sanitizePathReference('../../secret/passwords.txt')).toBe('passwords.txt');
+      expect(sanitizePathReference('..\\..\\model.pt')).toBe('model.pt');
+      expect(sanitizePathReference('videos/B01_singles_center.mp4')).toBe('videos/B01_singles_center.mp4');
+      expect(sanitizePathReference('C:\\Users\\ผู้ฝึกสอน\\Videos\\แบดมินตัน.mp4')).toBe('แบดมินตัน.mp4');
+      expect(sanitizePathReference(null)).toBeNull();
+      expect(sanitizePathReference('')).toBeNull();
+      expect(sanitizePathReference('   ')).toBeNull();
+      expect(sanitizePathReference(123)).toBeNull();
+    });
+
+    it('sanitizes detector and tracker model references in report summary', () => {
+      const report: Phase3BenchmarkReport = {
+        provenance: {
+          clipId: 'test_clip',
+          datasetId: 'badminton_dvc',
+          manifestVersion: 1,
+          engineVersion: '1.0.0',
+          detectorModel: 'C:\\Users\\PrivateDev\\weights\\custom_yolo.pt',
+          trackerModel: '/opt/models/bytetrack.yaml',
+        },
+        cameraCuts: { status: 'UNAVAILABLE' },
+        calibration: { status: 'UNAVAILABLE' },
+        groundPosition: { status: 'UNAVAILABLE' },
+        identity: {
+          status: 'UNAVAILABLE',
+          hotaStatus: 'UNAVAILABLE',
+          hotaReason: 'No ground truth',
+          hota: null,
+        },
+      };
+
+      const summary = formatPhase3ReportSummary(report);
+      expect(summary).toContain('Detector: custom_yolo.pt');
+      expect(summary).toContain('Tracker: bytetrack.yaml');
+      expect(summary).not.toContain('PrivateDev');
+      expect(summary).not.toContain('/opt/models');
+    });
+
+    it('detects matchId leakage across splits', () => {
+      const c1 = makeClip('c1', { matchId: 'olympics_match_01' });
+      const c2 = makeClip('c2', { matchId: 'olympics_match_01' });
+
+      const splits = { train: [c1], val: [c2] };
+      const { valid, errors } = validateSplitLeakage(splits);
+      expect(valid).toBe(false);
+      expect(errors[0]).toContain("matchId='olympics_match_01'");
+    });
+
+    it('formats scenario breakdown and annotation blockers in report summary', () => {
+      const report: Phase3BenchmarkReport = {
+        provenance: {
+          clipId: 'test_clip',
+          datasetId: 'badminton_dvc',
+          manifestVersion: 1,
+          engineVersion: '1.0.0',
+        },
+        cameraCuts: { status: 'UNAVAILABLE' },
+        calibration: { status: 'UNAVAILABLE' },
+        groundPosition: { status: 'UNAVAILABLE' },
+        identity: {
+          status: 'UNAVAILABLE',
+          hotaStatus: 'UNAVAILABLE',
+          hotaReason: 'No ground truth',
+          hota: null,
+        },
+        byScenario: {
+          rear_court: {
+            bucket: 'rear_court',
+            sampleCount: 10,
+            passedThresholds: true,
+            failureReasons: [],
+            humanGtAvailable: true,
+            annotationBlocker: false,
+          },
+          doubles_crossing: {
+            bucket: 'doubles_crossing',
+            sampleCount: 3,
+            passedThresholds: false,
+            failureReasons: ['ID switches / 10m 4.5 > threshold 2.0'],
+            humanGtAvailable: true,
+            annotationBlocker: false,
+          },
+        },
+        annotationManifestBlockers: [
+          "Clip 'test_clip' missing human ground truth annotations",
+        ],
+        overallPassed: false,
+      };
+
+      const summary = formatPhase3ReportSummary(report);
+      expect(summary).toContain('Overall Status: FAILED / BLOCKED');
+      expect(summary).toContain('--- SCENARIO BREAKDOWN ---');
+      expect(summary).toContain('[rear_court] Status: PASSED');
+      expect(summary).toContain('[doubles_crossing] Status: FAILED');
+      expect(summary).toContain('ID switches / 10m 4.5 > threshold 2.0');
+      expect(summary).toContain('--- ANNOTATION MANIFEST BLOCKERS ---');
+      expect(summary).toContain("[BLOCKER] Clip 'test_clip' missing human ground truth annotations");
+    });
+  });
 });
+
+

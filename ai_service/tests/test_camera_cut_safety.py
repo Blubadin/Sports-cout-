@@ -128,9 +128,12 @@ class TestCutCalibrationSafety(unittest.TestCase):
         self.assertIsNone(self.analyzer.mapper.H_inv)
         self.assertEqual(self.analyzer.calibration_context.history[-1].calibration_id, old_calibration)
         player = lost["players"][0]
-        self.assertEqual(player["trackId"], 42)
-        self.assertIsNotNone(player["bboxPct"])
-        self.assertIsNotNone(player["pose"])
+        self.assertIsNone(player["trackId"])
+        self.assertIsNone(player["bboxPct"])
+        self.assertIsNone(player.get("pose"))
+        raw_detection = next(d for d in lost["rawPlayerDetections"] if d["trackId"] == 42)
+        self.assertEqual(raw_detection["bboxPx"], [self.feet_x - 20, 150, self.feet_x + 20, 260])
+        self.assertIsNotNone(raw_detection["pose"])
         self.assertIsNone(player["courtPosition"])
         self.assertIsNone(player["speedMps"])
         self.assertIsNone(player["absoluteZone"])
@@ -144,19 +147,31 @@ class TestCutCalibrationSafety(unittest.TestCase):
             self.assertEqual(later["cameraSegmentId"], "segment-1")
 
     def test_manual_recalibration_creates_new_identity_without_distance_bridge(self):
+        # Calibration recovery is independent of sports identity recovery.
+        # Give the returning person matching torso evidence in both views.
+        def person_frame(background):
+            image = background.copy()
+            image[150:260, self.feet_x - 20:self.feet_x + 20] = (20, 20, 210)
+            return image
+        new_view = replay_frame()
+        # Keep actual court edge evidence in the recovered view; an unrelated
+        # replay/background cannot validate a court homography over time.
+        cv2.polylines(new_view, [np.array(self.corners, dtype=np.int32)], True, (230, 230, 230), 3)
         self.analyzer.set_court_corners(self.corners)
-        first = self.analyzer.process_frame(court_frame(), timestamp_sec=0.0)
+        first = self.analyzer.process_frame(person_frame(court_frame()), timestamp_sec=0.0)
         self.feet_x = 200
-        moved = self.analyzer.process_frame(court_frame(), timestamp_sec=1.0)
+        moved = self.analyzer.process_frame(person_frame(court_frame()), timestamp_sec=1.0)
         previous_distance = moved["players"][0]["totalDistanceM"]
         self.assertGreater(previous_distance, 0)
 
-        self.analyzer.process_frame(replay_frame(), timestamp_sec=2.0)
-        lost = self.analyzer.process_frame(replay_frame(), timestamp_sec=3.0)
+        self.analyzer.process_frame(person_frame(new_view), timestamp_sec=2.0)
+        lost = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=3.0)
         self.assertEqual(lost["players"][0]["totalDistanceM"], previous_distance)
         self.feet_x = 470
         self.analyzer.set_court_corners(self.corners)
-        restored = self.analyzer.process_frame(replay_frame(), timestamp_sec=4.0)
+        pending = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=4.0)
+        self.assertIsNone(pending["players"][0]["courtPosition"])
+        restored = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=5.0)
         self.assertEqual(restored["calibrationState"], "CALIBRATED")
         self.assertEqual(restored["cameraSegmentId"], lost["cameraSegmentId"])
         self.assertNotEqual(restored["calibrationId"], first["calibrationId"])
@@ -224,6 +239,7 @@ class TestCutCalibrationSafety(unittest.TestCase):
             session.analyzer.set_court_corners(self.corners)
             session.analyzer.start_camera_segment()
             session.status = "PROCESSING"
+            session.analyzer.frame_count = 1
             session.results.append({
                 "frameIndex": 1, "timestampSec": 0.1,
                 "cameraSegmentId": "segment-1", "calibrationState": "CALIBRATION_LOST",
@@ -269,6 +285,7 @@ class TestCutCalibrationSafety(unittest.TestCase):
             session.analyzer.start_camera_segment()
             session.analyzer.calibration_context.begin_recalibration()
             session.status = "PROCESSING"
+            session.analyzer.frame_count = 8
             session.results.append({
                 "frameIndex": 7, "timestampSec": 0.233,
                 "cameraSegmentId": "segment-0", "calibrationState": "CALIBRATED",
@@ -293,6 +310,15 @@ class TestCutCalibrationSafety(unittest.TestCase):
             self.assertEqual(wrong_time.status_code, 409)
             self.assertEqual(session.analyzer.calibration_context.state.value, "RECALIBRATING")
 
+            conflicting = client.post(endpoint, json={**request, "frame_index": 7})
+            self.assertEqual(conflicting.status_code, 400)
+            self.assertEqual(session.analyzer.calibration_context.state.value, "RECALIBRATING")
+            # The branch's options-object request format obeys the same selected-view guard.
+            wrong_alias = client.post(endpoint, json={
+                "corners": self.corners, "game_type": "singles", "camera_segment_id": "segment-1",
+                "frame_index": 7, "timestamp_sec": 0.233,
+            })
+            self.assertEqual(wrong_alias.status_code, 409)
             response = client.post(endpoint, json=request)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["calibrationState"], "CALIBRATED")

@@ -715,6 +715,145 @@ class BenchmarkDifficultSegment:
         )
 
 
+# ============================================================================
+# Phase 3 Scenario Buckets, Ground Truth Visibility, and Quality Thresholds
+# ============================================================================
+
+SCENARIO_BUCKETS: tuple[str, ...] = (
+    "rear_court",
+    "rear_low",
+    "side_low_angle",
+    "camera_cut",
+    "pan_zoom",
+    "close_up",
+    "replay",
+    "return_to_court",
+    "spectator_official",
+    "player_outside_court",
+    "doubles_crossing",
+    "bright_lights_background",
+    "shuttle_false_positives",
+    "lost_reacquisition",
+)
+
+GT_VISIBILITY_STATES: tuple[str, ...] = (
+    "visible",
+    "absent",
+    "occluded",
+    "unknown",
+)
+
+BENCHMARK_SPLITS: tuple[str, ...] = (
+    "development",
+    "holdout",
+    "blind_test",
+)
+
+
+@dataclass(frozen=True)
+class Phase3QualityThresholds:
+    max_reprojection_error_px: float = 12.0
+    max_court_position_error_m: float = 0.35
+    min_camera_cut_f1: float = 0.90
+    max_camera_cut_latency_sec: float = 0.50
+    max_relock_latency_sec: float = 1.00
+    max_false_valid_calibration_count: int = 0
+    max_id_switches_per_10_min: float = 2.0
+    min_shuttle_precision: float = 0.85
+    min_shuttle_recall: float = 0.85
+    max_reacquisition_duration_sec: float = 1.50
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "maxReprojectionErrorPx": self.max_reprojection_error_px,
+            "maxCourtPositionErrorM": self.max_court_position_error_m,
+            "minCameraCutF1": self.min_camera_cut_f1,
+            "maxCameraCutLatencySec": self.max_camera_cut_latency_sec,
+            "maxRelockLatencySec": self.max_relock_latency_sec,
+            "maxFalseValidCalibrationCount": self.max_false_valid_calibration_count,
+            "maxIdSwitchesPer10Min": self.max_id_switches_per_10_min,
+            "minShuttlePrecision": self.min_shuttle_precision,
+            "minShuttleRecall": self.min_shuttle_recall,
+            "maxReacquisitionDurationSec": self.max_reacquisition_duration_sec,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Phase3QualityThresholds:
+        return cls(
+            max_reprojection_error_px=_optional_float(data.get("maxReprojectionErrorPx")) or 12.0,
+            max_court_position_error_m=_optional_float(data.get("maxCourtPositionErrorM")) or 0.35,
+            min_camera_cut_f1=_optional_float(data.get("minCameraCutF1")) or 0.90,
+            max_camera_cut_latency_sec=_optional_float(data.get("maxCameraCutLatencySec")) or 0.50,
+            max_relock_latency_sec=_optional_float(data.get("maxRelockLatencySec")) or 1.00,
+            max_false_valid_calibration_count=_optional_int(data.get("maxFalseValidCalibrationCount")) or 0,
+            max_id_switches_per_10_min=_optional_float(data.get("maxIdSwitchesPer10Min")) or 2.0,
+            min_shuttle_precision=_optional_float(data.get("minShuttlePrecision")) or 0.85,
+            min_shuttle_recall=_optional_float(data.get("minShuttleRecall")) or 0.85,
+            max_reacquisition_duration_sec=_optional_float(data.get("maxReacquisitionDurationSec")) or 1.50,
+        )
+
+
+@dataclass
+class ScenarioBenchmarkMetrics:
+    bucket: str
+    sample_count: int = 0
+    coverage_pct: Optional[float] = None
+    reprojection_error_px_mean: Optional[float] = None
+    court_position_error_m_mean: Optional[float] = None
+    id_switches_per_10_min: Optional[float] = None
+    false_valid_calibration_count: Optional[int] = None
+    cut_latency_sec: Optional[float] = None
+    relock_latency_sec: Optional[float] = None
+    shuttle_precision: Optional[float] = None
+    shuttle_recall: Optional[float] = None
+    reacquisition_duration_sec: Optional[float] = None
+    passed_thresholds: Optional[bool] = None
+    failure_reasons: list[str] = field(default_factory=list)
+    human_gt_available: bool = False
+    annotation_blocker: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "bucket": self.bucket,
+            "sampleCount": self.sample_count,
+            "coveragePct": self.coverage_pct,
+            "reprojectionErrorPxMean": self.reprojection_error_px_mean,
+            "courtPositionErrorMMean": self.court_position_error_m_mean,
+            "idSwitchesPer10Min": self.id_switches_per_10_min,
+            "falseValidCalibrationCount": self.false_valid_calibration_count,
+            "cutLatencySec": self.cut_latency_sec,
+            "relockLatencySec": self.relock_latency_sec,
+            "shuttlePrecision": self.shuttle_precision,
+            "shuttleRecall": self.shuttle_recall,
+            "reacquisitionDurationSec": self.reacquisition_duration_sec,
+            "passedThresholds": self.passed_thresholds,
+            "failureReasons": list(self.failure_reasons),
+            "humanGtAvailable": self.human_gt_available,
+            "annotationBlocker": self.annotation_blocker,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ScenarioBenchmarkMetrics:
+        return cls(
+            bucket=data.get("bucket", "unknown"),
+            sample_count=_optional_int(data.get("sampleCount")) or 0,
+            coverage_pct=_optional_float(data.get("coveragePct")),
+            reprojection_error_px_mean=_optional_float(data.get("reprojectionErrorPxMean")),
+            court_position_error_m_mean=_optional_float(data.get("courtPositionErrorMMean")),
+            id_switches_per_10_min=_optional_float(data.get("idSwitchesPer10Min")),
+            false_valid_calibration_count=_optional_int(data.get("falseValidCalibrationCount")),
+            cut_latency_sec=_optional_float(data.get("cutLatencySec")),
+            relock_latency_sec=_optional_float(data.get("relockLatencySec")),
+            shuttle_precision=_optional_float(data.get("shuttlePrecision")),
+            shuttle_recall=_optional_float(data.get("shuttleRecall")),
+            reacquisition_duration_sec=_optional_float(data.get("reacquisitionDurationSec")),
+            passed_thresholds=data.get("passedThresholds") if isinstance(data.get("passedThresholds"), bool) else None,
+            failure_reasons=list(data.get("failureReasons", [])),
+            human_gt_available=data.get("humanGtAvailable") is True,
+            annotation_blocker=data.get("annotationBlocker") is True,
+        )
+
+
 @dataclass
 class BenchmarkClipEntry:
     id: str
@@ -725,6 +864,9 @@ class BenchmarkClipEntry:
     camera_type: str
     camera_motion: str
     difficulty_tags: list[str] = field(default_factory=list)
+    scenario_buckets: list[str] = field(default_factory=list)
+    split: Optional[str] = None  # 'development' | 'holdout' | 'blind_test'
+    match_id: Optional[str] = None
     ground_truth_available: bool = False
     video_reference: Optional[str] = None
     duration_sec: Optional[float] = None
@@ -761,6 +903,9 @@ class BenchmarkClipEntry:
             "cameraType": self.camera_type,
             "cameraMotion": self.camera_motion,
             "difficultyTags": list(self.difficulty_tags),
+            "scenarioBuckets": list(self.scenario_buckets),
+            "split": self.split,
+            "matchId": self.match_id,
             "courtCalibrationReference": self.court_calibration_reference,
             "groundTruthAvailable": self.ground_truth_available,
             "notes": self.notes,
@@ -787,6 +932,8 @@ class BenchmarkClipEntry:
             if isinstance(s, dict)
         ]
         tags = data.get("difficultyTags") if isinstance(data.get("difficultyTags"), list) else []
+        scenario_buckets_raw = data.get("scenarioBuckets") or data.get("scenario_buckets") or []
+        scenario_buckets = [str(b) for b in scenario_buckets_raw if isinstance(scenario_buckets_raw, list)]
         fps_val = _positive_float(data.get("fps")) or _positive_float(data.get("sourceFps"))
         segments_data = data.get("cameraSegments") if isinstance(data.get("cameraSegments"), list) else []
         return cls(
@@ -803,6 +950,9 @@ class BenchmarkClipEntry:
             camera_type=data.get("cameraType", "static_rear"),
             camera_motion=data.get("cameraMotion", "static"),
             difficulty_tags=[str(t) for t in tags],
+            scenario_buckets=scenario_buckets,
+            split=data.get("split"),
+            match_id=data.get("matchId") or data.get("match_id"),
             court_calibration_reference=data.get("courtCalibrationReference"),
             ground_truth_available=data.get("groundTruthAvailable") is True,
             notes=data.get("notes"),
@@ -974,7 +1124,7 @@ class VisionBenchmarkExperimentConfig:
 
 def validate_split_leakage(
     splits: dict[str, list[BenchmarkClipEntry]],
-    group_by: tuple[str, ...] = ("venueId", "cameraId", "recordingGroup", "sessionDate", "videoReference"),
+    group_by: tuple[str, ...] = ("matchId", "venueId", "cameraId", "recordingGroup", "sessionDate", "videoReference"),
 ) -> tuple[bool, list[str]]:
     """
     Validates that no source recording, session, or physical video reference leaks across splits.
@@ -1298,6 +1448,10 @@ class Phase3BenchmarkReport:
     calibration: CalibrationBenchmarkMetrics
     ground_position: GroundPositionBenchmarkMetrics
     identity: TrackingIdentityBenchmarkMetrics
+    by_scenario: dict[str, ScenarioBenchmarkMetrics] = field(default_factory=dict)
+    annotation_manifest_blockers: list[str] = field(default_factory=list)
+    overall_passed: bool = False
+    thresholds: Phase3QualityThresholds = field(default_factory=Phase3QualityThresholds)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1306,16 +1460,34 @@ class Phase3BenchmarkReport:
             "calibration": self.calibration.to_dict(),
             "groundPosition": self.ground_position.to_dict(),
             "identity": self.identity.to_dict(),
+            "byScenario": {k: v.to_dict() for k, v in self.by_scenario.items()},
+            "annotationManifestBlockers": list(self.annotation_manifest_blockers),
+            "overallPassed": self.overall_passed,
+            "thresholds": self.thresholds.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Phase3BenchmarkReport:
+        scenarios = {}
+        for k, v in data.get("byScenario", {}).items():
+            if isinstance(v, dict):
+                scenarios[k] = ScenarioBenchmarkMetrics.from_dict(v)
+        blockers = [str(b) for b in data.get("annotationManifestBlockers", [])]
+        thresholds = (
+            Phase3QualityThresholds.from_dict(data["thresholds"])
+            if "thresholds" in data and isinstance(data["thresholds"], dict)
+            else Phase3QualityThresholds()
+        )
         return cls(
             provenance=Phase3BenchmarkProvenance.from_dict(data.get("provenance", {})),
             camera_cuts=CameraCutBenchmarkMetrics.from_dict(data.get("cameraCuts", {})),
             calibration=CalibrationBenchmarkMetrics.from_dict(data.get("calibration", {})),
             ground_position=GroundPositionBenchmarkMetrics.from_dict(data.get("groundPosition", {})),
             identity=TrackingIdentityBenchmarkMetrics.from_dict(data.get("identity", {})),
+            by_scenario=scenarios,
+            annotation_manifest_blockers=blockers,
+            overall_passed=data.get("overallPassed") is True,
+            thresholds=thresholds,
         )
 
     def format_text_summary(self) -> str:
@@ -1323,6 +1495,7 @@ class Phase3BenchmarkReport:
             "=== PHASE 3.4 BENCHMARK REPORT ===",
             f"Clip ID: {self.provenance.clip_id} (Dataset: {self.provenance.dataset_id})",
             f"Engine: {self.provenance.engine_version} | Detector: {self.provenance.detector_model} | Tracker: {self.provenance.tracker_model}",
+            f"Overall Status: {'PASSED' if self.overall_passed else 'FAILED / BLOCKED'}",
             "",
             "--- MEASURED METRICS ---",
         ]
@@ -1378,5 +1551,21 @@ class Phase3BenchmarkReport:
                 lines.append(f"[{f_name}] FAILED VALIDATION")
         else:
             lines.append("(None)")
+
+        if self.by_scenario:
+            lines.append("")
+            lines.append("--- SCENARIO BREAKDOWN ---")
+            for bucket_name, sm in self.by_scenario.items():
+                status_str = "PASSED" if sm.passed_thresholds else ("FAILED" if sm.passed_thresholds is False else "UNMEASURED")
+                lines.append(f"[{bucket_name}] Status: {status_str} | Samples: {sm.sample_count} | GT: {'Yes' if sm.human_gt_available else 'MISSING'}")
+                if sm.failure_reasons:
+                    for r in sm.failure_reasons:
+                        lines.append(f"  - Failure: {r}")
+
+        if self.annotation_manifest_blockers:
+            lines.append("")
+            lines.append("--- ANNOTATION MANIFEST BLOCKERS ---")
+            for blocker in self.annotation_manifest_blockers:
+                lines.append(f"  [BLOCKER] {blocker}")
 
         return "\n".join(lines)

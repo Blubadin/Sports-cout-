@@ -232,6 +232,7 @@ class DistanceTracker:
         self.fps = fps
         self.smooth_k = smooth_k
         self.max_tracking_gap = max_tracking_gap
+        self.speed_history_limit = max(1, int(smooth_k))
         self._data: dict[int, dict] = {}
         self.metric_segment_index = 0
 
@@ -247,12 +248,53 @@ class DistanceTracker:
                 "positions_pct": [],
                 "speeds_ms": [],
                 "raw_speeds": [],
+                "speed_sum": 0.0,
+                "speed_count": 0,
                 "zone_dist": {"FL": 0.0, "FR": 0.0, "ML": 0.0, "MR": 0.0, "BL": 0.0, "BR": 0.0},
                 "max_speed_ms": 0.0,
                 "current_speed_ms": 0.0,
                 "current_zone": "ML",
             }
         return self._data[player_id]
+
+    def _record_speed(self, data: dict, speed: float) -> None:
+        data["speed_sum"] = float(data.get("speed_sum", 0.0)) + float(speed)
+        data["speed_count"] = int(data.get("speed_count", 0)) + 1
+        history = data.setdefault("speeds_ms", [])
+        history.append(float(speed))
+        if len(history) > self.speed_history_limit:
+            del history[:-self.speed_history_limit]
+
+    def aggregate_snapshot(self) -> dict[str, dict]:
+        """Capture durable cumulative aggregates without temporal bridge positions."""
+        return {
+            str(player_id): {
+                "totalDistanceM": float(data.get("total_dist_m", 0.0)),
+                "maxSpeedMps": float(data.get("max_speed_ms", 0.0)),
+                "speedSum": float(data.get("speed_sum", 0.0)),
+                "speedCount": int(data.get("speed_count", 0)),
+                "zoneDistanceM": dict(data.get("zone_dist", {})),
+            }
+            for player_id, data in self._data.items()
+        }
+
+    def restore_aggregates(self, snapshot: dict[str, dict] | None, *, preserve_temporal: bool = False) -> None:
+        """Restore totals but intentionally leave temporal positions empty to prevent gap bridging."""
+        for raw_player_id, aggregate in (snapshot or {}).items():
+            player_id = int(raw_player_id)
+            data = self._get_or_create(player_id)
+            data["total_dist_m"] = float(aggregate.get("totalDistanceM", 0.0))
+            data["max_speed_ms"] = float(aggregate.get("maxSpeedMps", 0.0))
+            data["speed_sum"] = float(aggregate.get("speedSum", 0.0))
+            data["speed_count"] = int(aggregate.get("speedCount", 0))
+            zones = aggregate.get("zoneDistanceM") or {}
+            data["zone_dist"] = {key: float(zones.get(key, 0.0)) for key in data["zone_dist"]}
+            if not preserve_temporal:
+                data["prev_real"] = None
+                data["prev_time"] = None
+                data["positions_m"].clear()
+                data["positions_pct"].clear()
+                data["positions_px"].clear()
 
     def pause_metric_tracking(self) -> None:
         """Keep accumulated distance but never bridge across an invalid interval."""
@@ -281,6 +323,7 @@ class DistanceTracker:
         camera_segment_id: str | None = None,
         calibration_id: str | None = None,
         provenance: str | None = None,
+        allow_canonical_writes: bool = True,
     ) -> dict:
         d = self._get_or_create(player_id)
         if not self.mapper.is_calibrated:
@@ -320,9 +363,11 @@ class DistanceTracker:
         pct = self.mapper.real_to_percent(real)
         zone = self.mapper.get_zone_2d(real)
 
-        d["positions_px"].append(center_px)
-        d["positions_m"].append(real)
-        d["positions_pct"].append(pct)
+        for key, value in (("positions_px", center_px), ("positions_m", real), ("positions_pct", pct)):
+            history = d[key]
+            history.append(value)
+            if len(history) > 1:
+                del history[:-1]
         d["current_zone"] = zone
 
         if d["prev_real"] is None:
@@ -330,7 +375,7 @@ class DistanceTracker:
             d["prev_real"] = real
             d["prev_time"] = timestamp_sec
             d["last_provenance"] = provenance
-            d["speeds_ms"].append(0.0)
+            self._record_speed(d, 0.0)
             d["current_speed_ms"] = 0.0
             return d
 
@@ -344,7 +389,7 @@ class DistanceTracker:
 
         # Reject deltaTime <= 0 without NaN/Inf/negative speed
         if delta_t <= 0.0 or not np.isfinite(delta_t):
-            d["speeds_ms"].append(0.0)
+            self._record_speed(d, 0.0)
             d["current_speed_ms"] = 0.0
             d["prev_real"] = real
             d["last_provenance"] = provenance
@@ -363,7 +408,7 @@ class DistanceTracker:
                 d["prev_real"] = real
                 d["prev_time"] = timestamp_sec
                 d["last_provenance"] = provenance
-                d["speeds_ms"].append(0.0)
+                self._record_speed(d, 0.0)
                 d["current_speed_ms"] = 0.0
                 return d
 
@@ -371,20 +416,21 @@ class DistanceTracker:
 
         # Filter spatial jitter (< 0.03m / 3cm) and impossible speeds (> 11.0 m/s)
         if dist >= 0.03 and speed_ms <= 11.0:
-            d["total_dist_m"] += dist
-            if zone in d["zone_dist"]:
-                d["zone_dist"][zone] += dist
+            if allow_canonical_writes:
+                d["total_dist_m"] += dist
+                if zone in d["zone_dist"]:
+                    d["zone_dist"][zone] += dist
 
             d["raw_speeds"].append(speed_ms)
             if len(d["raw_speeds"]) > self.smooth_k:
                 d["raw_speeds"].pop(0)
             smooth_speed = float(np.mean(d["raw_speeds"]))
-            d["speeds_ms"].append(smooth_speed)
+            self._record_speed(d, smooth_speed)
             d["current_speed_ms"] = round(smooth_speed, 2)
-            if smooth_speed > d["max_speed_ms"]:
+            if allow_canonical_writes and smooth_speed > d["max_speed_ms"]:
                 d["max_speed_ms"] = round(smooth_speed, 2)
         else:
-            d["speeds_ms"].append(0.0)
+            self._record_speed(d, 0.0)
             d["current_speed_ms"] = 0.0
 
         d["prev_real"] = real
@@ -409,7 +455,12 @@ class DistanceTracker:
             "total_dist_m": round(d["total_dist_m"], 2),
             "max_speed_ms": round(d["max_speed_ms"], 2),
             "current_speed_ms": d["current_speed_ms"],
-            "avg_speed_ms": round(float(np.mean(speeds)) if speeds else 0.0, 2),
+            "avg_speed_ms": round(
+                float(d.get("speed_sum", 0.0)) / int(d.get("speed_count", len(speeds)))
+                if int(d.get("speed_count", len(speeds))) > 0
+                else (float(np.mean(speeds)) if speeds else 0.0),
+                2,
+            ),
             "current_zone": d["current_zone"] if last_pos_m else "UNKNOWN",
             "court_pos_pct": {"x": round(last_pos_pct[0], 2), "y": round(last_pos_pct[1], 2)} if last_pos_pct else None,
             "court_pos_m": {"x": round(last_pos_m[0], 2), "y": round(last_pos_m[1], 2)} if last_pos_m else None,

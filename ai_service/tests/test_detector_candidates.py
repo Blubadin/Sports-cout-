@@ -13,6 +13,8 @@ Verifies:
 from __future__ import annotations
 import subprocess
 import unittest
+import tempfile
+from unittest.mock import patch
 from pathlib import Path
 import sys
 import numpy as np
@@ -172,9 +174,13 @@ class TestDetectorCandidates(unittest.TestCase):
         )
 
     def test_candidate_availability_reporting(self):
-        """Availability report correctly distinguishes local baseline from un-cached candidates."""
-        repo_root = ai_service_dir.parent
-        report = get_candidate_registry_report(workspace_root=repo_root)
+        """Local presence reporting uses fixtures, independent of developer/CI weights."""
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            # Presence-only fixture; this does not claim usable model weights or inference.
+            (root / "yolov8n.pt").touch()
+            with patch("model_registry.Path.home", return_value=root / "empty-home"):
+                report = get_candidate_registry_report(workspace_root=root)
 
         self.assertEqual(report["baseline"], "YOLOv8n")
         self.assertEqual(report["supportedInputSizes"], [640, 960])
@@ -185,6 +191,29 @@ class TestDetectorCandidates(unittest.TestCase):
         unavail_names = [c["displayName"] for c in report["unavailableCandidates"]]
         for unavail_candidate in ["YOLO11s", "YOLO11m", "YOLO26s", "YOLO26m"]:
             self.assertIn(unavail_candidate, unavail_names)
+
+    def test_candidate_availability_without_any_local_weights(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with patch("model_registry.Path.home", return_value=root / "empty-home"):
+                report = get_candidate_registry_report(workspace_root=root)
+        self.assertEqual(report["baseline"], "YOLOv8n")
+        self.assertEqual(report["availableCandidates"], [])
+        self.assertEqual({entry["id"] for entry in report["unavailableCandidates"]}, set(PHASE_1_DETECTOR_CANDIDATES))
+        self.assertTrue(all("automated remote fetch is disabled" in entry["reason"]
+                            for entry in report["unavailableCandidates"]))
+
+    def test_candidate_availability_in_isolated_user_cache(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            home = root / "home"
+            cache = home / ".cache" / "ultralytics"
+            cache.mkdir(parents=True)
+            (cache / "yolo11s.pt").touch()
+            with patch("model_registry.Path.home", return_value=home):
+                report = get_candidate_registry_report(workspace_root=root)
+        self.assertEqual([entry["id"] for entry in report["availableCandidates"]], ["yolo11s"])
+        self.assertIn("local cache", report["availableCandidates"][0]["reason"])
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ class SemanticIdentityCosts:
     total_cost: float
     reid_similarity: float | None = None
     is_ambiguous: bool = False
+    hsv_distance: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +46,7 @@ class SemanticIdentityCosts:
             "totalCost": round(self.total_cost, 4),
             "reidSimilarity": round(self.reid_similarity, 4) if self.reid_similarity is not None else None,
             "isAmbiguous": self.is_ambiguous,
+            "hsvDistance": self.hsv_distance,
         }
 
 
@@ -97,6 +99,7 @@ def compute_identity_association_cost(
 
     # 4. HSV Appearance Cost (Bhattacharyya distance scaled by hsv_weight)
     hsv_appearance_cost = 0.0
+    hsv_distance = None
     if profile.color_hist is not None and frame is not None and frame.size > 0:
         bbox = detection.get("bbox")
         if bbox is not None:
@@ -112,6 +115,7 @@ def compute_identity_association_cost(
                     det_hist = cv2.calcHist([hsv], [0, 1], None, [16, 16], [0, 180, 0, 256])
                     cv2.normalize(det_hist, det_hist, 0, 1, cv2.NORM_MINMAX)
                     bhatt_dist = float(cv2.compareHist(profile.color_hist, det_hist, cv2.HISTCMP_BHATTACHARYYA))
+                    hsv_distance = bhatt_dist
                     hsv_appearance_cost = float(bhatt_dist * hsv_weight)
 
     # 5. ReID Appearance Cost (Cosine distance scaled by reid_weight)
@@ -162,6 +166,7 @@ def compute_identity_association_cost(
         total_cost=total_cost,
         reid_similarity=reid_sim,
         is_ambiguous=is_ambiguous,
+        hsv_distance=hsv_distance,
     )
 
 
@@ -190,6 +195,8 @@ def match_tracks_to_profiles_with_reid(
     if not detections:
         for p in profiles.values():
             p.missed_frames += 1
+            p.identity_confirmation_frames = 0
+            p.identity_confirmation_track = None
         return {}, {}, 0, 0
 
     active_pids = list(profiles.keys())
@@ -199,7 +206,10 @@ def match_tracks_to_profiles_with_reid(
     semantic_player_id_switches = 0
 
     # Auto-seeding on first observation if all profiles are unassigned
-    if all(p.last_real_pos is None and p.last_bbox is None for p in profiles.values()):
+    if all(p.last_real_pos is None and p.last_bbox is None
+           and not getattr(p, "identity_needs_reacquisition", False)
+           and p.color_hist is None and getattr(p, "reid_embedding", None) is None
+           for p in profiles.values()):
         sorted_detections = sorted(
             detections,
             key=lambda det: (
@@ -220,6 +230,15 @@ def match_tracks_to_profiles_with_reid(
                 p.last_real_pos = d["real_pos"]
                 p.last_bbox = d["bbox"]
                 p.missed_frames = 0
+                if "ground_pt" in d:
+                    p.last_ground_pt = d["ground_pt"]
+                if "envelope_zone" in d:
+                    p.last_envelope_zone = d["envelope_zone"].value if hasattr(d["envelope_zone"], "value") else str(d["envelope_zone"])
+                if "eligibility" in d:
+                    p.last_eligibility_status = d["eligibility"].status.value if hasattr(d["eligibility"].status, "value") else str(d["eligibility"].status)
+                if "pose_obj" in d and d["pose_obj"] is not None:
+                    p.last_pose = d["pose_obj"]
+                    p.last_pose_age = 0
                 if p.team == 0 and d["real_pos"] is not None:
                     p.team = 1 if d["real_pos"][1] < net_y else 2
                 p.update_appearance(frame, d["bbox"])
@@ -288,6 +307,28 @@ def match_tracks_to_profiles_with_reid(
             row_costs.append(c)
         costs_grid.append(row_costs)
 
+    # Cut/resume removes spatial continuity. Retained appearance is evidence,
+    # never a license to seed identities again or to fill unseen player slots.
+    reacquiring = [getattr(profiles[pid], "identity_needs_reacquisition", False)
+                   or (profiles[pid].last_bbox is None and profiles[pid].last_real_pos is None
+                       and (profiles[pid].color_hist is not None
+                            or getattr(profiles[pid], "reid_embedding", None) is not None))
+                   for pid in active_pids]
+    for i, needs_evidence in enumerate(reacquiring):
+        if not needs_evidence:
+            continue
+        for j, evidence in enumerate(costs_grid[i]):
+            other = [row[j] for k, row in enumerate(costs_grid) if k != i]
+            hsv_supported = (evidence.hsv_distance is not None and evidence.hsv_distance <= .2
+                             and all(c.hsv_distance is None or
+                                     c.hsv_distance >= evidence.hsv_distance + .1 for c in other))
+            reid_supported = (evidence.reid_similarity is not None and evidence.reid_similarity >= .75
+                              and all(c.reid_similarity is None or
+                                      c.reid_similarity <= evidence.reid_similarity - .1 for c in other))
+            conflicting_reid = evidence.reid_similarity is not None and evidence.reid_similarity < .55
+            if evidence.is_ambiguous or conflicting_reid or not (hsv_supported or reid_supported):
+                cost_matrix[i, j] = 1e6
+
     row_ind, col_ind = linear_sum_assignment(cost_matrix)
 
     matched = {}
@@ -303,6 +344,23 @@ def match_tracks_to_profiles_with_reid(
         if cost < gate:
             d = detections[c]
             new_track_id = d.get("track_id")
+            if reacquiring[r]:
+                # Require three consecutive eligible frames on the same raw MOT
+                # track, each with independently checked, distinctive appearance.
+                if new_track_id is None:
+                    p.identity_confirmation_track = None
+                    p.identity_confirmation_frames = 0
+                    continue
+                if getattr(p, "identity_confirmation_track", None) == new_track_id:
+                    p.identity_confirmation_frames += 1
+                else:
+                    p.identity_confirmation_track = new_track_id
+                    p.identity_confirmation_frames = 1
+                if p.identity_confirmation_frames < 3:
+                    continue
+                p.identity_needs_reacquisition = False
+                p.identity_confirmation_frames = 0
+                p.identity_confirmation_track = None
 
             # 1. Check rawTrackerIdSwitch: player's raw MOT ID changed
             if (
@@ -330,6 +388,15 @@ def match_tracks_to_profiles_with_reid(
             p.last_real_pos = d["real_pos"]
             p.last_bbox = d["bbox"]
             p.missed_frames = 0
+            if "ground_pt" in d:
+                p.last_ground_pt = d["ground_pt"]
+            if "envelope_zone" in d:
+                p.last_envelope_zone = d["envelope_zone"].value if hasattr(d["envelope_zone"], "value") else str(d["envelope_zone"])
+            if "eligibility" in d:
+                p.last_eligibility_status = d["eligibility"].status.value if hasattr(d["eligibility"].status, "value") else str(d["eligibility"].status)
+            if "pose_obj" in d and d["pose_obj"] is not None:
+                p.last_pose = d["pose_obj"]
+                p.last_pose_age = 0
             if p.team == 0 and d["real_pos"] is not None:
                 p.team = 1 if d["real_pos"][1] < net_y else 2
             p.update_appearance(frame, d["bbox"])
@@ -359,5 +426,12 @@ def match_tracks_to_profiles_with_reid(
     for pid, p in profiles.items():
         if pid not in matched_pids:
             p.missed_frames += 1
+            # A failed evidence frame breaks confirmation (a pending accepted
+            # assignment above deliberately keeps its counter).
+            row = active_pids.index(pid)
+            assigned = next((c for r, c in zip(row_ind, col_ind) if r == row), None)
+            if assigned is None or cost_matrix[row, assigned] >= 100:
+                p.identity_confirmation_frames = 0
+                p.identity_confirmation_track = None
 
     return matched, cost_breakdowns, raw_tracker_id_switches, semantic_player_id_switches

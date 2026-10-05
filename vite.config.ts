@@ -73,8 +73,9 @@ export default defineConfig(() => {
       },
     },
     server: {
+      host: process.env.VITE_HOST || '127.0.0.1',
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâ€”file watching is disabled to prevent flickering during agent edits.
+      // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
@@ -82,10 +83,30 @@ export default defineConfig(() => {
         '/api': {
           target: 'http://127.0.0.1:8000',
           changeOrigin: true,
+          bypass(req, res) {
+            const clientIp = req.socket?.remoteAddress || '';
+            const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1';
+            const remoteOptIn = process.env.SPORTSCOUT_AI_REMOTE_ENABLED === 'true';
+            if (!isLoopback && !remoteOptIn && res) {
+              res.writeHead(403, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ detail: 'Remote LAN access to AI service via Vite proxy is disabled. Set SPORTSCOUT_AI_REMOTE_ENABLED=true to allow.' }));
+              return false;
+            }
+          },
         },
         '/ws': {
           target: 'ws://127.0.0.1:8000',
           ws: true,
+          configure(proxy) {
+            proxy.on('proxyReqWs', (_proxyReq, req, socket) => {
+              const clientIp = req.socket?.remoteAddress || '';
+              const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1';
+              const remoteOptIn = process.env.SPORTSCOUT_AI_REMOTE_ENABLED === 'true';
+              if (!isLoopback && !remoteOptIn) {
+                socket.destroy();
+              }
+            });
+          },
         },
       },
     },

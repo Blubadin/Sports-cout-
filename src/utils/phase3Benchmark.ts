@@ -8,9 +8,54 @@ import type {
   Phase3BenchmarkReport,
 } from '../types/benchmark';
 
+export function sanitizePathReference(pathOrStr: unknown): string | null {
+  if (pathOrStr === null || pathOrStr === undefined) return null;
+  if (typeof pathOrStr !== 'string') return null;
+  const raw = pathOrStr.trim();
+  if (!raw) return null;
+
+  const normalized = raw.replace(/\\/g, '/');
+
+  // UNC network paths: \\server\share\... or //server/share/...
+  if (normalized.startsWith('//')) {
+    const parts = normalized.split('/').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : null;
+  }
+
+  // Windows drive letter: C:\..., d:/..., etc.
+  if (/^[a-zA-Z]:/.test(normalized)) {
+    const withoutDrive = normalized.replace(/^[a-zA-Z]:\/?/, '');
+    const parts = withoutDrive.split('/').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : null;
+  }
+
+  // Unix absolute path: /home/..., /var/..., etc.
+  if (normalized.startsWith('/')) {
+    const parts = normalized.split('/').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : null;
+  }
+
+  // Sensitive paths: /home/, /Users/, /etc/, /var/
+  const lower = normalized.toLowerCase();
+  if (lower.includes('/home/') || lower.includes('/users/') || lower.includes('/etc/') || lower.includes('/var/')) {
+    const parts = normalized.split('/').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : null;
+  }
+
+  // Parent directory traversal: check for '..'
+  const segments = normalized.split('/').filter(s => s && s !== '.');
+  if (segments.some(s => s === '..')) {
+    const valid = segments.filter(s => s !== '..');
+    return valid.length > 0 ? valid[valid.length - 1] : null;
+  }
+
+  return segments.length > 0 ? segments.join('/') : null;
+}
+
 export function validateSplitLeakage(
   splits: Record<string, BenchmarkClipEntry[]>,
   groupBy: Array<keyof BenchmarkClipEntry> = [
+    'matchId',
     'venueId',
     'cameraId',
     'recordingGroup',
@@ -158,7 +203,8 @@ export function formatPhase3ReportSummary(report: Phase3BenchmarkReport): string
   const lines: string[] = [
     '=== PHASE 3.4 BENCHMARK REPORT ===',
     `Clip ID: ${report.provenance.clipId} (Dataset: ${report.provenance.datasetId})`,
-    `Engine: ${report.provenance.engineVersion} | Detector: ${report.provenance.detectorModel ?? 'none'} | Tracker: ${report.provenance.trackerModel ?? 'none'}`,
+    `Engine: ${report.provenance.engineVersion} | Detector: ${sanitizePathReference(report.provenance.detectorModel) ?? 'none'} | Tracker: ${sanitizePathReference(report.provenance.trackerModel) ?? 'none'}`,
+    `Overall Status: ${report.overallPassed ? 'PASSED' : 'FAILED / BLOCKED'}`,
     '',
     '--- MEASURED METRICS ---',
   ];
@@ -233,6 +279,28 @@ export function formatPhase3ReportSummary(report: Phase3BenchmarkReport): string
     }
   } else {
     lines.push('(None)');
+  }
+
+  if (report.byScenario && Object.keys(report.byScenario).length > 0) {
+    lines.push('');
+    lines.push('--- SCENARIO BREAKDOWN ---');
+    for (const [bucketName, sm] of Object.entries(report.byScenario)) {
+      const statusStr = sm.passedThresholds ? 'PASSED' : sm.passedThresholds === false ? 'FAILED' : 'UNMEASURED';
+      lines.push(`[${bucketName}] Status: ${statusStr} | Samples: ${sm.sampleCount} | GT: ${sm.humanGtAvailable ? 'Yes' : 'MISSING'}`);
+      if (sm.failureReasons && sm.failureReasons.length > 0) {
+        for (const r of sm.failureReasons) {
+          lines.push(`  - Failure: ${r}`);
+        }
+      }
+    }
+  }
+
+  if (report.annotationManifestBlockers && report.annotationManifestBlockers.length > 0) {
+    lines.push('');
+    lines.push('--- ANNOTATION MANIFEST BLOCKERS ---');
+    for (const blocker of report.annotationManifestBlockers) {
+      lines.push(`  [BLOCKER] ${blocker}`);
+    }
   }
 
   return lines.join('\n');

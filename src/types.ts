@@ -459,10 +459,16 @@ export interface FootTelemetryV1 {
   positionPct?: { x: number; y: number } | null;
   confidence?: number | null;
   courtPositionM?: { xM: number; yM: number } | null;
+  source?: string;
+  ageFrames?: number;
+  ageSec?: number;
+  isStale?: boolean;
+  staleReason?: string | null;
 }
 
 export interface TrackingPlayerV1 {
   playerId: string;
+  athleteId?: string | null;
   trackId?: number | null;
   teamCode?: string;
   bboxPct?: {
@@ -486,6 +492,13 @@ export interface TrackingPlayerV1 {
   rightFootCourtM?: { xM: number; yM: number } | null;
   leftFoot?: FootTelemetryV1 | null;
   rightFoot?: FootTelemetryV1 | null;
+  envelopeZone?: 'IN_COURT' | 'NEAR_COURT' | 'FAR_OUTSIDE' | null;
+  eligibilityStatus?: 'ELIGIBLE' | 'CANDIDATE' | 'SPECTATOR_OR_OFFICIAL' | 'UNRESOLVED' | null;
+  poseSource?: string | null;
+  poseAgeFrames?: number | null;
+  poseAgeSec?: number | null;
+  isPoseStale?: boolean | null;
+  staleReason?: string | null;
   courtPosition?: {
     xM: number;
     yM: number;
@@ -497,27 +510,71 @@ export interface TrackingPlayerV1 {
   speedMps?: number | null;
   totalDistanceM?: number | null;
   detectionConfidence?: number | null;
+  confidence?: number | null;
   state: 'observed' | 'predicted' | 'lost';
+  observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual' | null;
+  reviewState?: 'unreviewed' | 'reviewed' | 'corrected';
   pose?: TrackingPoseV1 | null;
+}
+
+/** Fresh detector output retained independently from semantic P1–P4 profiles. */
+export interface RawPlayerDetectionV1 {
+  trackId: number | null;
+  bboxPx: [number, number, number, number];
+  confidence: number | null;
+  pose: TrackingPoseV1 | null;
+  eligibility?: {
+    status: 'ELIGIBLE' | 'CANDIDATE' | 'SPECTATOR_OR_OFFICIAL' | 'UNRESOLVED';
+    isEligibleForProfile: boolean;
+    reasons?: string[];
+    [key: string]: unknown;
+  } | null;
 }
 
 export interface TrackingTelemetryV1 {
   schemaVersion: 1;
   analysisId: string;
+  pipelineRunId?: string;
   timestampSec: number;
   frameIndex: number;
+  timebase?: string | null;
+  sceneState?: import('./types/scene').SceneState | string | null;
+  sceneTransition?: import('./types/scene').SceneStateTransition | null;
+  sceneEvidence?: import('./types/scene').SceneEvidence | null;
+  capabilities?: import('./types/capabilities').SegmentCapabilities | null;
+  canTrackPlayer?: boolean;
+  canTrackShuttle?: boolean;
+  canUseCourtMetric?: boolean;
+  canBuildHeatmap?: boolean;
+  canEstimateHit?: boolean;
+  canWriteCanonicalMatchData?: boolean;
+  isMetricValid?: boolean;
+  allowCanonicalWrites?: boolean;
+  calibrationUnavailableReason?: string | null;
   engineVersion?: string;
   modelVersion?: string;
+  modelArtifactHash?: string | null;
+  runtime?: string | null;
+  requestedDevice?: string | null;
+  effectiveDevice?: string | null;
+  precision?: string | null;
   /** Additive V1 temporal calibration identity. Absent on legacy saved frames. */
   cameraSegmentId?: string;
   calibrationId?: string | null;
+  calibrationVersion?: string | null;
   calibrationState?: import('./types/calibration').CalibrationState;
   calibrationConfidence?: number | null;
   calibration?: import('./types/calibration').CalibrationProvenance | null;
+  confidence?: number | null;
+  observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual' | null;
+  reviewState?: 'unreviewed' | 'reviewed' | 'corrected';
+  supersededBy?: string | null;
   isSynthetic?: boolean;
   source?: 'real_tracking' | 'synthetic_demo' | string;
   trackedPlayerCount?: number;
   players: TrackingPlayerV1[];
+  /** Raw MOT detections/poses are separate from semantic player profiles. */
+  rawPlayerDetections?: RawPlayerDetectionV1[];
   /** Canonical separate shuttlecock observation stream (Phase 2.1) */
   shuttle?: import('./types/shuttleTelemetry').ShuttleObservation | null;
 }
@@ -586,6 +643,9 @@ export type BackendSessionStatus =
   | 'VIDEO_READY'
   | 'READY_TO_ANALYZE'
   | 'PROCESSING'
+  | 'CANCEL_REQUESTED'
+  | 'CANCELLED'
+  | 'INTERRUPTED'
   | 'COMPLETED'
   | 'ERROR';
 
@@ -594,6 +654,12 @@ export interface TrackingSessionStatus {
   status: BackendSessionStatus;
   progressPct: number;
   currentFrame: number;
+  lastProcessedFrame?: number;
+  durableCheckpointFrame?: number;
+  checkpointSequence?: number;
+  committedResultCursor?: number;
+  resumable?: boolean;
+  resume?: { available?: boolean; mode?: string | null; reason?: string | null; temporalStateRestoredExactly?: boolean } | null;
   totalFrames: number;
   analyzedFrames: number;
   frameStride: number;
@@ -657,6 +723,7 @@ export interface CameraResearchMetadata {
 export type ProcessingProfile = 'auto' | 'reference' | 'fast' | 'balanced' | 'quality' | 'custom';
 
 export interface ProcessingConfig {
+  fallbackReason?: string | null;
   profile?: ProcessingProfile;
   requestedProfile?: ProcessingProfile;
   effectiveProfile?: ProcessingProfile;
@@ -736,6 +803,7 @@ export interface TrackingQualityStats {
 }
 
 export type ShuttleTrackingStatus =
+  | 'ERROR'
   | 'DISABLED'
   | 'REQUESTED'
   | 'MODEL_UNAVAILABLE'
@@ -744,11 +812,29 @@ export type ShuttleTrackingStatus =
   | 'INITIALIZATION_ERROR'
   | string;
 
-export interface ShuttleProvenance {
+export interface InferenceProviderProvenance {
+  requestedDevice?: string;
+  effectiveDevice?: string;
+  backend?: string;
+  provider?: string;
+  runtime?: string;
+  runtimeVersion?: string | null;
+  providerVersion?: string | null;
+  precision?: string;
+  modelVersion?: string | null;
+  modelSha256?: string | null;
+  preprocessVersion?: string;
+  postprocessVersion?: string;
+  fallbackReason?: string | null;
+  executionStatus?: 'PENDING' | 'READY' | 'ERROR';
+}
+
+export interface ShuttleProvenance extends InferenceProviderProvenance {
   enabled: boolean;
   requested: boolean;
   active: boolean;
   status: ShuttleTrackingStatus;
+  trackingState?: import('./types/shuttleTelemetry').ShuttleTrackerState | null;
   provider: string;
   model: string | null;
   runtime: string;
@@ -787,6 +873,11 @@ export interface ShuttleProvenance {
 }
 
 export interface TrackingRuntimeProvenance {
+  fallbackReason?: string | null;
+  inferenceProviders?: {
+    detector?: InferenceProviderProvenance | null;
+    pose?: InferenceProviderProvenance | null;
+  };
   detectorModel: string;
   trackerModel: string;
   poseModel: string;
@@ -814,8 +905,22 @@ export interface TrackingRuntimeProvenance {
   confidenceThreshold?: number;
   autoCourtCalibrationEnabled?: boolean;
   shuttle?: ShuttleProvenance | null;
+  calibration?: {
+    autoCalibrationEnabled: boolean;
+    cameraSegmentId: string;
+    calibrationId?: string | null;
+    calibrationVersion?: string | null;
+    state: string;
+    source?: string | null;
+    confidence?: number | null;
+    reprojectionErrorPx?: number | null;
+    unavailableReason?: string | null;
+    suggestedCorners?: number[][] | null;
+    suggestedConfidence?: number | null;
+  } | null;
 }
 
 export * from './types/benchmark';
 export * from './types/shuttleTelemetry';
 export * from './types/calibration';
+export * from './types/scene';

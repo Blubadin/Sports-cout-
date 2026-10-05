@@ -19,6 +19,8 @@ import math
 from typing import Any
 import cv2
 import numpy as np
+from device_runtime import InferenceExecution, artifact_sha256, package_version
+from ultralytics_runtime import runtime_predictor, precision_options
 
 # 17 COCO Keypoint Indices
 KPT_NOSE = 0
@@ -87,11 +89,31 @@ class YoloPoseDetector:
         self.conf = conf_threshold
         self.device = device
         self._model = None
+        self.execution = InferenceExecution(device, backend='pytorch', precision='fp32')
+        self._artifact_hash = None
 
 
     def _init_model(self):
         from ultralytics import YOLO
         self._model = YOLO(self.model_path)
+        self._artifact_hash = artifact_sha256(self.model_path)
+
+    def predict(self, frame):
+        from ultralytics.models.yolo.pose import PosePredictor
+        if self._model is None:
+            self._init_model()
+        return self._model.predict(
+            frame, conf=self.conf, device=self.execution.device, verbose=False,
+            predictor=runtime_predictor(PosePredictor, self.execution), **precision_options('fp32'))
+
+    def get_provenance(self):
+        return {
+            **self.execution.provenance(), 'provider': 'ultralytics', 'runtime': 'pytorch',
+            'runtimeVersion': package_version('torch'), 'providerVersion': package_version('ultralytics'),
+            'modelVersion': self._artifact_hash, 'modelSha256': self._artifact_hash,
+            'preprocessVersion': 'ultralytics-pose-letterbox-bgr-rgb-v1',
+            'postprocessVersion': 'coco17-source-pixels-2d-metrics-v1',
+        }
 
     def estimate_pose_in_roi(
         self,
@@ -120,12 +142,7 @@ class YoloPoseDetector:
         keypoints: list[list[float]] = []
 
         if self._model is not None:
-            results = self._model.predict(
-                roi,
-                conf=self.conf,
-                device=self.device,
-                verbose=False,
-            )
+            results = self.predict(roi)
             for r in results:
                 if r.keypoints is None or len(r.keypoints) == 0:
                     continue

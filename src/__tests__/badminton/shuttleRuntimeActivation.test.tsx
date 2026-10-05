@@ -72,7 +72,7 @@ describe('Phase 2.9A: Shuttle Runtime Activation & Frontend Config Plumbing', ()
         probeFailureReason: 'No local ONNX model artifact path configured',
       },
     });
-    vi.mocked(aiTrackingService.listSessions).mockResolvedValue([]);
+    vi.mocked(aiTrackingService.listSessions).mockResolvedValue({ sessions: [], nextCursor: null, maximumPageSize: 250, recoveryIssues: [], recoveryIssueCount: 0, recoveryIssuesTruncated: false, pageIssues: [], pageIssueCount: 0, pageIssuesTruncated: false });
     vi.mocked(aiTrackingService.createSession).mockResolvedValue({
       sessionId: 'sess_shuttle_test',
       status: 'READY',

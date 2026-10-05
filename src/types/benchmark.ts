@@ -260,6 +260,9 @@ export interface BenchmarkClipEntry {
   knownDifficultSegments: BenchmarkDifficultSegment[];
 
   // Phase 3.4 Grouping & Split Safety Metadata
+  scenarioBuckets?: string[];
+  split?: 'development' | 'holdout' | 'blind_test' | string | null;
+  matchId?: string | null;
   venueId?: string | null;
   cameraId?: string | null;
   sessionDate?: string | null;
@@ -446,10 +449,79 @@ export interface Phase3BenchmarkProvenance {
   device?: string | null;
 }
 
+export type ScenarioBucket =
+  | 'rear_court'
+  | 'rear_low'
+  | 'side_low_angle'
+  | 'camera_cut'
+  | 'pan_zoom'
+  | 'close_up'
+  | 'replay'
+  | 'return_to_court'
+  | 'spectator_official'
+  | 'player_outside_court'
+  | 'doubles_crossing'
+  | 'bright_lights_background'
+  | 'shuttle_false_positives'
+  | 'lost_reacquisition';
+
+export type GTVisibility = 'visible' | 'absent' | 'occluded' | 'unknown';
+
+export type BenchmarkSplit = 'development' | 'holdout' | 'blind_test';
+
+export interface Phase3QualityThresholds {
+  maxReprojectionErrorPx: number;
+  maxCourtPositionErrorM: number;
+  minCameraCutF1: number;
+  maxCameraCutLatencySec: number;
+  maxRelockLatencySec: number;
+  maxFalseValidCalibrationCount: number;
+  maxIdSwitchesPer10Min: number;
+  minShuttlePrecision: number;
+  minShuttleRecall: number;
+  maxReacquisitionDurationSec: number;
+}
+
+export const DEFAULT_PHASE3_QUALITY_THRESHOLDS: Phase3QualityThresholds = {
+  maxReprojectionErrorPx: 12.0,
+  maxCourtPositionErrorM: 0.35,
+  minCameraCutF1: 0.90,
+  maxCameraCutLatencySec: 0.50,
+  maxRelockLatencySec: 1.00,
+  maxFalseValidCalibrationCount: 0,
+  maxIdSwitchesPer10Min: 2.0,
+  minShuttlePrecision: 0.85,
+  minShuttleRecall: 0.85,
+  maxReacquisitionDurationSec: 1.50,
+};
+
+export interface ScenarioBenchmarkMetrics {
+  bucket: ScenarioBucket | string;
+  sampleCount: number;
+  coveragePct?: number | null;
+  reprojectionErrorPxMean?: number | null;
+  courtPositionErrorMMean?: number | null;
+  idSwitchesPer10Min?: number | null;
+  falseValidCalibrationCount?: number | null;
+  cutLatencySec?: number | null;
+  relockLatencySec?: number | null;
+  shuttlePrecision?: number | null;
+  shuttleRecall?: number | null;
+  reacquisitionDurationSec?: number | null;
+  passedThresholds?: boolean | null;
+  failureReasons: string[];
+  humanGtAvailable: boolean;
+  annotationBlocker: boolean;
+}
+
 export interface Phase3BenchmarkReport {
   provenance: Phase3BenchmarkProvenance;
   cameraCuts: CameraCutBenchmarkMetrics;
   calibration: CalibrationBenchmarkMetrics;
   groundPosition: GroundPositionBenchmarkMetrics;
   identity: TrackingIdentityBenchmarkMetrics;
+  byScenario?: Record<string, ScenarioBenchmarkMetrics>;
+  annotationManifestBlockers?: string[];
+  overallPassed?: boolean;
+  thresholds?: Phase3QualityThresholds;
 }

@@ -297,6 +297,7 @@ export function resolveOverlayAtTime(
     };
   }
   const canInterpolate = !!next
+    && (next.cameraSegmentId ?? null) === (previous.cameraSegmentId ?? null)
     && ageSec > TIME_EPSILON_SEC
     && next.cameraSegmentId === previous.cameraSegmentId
     && next.timestampSec - time <= freshnessToleranceSec + TIME_EPSILON_SEC;

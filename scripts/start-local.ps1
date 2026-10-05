@@ -1,9 +1,29 @@
-param([string]$Python = 'python')
+param(
+    [string]$Python = 'python',
+    [string]$ShuttleModelPath = $env:SHUTTLE_MODEL_PATH,
+    [string]$ShuttleProvider = $env:SHUTTLE_PROVIDER
+)
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$logDirectory = Join-Path $projectRoot 'test-results/local-services'
+$logDirectory = Join-Path $projectRoot '.local-services'
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+
+# Reuse the existing environment contract and locally audited artifact.
+# No weights are downloaded and the adapter still verifies the pinned hash.
+$auditedLocalModel = Join-Path $projectRoot '.local-models/rallylens-shuttle-tracknet.pth'
+if (-not $ShuttleModelPath -and -not $ShuttleProvider -and (Test-Path -LiteralPath $auditedLocalModel -PathType Leaf)) {
+    $ShuttleModelPath = $auditedLocalModel
+    $ShuttleProvider = 'rallylens_tracknet'
+}
+if ($ShuttleModelPath) {
+    $resolvedModel = Resolve-Path -LiteralPath $ShuttleModelPath -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $resolvedModel.Path -PathType Leaf)) { throw 'Shuttle model must be a file.' }
+    if (-not $ShuttleProvider) { throw 'Specify ShuttleProvider for an explicit model path.' }
+    $env:SHUTTLE_MODEL_PATH = $resolvedModel.Path
+    $env:SHUTTLE_PROVIDER = $ShuttleProvider
+    Write-Output "Shuttle configuration: $ShuttleProvider / $($resolvedModel.Path) (enable tracking in the Lab)"
+}
 
 function Test-Service([string]$Url) {
     try {
@@ -42,6 +62,14 @@ do {
     $aiReady = Test-Service 'http://127.0.0.1:8000/api/status'
     if ($webReady -and $aiReady) {
         Write-Output 'SportsScout: http://localhost:3000/ (Web + AI online)'
+        try {
+            $capabilities = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/capabilities' -TimeoutSec 30
+            if (-not $capabilities.shuttle.modelAvailable) {
+                Write-Warning "Shuttle is unavailable: $($capabilities.shuttle.probeFailureReason). Startup settings apply to new AI processes; an existing AI service may need restarting."
+            } else {
+                Write-Output "Shuttle artifact ready: $($capabilities.shuttle.provider) / $($capabilities.shuttle.configuredModel). Real-video quality is not certified by this readiness check."
+            }
+        } catch { Write-Warning 'AI is online, but shuttle readiness could not be checked.' }
         exit 0
     }
     Start-Sleep -Milliseconds 500

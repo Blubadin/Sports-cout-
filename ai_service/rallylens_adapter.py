@@ -1,10 +1,11 @@
-"""Dedicated CPU/FP32 adapter for one verified local 9-frame/8-map checkpoint."""
+"""FP32 adapter for one verified local 9-frame/8-map checkpoint."""
 
 import hashlib
 from pathlib import Path
 
 import cv2
 import numpy as np
+from device_runtime import InferenceExecution, package_version
 
 try:
     from ai_service.shuttle_tracker import (
@@ -47,13 +48,15 @@ class RallyLensTemporalModelAdapter(ShuttleTrackerProvider):
     the latest frame, rather than squeezing/averaging eight different times.
     """
 
-    def __init__(self, model_path):
+    def __init__(self, model_path, device='cpu'):
         self.model_path = Path(model_path)
         self._model = None
         self.inference_calls = 0
         self.output_tensor_received = False
         self.last_output_shape = None
         self.last_output_range = None
+        self.execution = InferenceExecution(device)
+        self._model_device = 'cpu'
 
     def load(self):
         if self._model is not None:
@@ -84,11 +87,16 @@ class RallyLensTemporalModelAdapter(ShuttleTrackerProvider):
     def infer(self, frames):
         import torch
         tensor = prepare_rallylens_input(frames)
-        model = self.load()
         self.inference_calls += 1
-        try:
+        def run(device):
+            if self._model is not None and self._model_device != device:
+                # Recreate weights only; the temporal window belongs to the tracker.
+                self._model = None
+            model = self.load()
+            self._model_device = device
+            model = model.to(device)
             with torch.inference_mode():
-                output = model(torch.from_numpy(tensor))
+                output = model(torch.from_numpy(tensor).to(device)).cpu()
             self.output_tensor_received = True
             self.last_output_shape = list(output.shape)
             if tuple(output.shape) != OUTPUT_SHAPE or output.dtype != torch.float32:
@@ -97,15 +105,18 @@ class RallyLensTemporalModelAdapter(ShuttleTrackerProvider):
                 raise ValueError('RallyLens output must contain finite sigmoid probabilities')
             self.last_output_range = [float(output.min()), float(output.max())]
             return TemporalModelOutput(output[0, 7].numpy().copy())
-        except Exception as error:
-            raise ShuttleInferenceError('RallyLens temporal inference failed') from error
+        return self.execution.run(run)
 
     def get_provenance(self):
         return {
             'modelName': 'RallyLens TrackNet 9-frame/8-heatmap checkpoint',
             'modelSha256': MODEL_SHA256 if self._model is not None else None,
             'modelLoaded': self._model is not None,
-            'runtime': 'pytorch', 'precision': 'fp32', 'device': 'cpu',
+            'runtime': 'pytorch', **self.execution.provenance(),
+            'runtimeVersion': package_version('torch'), 'provider': 'rallylens_tracknet',
+            'modelVersion': MODEL_SHA256 if self._model is not None else None,
+            'preprocessVersion': 'rallylens-rgb-linear-9frames-div255-v1',
+            'postprocessVersion': 'rallylens-map7-source-scaling-v1',
             'inputContract': {
                 'count': 1, 'name': 'x (PyTorch forward argument; not an ONNX name)',
                 'dtype': 'float32', 'shape': list(INPUT_SHAPE), 'dynamicDimensions': False,

@@ -22,13 +22,16 @@ import {
   computeMultiPlayerMovementMetrics,
   calculateNominalAnalysisHz,
   calculateEffectiveStoredHz,
+  getTrackingMovementMetrics,
 } from '../../services/storage/trackingStorage';
 
 interface BadmintonMovementDashboardProps {
   analysis?: TrackingAnalysis | null;
   chunks?: TrackingSampleChunk[];
+  hasMoreChunks?: boolean;
   samples?: TrackingSample[];
   title?: string;
+  language?: 'th' | 'en';
   onSeekTime?: (seconds: number) => void;
 }
 
@@ -44,11 +47,24 @@ function formatPercent(value: number | null | undefined, digits = 1): string {
     : '—';
 }
 
+const EMPTY_MOVEMENT_METRICS: PlayerMovementMetrics = {
+  totalDistanceMeters: 0,
+  avgSpeedMps: 0,
+  p95SpeedMps: 0,
+  maxSpeedMps: 0,
+  courtCoverage: { frontPercent: 0, midPercent: 0, rearPercent: 0, leftPercent: 0, rightPercent: 0 },
+  basePosition: { avgCourtX: null, avgCourtY: null, dispersion: 0 },
+  lateralMovementMeters: 0,
+  frontBackMovementMeters: 0,
+};
+
 export default function BadmintonMovementDashboard({
   analysis,
   chunks = [],
+  hasMoreChunks = false,
   samples: propSamples,
   title = 'Badminton Player Movement Analytics',
+  language = 'en',
   onSeekTime,
 }: BadmintonMovementDashboardProps) {
   // 1. Gather all samples (from props or chunks)
@@ -78,15 +94,22 @@ export default function BadmintonMovementDashboard({
 
   // State: Time Filter
   const [minTime, maxTime] = useMemo(() => {
-    if (allSamples.length === 0) return [0, 60];
-    let min = Infinity;
-    let max = -Infinity;
-    for (const s of allSamples) {
-      if (s.timestamp < min) min = s.timestamp;
-      if (s.timestamp > max) max = s.timestamp;
+    if (propSamples && propSamples.length > 0) {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const sample of allSamples) {
+        min = Math.min(min, sample.timestamp);
+        max = Math.max(max, sample.timestamp);
+      }
+      return [Math.floor(min), Math.ceil(max)];
     }
-    return [Math.floor(min), Math.ceil(max)];
-  }, [allSamples]);
+    const duration = analysis?.summary.durationSeconds;
+    if (typeof duration === 'number' && Number.isFinite(duration)) return [0, Math.max(1, Math.ceil(duration))];
+    if (allSamples.length === 0) return [0, 60];
+    let max = 0;
+    for (const sample of allSamples) max = Math.max(max, sample.timestamp);
+    return [0, Math.max(1, Math.ceil(max))];
+  }, [analysis?.summary.durationSeconds, allSamples]);
 
   const [timeRange, setTimeRange] = useState<[number, number]>([minTime, maxTime]);
 
@@ -103,14 +126,62 @@ export default function BadmintonMovementDashboard({
     });
   }, [allSamples, selectedPlayer, timeRange]);
 
-  // Recomputed movement metrics for filtered samples
-  const activeMetrics: PlayerMovementMetrics = useMemo(() => {
-    if (selectedPlayer !== 'ALL') {
-      return computePlayerMovementMetrics(filteredSamples);
+  const [movementResult, setMovementResult] = useState<{
+    metrics: PlayerMovementMetrics;
+    sampleCount: number;
+    trackedSampleCount: number;
+    predictedSampleCount: number;
+    uniqueTimestampCount: number;
+  } | null>(null);
+  const [movementMetricsError, setMovementMetricsError] = useState<string | null>(null);
+  const [movementMetricsLoading, setMovementMetricsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!analysis) {
+      setMovementResult(null);
+      setMovementMetricsError(null);
+      setMovementMetricsLoading(false);
+      return;
     }
-    // When 'ALL', aggregate valid metrics across all players independently
-    return computeMultiPlayerMovementMetrics(filteredSamples);
-  }, [filteredSamples, selectedPlayer]);
+    if (propSamples && propSamples.length > 0) {
+      const requestedSamples = filteredSamples;
+      setMovementResult({
+        metrics: selectedPlayer === 'ALL'
+          ? computeMultiPlayerMovementMetrics(requestedSamples)
+          : computePlayerMovementMetrics(requestedSamples),
+        sampleCount: requestedSamples.length,
+        trackedSampleCount: requestedSamples.filter((sample) => sample.trackingState === 'tracked').length,
+        predictedSampleCount: requestedSamples.filter((sample) => sample.trackingState === 'predicted').length,
+        uniqueTimestampCount: new Set(requestedSamples.map((sample) => sample.timestamp)).size,
+      });
+      setMovementMetricsError(null);
+      setMovementMetricsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setMovementResult(null);
+    setMovementMetricsError(null);
+    setMovementMetricsLoading(true);
+    void getTrackingMovementMetrics(analysis.id, {
+      startTime: timeRange[0],
+      endTime: timeRange[1],
+      playerId: selectedPlayer === 'ALL' ? undefined : selectedPlayer,
+      signal: controller.signal,
+    }).then((result) => {
+      if (!controller.signal.aborted) setMovementResult(result);
+    }).catch((error) => {
+      if (!controller.signal.aborted) setMovementMetricsError(error instanceof Error ? error.message : 'Unable to load complete movement metrics');
+    }).finally(() => {
+      if (!controller.signal.aborted) setMovementMetricsLoading(false);
+    });
+    return () => controller.abort();
+  }, [analysis?.id, propSamples, filteredSamples, selectedPlayer, timeRange]);
+
+  const activeMetrics: PlayerMovementMetrics = movementResult?.metrics ?? (analysis
+    ? EMPTY_MOVEMENT_METRICS
+    : selectedPlayer === 'ALL'
+      ? computeMultiPlayerMovementMetrics(filteredSamples)
+      : computePlayerMovementMetrics(filteredSamples));
 
   // Cadence & Rate Separation (Phase 0.3)
   const sourceFps = analysis?.videoMetadata?.nominalFps ?? null;
@@ -128,16 +199,16 @@ export default function BadmintonMovementDashboard({
 
   const effectiveStoredHz = useMemo(() => {
     const duration = timeRange[1] - timeRange[0];
-    if (duration > 0 && filteredSamples.length > 0) {
-      const uniqueTimestamps = new Set(filteredSamples.map((s) => s.timestamp)).size;
-      const calculated = calculateEffectiveStoredHz(uniqueTimestamps, duration);
+    if (duration > 0 && movementResult) {
+      const calculated = calculateEffectiveStoredHz(movementResult.uniqueTimestampCount, duration);
       if (calculated !== null) return calculated;
     }
-    if (analysis?.effectiveStoredHz !== undefined && analysis?.effectiveStoredHz !== null) {
+    if (analysis?.effectiveStoredHz !== undefined && analysis.effectiveStoredHz !== null &&
+      (propSamples !== undefined || (timeRange[0] === minTime && timeRange[1] === maxTime))) {
       return analysis.effectiveStoredHz;
     }
     return null;
-  }, [filteredSamples, timeRange, analysis?.effectiveStoredHz]);
+  }, [movementResult, timeRange, analysis?.effectiveStoredHz, propSamples, minTime, maxTime]);
 
   const processingFps = analysis?.performance?.analysisFps ?? null;
 
@@ -266,6 +337,16 @@ export default function BadmintonMovementDashboard({
 
       for (const s of filteredSamples) {
         if (s.trackingState !== 'tracked') continue;
+        if (
+          s.courtX == null ||
+          s.courtY == null ||
+          !Number.isFinite(s.courtX) ||
+          !Number.isFinite(s.courtY) ||
+          (s.courtX === 0 && s.courtY === 0) ||
+          s.canBuildHeatmap === false
+        ) {
+          continue;
+        }
         const col = Math.min(binCols - 1, Math.max(0, Math.floor((s.courtX / COURT_W_M) * binCols)));
         const row = Math.min(binRows - 1, Math.max(0, Math.floor((s.courtY / COURT_H_M) * binRows)));
         bins[row][col]++;
@@ -310,6 +391,16 @@ export default function BadmintonMovementDashboard({
           const prev = sorted[i - 1];
           const curr = sorted[i];
           if (prev.trackingState !== 'tracked' || curr.trackingState !== 'tracked') continue;
+          if (
+            prev.courtX == null || prev.courtY == null || curr.courtX == null || curr.courtY == null ||
+            !Number.isFinite(prev.courtX) || !Number.isFinite(prev.courtY) ||
+            !Number.isFinite(curr.courtX) || !Number.isFinite(curr.courtY) ||
+            (prev.courtX === 0 && prev.courtY === 0) ||
+            (curr.courtX === 0 && curr.courtY === 0) ||
+            prev.canBuildHeatmap === false || curr.canBuildHeatmap === false
+          ) {
+            continue;
+          }
 
           // Teleport filter: badminton players can't move > 12 m/s
           const dx = curr.courtX - prev.courtX;
@@ -360,8 +451,14 @@ export default function BadmintonMovementDashboard({
     }
   }, [filteredSamples, heatmapMode, activeMetrics]);
 
-  const hasMeasuredSamples = filteredSamples.some((sample) => sample.trackingState === 'tracked');
-  const hasPredictedSamples = filteredSamples.some((sample) => sample.trackingState === 'predicted');
+  const hasMeasuredSamples = movementResult
+    ? movementResult.trackedSampleCount > 0
+    : !analysis && filteredSamples.some((sample) => sample.trackingState === 'tracked');
+  const hasPredictedSamples = movementResult
+    ? movementResult.predictedSampleCount > 0
+    : filteredSamples.some((sample) => sample.trackingState === 'predicted');
+  const loadedSampleCount = allSamples.length;
+  const previewIsPartial = Boolean(hasMoreChunks || (analysis && loadedSampleCount < analysis.summary.sampleCount));
   const provenance = hasMeasuredSamples
     ? hasPredictedSamples ? 'Measured + predicted' : 'Measured'
     : hasPredictedSamples ? 'Predicted' : 'Unavailable';
@@ -507,11 +604,11 @@ export default function BadmintonMovementDashboard({
               <span>
                 {selectedPlayer === 'ALL' && isMultiPlayer
                   ? formatFractionPercent(quality.confidence, 0)
-                  : filteredSamples.length}
+                  : movementResult?.sampleCount ?? '—'}
               </span>
               {selectedPlayer === 'ALL' && isMultiPlayer && (
                 <span className="text-[10px] font-mono text-slate-400">
-                  {filteredSamples.length} samples
+                  {movementResult?.sampleCount ?? '—'} samples
                 </span>
               )}
             </div>
@@ -626,12 +723,34 @@ export default function BadmintonMovementDashboard({
         </div>
       </div>
 
+      {previewIsPartial && (
+        <p data-testid="tracking-sample-preview-limited" className="text-xs text-amber-200 bg-amber-950/30 border border-amber-900/60 rounded-lg p-2.5">
+          {language === 'th'
+            ? `กราฟแสดงตัวอย่างข้อมูลที่โหลด ${loadedSampleCount.toLocaleString()} จาก ${analysis?.summary.sampleCount.toLocaleString()} จุด ส่วน metrics อ่าน chunks ทั้งหมดในช่วงเวลาที่เลือก`
+            : `Charts show the loaded sample page (${loadedSampleCount.toLocaleString()} of ${analysis?.summary.sampleCount.toLocaleString()}); movement metrics scan all chunks in the selected interval.`}
+        </p>
+      )}
+      {movementMetricsLoading && (
+        <p data-testid="tracking-metrics-loading" role="status" className="text-xs text-slate-400">
+          {language === 'th' ? 'กำลังคำนวณ metrics จาก chunks ทั้งหมดในช่วงที่เลือก…' : 'Computing metrics from all chunks in the selected interval…'}
+        </p>
+      )}
+      {movementMetricsError && (
+        <p data-testid="tracking-metrics-error" role="alert" className="text-xs text-red-300">
+          {movementMetricsError}
+        </p>
+      )}
+
       {!hasMeasuredSamples ? (
         <div
           data-testid="tracking-movement-unavailable"
           className="p-6 text-center text-slate-300 bg-[#132332] border border-dashed border-[#263642] rounded-xl"
         >
-          No measured tracking samples in the selected range. Movement metrics are unavailable.
+          {movementMetricsLoading
+            ? (language === 'th' ? 'กำลังโหลดข้อมูลการเคลื่อนไหวจากทุกหน้า…' : 'Loading movement data from all pages…')
+            : movementMetricsError || (language === 'th'
+              ? 'ไม่มีตัวอย่างที่ตรวจวัดได้ในช่วงเวลาที่เลือก'
+              : 'No measured tracking samples in the selected range. Movement metrics are unavailable.')}
         </div>
       ) : (
       /* Main Grid: Left Court Heatmap Canvas, Right Movement Analytics Cards */

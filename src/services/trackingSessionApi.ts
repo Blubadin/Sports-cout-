@@ -19,6 +19,8 @@ import type {
   ShuttleProvenance,
 } from '../types';
 import { isCalibrationState, isMetricCalibrationValid, parseCalibrationProvenance } from '../types/calibration';
+import { parseSceneEvidence, parseSceneTransition } from '../types/scene';
+import { parseSegmentCapabilities } from '../types/capabilities';
 import {
   AIConnectionError,
   type AIConnectionCode,
@@ -30,6 +32,7 @@ import {
 export type BadmintonGameType = 'singles' | 'doubles';
 export type AIConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 export type AIEngineMode = 'browser' | 'server';
+export const MAX_TRACKING_RESULTS_PAGE_SIZE = 250;
 
 export interface MarkingState {
   isMarking: boolean;
@@ -60,6 +63,7 @@ export interface BackendCapabilities {
 
 export interface TrackingSessionSummary {
   sessionId: string;
+  runId: string;
   status: string;
   gameType: BadmintonGameType;
   projectId: string | null;
@@ -70,6 +74,67 @@ export interface TrackingSessionSummary {
   trackedPlayerCount?: number;
   processingConfig?: ProcessingConfig;
   resumable: boolean;
+  resume?: { available?: boolean; mode?: string | null; reason?: string | null; [key: string]: unknown };
+  checkpointSequence?: number;
+  committedCursor?: number;
+  lastProcessedFrame?: number;
+  error?: string | null;
+}
+
+export interface TrackingSessionPage {
+  sessions: TrackingSessionSummary[];
+  nextCursor: string | null;
+  maximumPageSize: number;
+  recoveryIssues: string[];
+  recoveryIssueCount: number;
+  recoveryIssuesTruncated: boolean;
+  pageIssues: string[];
+  pageIssueCount: number;
+  pageIssuesTruncated: boolean;
+}
+
+export const MAX_TRACKING_SESSION_PAGE_SIZE = 250;
+
+export interface TrackingSessionCompatibility {
+  projectId: string;
+  videoFingerprint: string | null;
+  processingConfig: ProcessingConfig;
+  runId?: string | null;
+}
+
+const RESUME_CONFIG_KEYS: Array<keyof ProcessingConfig> = [
+  'profile', 'requestedProfile', 'device', 'requestedDevice',
+  'detectorInputSize', 'useCourtRoi', 'courtRoiMarginPx', 'courtRoiMarginM',
+  'frameStride', 'poseStride', 'detectorModel', 'detectorFamily', 'poseModel', 'poseFamily',
+  'poseArchitecture', 'trackerName', 'trackerConfigPath', 'trackerConfig', 'reidEnabled', 'reidModel',
+  'runtime', 'precision', 'confidenceThreshold', 'autoCourtCalibrationEnabled',
+  'shuttleEnabled', 'shuttleProvider', 'shuttleModelPath', 'shuttleWindowSize',
+  'shuttleInputWidth', 'shuttleInputHeight', 'shuttleConfidenceThreshold',
+  'shuttleCentroidRelativeThreshold', 'shuttleCandidateMode', 'shuttleRecoveryEnabled',
+  'shuttleDevice', 'shuttleRuntime', 'shuttlePrecision', 'shuttleAuxiliaryDetector', 'shuttleBuildTrajectory',
+];
+
+function sessionConfigMatches(expected: ProcessingConfig, actual: ProcessingConfig | undefined): boolean {
+  if (!actual) return false;
+  return RESUME_CONFIG_KEYS.every((key) => expected[key] === undefined || expected[key] === actual[key]);
+}
+
+export function isCompatibleResumableTrackingSession(
+  candidate: TrackingSessionSummary,
+  expected: TrackingSessionCompatibility,
+): boolean {
+  if (candidate.projectId !== expected.projectId || !expected.videoFingerprint ||
+    candidate.videoFingerprint !== expected.videoFingerprint ||
+    candidate.runId !== candidate.sessionId ||
+    (expected.runId && candidate.runId !== expected.runId)
+  ) return false;
+  if (!['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCELLED', 'INTERRUPTED', 'COMPLETED'].includes(candidate.status)) return false;
+  if (['CANCELLED', 'INTERRUPTED'].includes(candidate.status) && (!candidate.resumable || candidate.resume?.available !== true)) return false;
+  if (!Number.isSafeInteger(candidate.checkpointSequence) || (candidate.checkpointSequence ?? -1) < 0 ||
+    !Number.isSafeInteger(candidate.committedCursor) || (candidate.committedCursor ?? -1) < 0 ||
+    (candidate.committedCursor ?? 0) < (candidate.checkpointSequence ?? 0) ||
+    (candidate.committedCursor ?? 0) > (candidate.checkpointSequence ?? 0) * 256) return false;
+  return sessionConfigMatches(expected.processingConfig, candidate.processingConfig);
 }
 
 function asConnectionFailure(code: AIConnectionCode): Exclude<AIConnectionCode, 'CONNECTED'> {
@@ -261,16 +326,29 @@ export class TrackingSessionApiClient {
     sessionId: string,
     corners: number[][],
     gameType: BadmintonGameType,
-    cameraSegmentId?: string,
+    cameraSegmentIdOrOptions?: string | {
+      cameraSegmentId?: string;
+      frameIndex?: number;
+      timestampSec?: number;
+      calibrationVersion?: string;
+    },
     selectedFrame?: { frameIndex: number; timestampSec: number },
   ): Promise<Pick<TrackingTelemetryV1, 'cameraSegmentId' | 'calibrationId' | 'calibrationState' | 'calibrationConfidence' | 'calibration'>> {
+    const opts = typeof cameraSegmentIdOrOptions === 'string'
+      ? { camera_segment_id: cameraSegmentIdOrOptions }
+      : cameraSegmentIdOrOptions
+        ? {
+            camera_segment_id: cameraSegmentIdOrOptions.cameraSegmentId,
+            frame_index: cameraSegmentIdOrOptions.frameIndex,
+            timestamp_sec: cameraSegmentIdOrOptions.timestampSec,
+            calibration_version: cameraSegmentIdOrOptions.calibrationVersion,
+          }
+        : {};
     const res = await this.request(`/api/tracking/sessions/${sessionId}/calibration`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        corners,
-        game_type: gameType,
-        ...(cameraSegmentId ? { camera_segment_id: cameraSegmentId } : {}),
+        corners, game_type: gameType, ...opts,
         ...(selectedFrame ? {
           selected_at_frame_index: selectedFrame.frameIndex,
           selected_at_timestamp_sec: selectedFrame.timestampSec,
@@ -297,39 +375,76 @@ export class TrackingSessionApiClient {
     });
   }
 
-  public async getSessionStatus(sessionId: string): Promise<TrackingSessionStatus> {
-    const res = await this.request(`/api/tracking/sessions/${sessionId}/status`);
+  public async cancelSessionAnalysis(sessionId: string): Promise<{ status: string }> {
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/cancel`, { method: 'POST' });
+    return res.json();
+  }
+
+  public async getSessionStatus(sessionId: string, signal?: AbortSignal): Promise<TrackingSessionStatus> {
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/status`, { signal });
     return res.json();
   }
 
   public async getSessionResults(
     sessionId: string,
-    after?: number
+    after?: number,
+    limit = MAX_TRACKING_RESULTS_PAGE_SIZE,
+    signal?: AbortSignal,
   ): Promise<{
     sessionId: string;
     status: string;
     sampleCount: number;
     totalSampleCount: number;
     nextCursor: number;
+    maximumPageSize?: number;
     trackedPlayerCount?: number;
     processingConfig?: ProcessingConfig;
     performance?: TrackingPerformanceStats;
     quality?: TrackingQualityStats;
     telemetry: TrackingTelemetryV1[];
   }> {
-    const query = after !== undefined ? `?after=${encodeURIComponent(after)}` : '';
-    const res = await this.request(`/api/tracking/sessions/${sessionId}/results${query}`);
+    const params = new URLSearchParams();
+    if (after !== undefined) params.set('after', String(after));
+    params.set('limit', String(limit));
+    const query = `?${params.toString()}`;
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/results${query}`, { signal });
     const payload = await res.json();
     return { ...payload, telemetry: (payload.telemetry || []).map(toTrackingTelemetryV1) };
   }
 
-  public async listSessions(projectId?: string | null): Promise<TrackingSessionSummary[] | { sessions: TrackingSessionSummary[] }> {
-    const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
-    const res = await this.request(`/api/tracking/sessions${query}`);
+  public async listSessions(
+    projectId?: string | null,
+    afterCursor?: string | null,
+    limit = MAX_TRACKING_SESSION_PAGE_SIZE,
+  ): Promise<TrackingSessionPage> {
+    const params = new URLSearchParams();
+    if (projectId) params.set('project_id', projectId);
+    if (afterCursor) params.set('after', afterCursor);
+    params.set('limit', String(Math.max(1, Math.min(MAX_TRACKING_SESSION_PAGE_SIZE, Math.floor(limit)))));
+    const res = await this.request(`/api/tracking/sessions?${params.toString()}`);
     const payload = (await res.json()) as {
       sessions?: TrackingSessionSummary[];
+      nextCursor?: string | null;
+      maximumPageSize?: number;
+      recoveryIssues?: string[];
+      recoveryIssueCount?: number;
+      recoveryIssuesTruncated?: boolean;
+      pageIssues?: string[];
+      pageIssueCount?: number;
+      pageIssuesTruncated?: boolean;
     };
-    return payload.sessions ?? [];
+    const recoveryIssues = payload.recoveryIssues ?? [];
+    return {
+      sessions: payload.sessions ?? [],
+      nextCursor: payload.nextCursor ?? null,
+      maximumPageSize: payload.maximumPageSize ?? MAX_TRACKING_SESSION_PAGE_SIZE,
+      recoveryIssues,
+      recoveryIssueCount: payload.recoveryIssueCount ?? recoveryIssues.length,
+      recoveryIssuesTruncated: payload.recoveryIssuesTruncated ?? false,
+      pageIssues: payload.pageIssues ?? [],
+      pageIssueCount: payload.pageIssueCount ?? payload.pageIssues?.length ?? 0,
+      pageIssuesTruncated: payload.pageIssuesTruncated ?? false,
+    };
   }
 
   public async deleteSession(sessionId: string): Promise<void> {
@@ -419,6 +534,7 @@ export class TrackingSessionApiClient {
     try {
       response = await fetch(url, { ...init, headers });
     } catch (error) {
+      if (init.signal?.aborted) throw error;
       throw new AIConnectionError(this.classifyTransportError(error));
     }
     if (response.status === 401) {
@@ -482,24 +598,76 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     ? parsedCalibration : null;
   const metricValid = isMetricCalibrationValid({ calibrationState, cameraSegmentId, calibrationId, calibration });
 
+  const sceneTransition = parseSceneTransition(frame.sceneTransition || frame.scene_transition);
+  const capabilities = parseSegmentCapabilities(frame.capabilities || frame.sceneTransition?.capabilities || sceneTransition?.capabilities);
+  const isMetricValid = frame.isMetricValid ?? frame.is_metric_valid ?? capabilities?.canUseCourtMetric.enabled ?? metricValid;
+  const allowCanonicalWrites = frame.allowCanonicalWrites ?? frame.allow_canonical_writes ?? capabilities?.canWriteCanonicalMatchData.enabled ?? (metricValid && (frame.sceneState === 'COURT_PLAY' || !frame.sceneState));
+
   return {
     schemaVersion: 1,
     analysisId: frame.analysisId || 'tracking_session',
+    pipelineRunId: frame.pipelineRunId || frame.pipeline_run_id || frame.analysisId || 'tracking_session',
     timestampSec: frame.timestampSec ?? frame.timestamp,
     frameIndex: frame.frameIndex ?? frame.frame_idx,
+    timebase: frame.timebase ?? null,
+    sceneState: frame.sceneState || frame.scene_state || null,
+    sceneTransition,
+    sceneEvidence: parseSceneEvidence(frame.sceneEvidence || frame.scene_evidence),
+    capabilities,
+    canTrackPlayer: typeof frame.canTrackPlayer === 'boolean'
+      ? frame.canTrackPlayer
+      : capabilities?.canTrackPlayer.enabled ?? true,
+    canTrackShuttle: typeof frame.canTrackShuttle === 'boolean'
+      ? frame.canTrackShuttle
+      : capabilities?.canTrackShuttle.enabled ?? true,
+    canUseCourtMetric: typeof frame.canUseCourtMetric === 'boolean'
+      ? frame.canUseCourtMetric
+      : capabilities?.canUseCourtMetric.enabled ?? isMetricValid,
+    canBuildHeatmap: typeof frame.canBuildHeatmap === 'boolean'
+      ? frame.canBuildHeatmap
+      : capabilities?.canBuildHeatmap.enabled ?? isMetricValid,
+    canEstimateHit: typeof frame.canEstimateHit === 'boolean'
+      ? frame.canEstimateHit
+      : capabilities?.canEstimateHit.enabled ?? false,
+    canWriteCanonicalMatchData: typeof frame.canWriteCanonicalMatchData === 'boolean'
+      ? frame.canWriteCanonicalMatchData
+      : capabilities?.canWriteCanonicalMatchData.enabled ?? allowCanonicalWrites,
+    isMetricValid,
+    allowCanonicalWrites,
+    calibrationUnavailableReason: frame.calibrationUnavailableReason || frame.calibration_unavailable_reason || null,
     engineVersion: frame.engineVersion || '1.0.0',
     modelVersion: frame.modelVersion || 'badminton-tracking-v1',
+    modelArtifactHash: frame.modelArtifactHash || frame.model_artifact_hash || null,
+    runtime: frame.runtime || null,
+    requestedDevice: frame.requestedDevice || frame.requested_device || null,
+    effectiveDevice: frame.effectiveDevice || frame.effective_device || frame.device || null,
+    precision: frame.precision || null,
     ...(hasCalibrationFields ? {
       cameraSegmentId,
       calibrationId,
+      calibrationVersion: frame.calibrationVersion || frame.calibration_version || (calibrationId ?? null),
       calibrationState,
       calibrationConfidence: calibrationState === 'CALIBRATED' && metricValid
         ? calibration?.confidence ?? null : null,
       calibration,
     } : {}),
+    confidence: frame.confidence ?? null,
+    observationState: frame.observationState || frame.observation_state || 'observed',
+    reviewState: frame.reviewState || frame.review_state || 'unreviewed',
+    supersededBy: frame.supersededBy || frame.superseded_by || null,
     isSynthetic,
     source: frame.source || (isSynthetic ? 'synthetic_demo' : 'real_tracking'),
     trackedPlayerCount: frame.trackedPlayerCount ?? frame.tracked_player_count,
+    rawPlayerDetections: (frame.rawPlayerDetections || frame.raw_player_detections || []).map((d: any) => {
+      const bbox = d.bboxPx || d.bbox;
+      return {
+        trackId: d.trackId ?? d.track_id ?? null,
+        bboxPx: [Number(bbox[0]), Number(bbox[1]), Number(bbox[2]), Number(bbox[3])] as [number, number, number, number],
+        confidence: typeof d.confidence === 'number' ? d.confidence : (typeof d.conf === 'number' ? d.conf : null),
+        pose: d.pose ?? d.pose_obj ?? null,
+        eligibility: d.eligibility ?? null,
+      };
+    }),
     players: (frame.players || []).map((p: any) => {
       const posPct = p.court_pos_pct;
       const posM = p.court_pos_m;
@@ -538,13 +706,38 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         ? (p.rightFootCourtM !== undefined ? p.rightFootCourtM : p.rightFoot?.courtPositionM)
         : null;
 
+      const state =
+        p.state ||
+        (p.is_active !== undefined
+          ? p.is_active
+            ? 'observed'
+            : 'lost'
+          : p.observationState === 'predicted'
+            ? 'predicted'
+            : 'observed');
+      const observationState =
+        state === 'lost'
+          ? null
+          : p.observationState !== undefined
+          ? p.observationState
+          : p.observation_state !== undefined
+            ? p.observation_state
+            : state === 'predicted'
+              ? 'predicted'
+              : state === 'lost'
+                ? null
+                : 'observed';
+      const groundPointProvenance =
+        state === 'lost' ? null : (p.groundPointProvenance || p.ground_point_provenance || null);
+
       return {
         playerId: p.playerId || `P${p.id}`,
+        athleteId: p.athleteId || p.athlete_id || null,
         trackId: p.trackId,
         teamCode: p.teamCode || (p.team ? `team${p.team}` : undefined),
-        bboxPct: p.bboxPct || p.video_bbox_pct,
-        groundPointPct: groundPoint,
-        groundPointProvenance: p.groundPointProvenance ?? null,
+        bboxPct: state === 'lost' ? null : (p.bboxPct || p.video_bbox_pct),
+        groundPointPct: state === 'lost' ? null : groundPoint,
+        groundPointProvenance,
         groundPositionM,
         courtPositionM: metricValid
           ? (p.courtPositionM !== undefined ? p.courtPositionM : posM ?? null)
@@ -563,8 +756,11 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         speedMps: metricValid ? (p.speedMps ?? p.speed_ms) : null,
         totalDistanceM: metricValid ? (p.totalDistanceM ?? p.total_dist_m ?? null) : null,
         detectionConfidence: typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null,
-        state: p.state || (p.is_active ? 'observed' : 'lost'),
-        pose,
+        confidence: typeof p.confidence === 'number' ? p.confidence : (typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null),
+        state,
+        observationState,
+        reviewState: p.reviewState || p.review_state || 'unreviewed',
+        pose: state === 'lost' ? null : pose,
       };
     }),
     shuttle: frame.shuttle
@@ -584,6 +780,16 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
           trajectoryId: frame.shuttle.trajectoryId ?? null,
           velocityPxPerSec: frame.shuttle.velocityPxPerSec ?? null,
           speedPxPerSec: frame.shuttle.speedPxPerSec ?? null,
+          ...(frame.shuttle.trackingState !== undefined ? { trackingState: frame.shuttle.trackingState } : {}),
+          ...(frame.shuttle.warmupRemainingFrames !== undefined ? { warmupRemainingFrames: frame.shuttle.warmupRemainingFrames } : {}),
+          ...(frame.shuttle.validity !== undefined ? { validity: frame.shuttle.validity } : {}),
+          ...(frame.shuttle.evidenceFusion !== undefined ? { evidenceFusion: frame.shuttle.evidenceFusion } : {}),
+          ...(typeof (frame.shuttle.cameraSegmentId || frame.shuttle.camera_segment_id) === 'string'
+            ? { cameraSegmentId: frame.shuttle.cameraSegmentId || frame.shuttle.camera_segment_id }
+            : {}),
+          ...(typeof (frame.shuttle.pipelineRunId || frame.shuttle.pipeline_run_id) === 'string'
+            ? { pipelineRunId: frame.shuttle.pipelineRunId || frame.shuttle.pipeline_run_id }
+            : {}),
         }
       : null,
   };
