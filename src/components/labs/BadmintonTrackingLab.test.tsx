@@ -3,11 +3,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import BadmintonTrackingLab from './BadmintonTrackingLab';
 import { aiTrackingService } from '../../services/aiTrackingService';
 import { computeVideoFingerprint, createDefaultProjectTrackingState, trackingSessionStore } from '../../services/trackingSessionStore';
+import type { TrackingSessionStatus, TrackingTelemetryV1 } from '../../types';
+import type { TrackingAnalysis, TrackingSampleChunk } from '../../services/storage/trackingStorage';
 
 vi.mock('../../context/ScoutContext', () => ({ useScoutContext: () => ({ matchInfo: { sportType: 'badminton' }, settings: { uiLanguage: 'en' }, videoSourceType: 'local', localFileName: 'rally.mp4', setLocalFileName: vi.fn(), setVideoSourceType: vi.fn(), showToast: vi.fn() }) }));
 vi.mock('../../context/WorkspaceContext', () => ({ useWorkspace: () => ({ activeProjectId: 'p1', projects: [], updateProjectVideoCalibration: vi.fn() }) }));
 vi.mock('../../utils/videoFileStore', () => ({ loadProjectVideoFileHandle: vi.fn().mockResolvedValue(null) }));
-vi.mock('../../services/storage/trackingStorage', () => ({ MAX_TRACKING_PAGE_SIZE: 250, listTrackingAnalyses: vi.fn().mockResolvedValue([]), listTrackingAnalysisPage: vi.fn().mockResolvedValue({ analyses: [], nextCursor: null, hasMore: false }), getLatestTrackingAnalysisForProject: vi.fn().mockResolvedValue(null), getTrackingSampleChunkPage: vi.fn().mockResolvedValue({ chunks: [], nextCursor: null, hasMore: false }), getTrackingSampleChunks: vi.fn(), saveTrackingAnalysis: vi.fn(), downsampleAndChunkTrackingSamples: vi.fn() }));
+vi.mock('../../services/storage/trackingStorage', () => ({ MAX_TRACKING_PAGE_SIZE: 250, listTrackingAnalyses: vi.fn().mockResolvedValue([]), listTrackingAnalysisPage: vi.fn().mockResolvedValue({ analyses: [], nextCursor: null, hasMore: false }), getLatestTrackingAnalysisForProject: vi.fn().mockResolvedValue(null), getTrackingSampleChunkPage: vi.fn().mockResolvedValue({ chunks: [], nextCursor: null, hasMore: false }), getTrackingSampleChunks: vi.fn(), saveTrackingAnalysis: vi.fn(), downsampleAndChunkTrackingSamples: vi.fn(), calculateNominalAnalysisHz: vi.fn().mockReturnValue(null), calculateEffectiveStoredHz: vi.fn().mockReturnValue(null), getTrackingMovementMetrics: vi.fn().mockResolvedValue(null) }));
 vi.mock('../../services/aiTrackingService', () => ({ aiTrackingService: { checkConnection: vi.fn(), getCapabilities: vi.fn().mockResolvedValue({ selectedDevice: 'cpu', cudaAvailable: false, mpsAvailable: false }), listSessions: vi.fn().mockResolvedValue({ sessions: [], nextCursor: null, maximumPageSize: 250, recoveryIssues: [], recoveryIssueCount: 0, recoveryIssuesTruncated: false, pageIssues: [], pageIssueCount: 0, pageIssuesTruncated: false }), createSession: vi.fn(), uploadSessionVideo: vi.fn(), calibrateSession: vi.fn(), startSessionAnalysis: vi.fn(), getSessionStatus: vi.fn(), getSessionResults: vi.fn(), deleteSession: vi.fn().mockResolvedValue(undefined) } }));
 beforeEach(() => { vi.clearAllMocks(); trackingSessionStore.updateProjectState('p1', createDefaultProjectTrackingState('p1')); vi.mocked(aiTrackingService.checkConnection).mockResolvedValue({ code: 'CONNECTED', connected: true, endpoint: 'http://127.0.0.1:8000' }); URL.createObjectURL = vi.fn(() => 'blob:video'); URL.revokeObjectURL = vi.fn(); });
 afterEach(() => { cleanup(); trackingSessionStore.updateProjectState('p1', createDefaultProjectTrackingState('p1')); });
@@ -66,6 +68,73 @@ it('creates a new CUDA session when GPU is selected for a cancelled CPU analysis
   }));
   expect(aiTrackingService.startSessionAnalysis).not.toHaveBeenCalledWith('old-cpu');
   expect(aiTrackingService.deleteSession).not.toHaveBeenCalledWith('old-cpu');
+});
+it('starts a clean session when a different video with the same filename replaces a cancelled analysis', async () => {
+  const previousFile = new File(['old'], 'match.mp4', { type: 'video/mp4', lastModified: 1 });
+  const nextFile = new File(['new'], 'match.mp4', { type: 'video/mp4', lastModified: 2 });
+  const previousAnalysis: TrackingAnalysis = {
+    id: 'old-analysis', projectId: 'p1', sportType: 'badminton', gameType: 'singles', status: 'completed',
+    engineVersion: 'test', detectorModel: 'test-detector', trackerModel: 'test-tracker',
+    sampleRateHz: null, createdAt: new Date().toISOString(), players: [],
+    summary: { durationSeconds: 1, sampleCount: 0, players: {} },
+  };
+  const previousTelemetry: TrackingTelemetryV1 = {
+    schemaVersion: 1, analysisId: 'old-analysis', timestampSec: 0.1, frameIndex: 1, players: [],
+  };
+  const previousChunk: TrackingSampleChunk = {
+    id: 'old-analysis:0', analysisId: 'old-analysis', chunkIndex: 0, startTime: 0, endTime: 1, samples: [],
+  };
+  trackingSessionStore.updateProjectState('p1', {
+    file: previousFile,
+    sessionId: 'old-session',
+    status: 'CANCELLED',
+    videoFingerprint: computeVideoFingerprint(previousFile),
+    corners: [[1, 2], [3, 4], [5, 6], [7, 8]],
+    telemetry: [previousTelemetry],
+    cursor: 1,
+    analysis: previousAnalysis,
+    chunks: [previousChunk],
+    processingConfig: { ...createDefaultProjectTrackingState('p1').processingConfig, autoCourtCalibrationEnabled: true },
+  });
+  vi.mocked(aiTrackingService.createSession).mockResolvedValue({ sessionId: 'new-session', status: 'READY', trackedPlayerCount: 2 });
+  vi.mocked(aiTrackingService.uploadSessionVideo).mockResolvedValue({ width: 1280, height: 720 });
+  const makeStatus = (sessionId: string, status: TrackingSessionStatus['status']): TrackingSessionStatus => ({
+    sessionId, status, progressPct: 0, currentFrame: 0, totalFrames: 0, analyzedFrames: 0,
+    frameStride: 2, elapsedSec: null, videoDurationSec: null, lastTelemetryTimestampSec: null,
+    sourceFps: null, samplingFps: null, analysisFps: null, trackedPlayerCount: 2, device: 'cpu',
+    players: [], error: null,
+  });
+  vi.mocked(aiTrackingService.getSessionStatus)
+    .mockResolvedValueOnce(makeStatus('old-session', 'CANCELLED'))
+    .mockResolvedValue(makeStatus('new-session', 'PROCESSING'));
+  vi.mocked(aiTrackingService.getSessionResults).mockResolvedValue({
+    sessionId: 'new-session', status: 'PROCESSING', sampleCount: 0, totalSampleCount: 0, nextCursor: 0, telemetry: [],
+  });
+
+  render(<BadmintonTrackingLab />);
+  await screen.findByText(/Inference device: cpu/i);
+  fireEvent.change(screen.getByLabelText('Select video file'), { target: { files: [nextFile] } });
+
+  await waitFor(() => expect(trackingSessionStore.getProjectState('p1')).toMatchObject({
+    file: nextFile,
+    sessionId: null,
+    videoFingerprint: computeVideoFingerprint(nextFile),
+    status: 'IDLE',
+    corners: [],
+    telemetry: [],
+    cursor: 0,
+    analysis: null,
+    chunks: [],
+    sessionStatus: null,
+  }));
+  expect(screen.getByRole('button', { name: /Run Movement Analysis/i })).toBeEnabled();
+
+  fireEvent.click(screen.getByRole('button', { name: /Run Movement Analysis/i }));
+  await waitFor(() => expect(aiTrackingService.startSessionAnalysis).toHaveBeenCalledWith('new-session'));
+  expect(aiTrackingService.createSession).toHaveBeenCalledWith('singles', 'upload', expect.objectContaining({
+    videoFingerprint: computeVideoFingerprint(nextFile),
+  }));
+  expect(aiTrackingService.uploadSessionVideo).toHaveBeenCalledWith('new-session', nextFile, expect.any(AbortSignal));
 });
 it('provides a clearly visible video file picker button', async () => {
   render(<BadmintonTrackingLab />);

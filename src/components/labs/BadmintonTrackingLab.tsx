@@ -837,27 +837,45 @@ export default function BadmintonTrackingLab() {
   };
 
   const choose = (next: File | undefined) => {
-    if (!next) return;
+    if (!next || processing) return;
+    const nextFingerprint = computeVideoFingerprint(next);
     const isReconnecting =
-      (state.sessionId || state.analysis) &&
-      (state.localFileName === next.name ||
-        state.videoFingerprint === computeVideoFingerprint(next));
+      Boolean(state.sessionId || state.analysis) &&
+      state.videoFingerprint === nextFingerprint;
 
     setFile(next);
     setLocalFileName(next.name);
     setVideoSourceType('local');
 
-    if (!isReconnecting && state.status === 'IDLE') {
+    if (!isReconnecting) {
       update({
+        sessionId: null,
+        videoFingerprint: nextFingerprint,
+        status: 'IDLE',
+        progress: 0,
+        currentFrame: 0,
+        totalFrames: 0,
+        analyzedFrames: 0,
         corners: [],
         telemetry: [],
         cursor: 0,
         analysis: null,
         chunks: [],
+        chunksNextCursor: null,
+        chunksHasMore: false,
         error: null,
         sessionStatus: null,
       });
       setCalibrating(false);
+      setTime(0);
+      setRecoverySelectionKey(null);
+      setRecoverySelectionFrame(null);
+      setRecoveryViewReady(false);
+      setRecoveredKey(null);
+      setRecoveryError(null);
+      setOverlayWindow(null);
+      setOverlayWindowStatus('idle');
+      setUIPreference('videoCurrentTime', 0);
     }
   };
 
@@ -1383,6 +1401,13 @@ export default function BadmintonTrackingLab() {
       {/* Video Selection & Reconnection */}
       <div className="space-y-2">
         <span className="block text-sm">{th ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select video file'}</span>
+        {processing && (
+          <p className="text-xs text-amber-300">
+            {th
+              ? 'ยกเลิกการวิเคราะห์และรอให้หยุดก่อนจึงจะเปลี่ยนวิดีโอได้'
+              : 'Cancel analysis and wait for it to stop before changing videos.'}
+          </p>
+        )}
         <input
           ref={fileInputRef}
           aria-label="Select video file"
