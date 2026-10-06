@@ -484,6 +484,14 @@ export default function BadmintonTrackingLab() {
       setConnection(snapshot);
       setOnline(snapshot.connected);
       if (snapshot.connected) {
+        const previousError = store.getProjectState(activeProjectId)?.error;
+        if (previousError === new AIConnectionError('NETWORK_ERROR').message) {
+          update({
+            error: th
+              ? 'เชื่อมต่อ Local AI ได้แล้ว แต่คำขอก่อนหน้าล้มเหลว กดเริ่มวิเคราะห์อีกครั้งได้'
+              : 'Local AI is reachable, but the previous request failed. Retry the analysis.',
+          });
+        }
         try {
           const caps = await aiTrackingService.getCapabilities();
           if (alive) {
@@ -507,7 +515,7 @@ export default function BadmintonTrackingLab() {
       alive = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [activeProjectId, store, th, update]);
 
   // 2. Profile configuration helper
   const selectProfile = (nextProfile: ProcessingProfile) => {

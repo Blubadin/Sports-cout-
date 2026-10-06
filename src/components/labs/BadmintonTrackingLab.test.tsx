@@ -34,6 +34,17 @@ it('shows authentication required without exposing credential details', async ()
   expect(await screen.findByRole('status')).toHaveTextContent('Authentication required');
   expect(screen.getByRole('status')).not.toHaveTextContent('secret-value');
 });
+it('relabels a stale network error after the Local AI health check succeeds', async () => {
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  trackingSessionStore.updateProjectState('p1', {
+    file,
+    videoFingerprint: computeVideoFingerprint(file),
+    error: 'AI service network connection failed.',
+  });
+  render(<BadmintonTrackingLab />);
+  expect(await screen.findByText('Local AI is reachable, but the previous request failed. Retry the analysis.')).toBeInTheDocument();
+  expect(screen.queryByText('AI service network connection failed.')).not.toBeInTheDocument();
+});
 it('shows browser-security blocking distinctly from offline', async () => {
   vi.mocked(aiTrackingService.checkConnection).mockResolvedValue({ code: 'MIXED_CONTENT', connected: false, endpoint: 'http://ai.example.com' });
   render(<BadmintonTrackingLab />);
