@@ -749,6 +749,42 @@ BENCHMARK_SPLITS: tuple[str, ...] = (
     "blind_test",
 )
 
+THRESHOLD_STATUS_UNSET = "UNSET"
+THRESHOLD_STATUS_PROPOSED = "PROPOSED_FOR_OWNER_REVIEW"
+THRESHOLD_STATUS_APPROVED = "APPROVED_FROZEN"
+
+THRESHOLD_STATUSES: tuple[str, ...] = (
+    THRESHOLD_STATUS_UNSET,
+    THRESHOLD_STATUS_PROPOSED,
+    THRESHOLD_STATUS_APPROVED,
+)
+
+CAPABILITY_STATUS_VALIDATED = "VALIDATED"
+CAPABILITY_STATUS_NOT_VALIDATED = "NOT VALIDATED"
+CAPABILITY_STATUS_EXPERIMENTAL = "EXPERIMENTAL"
+CAPABILITY_STATUS_BLOCKED = "BLOCKED"
+
+CAPABILITY_STATUSES: tuple[str, ...] = (
+    CAPABILITY_STATUS_VALIDATED,
+    CAPABILITY_STATUS_NOT_VALIDATED,
+    CAPABILITY_STATUS_EXPERIMENTAL,
+    CAPABILITY_STATUS_BLOCKED,
+)
+
+GT_STREAM_CAMERA_CUT = "camera_cut"
+GT_STREAM_CALIBRATION = "calibration"
+GT_STREAM_GROUND_POSITION = "ground_position"
+GT_STREAM_PLAYER_IDENTITY = "player_identity"
+GT_STREAM_SHUTTLE_TRACKING = "shuttle_tracking"
+
+REQUIRED_GT_STREAMS: tuple[str, ...] = (
+    GT_STREAM_CAMERA_CUT,
+    GT_STREAM_CALIBRATION,
+    GT_STREAM_GROUND_POSITION,
+    GT_STREAM_PLAYER_IDENTITY,
+    GT_STREAM_SHUTTLE_TRACKING,
+)
+
 
 @dataclass(frozen=True)
 class Phase3QualityThresholds:
@@ -762,34 +798,52 @@ class Phase3QualityThresholds:
     min_shuttle_precision: float = 0.85
     min_shuttle_recall: float = 0.85
     max_reacquisition_duration_sec: float = 1.50
+    status: str = THRESHOLD_STATUS_PROPOSED
+    approved_by: Optional[str] = None
+    approval_date: Optional[str] = None
+    min_camera_cut_precision: float = 0.90
+    min_camera_cut_recall: float = 0.90
+    max_shuttle_false_positives_per_1000: float = 5.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "status": self.status,
+            "approvedBy": self.approved_by,
+            "approvalDate": self.approval_date,
             "maxReprojectionErrorPx": self.max_reprojection_error_px,
             "maxCourtPositionErrorM": self.max_court_position_error_m,
             "minCameraCutF1": self.min_camera_cut_f1,
+            "minCameraCutPrecision": self.min_camera_cut_precision,
+            "minCameraCutRecall": self.min_camera_cut_recall,
             "maxCameraCutLatencySec": self.max_camera_cut_latency_sec,
             "maxRelockLatencySec": self.max_relock_latency_sec,
             "maxFalseValidCalibrationCount": self.max_false_valid_calibration_count,
             "maxIdSwitchesPer10Min": self.max_id_switches_per_10_min,
             "minShuttlePrecision": self.min_shuttle_precision,
             "minShuttleRecall": self.min_shuttle_recall,
+            "maxShuttleFalsePositivesPer1000": self.max_shuttle_false_positives_per_1000,
             "maxReacquisitionDurationSec": self.max_reacquisition_duration_sec,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Phase3QualityThresholds:
         return cls(
-            max_reprojection_error_px=_optional_float(data.get("maxReprojectionErrorPx")) or 12.0,
-            max_court_position_error_m=_optional_float(data.get("maxCourtPositionErrorM")) or 0.35,
-            min_camera_cut_f1=_optional_float(data.get("minCameraCutF1")) or 0.90,
-            max_camera_cut_latency_sec=_optional_float(data.get("maxCameraCutLatencySec")) or 0.50,
-            max_relock_latency_sec=_optional_float(data.get("maxRelockLatencySec")) or 1.00,
-            max_false_valid_calibration_count=_optional_int(data.get("maxFalseValidCalibrationCount")) or 0,
-            max_id_switches_per_10_min=_optional_float(data.get("maxIdSwitchesPer10Min")) or 2.0,
-            min_shuttle_precision=_optional_float(data.get("minShuttlePrecision")) or 0.85,
-            min_shuttle_recall=_optional_float(data.get("minShuttleRecall")) or 0.85,
-            max_reacquisition_duration_sec=_optional_float(data.get("maxReacquisitionDurationSec")) or 1.50,
+            max_reprojection_error_px=_optional_float(data.get("maxReprojectionErrorPx")) if data.get("maxReprojectionErrorPx") is not None else 12.0,
+            max_court_position_error_m=_optional_float(data.get("maxCourtPositionErrorM")) if data.get("maxCourtPositionErrorM") is not None else 0.35,
+            min_camera_cut_f1=_optional_float(data.get("minCameraCutF1")) if data.get("minCameraCutF1") is not None else 0.90,
+            max_camera_cut_latency_sec=_optional_float(data.get("maxCameraCutLatencySec")) if data.get("maxCameraCutLatencySec") is not None else 0.50,
+            max_relock_latency_sec=_optional_float(data.get("maxRelockLatencySec")) if data.get("maxRelockLatencySec") is not None else 1.00,
+            max_false_valid_calibration_count=_optional_int(data.get("maxFalseValidCalibrationCount")) if data.get("maxFalseValidCalibrationCount") is not None else 0,
+            max_id_switches_per_10_min=_optional_float(data.get("maxIdSwitchesPer10Min")) if data.get("maxIdSwitchesPer10Min") is not None else 2.0,
+            min_shuttle_precision=_optional_float(data.get("minShuttlePrecision")) if data.get("minShuttlePrecision") is not None else 0.85,
+            min_shuttle_recall=_optional_float(data.get("minShuttleRecall")) if data.get("minShuttleRecall") is not None else 0.85,
+            max_reacquisition_duration_sec=_optional_float(data.get("maxReacquisitionDurationSec")) if data.get("maxReacquisitionDurationSec") is not None else 1.50,
+            status=str(data.get("status") or THRESHOLD_STATUS_PROPOSED),
+            approved_by=data.get("approvedBy"),
+            approval_date=data.get("approvalDate"),
+            min_camera_cut_precision=_optional_float(data.get("minCameraCutPrecision")) if data.get("minCameraCutPrecision") is not None else 0.90,
+            min_camera_cut_recall=_optional_float(data.get("minCameraCutRecall")) if data.get("minCameraCutRecall") is not None else 0.90,
+            max_shuttle_false_positives_per_1000=_optional_float(data.get("maxShuttleFalsePositivesPer1000")) if data.get("maxShuttleFalsePositivesPer1000") is not None else 5.0,
         )
 
 
@@ -887,6 +941,19 @@ class BenchmarkClipEntry:
     player_identity_ground_truth_available: bool = False
     ground_position_ground_truth_available: bool = False
     camera_cut_ground_truth_available: bool = False
+    shuttle_ground_truth_available: bool = False
+    source_media_sha256: Optional[str] = None
+    gt_media_sha256: Optional[str] = None
+    primary_reviewer_id: Optional[str] = None
+    independent_second_reviewer: Optional[str] = None
+    prediction_blinding_status: Optional[str] = None
+    adjudication_record: Optional[list] = None
+    annotation_version: Optional[str] = None
+    annotation_interval_complete: bool = True
+    is_synthetic_fixture: bool = False
+    is_development_data: bool = False
+    model_predictions_used_as_gt: bool = False
+    unknown_converted_to_absent: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -921,6 +988,19 @@ class BenchmarkClipEntry:
             "playerIdentityGroundTruthAvailable": self.player_identity_ground_truth_available,
             "groundPositionGroundTruthAvailable": self.ground_position_ground_truth_available,
             "cameraCutGroundTruthAvailable": self.camera_cut_ground_truth_available,
+            "shuttleGroundTruthAvailable": self.shuttle_ground_truth_available,
+            "sourceMediaSha256": self.source_media_sha256,
+            "gtMediaSha256": self.gt_media_sha256,
+            "primaryReviewerId": self.primary_reviewer_id,
+            "independentSecondReviewer": self.independent_second_reviewer,
+            "predictionBlindingStatus": self.prediction_blinding_status,
+            "adjudicationRecord": list(self.adjudication_record) if self.adjudication_record is not None else None,
+            "annotationVersion": self.annotation_version,
+            "annotationIntervalComplete": self.annotation_interval_complete,
+            "isSyntheticFixture": self.is_synthetic_fixture,
+            "isDevelopmentData": self.is_development_data,
+            "modelPredictionsUsedAsGt": self.model_predictions_used_as_gt,
+            "unknownConvertedToAbsent": self.unknown_converted_to_absent,
         }
 
     @classmethod
@@ -968,6 +1048,19 @@ class BenchmarkClipEntry:
             player_identity_ground_truth_available=data.get("playerIdentityGroundTruthAvailable") is True,
             ground_position_ground_truth_available=data.get("groundPositionGroundTruthAvailable") is True,
             camera_cut_ground_truth_available=data.get("cameraCutGroundTruthAvailable") is True,
+            shuttle_ground_truth_available=data.get("shuttleGroundTruthAvailable") is True,
+            source_media_sha256=data.get("sourceMediaSha256") or data.get("source_media_sha256"),
+            gt_media_sha256=data.get("gtMediaSha256") or data.get("gt_media_sha256"),
+            primary_reviewer_id=data.get("primaryReviewerId") or data.get("primary_reviewer_id"),
+            independent_second_reviewer=data.get("independentSecondReviewer") or data.get("independent_second_reviewer"),
+            prediction_blinding_status=data.get("predictionBlindingStatus") or data.get("prediction_blinding_status"),
+            adjudication_record=data.get("adjudicationRecord") or data.get("adjudication_record"),
+            annotation_version=data.get("annotationVersion") or data.get("annotation_version"),
+            annotation_interval_complete=data.get("annotationIntervalComplete", True) is not False,
+            is_synthetic_fixture=data.get("isSyntheticFixture") is True,
+            is_development_data=data.get("isDevelopmentData") is True,
+            model_predictions_used_as_gt=data.get("modelPredictionsUsedAsGt") is True,
+            unknown_converted_to_absent=data.get("unknownConvertedToAbsent") is True,
         )
 
 
@@ -1441,6 +1534,106 @@ class Phase3BenchmarkProvenance:
         )
 
 
+@dataclass(frozen=True)
+class ShuttleCloseoutProvenance:
+    provider: str
+    checkpoint_sha: Optional[str] = None
+    source_media_sha: Optional[str] = None
+    gt_version: Optional[str] = None
+    model_version: Optional[str] = None
+    runtime_version: Optional[str] = None
+    device: str = "cpu"
+    precision: str = "fp32"
+    sampling_configuration: Optional[str] = None
+    frame_stride: int = 1
+    visibility_semantics: str = "strict_4_state"
+    matching_tolerance_px: float = 30.0
+    matching_rule: str = "euclidean_2d_px <= 30.0"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "checkpointSha": self.checkpoint_sha,
+            "sourceMediaSha": self.source_media_sha,
+            "gtVersion": self.gt_version,
+            "modelVersion": self.model_version,
+            "runtimeVersion": self.runtime_version,
+            "device": self.device,
+            "precision": self.precision,
+            "samplingConfiguration": self.sampling_configuration,
+            "frameStride": self.frame_stride,
+            "visibilitySemantics": self.visibility_semantics,
+            "matchingTolerancePx": self.matching_tolerance_px,
+            "matchingRule": self.matching_rule,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ShuttleCloseoutProvenance:
+        return cls(
+            provider=data.get("provider", "unknown"),
+            checkpoint_sha=data.get("checkpointSha") or data.get("checkpoint_sha"),
+            source_media_sha=data.get("sourceMediaSha") or data.get("source_media_sha"),
+            gt_version=data.get("gtVersion") or data.get("gt_version"),
+            model_version=data.get("modelVersion") or data.get("model_version"),
+            runtime_version=data.get("runtimeVersion") or data.get("runtime_version"),
+            device=data.get("device", "cpu"),
+            precision=data.get("precision", "fp32"),
+            sampling_configuration=data.get("samplingConfiguration") or data.get("sampling_configuration"),
+            frame_stride=_positive_int(data.get("frameStride")) or _positive_int(data.get("frame_stride")) or 1,
+            visibility_semantics=data.get("visibilitySemantics") or data.get("visibility_semantics") or "strict_4_state",
+            matching_tolerance_px=_positive_float(data.get("matchingTolerancePx")) or _positive_float(data.get("matching_tolerance_px")) or 30.0,
+            matching_rule=data.get("matchingRule") or data.get("matching_rule") or "euclidean_2d_px <= 30.0",
+        )
+
+
+@dataclass
+class ShuttleCloseoutMetrics:
+    status: str = "UNAVAILABLE"
+    provenance: Optional[ShuttleCloseoutProvenance] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    false_positive_count: Optional[int] = None
+    false_positive_rate_per_1000: Optional[float] = None
+    reacquisition_duration_sec: Optional[float] = None
+    passed_thresholds: Optional[bool] = None
+    failure_reasons: list[str] = field(default_factory=list)
+    dataset_status: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "provenance": self.provenance.to_dict() if self.provenance else None,
+            "precision": self.precision,
+            "recall": self.recall,
+            "falsePositiveCount": self.false_positive_count,
+            "falsePositiveRatePer1000": self.false_positive_rate_per_1000,
+            "reacquisitionDurationSec": self.reacquisition_duration_sec,
+            "passedThresholds": self.passed_thresholds,
+            "failureReasons": list(self.failure_reasons),
+            "datasetStatus": self.dataset_status,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ShuttleCloseoutMetrics:
+        prov = (
+            ShuttleCloseoutProvenance.from_dict(data["provenance"])
+            if data.get("provenance") and isinstance(data["provenance"], dict)
+            else None
+        )
+        return cls(
+            status=data.get("status", "UNAVAILABLE"),
+            provenance=prov,
+            precision=_optional_float(data.get("precision")),
+            recall=_optional_float(data.get("recall")),
+            false_positive_count=_optional_int(data.get("falsePositiveCount")),
+            false_positive_rate_per_1000=_optional_float(data.get("falsePositiveRatePer1000")),
+            reacquisition_duration_sec=_optional_float(data.get("reacquisitionDurationSec")),
+            passed_thresholds=data.get("passedThresholds") if isinstance(data.get("passedThresholds"), bool) else None,
+            failure_reasons=list(data.get("failureReasons", [])),
+            dataset_status=data.get("datasetStatus"),
+        )
+
+
 @dataclass
 class Phase3BenchmarkReport:
     provenance: Phase3BenchmarkProvenance
@@ -1452,6 +1645,12 @@ class Phase3BenchmarkReport:
     annotation_manifest_blockers: list[str] = field(default_factory=list)
     overall_passed: bool = False
     thresholds: Phase3QualityThresholds = field(default_factory=Phase3QualityThresholds)
+    capability_outcomes: dict[str, str] = field(default_factory=dict)
+    certification_blockers: list[str] = field(default_factory=list)
+    shuttle_metrics: Optional[ShuttleCloseoutMetrics] = None
+    is_synthetic_fixture: bool = False
+    certification_passed: bool = False
+    gate_checks: dict[str, bool] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1464,6 +1663,12 @@ class Phase3BenchmarkReport:
             "annotationManifestBlockers": list(self.annotation_manifest_blockers),
             "overallPassed": self.overall_passed,
             "thresholds": self.thresholds.to_dict(),
+            "capabilityOutcomes": dict(self.capability_outcomes),
+            "certificationBlockers": list(self.certification_blockers),
+            "shuttleMetrics": self.shuttle_metrics.to_dict() if self.shuttle_metrics else None,
+            "isSyntheticFixture": self.is_synthetic_fixture,
+            "certificationPassed": self.certification_passed,
+            "gateChecks": dict(self.gate_checks),
         }
 
     @classmethod
@@ -1478,6 +1683,11 @@ class Phase3BenchmarkReport:
             if "thresholds" in data and isinstance(data["thresholds"], dict)
             else Phase3QualityThresholds()
         )
+        shuttle_m = (
+            ShuttleCloseoutMetrics.from_dict(data["shuttleMetrics"])
+            if data.get("shuttleMetrics") and isinstance(data["shuttleMetrics"], dict)
+            else None
+        )
         return cls(
             provenance=Phase3BenchmarkProvenance.from_dict(data.get("provenance", {})),
             camera_cuts=CameraCutBenchmarkMetrics.from_dict(data.get("cameraCuts", {})),
@@ -1488,6 +1698,12 @@ class Phase3BenchmarkReport:
             annotation_manifest_blockers=blockers,
             overall_passed=data.get("overallPassed") is True,
             thresholds=thresholds,
+            capability_outcomes=data.get("capabilityOutcomes", {}),
+            certification_blockers=list(data.get("certificationBlockers", [])),
+            shuttle_metrics=shuttle_m,
+            is_synthetic_fixture=data.get("isSyntheticFixture") is True,
+            certification_passed=data.get("certificationPassed") is True,
+            gate_checks=data.get("gateChecks", {}),
         )
 
     def format_text_summary(self) -> str:
@@ -1496,9 +1712,21 @@ class Phase3BenchmarkReport:
             f"Clip ID: {self.provenance.clip_id} (Dataset: {self.provenance.dataset_id})",
             f"Engine: {self.provenance.engine_version} | Detector: {self.provenance.detector_model} | Tracker: {self.provenance.tracker_model}",
             f"Overall Status: {'PASSED' if self.overall_passed else 'FAILED / BLOCKED'}",
+            f"Certification: {'CERTIFIED' if self.certification_passed else 'NOT CERTIFIED / BLOCKED'}",
+        ]
+        if self.is_synthetic_fixture:
+            lines.append("[WARNING] Synthetic test fixture: Evaluator logic test only; never valid as real-data accuracy.")
+
+        if self.capability_outcomes:
+            lines.append("")
+            lines.append("--- CAPABILITY-LEVEL OUTCOMES ---")
+            for cap_name, outcome in sorted(self.capability_outcomes.items()):
+                lines.append(f"[{cap_name}] Outcome: {outcome}")
+
+        lines.extend([
             "",
             "--- MEASURED METRICS ---",
-        ]
+        ])
         measured_found = False
         if self.camera_cuts.status == "MEASURED":
             measured_found = True
@@ -1512,6 +1740,9 @@ class Phase3BenchmarkReport:
         if self.identity.status == "MEASURED":
             measured_found = True
             lines.append(f"[Tracking Identity] IDF1: {self.identity.idf1:.3f} | ID Switches: {self.identity.id_switch_count}")
+        if self.shuttle_metrics and self.shuttle_metrics.status == "MEASURED":
+            measured_found = True
+            lines.append(f"[Shuttle Tracking] Precision: {self.shuttle_metrics.precision} | Recall: {self.shuttle_metrics.recall} | FP Count: {self.shuttle_metrics.false_positive_count}")
         if not measured_found:
             lines.append("(None measured)")
 
@@ -1533,6 +1764,9 @@ class Phase3BenchmarkReport:
         if self.identity.hota_status == "UNAVAILABLE":
             unavailable_found = True
             lines.append(f"[HOTA] UNAVAILABLE: {self.identity.hota_reason}")
+        if self.shuttle_metrics and self.shuttle_metrics.status == "UNAVAILABLE":
+            unavailable_found = True
+            lines.append(f"[Shuttle Tracking] UNAVAILABLE: {self.shuttle_metrics.dataset_status or 'No ground truth'}")
         if not unavailable_found:
             lines.append("(None)")
 
@@ -1546,6 +1780,8 @@ class Phase3BenchmarkReport:
                 ("Tracking Identity", self.identity.status),
             ] if status == "FAILED_VALIDATION"
         ]
+        if self.shuttle_metrics and self.shuttle_metrics.status in ("FAILED_VALIDATION", "BLOCKED"):
+            failed.append("Shuttle Tracking")
         if failed:
             for f_name in failed:
                 lines.append(f"[{f_name}] FAILED VALIDATION")
@@ -1562,10 +1798,11 @@ class Phase3BenchmarkReport:
                     for r in sm.failure_reasons:
                         lines.append(f"  - Failure: {r}")
 
-        if self.annotation_manifest_blockers:
+        all_blockers = list(self.annotation_manifest_blockers) + list(self.certification_blockers)
+        if all_blockers:
             lines.append("")
             lines.append("--- ANNOTATION MANIFEST BLOCKERS ---")
-            for blocker in self.annotation_manifest_blockers:
+            for blocker in all_blockers:
                 lines.append(f"  [BLOCKER] {blocker}")
 
         return "\n".join(lines)
