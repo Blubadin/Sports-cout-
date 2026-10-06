@@ -21,6 +21,11 @@ import type {
 import { isCalibrationState, isMetricCalibrationValid, parseCalibrationProvenance } from '../types/calibration';
 import { parseSceneEvidence, parseSceneTransition } from '../types/scene';
 import { parseSegmentCapabilities } from '../types/capabilities';
+import type {
+  StartExportRequest,
+  StartExportResponse,
+  ExportJobProgress,
+} from '../types/export';
 import {
   AIConnectionError,
   type AIConnectionCode,
@@ -462,6 +467,34 @@ export class TrackingSessionApiClient {
 
   public async deleteSession(sessionId: string): Promise<void> {
     await this.request(`/api/tracking/sessions/${sessionId}`, { method: 'DELETE' });
+  }
+
+  public async startSessionExport(
+    sessionId: string,
+    req?: StartExportRequest
+  ): Promise<StartExportResponse> {
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req ?? {}),
+    });
+    return res.json();
+  }
+
+  public async getExportStatus(exportId: string): Promise<ExportJobProgress> {
+    const res = await this.request(`/api/tracking/exports/${exportId}/status`);
+    return res.json();
+  }
+
+  public async cancelExport(exportId: string): Promise<{ exportId: string; status: string }> {
+    const res = await this.request(`/api/tracking/exports/${exportId}/cancel`, {
+      method: 'POST',
+    });
+    return res.json();
+  }
+
+  public getExportDownloadUrl(exportId: string): string {
+    return this.getApiUrl(`/api/tracking/exports/${exportId}/download`);
   }
 
   public connectTelemetry(): WebSocket {

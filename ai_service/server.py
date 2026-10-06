@@ -14,7 +14,7 @@ import threading
 import time
 import logging
 from contextlib import asynccontextmanager
-from typing import Set, Literal
+from typing import Set, Literal, Optional
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -28,7 +28,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Requ
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.encoders import jsonable_encoder
 import cv2
 
@@ -68,7 +68,7 @@ def public_metadata(value):
 
 from analyzer_v2 import BadmintonAnalyzerV2
 from calibration_contract import CalibrationState, CalibrationSource
-from dataclasses import replace
+from dataclasses import replace, asdict
 from pose_adapter import PoseArchitectureNotImplementedError
 from court_mapper import CourtMapper
 from device_runtime import capability_report, resolve_device
@@ -112,6 +112,29 @@ try:
 except ImportError:
     from local_security import SecurityConfigurationError, SecuritySettings, LegacySourceError
 
+try:
+    from ai_service.analysis_exporter import (
+        export_job_manager,
+        AnalysisExporter,
+        ExportOptions,
+        ExportError,
+        SourceVideoMissingError,
+        AnalysisResultsMissingError,
+        InsufficientStorageError,
+        ExportCancelledError,
+    )
+except ImportError:
+    from analysis_exporter import (
+        export_job_manager,
+        AnalysisExporter,
+        ExportOptions,
+        ExportError,
+        SourceVideoMissingError,
+        AnalysisResultsMissingError,
+        InsufficientStorageError,
+        ExportCancelledError,
+    )
+
 
 @asynccontextmanager
 async def security_lifespan(_app: FastAPI):
@@ -122,6 +145,7 @@ async def security_lifespan(_app: FastAPI):
 app = FastAPI(title="SportsScout Badminton AI Service", version="1.0.0", lifespan=security_lifespan)
 
 analysis_job_store = default_analysis_store()
+export_job_manager.set_exporter(AnalysisExporter(analysis_job_store))
 ANALYSIS_RESULT_CHUNK_SIZE = 64
 SESSION_RESULT_WINDOW_SIZE = 128
 SEMANTIC_OWNER_HISTORY_LIMIT = 4096
@@ -2504,6 +2528,129 @@ def delete_tracking_session(session_id: str):
         with session._state_lock:
             session._deleting = False
     return {"status": "deleted", "sessionId": session_id}
+
+
+# --- Phase 3.5E Analysis Export Endpoints ---
+
+class ExportSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    preset: Optional[str] = None  # "CLEAN", "ANALYSIS", "DEBUG", "CUSTOM"
+    court: Optional[bool] = None
+    playerDetection: Optional[bool] = Field(default=None, alias="player_detection")
+    pose: Optional[bool] = None
+    groundPoints: Optional[bool] = Field(default=None, alias="ground_points")
+    shuttle: Optional[bool] = None
+    playerLabels: Optional[bool] = Field(default=None, alias="player_labels")
+    trackIds: Optional[bool] = Field(default=None, alias="track_ids")
+    debugInfo: Optional[bool] = Field(default=None, alias="debug_info")
+    confidences: Optional[bool] = None
+    format: str = "MP4"
+
+
+@app.post("/api/tracking/sessions/{session_id}/export")
+def start_session_export(session_id: str, req: ExportSessionRequest | None = None):
+    req = req or ExportSessionRequest()
+    session = _restore_persisted_session(session_id)
+    if session is None:
+        if session_id not in analysis_job_store.list_job_ids():
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        job = analysis_job_store.get_job(session_id)
+    else:
+        with session._state_lock:
+            if session._uploading or session._deleting:
+                raise HTTPException(status_code=409, detail="Session is busy")
+            if session.status in ("PROCESSING", "CANCEL_REQUESTED"):
+                raise HTTPException(status_code=409, detail="Analysis is still in progress; wait for completion before exporting")
+        job = session.job_store.get_job(session_id)
+
+    job_status = job.get("status")
+    if job_status != "COMPLETED":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot export session with status '{job_status}'. Analysis must be completed.",
+        )
+
+    preset_name = (req.preset or "ANALYSIS").upper()
+    if preset_name == "CLEAN":
+        options = ExportOptions.preset_clean()
+    elif preset_name == "DEBUG":
+        options = ExportOptions.preset_debug()
+    elif preset_name == "CUSTOM":
+        options = ExportOptions.preset_custom()
+    else:
+        options = ExportOptions.preset_analysis()
+
+    if req.court is not None:
+        options.court = req.court
+    if req.playerDetection is not None:
+        options.player_detection = req.playerDetection
+    if req.pose is not None:
+        options.pose = req.pose
+    if req.groundPoints is not None:
+        options.ground_points = req.groundPoints
+    if req.shuttle is not None:
+        options.shuttle = req.shuttle
+    if req.playerLabels is not None:
+        options.player_labels = req.playerLabels
+    if req.trackIds is not None:
+        options.track_ids = req.trackIds
+    if req.debugInfo is not None:
+        options.debug_info = req.debugInfo
+    if req.confidences is not None:
+        options.confidences = req.confidences
+    if req.format:
+        options.format = req.format
+
+    try:
+        export_id = export_job_manager.start_export(session_id, options=options)
+    except SourceVideoMissingError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
+    except AnalysisResultsMissingError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from None
+    except InsufficientStorageError as error:
+        raise HTTPException(status_code=507, detail=str(error)) from None
+    except Exception as error:
+        logger.error("Failed to start export for session %s: %s", session_id, error)
+        raise HTTPException(status_code=500, detail=f"Export initialization failed: {error}") from None
+
+    return {
+        "exportId": export_id,
+        "sessionId": session_id,
+        "status": "QUEUED",
+        "preset": preset_name,
+        "options": asdict(options),
+    }
+
+
+@app.get("/api/tracking/exports/{export_id}/status")
+def get_export_status(export_id: str):
+    status = export_job_manager.get_status(export_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail=f"Export job {export_id} not found")
+    return status
+
+
+@app.post("/api/tracking/exports/{export_id}/cancel")
+def cancel_export(export_id: str):
+    cancelled = export_job_manager.cancel_export(export_id)
+    if not cancelled:
+        raise HTTPException(status_code=404, detail=f"Export job {export_id} not found")
+    return {"exportId": export_id, "status": "CANCEL_REQUESTED"}
+
+
+@app.get("/api/tracking/exports/{export_id}/download")
+def download_export_archive(export_id: str):
+    archive_path = export_job_manager.get_archive_path(export_id)
+    if archive_path is None or not archive_path.exists():
+        status = export_job_manager.get_status(export_id)
+        if status and status.get("status") in ("QUEUED", "PROCESSING"):
+            raise HTTPException(status_code=409, detail="Export is still processing")
+        raise HTTPException(status_code=404, detail=f"Export archive for {export_id} not found")
+    return FileResponse(
+        path=str(archive_path),
+        media_type="application/zip",
+        filename=archive_path.name,
+    )
 
 
 def configure_server_event_loop() -> str:

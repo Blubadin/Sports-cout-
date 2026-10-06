@@ -34,6 +34,7 @@ import {
   useProjectTrackingSession,
   computeVideoFingerprint,
 } from '../../services/trackingSessionStore';
+import ExportConfigModal from './ExportConfigModal';
 
 function formatDiagnosticCount(val: number | null | undefined): string {
   if (val === null || val === undefined) return '—';
@@ -232,6 +233,7 @@ export default function BadmintonTrackingLab() {
   const [profile, setProfile] = useState<ProcessingProfile>('auto');
   const [detectorInputSize, setDetectorInputSize] = useState<number>(640);
   const [useCourtRoi, setUseCourtRoi] = useState<boolean>(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [courtRoiMarginPx, setCourtRoiMarginPx] = useState<number>(60);
   const [frameStride, setFrameStride] = useState<number>(2);
   const [poseStride, setPoseStride] = useState<number>(1);
@@ -1814,11 +1816,23 @@ export default function BadmintonTrackingLab() {
       )}
 
       {!processing && (analysis?.status === 'completed' || sessionStatus?.status === 'COMPLETED') && (
-        <p className="text-sm text-emerald-300 font-medium">
-          {th
-            ? 'วิเคราะห์เสร็จสมบูรณ์แล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกายและการเคลื่อนที่'
-            : 'Analysis complete. Play the video to inspect detected body positions and movement.'}
-        </p>
+        <div className="flex items-center justify-between p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 shadow-sm">
+          <p className="text-sm text-emerald-300 font-medium">
+            {th
+              ? 'วิเคราะห์เสร็จสมบูรณ์แล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกายและการเคลื่อนที่'
+              : 'Analysis complete. Play the video to inspect detected body positions and movement.'}
+          </p>
+          {state.sessionId && (
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium text-sm transition shadow"
+            >
+              <span>📥</span>
+              <span>{th ? 'ส่งออกผลลัพธ์ (EXPORT)' : 'EXPORT'}</span>
+            </button>
+          )}
+        </div>
       )}
 
       <TrackingLabInspector
@@ -1837,6 +1851,15 @@ export default function BadmintonTrackingLab() {
           hasMoreChunks={state.chunksHasMore}
           language={th ? 'th' : 'en'}
           title={th ? 'ผลการเคลื่อนที่ของผู้เล่น' : 'Player movement results'}
+        />
+      )}
+
+      {state.sessionId && (
+        <ExportConfigModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          sessionId={state.sessionId}
+          language={th ? 'th' : 'en'}
         />
       )}
     </div>
