@@ -122,7 +122,14 @@ class AnalysisJobStore:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temp_path, path)
+            for attempt in range(10):
+                try:
+                    os.replace(temp_path, path)
+                    break
+                except PermissionError:
+                    if attempt == 9:
+                        raise
+                    time.sleep(0.02)
             try:
                 dir_fd = os.open(path.parent, os.O_RDONLY)
                 try:

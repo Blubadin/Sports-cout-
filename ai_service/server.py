@@ -1911,7 +1911,14 @@ async def upload_session_video(session_id: str, request: Request):
             fields = ("owned_video_path", "video_source", "media_hash", "video_metadata", "research_metadata", "status")
             prior_state = {field: getattr(session, field) for field in fields}
             prior_fps = session.analyzer.fps
-            os.replace(temp_path, durable_path)
+            for attempt in range(10):
+                try:
+                    os.replace(temp_path, durable_path)
+                    break
+                except PermissionError:
+                    if attempt == 9:
+                        raise
+                    time.sleep(0.02)
             temp_path = durable_path
             try:
                 session.owned_video_path = durable_path

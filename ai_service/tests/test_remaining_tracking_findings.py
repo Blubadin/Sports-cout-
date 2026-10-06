@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import cv2
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from analyzer_v2 import BadmintonAnalyzerV2
 from shuttle_pipeline import create_shuttle_pipeline
