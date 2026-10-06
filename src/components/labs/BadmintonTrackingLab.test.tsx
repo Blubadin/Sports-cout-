@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import BadmintonTrackingLab from './BadmintonTrackingLab';
 import { aiTrackingService } from '../../services/aiTrackingService';
 import { computeVideoFingerprint, createDefaultProjectTrackingState, trackingSessionStore } from '../../services/trackingSessionStore';
+import { AIConnectionError } from '../../services/aiConnection';
 import type { TrackingSessionStatus, TrackingTelemetryV1 } from '../../types';
 import type { TrackingAnalysis, TrackingSampleChunk } from '../../services/storage/trackingStorage';
 
@@ -159,6 +160,29 @@ it('starts automatic court analysis without inventing or submitting manual corne
   }));
   expect(aiTrackingService.calibrateSession).not.toHaveBeenCalled();
   expect(trackingSessionStore.getProjectState('p1')?.corners).toEqual([]);
+});
+
+it('keeps an uploaded video ready to retry when the backend analysis worker is busy', async () => {
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  trackingSessionStore.updateProjectState('p1', {
+    file,
+    processingConfig: { ...createDefaultProjectTrackingState('p1').processingConfig, autoCourtCalibrationEnabled: true },
+  });
+  vi.mocked(aiTrackingService.createSession).mockResolvedValue({ sessionId: 'busy-run', status: 'READY', trackedPlayerCount: 2 });
+  vi.mocked(aiTrackingService.uploadSessionVideo).mockResolvedValue({ width: 1280, height: 720 });
+  vi.mocked(aiTrackingService.startSessionAnalysis).mockRejectedValue(new AIConnectionError('AI_BUSY'));
+
+  render(<BadmintonTrackingLab />);
+  await screen.findByText(/Inference device: cpu/i);
+  fireEvent.click(screen.getByRole('button', { name: /Run Movement Analysis/i }));
+
+  await waitFor(() => expect(trackingSessionStore.getProjectState('p1')).toMatchObject({
+    sessionId: 'busy-run',
+    status: 'VIDEO_READY',
+    error: 'Another AI analysis is running. Wait for it to finish or cancel it before starting a new analysis.',
+  }));
+  expect(aiTrackingService.createSession).toHaveBeenCalledTimes(1);
+  expect(aiTrackingService.uploadSessionVideo).toHaveBeenCalledTimes(1);
 });
 
 it('keeps manual calibration before start when automatic court calibration is off', async () => {

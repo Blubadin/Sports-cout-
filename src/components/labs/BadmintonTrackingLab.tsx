@@ -3,7 +3,7 @@ import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
 import { isCompatibleResumableTrackingSession, MAX_TRACKING_RESULTS_PAGE_SIZE, type BackendCapabilities } from '../../services/trackingSessionApi';
-import type { AIConnectionSnapshot } from '../../services/aiConnection';
+import { AIConnectionError, type AIConnectionSnapshot } from '../../services/aiConnection';
 import type {
   TrackingTelemetryV1,
   TrackingOverlayMode,
@@ -190,6 +190,10 @@ function connectionStatusText(connection: AIConnectionSnapshot | null, th: boole
     NETWORK_ERROR: 'Local AI network error',
     BROWSER_SECURITY_BLOCKED: 'Local AI Blocked by browser security',
     CSP_BLOCKED: 'Local AI Blocked by browser security',
+    AI_BUSY: 'Another Local AI analysis is running',
+    AI_SESSION_CONFLICT: 'Local AI tracking session conflict',
+    AI_SERVER_ERROR: 'Local AI service error',
+    AI_REQUEST_REJECTED: 'Local AI rejected the request',
   };
   if (!th) return english[connection.code];
   const thai: Record<AIConnectionSnapshot['code'], string> = {
@@ -202,6 +206,10 @@ function connectionStatusText(connection: AIConnectionSnapshot | null, th: boole
     NETWORK_ERROR: 'เกิดข้อผิดพลาดเครือข่าย Local AI',
     BROWSER_SECURITY_BLOCKED: 'Local AI ถูกบล็อกโดยความปลอดภัยของเบราว์เซอร์',
     CSP_BLOCKED: 'Local AI ถูกบล็อกโดยนโยบายความปลอดภัย',
+    AI_BUSY: 'Local AI กำลังวิเคราะห์งานอื่นอยู่ กรุณารอหรือยกเลิกงานเดิมก่อนเริ่มงานใหม่',
+    AI_SESSION_CONFLICT: 'เซสชันติดตามของ Local AI อยู่ในสถานะที่ทำรายการนี้ไม่ได้',
+    AI_SERVER_ERROR: 'บริการ Local AI เกิดข้อผิดพลาดขณะประมวลผลคำขอ',
+    AI_REQUEST_REJECTED: 'บริการ Local AI ปฏิเสธคำขอนี้',
   };
   return thai[connection.code];
 }
@@ -902,9 +910,13 @@ export default function BadmintonTrackingLab() {
 
     const fail = (err: unknown) => {
       if (current()) {
+        const latestState = store.getProjectState(activeProjectId);
+        const canRetryPreparedSession = err instanceof AIConnectionError && err.code === 'AI_BUSY' &&
+          latestState?.sessionId === id &&
+          ['VIDEO_READY', 'READY_TO_ANALYZE', 'CANCELLED', 'INTERRUPTED'].includes(latestState.status);
         update({
           error: err instanceof Error ? err.message : 'Tracking failed',
-          status: 'ERROR',
+          status: canRetryPreparedSession ? latestState.status : 'ERROR',
         });
       }
     };

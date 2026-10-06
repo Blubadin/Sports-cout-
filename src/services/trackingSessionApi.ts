@@ -543,7 +543,10 @@ export class TrackingSessionApiClient {
     if (response.status === 403) throw new AIConnectionError('AUTH_FAILED');
     if (!response.ok) {
       if (preserveValidationError && response.status === 422) return response;
-      throw new AIConnectionError('NETWORK_ERROR');
+      if (response.status === 409) throw new AIConnectionError('AI_SESSION_CONFLICT');
+      if (response.status === 429) throw new AIConnectionError('AI_BUSY');
+      if (response.status >= 500) throw new AIConnectionError('AI_SERVER_ERROR');
+      throw new AIConnectionError('AI_REQUEST_REJECTED');
     }
     return response;
   }
