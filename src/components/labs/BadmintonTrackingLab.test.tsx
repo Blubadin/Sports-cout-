@@ -2,18 +2,20 @@ import { fireEvent, render, screen, waitFor, cleanup, act } from '@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import BadmintonTrackingLab from './BadmintonTrackingLab';
 import { aiTrackingService } from '../../services/aiTrackingService';
+import { trackingSessionApi } from '../../services/trackingSessionApi';
 import { computeVideoFingerprint, createDefaultProjectTrackingState, trackingSessionStore } from '../../services/trackingSessionStore';
 import { AIConnectionError } from '../../services/aiConnection';
 import type { TrackingSessionStatus, TrackingTelemetryV1 } from '../../types';
 import type { TrackingAnalysis, TrackingSampleChunk } from '../../services/storage/trackingStorage';
+import { getTrackingAnalysis } from '../../services/storage/trackingStorage';
 
 vi.mock('../../context/ScoutContext', () => ({ useScoutContext: () => ({ matchInfo: { sportType: 'badminton' }, settings: { uiLanguage: 'en' }, videoSourceType: 'local', localFileName: 'rally.mp4', setLocalFileName: vi.fn(), setVideoSourceType: vi.fn(), showToast: vi.fn() }) }));
 vi.mock('../../context/WorkspaceContext', () => ({ useWorkspace: () => ({ activeProjectId: 'p1', projects: [], updateProjectVideoCalibration: vi.fn() }) }));
 vi.mock('../../utils/videoFileStore', () => ({ loadProjectVideoFileHandle: vi.fn().mockResolvedValue(null) }));
-vi.mock('../../services/storage/trackingStorage', () => ({ MAX_TRACKING_PAGE_SIZE: 250, listTrackingAnalyses: vi.fn().mockResolvedValue([]), listTrackingAnalysisPage: vi.fn().mockResolvedValue({ analyses: [], nextCursor: null, hasMore: false }), getLatestTrackingAnalysisForProject: vi.fn().mockResolvedValue(null), getTrackingSampleChunkPage: vi.fn().mockResolvedValue({ chunks: [], nextCursor: null, hasMore: false }), getTrackingSampleChunks: vi.fn(), saveTrackingAnalysis: vi.fn(), downsampleAndChunkTrackingSamples: vi.fn(), calculateNominalAnalysisHz: vi.fn().mockReturnValue(null), calculateEffectiveStoredHz: vi.fn().mockReturnValue(null), getTrackingMovementMetrics: vi.fn().mockResolvedValue(null) }));
+vi.mock('../../services/storage/trackingStorage', () => ({ MAX_TRACKING_PAGE_SIZE: 250, listTrackingAnalyses: vi.fn().mockResolvedValue([]), listTrackingAnalysisPage: vi.fn().mockResolvedValue({ analyses: [], nextCursor: null, hasMore: false }), getLatestTrackingAnalysisForProject: vi.fn().mockResolvedValue(null), getTrackingAnalysis: vi.fn().mockResolvedValue(null), getTrackingSampleChunkPage: vi.fn().mockResolvedValue({ chunks: [], nextCursor: null, hasMore: false }), getTrackingSampleChunks: vi.fn(), saveTrackingAnalysis: vi.fn(), downsampleAndChunkTrackingSamples: vi.fn(), calculateNominalAnalysisHz: vi.fn().mockReturnValue(null), calculateEffectiveStoredHz: vi.fn().mockReturnValue(null), getTrackingMovementMetrics: vi.fn().mockResolvedValue(null) }));
 vi.mock('../../services/aiTrackingService', () => ({ aiTrackingService: { checkConnection: vi.fn(), getCapabilities: vi.fn().mockResolvedValue({ selectedDevice: 'cpu', cudaAvailable: false, mpsAvailable: false }), listSessions: vi.fn().mockResolvedValue({ sessions: [], nextCursor: null, maximumPageSize: 250, recoveryIssues: [], recoveryIssueCount: 0, recoveryIssuesTruncated: false, pageIssues: [], pageIssueCount: 0, pageIssuesTruncated: false }), createSession: vi.fn(), uploadSessionVideo: vi.fn(), calibrateSession: vi.fn(), startSessionAnalysis: vi.fn(), getSessionStatus: vi.fn(), getSessionResults: vi.fn(), deleteSession: vi.fn().mockResolvedValue(undefined) } }));
 beforeEach(() => { vi.clearAllMocks(); trackingSessionStore.updateProjectState('p1', createDefaultProjectTrackingState('p1')); vi.mocked(aiTrackingService.checkConnection).mockResolvedValue({ code: 'CONNECTED', connected: true, endpoint: 'http://127.0.0.1:8000' }); URL.createObjectURL = vi.fn(() => 'blob:video'); URL.revokeObjectURL = vi.fn(); });
-afterEach(() => { cleanup(); trackingSessionStore.updateProjectState('p1', createDefaultProjectTrackingState('p1')); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); trackingSessionStore.updateProjectState('p1', createDefaultProjectTrackingState('p1')); });
 it('requires actual video bytes before analysis', async () => {
   render(<BadmintonTrackingLab />);
   await waitFor(() => expect(aiTrackingService.checkConnection).toHaveBeenCalled());
@@ -266,6 +268,69 @@ it('explains the uncalibrated opening and seeks to the first observed court cali
   expect(video.currentTime).toBeCloseTo(4.6);
   expect(await screen.findByLabelText('Validated court calibration')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Jump to detected court' })).not.toBeInTheDocument();
+});
+
+it('offers export for a completed real analysis session and opens its configuration', async () => {
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  const sessionStatus: TrackingSessionStatus = {
+    sessionId: 'completed-run', status: 'COMPLETED', progressPct: 100,
+    currentFrame: 120, totalFrames: 120, analyzedFrames: 60, frameStride: 2,
+    elapsedSec: 12, videoDurationSec: 4, lastTelemetryTimestampSec: 4,
+    sourceFps: 30, samplingFps: 15, analysisFps: 5,
+    trackedPlayerCount: 2, device: 'cpu', players: [], error: null,
+  };
+  trackingSessionStore.updateProjectState('p1', {
+    file, videoFingerprint: computeVideoFingerprint(file), sessionId: 'completed-run',
+    status: 'COMPLETED', sessionStatus,
+  });
+  vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(sessionStatus);
+  vi.mocked(aiTrackingService.getSessionResults).mockResolvedValue({
+    sessionId: 'completed-run', status: 'COMPLETED', sampleCount: 0,
+    totalSampleCount: 0, nextCursor: 0, telemetry: [],
+  });
+  vi.mocked(getTrackingAnalysis).mockResolvedValueOnce({
+    id: 'completed-run', projectId: 'p1', sportType: 'badminton', gameType: 'singles',
+    status: 'completed', engineVersion: 'test', detectorModel: 'test-detector',
+    trackerModel: 'test-tracker', sampleRateHz: null, createdAt: new Date().toISOString(),
+    players: [], summary: { durationSeconds: 4, sampleCount: 0, players: {} },
+  });
+  render(<BadmintonTrackingLab />);
+  const exportButton = await screen.findByRole('button', { name: /EXPORT/ });
+  fireEvent.click(exportButton);
+  expect(screen.getByText('Export Analysis Package')).toBeInTheDocument();
+  expect(screen.getByText(/Start Export/i)).toBeInTheDocument();
+});
+
+it('exports the previous completed session while a newer analysis is processing', async () => {
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  const activeStatus: TrackingSessionStatus = {
+    sessionId: 'session_12345678', status: 'PROCESSING', progressPct: 50,
+    currentFrame: 60, totalFrames: 120, analyzedFrames: 30, frameStride: 2,
+    elapsedSec: 6, videoDurationSec: 4, lastTelemetryTimestampSec: 2,
+    sourceFps: 30, samplingFps: 15, analysisFps: 5,
+    trackedPlayerCount: 2, device: 'cpu', players: [], error: null,
+  };
+  const previousAnalysis: TrackingAnalysis = {
+    id: 'session_37b5ce38', projectId: 'p1', sportType: 'badminton', gameType: 'singles',
+    status: 'completed', engineVersion: 'test', detectorModel: 'test-detector',
+    trackerModel: 'test-tracker', sampleRateHz: null, createdAt: new Date().toISOString(),
+    players: [], summary: { durationSeconds: 4, sampleCount: 0, players: {} },
+  };
+  trackingSessionStore.updateProjectState('p1', {
+    file, videoFingerprint: computeVideoFingerprint(file), sessionId: activeStatus.sessionId,
+    status: 'PROCESSING', sessionStatus: activeStatus, analysis: previousAnalysis,
+  });
+  vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(activeStatus);
+  vi.mocked(aiTrackingService.getSessionResults).mockResolvedValue({
+    sessionId: activeStatus.sessionId, status: 'PROCESSING', sampleCount: 0,
+    totalSampleCount: 0, nextCursor: 0, telemetry: [],
+  });
+  const startExport = vi.spyOn(trackingSessionApi, 'startSessionExport').mockImplementation(() => new Promise(() => {}));
+
+  render(<BadmintonTrackingLab />);
+  fireEvent.click(await screen.findByRole('button', { name: /EXPORT PREVIOUS/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Start Export/i }));
+  await waitFor(() => expect(startExport).toHaveBeenCalledWith('session_37b5ce38', expect.any(Object)));
 });
 
 it('restores a saved seek after reload from the bounded backend telemetry page', async () => {

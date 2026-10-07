@@ -35,6 +35,7 @@ import {
   useProjectTrackingSession,
   computeVideoFingerprint,
 } from '../../services/trackingSessionStore';
+import ExportConfigModal from './ExportConfigModal';
 
 function formatDiagnosticCount(val: number | null | undefined): string {
   if (val === null || val === undefined) return '—';
@@ -241,6 +242,7 @@ export default function BadmintonTrackingLab() {
   const [profile, setProfile] = useState<ProcessingProfile>('auto');
   const [detectorInputSize, setDetectorInputSize] = useState<number>(640);
   const [useCourtRoi, setUseCourtRoi] = useState<boolean>(false);
+  const [exportTargetSessionId, setExportTargetSessionId] = useState<string | null>(null);
   const [courtRoiMarginPx, setCourtRoiMarginPx] = useState<number>(60);
   const [frameStride, setFrameStride] = useState<number>(2);
   const [poseStride, setPoseStride] = useState<number>(1);
@@ -293,6 +295,11 @@ export default function BadmintonTrackingLab() {
   const sessionStatus = state.sessionStatus;
   const actualInferenceDevice = sessionStatus?.effectiveDevice ?? sessionStatus?.device ?? inferenceDevice;
   const analysis = state.analysis;
+  const completedAnalysisSessionId = analysis?.status === 'completed' && /^session_[a-f0-9]{8}$/.test(analysis.id)
+    ? analysis.id : null;
+  const exportSessionId = state.sessionId && sessionStatus?.status === 'COMPLETED'
+    ? state.sessionId : completedAnalysisSessionId;
+  const exportingPreviousAnalysis = Boolean(exportSessionId && exportSessionId !== state.sessionId);
   const chunks = state.chunks;
   const error = state.error;
   const overlayMode = state.uiPreferences.overlayMode;
@@ -1898,12 +1905,27 @@ export default function BadmintonTrackingLab() {
         </button>
       )}
 
-      {!processing && (analysis?.status === 'completed' || sessionStatus?.status === 'COMPLETED') && (
-        <p className="text-sm text-emerald-300 font-medium">
-          {th
-            ? 'วิเคราะห์เสร็จสมบูรณ์แล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกายและการเคลื่อนที่'
-            : 'Analysis complete. Play the video to inspect detected body positions and movement.'}
-        </p>
+      {exportSessionId && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 shadow-sm">
+          <p className="text-sm text-emerald-300 font-medium">
+            {exportingPreviousAnalysis
+              ? th ? 'ผลวิเคราะห์รอบก่อนเสร็จแล้ว สามารถส่งออกได้ระหว่างรอบปัจจุบัน'
+                : 'The previous analysis is complete and can be exported while the current run continues.'
+              : th
+              ? 'วิเคราะห์เสร็จสมบูรณ์แล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกายและการเคลื่อนที่'
+              : 'Analysis complete. Play the video to inspect detected body positions and movement.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => setExportTargetSessionId(exportSessionId)}
+            className="flex shrink-0 items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium text-sm transition shadow"
+          >
+            <span>📥</span>
+            <span>{th
+              ? exportingPreviousAnalysis ? 'ส่งออกผลรอบก่อน (EXPORT)' : 'ส่งออกผลลัพธ์ (EXPORT)'
+              : exportingPreviousAnalysis ? 'EXPORT PREVIOUS' : 'EXPORT'}</span>
+          </button>
+        </div>
       )}
 
       <TrackingLabInspector
@@ -1922,6 +1944,15 @@ export default function BadmintonTrackingLab() {
           hasMoreChunks={state.chunksHasMore}
           language={th ? 'th' : 'en'}
           title={th ? 'ผลการเคลื่อนที่ของผู้เล่น' : 'Player movement results'}
+        />
+      )}
+
+      {exportTargetSessionId && (
+        <ExportConfigModal
+          isOpen={true}
+          onClose={() => setExportTargetSessionId(null)}
+          sessionId={exportTargetSessionId}
+          language={th ? 'th' : 'en'}
         />
       )}
     </div>
