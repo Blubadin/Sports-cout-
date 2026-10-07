@@ -36,6 +36,32 @@ function Test-Service([string]$Url) {
     } catch { return $false }
 }
 
+function Assert-ExistingServiceCheckout([int]$Port, [string]$ServiceName) {
+    $listener = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $listener) { return }
+
+    $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction SilentlyContinue
+    $commandLine = [string]$owner.CommandLine
+    # A service started with an absolute script path reveals its checkout. Reject
+    # another checkout instead of reporting its healthy port as this one.
+    if ($ServiceName -eq 'AI service') {
+        $scriptPath = Join-Path $projectRoot 'ai_service/server.py'
+        if ($commandLine -match '(?i)[A-Z]:\\[^\"]*ai_service[\\/]server\.py' -and
+            $commandLine.IndexOf($scriptPath, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw "Port $Port is running an AI service from another checkout (PID $($listener.OwningProcess)). Stop that service before starting this checkout."
+        }
+    } else {
+        if ($commandLine -match '(?i)[A-Z]:\\[^\"]*vite\.js' -and
+            $commandLine.IndexOf($projectRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw "Port $Port is running a frontend from another checkout (PID $($listener.OwningProcess)). Stop it or open this checkout on a different port."
+        }
+    }
+}
+
+Assert-ExistingServiceCheckout 8000 'AI service'
+Assert-ExistingServiceCheckout 3000 'frontend'
+
 if (-not (Test-Service 'http://127.0.0.1:8000/api/status')) {
     if (Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorAction SilentlyContinue) {
         throw 'Port 8000 is occupied by another service.'
@@ -65,15 +91,21 @@ do {
     $webReady = Test-Service 'http://127.0.0.1:3000/'
     $aiReady = Test-Service 'http://127.0.0.1:8000/api/status'
     if ($webReady -and $aiReady) {
-        Write-Output 'SportsScout: http://localhost:3000/ (Web + AI online)'
         try {
             $capabilities = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/capabilities' -TimeoutSec 30
             if (-not $capabilities.shuttle.modelAvailable) {
+                if ($ShuttleModelPath) {
+                    throw "The running AI service has no usable shuttle model ($($capabilities.shuttle.probeFailureReason)). Restart it with this checkout's audited model before using Shuttle Tracking."
+                }
                 Write-Warning "Shuttle is unavailable: $($capabilities.shuttle.probeFailureReason). Startup settings apply to new AI processes; an existing AI service may need restarting."
             } else {
                 Write-Output "Shuttle artifact ready: $($capabilities.shuttle.provider) / $($capabilities.shuttle.configuredModel). Real-video quality is not certified by this readiness check."
             }
-        } catch { Write-Warning 'AI is online, but shuttle readiness could not be checked.' }
+        } catch {
+            if ($ShuttleModelPath) { throw }
+            Write-Warning 'AI is online, but shuttle readiness could not be checked.'
+        }
+        Write-Output 'SportsScout: http://localhost:3000/ (Web + AI online)'
         exit 0
     }
     Start-Sleep -Milliseconds 500

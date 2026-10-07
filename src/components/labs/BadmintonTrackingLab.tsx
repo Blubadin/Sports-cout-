@@ -422,11 +422,12 @@ export default function BadmintonTrackingLab() {
       : displayResolutionStatus === 'resolved' ? 'idle' : 'unavailable';
   const overlayStatus = trackingOverlayStatusText(overlayStatusKey, th);
 
-  const effectiveShuttleProv =
-    sessionStatus?.shuttle ||
-    sessionStatus?.runtimeProvenance?.shuttle ||
-    analysis?.runtimeProvenance?.shuttle ||
-    null;
+  // This control describes the runtime available for the next analysis. A
+  // completed analysis keeps its historical provenance in the results, but it
+  // must not override a fresh capability probe after the service is restarted.
+  const effectiveShuttleProv = (processing || sessionStatus?.status === 'PROCESSING')
+    ? sessionStatus?.shuttle || sessionStatus?.runtimeProvenance?.shuttle || null
+    : null;
 
   const shuttleStatusInfo = deriveShuttleEngineStatus({
     enabled: shuttleTrackingEnabled || Boolean(effectiveShuttleProv?.enabled),
