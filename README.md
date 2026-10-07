@@ -10,7 +10,7 @@ Sports Scout Logger เป็นเว็บแอปสำหรับบัน
 
 ระบบรองรับการดูวิดีโอการแข่งขันจากไฟล์วิดีโอในเครื่อง หรือ YouTube และสามารถบันทึกเหตุการณ์สำคัญระหว่างการแข่งขัน เช่น ทักษะที่เกิดขึ้น พื้นที่ในสนาม ทีม ผู้เล่น ผลลัพธ์ และข้อมูลประกอบอื่น ๆ เพื่อนำไปวิเคราะห์ต่อใน Dashboard, ตารางข้อมูล, Heatmap, Sequence Map และ Export ข้อมูลออกไปใช้งานภายนอก
 
-โปรเจคนี้ยังไม่มีระบบ AI วิเคราะห์วิดีโออัตโนมัติ และยังไม่มี backend/database/login ข้อมูลโปรเจกต์หลักเก็บแบบ local-first ใน IndexedDB ส่วนการตั้งค่าขนาดเล็กและ legacy recovery backup ยังใช้ localStorage โดยจะไม่ลบข้อมูลเก่าระหว่างช่วง Pilot
+สำหรับงานวิเคราะห์เชิงลึก SPORTSCOUT มีระบบ AI Auto-Tracking Local Service สำหรับ Badminton Tracking Lab ที่ทำงานในเครื่อง (Local Python Service บน port 8000) ร่วมกับ Workstation Frontend (port 3000) รองรับ YOLOv8 Player Detection, Pose Estimation, ByteTrack Multi-Object Tracking, Court Calibration Runtime และ RallyLens TrackNet Shuttle Tracking โดยข้อมูลโปรเจกต์หลักยังคงเก็บแบบ local-first ใน IndexedDB
 
 ---
 
@@ -338,7 +338,7 @@ When using Google AI Studio, follow these rules:
 5. Do not remove multi-sport support.
 6. Do not change the main data model unless necessary.
 7. Keep backward compatibility with existing localStorage data and JSON exports.
-8. Do not add backend, database, login, Electron, or Tauri unless explicitly requested. AI tracking is approved only for the Task 9 Motion spike (client-side only, no backend).
+8. Do not add cloud databases or external auth unless explicitly requested. The local Python AI service operates strictly in-process/localhost for Badminton Tracking Lab.
 9. Prefer small, safe changes.
 10. After editing, always run:
 
@@ -347,6 +347,50 @@ When using Google AI Studio, follow these rules:
 
 11. Report changed files clearly.
 12. Report remaining risks clearly.
+
+---
+
+## Windows Setup & AI Runtime Bootstrap (Fresh Clone)
+
+### Quick Start Flow:
+```text
+Clone repo
+    ↓
+.\scripts\bootstrap-windows.ps1
+    ↓
+.\scripts\doctor.ps1
+    ↓
+npm run start:local
+    ↓
+Open Tracking Lab (http://localhost:3000/)
+```
+
+### System Requirements:
+- **OS**: Windows 11 (or Windows 10 64-bit)
+- **Node.js**: `22.x` (LTS recommended)
+- **Python**: `3.12.x` 64-bit
+- **GPU Accelerator**: NVIDIA GeForce RTX (e.g. RTX 4050 Laptop GPU) with CUDA capability
+  - **Dual-GPU Laptops (NVIDIA RTX + AMD Radeon iGPU)**: NVIDIA CUDA is automatically selected for PyTorch neural inference while preserving AMD integrated display graphics.
+  - **Transparent Fallback**: If CUDA is unavailable or encounters an error, execution gracefully and truthfully falls back to CPU (CPU fallback is never hidden).
+
+### Key Scripts:
+1. **Bootstrap Script** (`.\scripts\bootstrap-windows.ps1`):
+   Idempotent setup that verifies Windows, Node.js, and Python 3.12; creates project-local `.local-services/python` venv; installs frontend dependencies via `npm ci`; installs PyTorch with CUDA 12.4 (`torch==2.5.1+cu124 torchvision==0.20.1+cu124`); installs AI service dependencies; downloads the verified Shuttle TrackNet checkpoint; and runs the runtime doctor.
+2. **Runtime Doctor** (`.\scripts\doctor.ps1`):
+   Audits the workstation environment across System, Development Tools, AI Accelerator, Model weights, Inference on CUDA, and Local Services.
+3. **Shuttle Model Setup** (`npm run setup:shuttle`):
+   Downloads and validates the audited RallyLens TrackNet checkpoint to `.local-models/rallylens-shuttle-tracknet.pth` (verified by size `45,431,245` bytes and SHA-256 `08b7e904dae4fd5250d51cd82c4d58d1663351f32037df6aed77547065f026a5`). Model files are stored in `.local-models/` and are never committed to Git.
+4. **Local Workstation & AI Service** (`npm run start:local`):
+   Starts the local FastAPI AI service on port 8000 and the Vite Workstation on port 3000.
+5. **Tracking Lab Feature Defaults**:
+   In Badminton Tracking Lab, Auto Court Calibration (`autoCourtCalibrationEnabled`) and Shuttle Tracking (`shuttleEnabled`) default to `OFF` (`AVAILABLE BUT DEFAULT OFF`) to conserve resources until explicitly enabled in the UI.
+
+### Troubleshooting:
+- **Port 8000 Conflict**: If port 8000 is occupied, inspect `.local-services/ai.stdout.log` or check running processes (`Get-NetTCPConnection -LocalPort 8000`). If an old SPORTSCOUT AI service is running, terminate it safely before restarting.
+- **PowerShell Execution Policy**: If PowerShell blocks script execution, run:
+  ```powershell
+  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+  ```
 
 ---
 
