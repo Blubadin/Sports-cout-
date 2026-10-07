@@ -1,0 +1,103 @@
+{
+  "certificationVersion": "1.0.0",
+  "evaluationDate": "2026-10-07T09:43:26.703717+00:00",
+  "branch": "fix/phase3-closeout-final",
+  "baseCommit": "b611a9651c8a6aed18a286e1e01b35ee412199a0",
+  "thresholdsStatus": "APPROVED_FROZEN",
+  "frozenThresholdsDocument": "docs/evidence/PHASE_3_ACCEPTANCE_THRESHOLDS_FROZEN.md",
+  "runtimeEnvironment": {
+    "os": "Windows 11",
+    "nodeVersion": "v20.18.0",
+    "pythonVersion": "3.12.10",
+    "pytorchVersion": "2.5.1+cu124",
+    "cudaAvailable": true,
+    "cudaDevice": "NVIDIA GeForce RTX 4050 Laptop GPU (6141 MB)",
+    "openCvVersion": "4.10.0"
+  },
+  "verificationTestSuites": {
+    "pythonTests": {
+      "total": 729,
+      "passed": 729,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 4,
+      "durationSec": 52.1
+    },
+    "vitestTests": {
+      "total": 1019,
+      "passed": 1019,
+      "failed": 0,
+      "testFiles": 107,
+      "durationSec": 54.4
+    },
+    "typecheck": {
+      "errors": 0,
+      "status": "PASS"
+    },
+    "lint": {
+      "status": "PASS",
+      "note": "Within approved baseline (432 errors, 30 warnings, 0 new violations)"
+    }
+  },
+  "phase10AHardening": {
+    "previewOverlayContinuity": "HARDENED",
+    "falseTrackingGapsInPlayback": 0,
+    "explicitAvailabilityStates": [
+      "LOADING",
+      "AVAILABLE",
+      "PARTIAL",
+      "TRUE_GAP",
+      "INVALID_SEGMENT",
+      "NOT_ANALYZED",
+      "ERROR"
+    ],
+    "ramCacheCapacityFrames": 1000,
+    "rangePrefetchWindowSec": 3.0,
+    "temporalHoldGraceSec": 0.15
+  },
+  "phase10BHardening": {
+    "videoExportProductionReady": "HARDENED",
+    "encodersAvailable": [
+      "mp4v",
+      "avc1"
+    ],
+    "activeEncoder": "mp4v",
+    "frameAlignment": "1-based exact O(1) index",
+    "presetsSupported": [
+      "ANALYSIS",
+      "CLEAN",
+      "DEBUG",
+      "CUSTOM"
+    ],
+    "cancellationSupported": true,
+    "archivePackaging": "ZIP with MP4, PDF, Heatmaps, JSON summaries, and Manifest"
+  },
+  "syntheticGateVerification": {
+    "certificationPassed": false,
+    "overallPassed": false,
+    "capabilityOutcomes": {
+      "camera_cuts": "VALIDATED",
+      "calibration": "NOT VALIDATED",
+      "ground_position": "VALIDATED",
+      "identity": "VALIDATED",
+      "shuttle_tracking": "VALIDATED"
+    },
+    "certificationBlockers": [
+      "Required capability 'calibration' is 'NOT VALIDATED', not 'VALIDATED'."
+    ],
+    "isSyntheticFixture": true
+  },
+  "realDataHeldOutAudit": {
+    "endurance10MinRun": {
+      "status": "PASS",
+      "committedDurationSec": 600.0,
+      "sourceDurationSec": 600.0,
+      "maxRssMemoryMb": 487.2,
+      "reconnectionOrCrashCount": 0
+    },
+    "status": "GATES_IMPLEMENTED_HELD_OUT_DATASET_PENDING",
+    "blockers": [
+      "Held-out real-data full 14-scenario dataset double-blind human annotation pending completion per PHASE_3_GT_PROTOCOL.md."
+    ]
+  }
+}

@@ -29,21 +29,86 @@ export interface TrackingOverlayWindowRequest {
   status: TrackingSessionStatus | null;
 }
 
+export type OverlayDataAvailabilityState =
+  | 'LOADING'
+  | 'AVAILABLE'
+  | 'PARTIAL'
+  | 'TRUE_GAP'
+  | 'INVALID_SEGMENT'
+  | 'NOT_ANALYZED'
+  | 'ERROR';
+
 export type TrackingOverlayStatusText =
   | 'loading'
   | 'error'
   | 'unavailable'
   | 'calibrating'
   | 'calibration_unavailable'
+  | 'true_gap'
+  | 'not_analyzed'
+  | 'invalid_segment'
   | 'idle';
 
 export function trackingOverlayStatusText(status: TrackingOverlayStatusText, isThai: boolean): string | null {
   if (status === 'loading') return isThai ? 'กำลังโหลดข้อมูลการติดตามช่วงนี้…' : 'Loading tracking data for this time…';
   if (status === 'error') return isThai ? 'โหลดข้อมูลการติดตามไม่สำเร็จ' : 'Could not load tracking data';
   if (status === 'unavailable') return isThai ? 'ไม่มีข้อมูลการติดตามสำหรับช่วงเวลานี้' : 'No tracking data is available for this time';
+  if (status === 'true_gap') return isThai ? 'ไม่พบผู้เล่นในช่วงเวลานี้' : 'No players detected in this segment';
+  if (status === 'not_analyzed') return isThai ? 'ยังไม่ได้วิเคราะห์วิดีโอ' : 'Video has not been analyzed yet';
+  if (status === 'invalid_segment') return isThai ? 'อยู่นอกช่วงเวลาที่วิเคราะห์' : 'Outside analyzed video range';
   if (status === 'calibrating') return isThai ? 'กำลังคำนวณตำแหน่งเส้นสนาม…' : 'Calibrating court geometry…';
   if (status === 'calibration_unavailable') return isThai ? 'ไม่สามารถระบุตำแหน่งเส้นสนามได้' : 'Court calibration unavailable';
   return null;
+}
+
+export function deriveOverlayAvailabilityState({
+  hasSession,
+  isProcessing,
+  totalCommitted,
+  analyzedDurationSec,
+  timeSec,
+  overlayWindowStatus,
+  resolutionStatus,
+  playerCount,
+  hasCourt,
+  hasShuttle,
+}: {
+  hasSession: boolean;
+  isProcessing: boolean;
+  totalCommitted: number;
+  analyzedDurationSec?: number | null;
+  timeSec: number;
+  overlayWindowStatus: 'idle' | 'loading' | 'error' | 'ready' | 'unavailable';
+  resolutionStatus: 'resolved' | 'stale' | 'unavailable';
+  playerCount: number;
+  hasCourt?: boolean;
+  hasShuttle?: boolean;
+}): OverlayDataAvailabilityState {
+  if (!hasSession && !isProcessing) return 'NOT_ANALYZED';
+  if (overlayWindowStatus === 'error') return 'ERROR';
+  if (overlayWindowStatus === 'loading') return 'LOADING';
+  if (
+    analyzedDurationSec != null &&
+    analyzedDurationSec > 0 &&
+    timeSec > analyzedDurationSec + 0.5 &&
+    !isProcessing
+  ) {
+    return 'INVALID_SEGMENT';
+  }
+  if (totalCommitted <= 0 && !isProcessing) return 'NOT_ANALYZED';
+
+  if (resolutionStatus === 'resolved') {
+    if (playerCount > 0) {
+      if (hasCourt === false || hasShuttle === false) {
+        return 'PARTIAL';
+      }
+      return 'AVAILABLE';
+    }
+    return 'TRUE_GAP';
+  }
+
+  if (isProcessing) return 'LOADING';
+  return 'TRUE_GAP';
 }
 
 function validPositive(value: number | null | undefined): value is number {
@@ -136,8 +201,8 @@ export class TrackingOverlayWindowLoader {
   public getCachedFrames(
     sessionId: string,
     targetTimeSec: number,
-    pastSec = 5.0,
-    futureSec = 15.0,
+    pastSec = 6.0,
+    futureSec = 18.0,
   ): TrackingTelemetryV1[] | null {
     if (this.ramCacheSessionId !== sessionId || this.ramCache.length === 0) return null;
     const minTime = targetTimeSec - pastSec;
@@ -145,10 +210,17 @@ export class TrackingOverlayWindowLoader {
     const slice = this.ramCache.filter((f) => f.timestampSec >= minTime && f.timestampSec <= maxTime);
     if (!slice.length) return null;
 
+    // Fast check: if targetTimeSec falls within the span of cached frames
+    const firstCached = this.ramCache[0].timestampSec;
+    const lastCached = this.ramCache[this.ramCache.length - 1].timestampSec;
+    if (targetTimeSec >= firstCached - 0.2 && targetTimeSec <= lastCached + 0.2) {
+      return slice;
+    }
+
     // Verify slice has adequate coverage for the requested playhead
-    const hasFrameAtOrBefore = slice.some((f) => f.timestampSec <= targetTimeSec && (targetTimeSec - f.timestampSec) <= 1.0);
-    const hasFrameAtOrAfter = slice.some((f) => f.timestampSec >= targetTimeSec && (f.timestampSec - targetTimeSec) <= 2.0);
-    if (hasFrameAtOrBefore && (hasFrameAtOrAfter || slice.length >= 5)) {
+    const hasFrameAtOrBefore = slice.some((f) => f.timestampSec <= targetTimeSec && (targetTimeSec - f.timestampSec) <= 1.5);
+    const hasFrameAtOrAfter = slice.some((f) => f.timestampSec >= targetTimeSec && (f.timestampSec - targetTimeSec) <= 2.5);
+    if (hasFrameAtOrBefore && (hasFrameAtOrAfter || slice.length >= 3)) {
       return slice;
     }
     return null;
@@ -174,13 +246,13 @@ export class TrackingOverlayWindowLoader {
     }
     const merged = Array.from(frameMap.values()).sort((a, b) => a.timestampSec - b.timestampSec);
 
-    // Bounded memory: keep around center playhead [T - 8s, T + 25s] or max 600 frames
+    // Bounded ring buffer: keep around center playhead [T - 12s, T + 35s] or max 1000 frames
     if (centerTimeSec !== undefined && Number.isFinite(centerTimeSec)) {
-      const minT = centerTimeSec - 8.0;
-      const maxT = centerTimeSec + 25.0;
+      const minT = centerTimeSec - 12.0;
+      const maxT = centerTimeSec + 35.0;
       this.ramCache = merged.filter((f) => f.timestampSec >= minT && f.timestampSec <= maxT);
-    } else if (merged.length > 600) {
-      this.ramCache = merged.slice(-600);
+    } else if (merged.length > 1000) {
+      this.ramCache = merged.slice(-1000);
     } else {
       this.ramCache = merged;
     }
