@@ -1476,7 +1476,22 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
     session.persisted_player_summary = checkpoint.get("playerSummary")
     session.analyzer.dist_tracker.restore_aggregates(checkpoint.get("distanceAggregates"))
     if checkpoint.get("committedCursor", 0):
-        session.results = session.job_store.page_results(session_id, max(0, checkpoint["committedCursor"] - SESSION_RESULT_WINDOW_SIZE), SESSION_RESULT_WINDOW_SIZE)["items"]
+        try:
+            session.results = session.job_store.page_results(
+                session_id,
+                max(0, checkpoint["committedCursor"] - SESSION_RESULT_WINDOW_SIZE),
+                SESSION_RESULT_WINDOW_SIZE,
+            )["items"]
+        except (OSError, JobStoreError) as error:
+            session.status = "ERROR"
+            session.error_message = "Stored analysis results failed integrity validation"
+            if isinstance(error, JobStoreError) and str(error):
+                session.error_message += f": {error}"
+            logger.error(
+                "Stored analysis results failed integrity validation for session %s (%s)",
+                session_id,
+                type(error).__name__,
+            )
     session.resume_checkpoint = checkpoint if session.status in {"INTERRUPTED", "CANCELLED"} else None
     session.persisted_provenance = checkpoint.get("backendProvenance")
     session.resume_distance_aggregates = checkpoint.get("distanceAggregates")
@@ -2429,9 +2444,12 @@ def get_session_results(session_id: str, after: int | None = None, limit: int = 
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from None
-    except (OSError, JobStoreError) as error:
+    except JobStoreError as error:
         logger.error('Stored results could not be paged for %s (%s)', session_id, type(error).__name__)
-        raise HTTPException(status_code=500, detail='Stored analysis results failed integrity validation') from None
+        raise HTTPException(status_code=409, detail='Stored analysis results failed integrity validation') from None
+    except OSError as error:
+        logger.error('Stored results could not be paged for %s (%s)', session_id, type(error).__name__)
+        raise HTTPException(status_code=500, detail='Stored analysis results are temporarily unavailable') from None
 
     performance_stats, quality_stats, runtime_provenance = _build_session_metrics(session)
 

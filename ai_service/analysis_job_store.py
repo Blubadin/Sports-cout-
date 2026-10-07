@@ -9,9 +9,11 @@ import os
 import re
 import shutil
 import struct
+import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 from uuid import uuid4
 from pathlib import Path
 from typing import Any, Iterable
@@ -22,6 +24,11 @@ MAX_PAGE_SIZE = 1000
 MAX_CHUNK_ITEMS = 256
 _INDEX_RECORD = struct.Struct(">QQQ")  # start cursor, end cursor, sequence
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_PROCESS_LOCK_REGISTRY_KEY = "_sportscout_analysis_job_store_process_locks"
+_PROCESS_LOCK_REGISTRY = sys.modules.setdefault(
+    _PROCESS_LOCK_REGISTRY_KEY,
+    SimpleNamespace(guard=threading.Lock(), entries={}),
+)
 
 
 class JobStoreError(RuntimeError):
@@ -36,16 +43,99 @@ class JobStoreSequenceError(JobStoreError):
     """A result write would skip or change an already committed sequence."""
 
 
+class JobStoreBusyError(JobStoreError):
+    """Another service process already owns this analysis store."""
+
+
 class AnalysisJobStore:
     """Filesystem journal where only checksum-verified, journal-committed chunks are visible."""
 
-    def __init__(self, root: str | Path, page_limit: int = DEFAULT_PAGE_SIZE):
+    def __init__(
+        self,
+        root: str | Path,
+        page_limit: int = DEFAULT_PAGE_SIZE,
+        *,
+        acquire_process_lock: bool = False,
+    ):
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.maximum_page_size = max(1, min(int(page_limit), MAX_PAGE_SIZE))
         self._lock = threading.RLock()
+        self._process_lock_key = None
+        if acquire_process_lock:
+            self._process_lock_key, self._lock = self._acquire_process_lock()
         self.recovery_report: dict[str, list[str]] = {"interrupted": [], "deleted": [], "issues": []}
-        self.recover()
+        try:
+            with self._lock:
+                self.recover()
+        except BaseException:
+            self.close()
+            raise
+
+    def _acquire_process_lock(self) -> tuple[str, threading.RLock]:
+        key = os.path.normcase(str(self.root))
+        with _PROCESS_LOCK_REGISTRY.guard:
+            entry = _PROCESS_LOCK_REGISTRY.entries.get(key)
+            if entry is not None:
+                entry["references"] += 1
+                return key, entry["lock"]
+            lock_path = self.root / ".analysis-job-store.lock"
+            handle = lock_path.open("a+b")
+            try:
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"\0")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (ImportError, OSError) as error:
+                handle.close()
+                raise JobStoreBusyError(
+                    "Analysis job store is already in use by another AI service process"
+                ) from error
+            lock = threading.RLock()
+            _PROCESS_LOCK_REGISTRY.entries[key] = {
+                "handle": handle,
+                "lock": lock,
+                "references": 1,
+            }
+        return key, lock
+
+    def close(self) -> None:
+        """Release the optional process-wide store lock."""
+        key = self._process_lock_key
+        if key is None:
+            return
+        self._process_lock_key = None
+        with _PROCESS_LOCK_REGISTRY.guard:
+            entry = _PROCESS_LOCK_REGISTRY.entries.get(key)
+            if entry is None:
+                return
+            entry["references"] -= 1
+            if entry["references"] > 0:
+                return
+            _PROCESS_LOCK_REGISTRY.entries.pop(key, None)
+        handle = entry["handle"]
+        try:
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
     @classmethod
     def from_environment(cls) -> "AnalysisJobStore":
@@ -56,7 +146,7 @@ class AnalysisJobStore:
             root = Path(os.environ["LOCALAPPDATA"]) / "SportsScout" / "analysis-jobs"
         else:
             root = Path.home() / ".local" / "share" / "sportscout" / "analysis-jobs"
-        return cls(root)
+        return cls(root, acquire_process_lock=True)
 
     def _job_dir(self, session_id: str) -> Path:
         if not isinstance(session_id, str) or not _SAFE_ID.fullmatch(session_id):
@@ -524,9 +614,15 @@ class AnalysisJobStore:
                     })
                     report["interrupted"].append(folder.name)
             except (OSError, JobStoreError, ValueError) as error:
-                report["issues"].append(f"{folder.name}: recovery failed ({type(error).__name__})")
+                issue = f"{folder.name}: recovery failed ({type(error).__name__})"
+                if isinstance(error, JobStoreError) and str(error):
+                    issue += f": {error}"
+                report["issues"].append(issue)
+                job_error = "Durable checkpoint/result integrity failed during recovery"
+                if isinstance(error, JobStoreError) and str(error):
+                    job_error += f": {error}"
                 try:
-                    self.update_job(folder.name, {"status": "ERROR", "error": "Durable checkpoint/result integrity failed during recovery", "resume": {"available": False, "reason": "Committed result integrity must be repaired before resume"}})
+                    self.update_job(folder.name, {"status": "ERROR", "error": job_error, "resume": {"available": False, "reason": "Committed result integrity must be repaired before resume"}})
                 except (OSError, JobStoreError, ValueError):
                     pass
         self.recovery_report = report
