@@ -331,7 +331,14 @@ export default function BadmintonTrackingLab() {
       overlayWindow && overlayWindow.projectId === projectId && overlayWindow.sessionId === sessionId
       && trackingOverlayWindowContainsTime(overlayWindow, targetTime)
       && (framesForCameraSegmentAtTime(overlayWindow.frames, targetTime)[0]?.cameraSegmentId ?? null) === overlayWindow.cameraSegmentId
-    ) return;
+    ) {
+      const lastFrameTime = overlayWindow.frames[overlayWindow.frames.length - 1]?.timestampSec ?? 0;
+      const totalCommitted = state.sessionStatus?.committedResultCursor ?? 0;
+      if (lastFrameTime - targetTime < 3.0 && overlayWindow.nextCursor < totalCommitted && !overlayRequest.current) {
+        void loadOverlayWindow(lastFrameTime + 2.0, false);
+      }
+      return;
+    }
 
     if (!force && overlayRequest.current?.projectId === projectId && overlayRequest.current.sessionId === sessionId) {
       const activeRequest = overlayRequest.current;
@@ -384,7 +391,10 @@ export default function BadmintonTrackingLab() {
       ) return;
       if (result.status === 'stale') return;
       if (result.status === 'unavailable') {
-        setOverlayWindow(null);
+        const cached = overlayWindowLoader.current.getCachedFrames(sessionId, targetTime);
+        if (!cached || cached.length === 0) {
+          setOverlayWindow(null);
+        }
         setOverlayWindowStatus('unavailable');
         return;
       }
@@ -424,6 +434,9 @@ export default function BadmintonTrackingLab() {
   const overlayLoadCallback = useRef(loadOverlayWindow);
   overlayLoadCallback.current = loadOverlayWindow;
 
+  const ramCachedFrames = state.sessionId
+    ? overlayWindowLoader.current.getCachedFrames(state.sessionId, time)
+    : null;
   const activeRemoteWindow = overlayWindow && overlayWindow.projectId === activeProjectId
     && overlayWindow.sessionId === state.sessionId && trackingOverlayWindowContainsTime(overlayWindow, time)
     && (framesForCameraSegmentAtTime(overlayWindow.frames, time)[0]?.cameraSegmentId ?? null) === overlayWindow.cameraSegmentId
@@ -431,7 +444,7 @@ export default function BadmintonTrackingLab() {
   const hasLiveOverlayWindow = telemetryCoversTime(frames, time);
   const sourceOverlayFrames = hasLiveOverlayWindow
     ? frames
-    : activeRemoteWindow?.frames ?? [];
+    : activeRemoteWindow?.frames ?? ramCachedFrames ?? [];
   const displayFrames = framesForCameraSegmentAtTime(sourceOverlayFrames, time);
   const overlayFrame = [...displayFrames].reverse().find((frame) => frame.timestampSec <= time) ?? null;
   const displayResolutionStatus = displayFrames.length ? resolveOverlayAtTime(displayFrames, time).status : 'unavailable';
@@ -457,9 +470,11 @@ export default function BadmintonTrackingLab() {
     firstCourtTime != null && Number.isFinite(firstCourtTime) && time + 0.05 < firstCourtTime;
   const overlayStatusKey = hasLiveOverlayWindow
     ? 'idle'
-    : overlayWindowStatus === 'loading' || overlayWindowStatus === 'error'
+    : overlayWindowStatus === 'loading' || overlayWindowStatus === 'error' || overlayWindowStatus === 'unavailable'
       ? overlayWindowStatus
-      : displayResolutionStatus === 'resolved' ? 'idle' : 'unavailable';
+      : displayResolutionStatus === 'resolved'
+        ? 'idle'
+        : 'idle';
   const overlayStatus = trackingOverlayStatusText(overlayStatusKey, th);
 
   // This control describes the runtime available for the next analysis. A
