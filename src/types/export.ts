@@ -83,10 +83,12 @@ export interface ExportJobProgress {
   sessionId: string;
   status: ExportStatus;
   stage: ExportStage;
+  stageLabel?: string;
   progress: number;
   detail: string;
   error?: string | null;
   outputArchivePath?: string | null;
+  archiveFilename?: string | null;
   archiveSizeBytes?: number | null;
   createdAt?: string;
   completedAt?: string | null;

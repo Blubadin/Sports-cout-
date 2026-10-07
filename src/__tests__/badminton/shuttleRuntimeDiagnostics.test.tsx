@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import BadmintonTrackingLab, { deriveShuttleEngineStatus } from '../../components/labs/BadmintonTrackingLab';
 import { aiTrackingService } from '../../services/aiTrackingService';
 import { createDefaultProjectTrackingState, getDefaultProcessingConfig, trackingSessionStore } from '../../services/trackingSessionStore';
-import type { ShuttleProvenance } from '../../types';
+import type { ShuttleProvenance, TrackingSessionStatus } from '../../types';
 
 let testProjectId = 'shuttle_diag_project_1';
 
@@ -295,7 +295,7 @@ describe('Phase 2.9C: Shuttle Runtime Diagnostics', () => {
         pageIssueCount: 0,
         pageIssuesTruncated: false,
       });
-      vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockSessionStatus as any);
+      vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockSessionStatus as unknown as TrackingSessionStatus);
 
       render(<BadmintonTrackingLab />);
       await waitFor(() => expect(aiTrackingService.checkBackendHealth).toHaveBeenCalled());

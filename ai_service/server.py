@@ -522,10 +522,8 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
             timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
-            last_timestamp_sec = timestamp_sec
-
             telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
-            telemetry["source"] = "real_tracking"
+            telemetry["sourceFrame"] = frame_idx
             telemetry["is_synthetic"] = False
             asyncio.run_coroutine_threadsafe(broadcast_telemetry(telemetry), loop)
 
@@ -668,7 +666,7 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     if effective_device == "auto":
         effective_device = resolve_device("auto")
 
-    # Default Reference baseline
+    # Default Reference baseline: Court-aware ROI enabled with full resolution
     detector_input_size = 640
     use_court_roi = False
     court_roi_margin_px = 60
@@ -701,9 +699,10 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     elif requested_profile == "auto":
         # Hardware selection must not change the analysis workload.
         effective_profile = "reference"
+        use_court_roi = False
     elif requested_profile == "custom":
         detector_input_size = cfg.get("detector_input_size", cfg.get("detectorInputSize", 640))
-        use_court_roi = cfg.get("use_court_roi", cfg.get("useCourtRoi", False))
+        use_court_roi = cfg.get("use_court_roi", cfg.get("useCourtRoi", True))
         court_roi_margin_px = cfg.get("court_roi_margin_px", cfg.get("courtRoiMarginPx", 60))
         court_roi_margin_m = cfg.get("court_roi_margin_m", cfg.get("courtRoiMarginM", 0.5))
         frame_stride = cfg.get("frame_stride", cfg.get("frameStride", 2))
@@ -1727,6 +1726,7 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
                 continue
             with session._state_lock:
                 telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+                telemetry["sourceFrame"] = frame_idx
                 if session.is_resuming and frame_idx <= resume_source_frame:
                     if frame_idx >= resume_source_frame:
                         _finish_resume_warmup(session, resume_analyzer_frame)

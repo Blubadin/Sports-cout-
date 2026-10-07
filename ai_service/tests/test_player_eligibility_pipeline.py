@@ -243,6 +243,31 @@ class TestPlayerEligibilityEvaluation(unittest.TestCase):
             court_mapper=self.mapper,
             is_metric_valid=True,
         )
+        mock_p = PlayerProfile(1)
+        mock_p.track_id = 1
+        elig = evaluate_player_eligibility(
+            detection=det,
+            ground_point=ground_pt,
+            envelope_zone=CourtEnvelopeZone.NEAR_COURT,
+            envelope_dist_m=-0.9,
+            active_profiles={"P1": mock_p},
+            scene_state=SceneState.COURT_PLAY,
+        )
+        self.assertEqual(elig.status, EligibilityStatus.ELIGIBLE)
+        self.assertTrue(elig.is_eligible_for_profile)
+        self.assertIn("player_near_court_excursion", elig.reasons)
+
+    def test_unknown_person_near_court_candidate_only(self):
+        """Unknown person in NEAR_COURT is CANDIDATE only and not eligible for profile."""
+        det = {"bbox": [80.0, 200.0, 140.0, 420.0], "conf": 0.89, "track_id": 99}
+        ground_pt = resolve_canonical_ground_point(
+            bbox=det["bbox"],
+            frame_width=1280,
+            frame_height=720,
+            pose_keypoints=None,
+            court_mapper=self.mapper,
+            is_metric_valid=True,
+        )
         elig = evaluate_player_eligibility(
             detection=det,
             ground_point=ground_pt,
@@ -251,9 +276,8 @@ class TestPlayerEligibilityEvaluation(unittest.TestCase):
             active_profiles={},
             scene_state=SceneState.COURT_PLAY,
         )
-        self.assertEqual(elig.status, EligibilityStatus.ELIGIBLE)
-        self.assertTrue(elig.is_eligible_for_profile)
-        self.assertIn("player_near_court_excursion", elig.reasons)
+        self.assertEqual(elig.status, EligibilityStatus.CANDIDATE)
+        self.assertFalse(elig.is_eligible_for_profile)
 
     def test_small_source_pixel_ankles_drive_court_projection_and_eligibility(self):
         class RecordingCourtMapper:
@@ -470,6 +494,7 @@ class TestAnalyzerFullPipeline(unittest.TestCase):
         analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=2)
         analyzer._detector = "dummy"
         analyzer.set_court_corners(self.corners)
+        analyzer.profiles[1].track_id = 11
 
         # Player at screen coordinate x=220 (approx 0.7m outside left sideline) -> NEAR_COURT
         analyzer.detect_and_track = lambda f: [

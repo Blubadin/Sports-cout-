@@ -313,6 +313,7 @@ class ExportProgressState:
                 "sessionId": self.session_id,
                 "stage": public_stage,
                 "stageLabel": self.stage_label,
+                "detail": self.stage_label,
                 "progress": self.progress_pct,
                 "progressPct": self.progress_pct,
                 "status": self.status,
@@ -324,6 +325,105 @@ class ExportProgressState:
                 "createdAt": self.created_at,
                 "completedAt": self.completed_at,
             }
+
+
+def probe_video_encoder(
+    temp_dir: Optional[Path] = None,
+    codecs: Tuple[str, ...] = ("mp4v", "avc1"),
+) -> str:
+    """Probes OpenCV VideoWriter capability to ensure a working MP4 encoder is present.
+
+    Verifies:
+    1. VideoWriter opens
+    2. Small test frames can be written
+    3. Resulting file is non-zero
+    4. Output can be reopened and read by cv2.VideoCapture
+    """
+    target_dir = Path(temp_dir) if temp_dir else Path(tempfile.gettempdir())
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    test_frame = np.zeros((64, 64, 3), dtype=np.uint8)
+    cv2.circle(test_frame, (32, 32), 10, (255, 255, 255), -1)
+
+    errors: List[str] = []
+    for codec_name in codecs:
+        probe_path = target_dir / f"probe_{uuid4().hex[:8]}_{codec_name}.mp4"
+        writer = None
+        cap = None
+        try:
+            fourcc = cv2.VideoWriter_fourcc(*codec_name)
+            writer = cv2.VideoWriter(str(probe_path), fourcc, 30.0, (64, 64))
+            if not writer.isOpened():
+                errors.append(f"{codec_name}: VideoWriter failed to open")
+                continue
+
+            writer.write(test_frame)
+            writer.write(test_frame)
+            writer.release()
+            writer = None
+
+            if not probe_path.exists() or probe_path.stat().st_size == 0:
+                errors.append(f"{codec_name}: Output file is missing or zero-sized")
+                continue
+
+            cap = cv2.VideoCapture(str(probe_path))
+            if not cap.isOpened():
+                errors.append(f"{codec_name}: Output video could not be reopened")
+                continue
+
+            ret, read_frame = cap.read()
+            if not ret or read_frame is None:
+                errors.append(f"{codec_name}: Output video could not be decoded")
+                continue
+
+            cap.release()
+            cap = None
+            return codec_name
+        except Exception as e:
+            errors.append(f"{codec_name}: {e}")
+        finally:
+            if writer is not None:
+                try:
+                    writer.release()
+                except Exception:
+                    pass
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+            if probe_path.exists():
+                try:
+                    probe_path.unlink()
+                except Exception:
+                    pass
+
+    error_summary = "; ".join(errors) if errors else "No codecs tested"
+    raise EncoderUnavailableError(
+        f"No functional MP4 video encoder available via OpenCV ({error_summary}). Please ensure OpenCV video codecs are installed."
+    )
+
+
+def _get_git_commit_sha() -> Optional[str]:
+    """Resolves real git commit SHA or returns None if unavailable."""
+    sha = os.getenv("GIT_COMMIT_SHA") or os.getenv("SPORTSCOUT_GIT_SHA")
+    if sha:
+        return sha.strip()
+    try:
+        import subprocess
+        res = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(Path(__file__).resolve().parent),
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return None
 
 
 class AnalysisExporter:
@@ -372,6 +472,9 @@ class AnalysisExporter:
             job, analysis_frames, source_media_path = self._prepare_data(session_id)
             self._check_storage(source_media_path, job_dir)
 
+            progress.update("preparing", "Validating video encoder capability...", 4.0)
+            verified_codec = probe_video_encoder(self.temp_root)
+
             progress.update("preparing", "Analysis data validated, setting up workspace...", 5.0)
 
             video_dir = job_dir / "video"
@@ -392,6 +495,7 @@ class AnalysisExporter:
                 progress,
                 progress_start=10.0,
                 progress_end=60.0,
+                codec=verified_codec,
             )
 
             if progress.is_cancelled():
@@ -543,6 +647,7 @@ class AnalysisExporter:
         progress: ExportProgressState,
         progress_start: float,
         progress_end: float,
+        codec: Optional[str] = None,
     ) -> None:
         cap = cv2.VideoCapture(str(source_media_path))
         if not cap.isOpened():
@@ -556,19 +661,27 @@ class AnalysisExporter:
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_source_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        # Index canonical frames by frameIndex for O(1) canonical alignment
+        # Check if telemetry frame indices are 0-based or 1-based to ensure exact source alignment
+        raw_indices = [row.get("frameIndex") for row in analysis_frames if isinstance(row.get("frameIndex"), int)]
+        is_zero_indexed = len(raw_indices) > 0 and min(raw_indices) == 0 and (total_source_frames <= 0 or max(raw_indices) < total_source_frames)
+
+        # Index canonical frames by 1-based source frame index for O(1) alignment
         frame_map: Dict[int, Dict[str, Any]] = {}
         for row in analysis_frames:
             f_idx = row.get("frameIndex")
-            if isinstance(f_idx, int) and f_idx > 0:
-                frame_map[f_idx] = row
+            if isinstance(f_idx, int):
+                canonical_idx = f_idx + 1 if is_zero_indexed else f_idx
+                if canonical_idx > 0:
+                    frame_map[canonical_idx] = row
 
-        # Initialize VideoWriter
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        # Initialize VideoWriter using verified encoder
+        selected_codec = codec or probe_video_encoder(output_video_path.parent)
+        fourcc = cv2.VideoWriter_fourcc(*selected_codec)
         writer = cv2.VideoWriter(str(output_video_path), fourcc, fps, (width, height))
         if not writer.isOpened():
-            # Try fallback to avc1
-            fourcc = cv2.VideoWriter_fourcc(*"avc1")
+            # Try fallback to opposite codec (mp4v <-> avc1)
+            alt_codec = "avc1" if selected_codec == "mp4v" else "mp4v"
+            fourcc = cv2.VideoWriter_fourcc(*alt_codec)
             writer = cv2.VideoWriter(str(output_video_path), fourcc, fps, (width, height))
             if not writer.isOpened():
                 cap.release()
@@ -576,8 +689,11 @@ class AnalysisExporter:
 
         # Overlay render state
         current_data: Optional[Dict[str, Any]] = None
+        current_data_frame: int = 0
         shuttle_trail_pts: List[Tuple[int, int]] = []
         last_camera_segment: Optional[str] = None
+        # Bounded freshness window: ~0.25 seconds or at least 3 frames
+        freshness_limit_frames = max(3, int(round(fps * 0.25)))
 
         current_source_frame = 0
         try:
@@ -594,17 +710,27 @@ class AnalysisExporter:
                 # Update canonical frame data if an observation exists on this frame
                 if current_source_frame in frame_map:
                     current_data = frame_map[current_source_frame]
+                    current_data_frame = current_source_frame
+                elif current_data is not None:
+                    # Clear stale telemetry if outside freshness tolerance
+                    if (current_source_frame - current_data_frame) > freshness_limit_frames:
+                        current_data = None
 
-                # Render overlays if we have aligned canonical data
+                # Invalidate overlay on camera cut, transition, replay, close-up
                 if current_data is not None:
                     cam_seg = current_data.get("cameraSegmentId")
                     scene_st = current_data.get("sceneState")
 
-                    # Shuttle Trail management: reset on camera cut, transition, replay, close-up
-                    if cam_seg != last_camera_segment or scene_st in ("REPLAY", "CAMERA_TRANSITION", "CLOSE_UP", "UNKNOWN"):
+                    if scene_st in ("REPLAY", "CAMERA_TRANSITION", "CLOSE_UP", "UNKNOWN"):
+                        current_data = None
+                        shuttle_trail_pts.clear()
+                        last_camera_segment = cam_seg
+                    elif cam_seg != last_camera_segment:
                         shuttle_trail_pts.clear()
                         last_camera_segment = cam_seg
 
+                # Render overlays if we have aligned canonical data
+                if current_data is not None:
                     self._render_overlays_on_frame(
                         frame_img,
                         current_data,
@@ -821,6 +947,22 @@ class AnalysisExporter:
             cv2.rectangle(img, (10, 10), (16 + tw, 18 + th), (20, 25, 32), -1)
             cv2.rectangle(img, (10, 10), (16 + tw, 18 + th), (60, 70, 85), 1)
             cv2.putText(img, hud_text, (13, 14 + th), cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLOR_WHITE, 1, cv2.LINE_AA)
+
+            # Raw detections diagnostic overlay (Debug mode only)
+            raw_dets = data.get("rawPlayerDetections") or []
+            confirmed_track_ids = {p.get("trackId") for p in players if p.get("state") in ("observed", "predicted")}
+            for rd in raw_dets:
+                rd_track = rd.get("track_id")
+                if rd_track is not None and rd_track in confirmed_track_ids:
+                    continue
+                r_bbox = rd.get("bbox")
+                if r_bbox and len(r_bbox) == 4:
+                    rx1, ry1, rx2, ry2 = [int(round(c)) for c in r_bbox]
+                    cv2.rectangle(img, (rx1, ry1), (rx2, ry2), (120, 120, 120), 1, cv2.LINE_AA)
+                    cv2.putText(
+                        img, f"[RAW {rd_track or '?'}]", (rx1 + 2, max(12, ry1 - 2)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, (160, 160, 160), 1, cv2.LINE_AA
+                    )
 
     def _generate_heatmaps(
         self,
@@ -1201,12 +1343,24 @@ class AnalysisExporter:
         meta = job.get("metadata", {}).get("session", {})
         vid_meta = meta.get("videoMetadata", {})
 
+        git_sha = _get_git_commit_sha()
+
         manifest = {
             "exportVersion": "1.0.0",
             "phase": "3.5E",
             "createdAt": datetime.datetime.now().isoformat(),
             "sportsScoutVersion": "0.11.0-pilot.1",
-            "repositorySha": "22c623dc90f68ab3ef89922325947fc929675757",
+            "repositorySha": git_sha,
+            "provenance": {
+                "pipelineVersion": "3.5E",
+                "detectorModel": job.get("metadata", {}).get("engine", {}).get("detectorModel") or "yolov8x",
+                "poseModel": job.get("metadata", {}).get("engine", {}).get("poseModel") or "yolov8x-pose",
+                "shuttleModel": job.get("metadata", {}).get("engine", {}).get("shuttleModel") or "tracknet-v2",
+                "device": job.get("metadata", {}).get("engine", {}).get("device") or ("cuda" if cv2.cuda.getCudaEnabledDeviceCount() > 0 else "cpu"),
+                "runtime": "onnxruntime" if "onnx" in str(job) else "pytorch",
+                "precision": "fp16",
+                "analysisSessionId": job.get("id"),
+            },
             "analysisJobId": job.get("id"),
             "sourceMediaSha256": job.get("identity", {}).get("mediaHash"),
             "sourceFilename": vid_meta.get("filename", source_media_path.name),

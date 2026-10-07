@@ -159,6 +159,7 @@ class BadmintonAnalyzerV2:
         shuttle_pipeline: ProductionShuttlePipeline | None = None,
         calibration_provider: CourtCalibrationProvider | None = None,
         auto_calibrate: bool = False,
+        player_promotion_min_in_court_observations: int = 1,
     ):
         self.game_type = game_type
         if max_players is None:
@@ -225,6 +226,7 @@ class BadmintonAnalyzerV2:
             margin_x_m=self.court_roi_margin_m if self.court_roi_margin_m > 0 else 2.0,
             margin_y_m=2.5,
             image_margin_px=float(self.court_roi_margin_px),
+            player_promotion_min_in_court_observations=int(player_promotion_min_in_court_observations),
         )
 
         # Initialize player profiles (exactly max_players, no phantoms)
@@ -251,6 +253,8 @@ class BadmintonAnalyzerV2:
         self.semantic_player_id_switches = 0
         self.last_known_track_owners: dict[int, int] = {}
         self._last_cost_breakdowns: dict[int, SemanticIdentityCosts] = {}
+        self.track_in_court_counts: dict[int, int] = {}
+        self.track_far_outside_counts: dict[int, int] = {}
         self._detector = None
         self._pose_detector = None
         self.shuttle_pipeline = shuttle_pipeline
@@ -474,6 +478,8 @@ class BadmintonAnalyzerV2:
         self.court_corners_px = None
         self.dist_tracker.break_metric_segment()
         self.last_known_track_owners.clear()
+        self.track_in_court_counts.clear()
+        self.track_far_outside_counts.clear()
         for profile in self.profiles.values():
             profile.identity_needs_reacquisition = True
             profile.identity_confirmation_track = None
@@ -562,6 +568,16 @@ class BadmintonAnalyzerV2:
             roi_x1, roi_y1, roi_x2, roi_y2 = calculate_court_roi(
                 self.court_corners_px, w, h, self.court_roi_margin_px
             )
+            # PART 4: Ensure known tracked players temporarily outside court ROI are recoverable
+            for p in self.profiles.values():
+                if p.last_bbox is not None and p.missed_frames < 15:
+                    bx1, by1, bx2, by2 = p.last_bbox
+                    margin = float(self.court_roi_margin_px)
+                    roi_x1 = max(0, min(roi_x1, int(bx1 - margin)))
+                    roi_y1 = max(0, min(roi_y1, int(by1 - margin)))
+                    roi_x2 = min(w, max(roi_x2, int(bx2 + margin)))
+                    roi_y2 = min(h, max(roi_y2, int(by2 + margin)))
+
             if (roi_x2 - roi_x1) >= 50 and (roi_y2 - roi_y1) >= 50:
                 inference_frame = frame[roi_y1:roi_y2, roi_x1:roi_x2]
                 offset_x, offset_y = roi_x1, roi_y1
@@ -590,9 +606,17 @@ class BadmintonAnalyzerV2:
 
         return []
 
-    def process_frame(self, frame: np.ndarray, timestamp_sec: float | None = None) -> dict:
+    def process_frame(
+        self,
+        frame: np.ndarray,
+        timestamp_sec: float | None = None,
+        frame_index: int | None = None,
+    ) -> dict:
         """Process a single frame and generate structured telemetry."""
-        self.frame_count += 1
+        if frame_index is not None:
+            self.frame_count = int(frame_index)
+        else:
+            self.frame_count += 1
         self.analyzed_frame_count += 1
         should_run_pose = (self.analyzed_frame_count % self.pose_stride == 0)
         t_sec = timestamp_sec if timestamp_sec is not None else (self.frame_count / self.fps)
@@ -669,7 +693,17 @@ class BadmintonAnalyzerV2:
 
         # Pipeline: Person Detection -> Pose/Feet -> Eligibility -> Temporal Identity -> Player Candidate
         h, w = frame.shape[:2] if frame is not None else (720, 1280)
-        metric_valid = bool(transition.is_metric_valid and self.mapper.is_calibrated)
+        cal_obj = getattr(self.calibration_context, "state", getattr(self.calibration_context, "status", None))
+        calibration_state = (
+            cal_obj.value
+            if hasattr(cal_obj, "value")
+            else str(cal_obj or "UNCALIBRATED")
+        )
+        metric_valid = bool(
+            transition.is_metric_valid
+            and self.mapper.is_calibrated
+            and calibration_state == "CALIBRATED"
+        )
 
         # 1. Pose estimation across candidate detections
         full_frame_candidates: list[FullFramePoseCandidate] = []
@@ -698,9 +732,27 @@ class BadmintonAnalyzerV2:
             det_track_id = d.get("track_id")
             if det_track_id is not None:
                 for p in self.profiles.values():
-                    if p.track_id == det_track_id and p.missed_frames < 15:
+                    if p.track_id == det_track_id and p.missed_frames < 30:
                         matched_prof = p
                         break
+
+            # Part 12 Performance optimization: Skip running pose on obvious FAR_OUTSIDE spectators
+            rough_gx = (bbox[0] + bbox[2]) / 2.0
+            rough_gy = float(bbox[3])
+            rough_zone, _, _ = classify_court_envelope(
+                ground_px=(rough_gx, rough_gy),
+                court_corners_px=self.court_corners_px,
+                court_mapper=self.mapper,
+                is_metric_valid=metric_valid,
+                config=self.court_envelope_config,
+                calibration_state=calibration_state,
+            )
+            is_known = (matched_prof is not None)
+            skip_pose_for_spectator = (
+                not is_known
+                and rough_zone == CourtEnvelopeZone.FAR_OUTSIDE
+                and self.pose_architecture != "full_frame_pose"
+            )
 
             if self.pose_architecture == "full_frame_pose":
                 if should_run_pose and full_frame_candidates:
@@ -741,7 +793,7 @@ class BadmintonAnalyzerV2:
                         pose_kps = matched_prof.last_pose.get("keypoints")
                         pose_res = matched_prof.last_pose
             else:
-                if should_run_pose:
+                if should_run_pose and not skip_pose_for_spectator:
                     pose_res = self._estimate_pose(frame, bbox)
                     if pose_res and pose_res.get("keypoints"):
                         pose_kps = pose_res["keypoints"]
@@ -833,7 +885,23 @@ class BadmintonAnalyzerV2:
                 court_mapper=self.mapper,
                 is_metric_valid=metric_valid,
                 config=self.court_envelope_config,
+                calibration_state=calibration_state,
             )
+
+            # Update temporal confirmation observation counts per track
+            if det_track_id is not None:
+                if zone == CourtEnvelopeZone.IN_COURT:
+                    self.track_in_court_counts[det_track_id] = self.track_in_court_counts.get(det_track_id, 0) + 1
+                    self.track_far_outside_counts[det_track_id] = 0
+                elif zone == CourtEnvelopeZone.FAR_OUTSIDE:
+                    self.track_far_outside_counts[det_track_id] = self.track_far_outside_counts.get(det_track_id, 0) + 1
+                    self.track_in_court_counts[det_track_id] = max(0, self.track_in_court_counts.get(det_track_id, 0) - 1)
+                else:
+                    self.track_far_outside_counts[det_track_id] = 0
+
+            in_court_count = self.track_in_court_counts.get(det_track_id, 1 if det_track_id is None else 0)
+            far_outside_count = self.track_far_outside_counts.get(det_track_id, 0)
+
             elig = evaluate_player_eligibility(
                 detection=d,
                 ground_point=ground_pt,
@@ -845,6 +913,9 @@ class BadmintonAnalyzerV2:
                 game_type=self.game_type,
                 is_metric_valid=metric_valid,
                 config=self.court_envelope_config,
+                in_court_observations=in_court_count,
+                calibration_state=calibration_state,
+                far_outside_frames=far_outside_count,
             )
             d["envelope_zone"] = zone
             d["eligibility"] = elig

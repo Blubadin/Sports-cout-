@@ -40,6 +40,7 @@ export default function ExportConfigModal({
   const [exportProgress, setExportProgress] = useState<ExportJobProgress | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -131,10 +132,20 @@ export default function ExportConfigModal({
     }
   };
 
-  const handleDownload = () => {
-    if (!exportProgress?.exportId) return;
-    const downloadUrl = trackingSessionApi.getExportDownloadUrl(exportProgress.exportId);
-    window.open(downloadUrl, '_blank');
+  const handleDownload = async () => {
+    if (!exportProgress?.exportId || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      await trackingSessionApi.downloadExportArchive(
+        exportProgress.exportId,
+        exportProgress.archiveFilename || undefined
+      );
+    } catch {
+      const downloadUrl = trackingSessionApi.getExportDownloadUrl(exportProgress.exportId);
+      window.open(downloadUrl, '_blank');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const handleReset = () => {
@@ -197,7 +208,7 @@ export default function ExportConfigModal({
                     : (th ? 'กำลังเตรียมการ...' : 'Initializing...')}
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  {exportProgress?.detail || (th ? 'กำลังติดต่อ AI Service...' : 'Connecting to AI Service...')}
+                  {exportProgress?.detail || exportProgress?.stageLabel || (th ? 'กำลังติดต่อ AI Service...' : 'Connecting to AI Service...')}
                 </p>
 
                 {/* Progress bar */}
@@ -284,9 +295,10 @@ export default function ExportConfigModal({
                   <div className="flex gap-3">
                     <button
                       onClick={handleDownload}
-                      className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm rounded-lg transition shadow-lg flex items-center justify-center gap-2"
+                      disabled={isDownloading}
+                      className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-medium text-sm rounded-lg transition shadow-lg flex items-center justify-center gap-2"
                     >
-                      <span>📥</span> {th ? 'ดาวน์โหลดแพ็กเกจ (.zip)' : 'Download Analysis Package (.zip)'}
+                      <span>📥</span> {isDownloading ? (th ? 'กำลังเตรียมไฟล์ดาวน์โหลด...' : 'Preparing download...') : (th ? 'ดาวน์โหลดแพ็กเกจ (.zip)' : 'Download Analysis Package (.zip)')}
                     </button>
                     <button
                       onClick={onClose}

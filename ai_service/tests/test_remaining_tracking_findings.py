@@ -39,6 +39,7 @@ class TestPostCutIdentity(unittest.TestCase):
         analyzer.detect_and_track = lambda _: [{
             "bbox": [150, 150, 190, 260], "center": (170, 260), "conf": .9, "track_id": 42,
         }]
+        analyzer.set_court_corners([[70, 35], [570, 35], [570, 445], [70, 445]])
         initial = court_frame()
         initial[150:260, 150:190] = (20, 20, 210)
         first = analyzer.process_frame(initial, timestamp_sec=0)

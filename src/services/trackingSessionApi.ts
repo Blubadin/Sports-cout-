@@ -497,6 +497,19 @@ export class TrackingSessionApiClient {
     return this.getApiUrl(`/api/tracking/exports/${exportId}/download`);
   }
 
+  public async downloadExportArchive(exportId: string, filename?: string): Promise<void> {
+    const res = await this.request(`/api/tracking/exports/${exportId}/download`);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename || `SportsScout_${exportId}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+  }
+
   public connectTelemetry(): WebSocket {
     const connection = this.resolveConnection();
     if (!connection.endpoint || connection.code !== 'CONNECTED') {

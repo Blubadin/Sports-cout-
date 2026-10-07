@@ -20,6 +20,7 @@ from scipy.optimize import linear_sum_assignment
 
 from court_mapper import CourtMapper, COURT_LENGTH_M
 from reid_adapter import BaseReIDAdapter, DisabledReIDAdapter
+from player_eligibility import CourtEnvelopeZone
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class SemanticIdentityCosts:
     reid_similarity: float | None = None
     is_ambiguous: bool = False
     hsv_distance: float | None = None
+    quarantine_penalty: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +45,7 @@ class SemanticIdentityCosts:
             "rawTrackContinuityBonus": round(self.raw_track_continuity_bonus, 4),
             "hsvAppearanceCost": round(self.hsv_appearance_cost, 4),
             "reidAppearanceCost": round(self.reid_appearance_cost, 4),
+            "quarantinePenalty": round(self.quarantine_penalty, 4),
             "totalCost": round(self.total_cost, 4),
             "reidSimilarity": round(self.reid_similarity, 4) if self.reid_similarity is not None else None,
             "isAmbiguous": self.is_ambiguous,
@@ -149,12 +152,25 @@ def compute_identity_association_cost(
             cos_dist = float(1.0 - effective_sim)
             reid_appearance_cost = float(cos_dist * reid_weight)
 
+    # 6. Semantic Identity Quarantine Penalty (Part 11)
+    # A known active player's profile must NEVER jump to an outsider track that is outside court.
+    quarantine_penalty = 0.0
+    det_track_id = detection.get("track_id")
+    if profile.track_id is not None and det_track_id is not None and profile.track_id != det_track_id:
+        env_zone = detection.get("envelope_zone")
+        if env_zone is None and "eligibility" in detection and detection["eligibility"] is not None:
+            env_zone = getattr(detection["eligibility"], "envelope_zone", None)
+        zone_val = getattr(env_zone, "value", str(env_zone)) if env_zone is not None else None
+        if zone_val in ("FAR_OUTSIDE", "NEAR_COURT"):
+            quarantine_penalty = 50.0
+
     total_cost = (
         spatial_cost
         + court_side_penalty
         + raw_track_continuity_bonus
         + hsv_appearance_cost
         + reid_appearance_cost
+        + quarantine_penalty
     )
 
     return SemanticIdentityCosts(
@@ -163,6 +179,7 @@ def compute_identity_association_cost(
         raw_track_continuity_bonus=raw_track_continuity_bonus,
         hsv_appearance_cost=hsv_appearance_cost,
         reid_appearance_cost=reid_appearance_cost,
+        quarantine_penalty=quarantine_penalty,
         total_cost=total_cost,
         reid_similarity=reid_sim,
         is_ambiguous=is_ambiguous,
