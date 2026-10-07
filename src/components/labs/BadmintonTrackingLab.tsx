@@ -21,6 +21,7 @@ import {
 } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 import TrackingVideoOverlay, { resolveOverlayAtTime } from './TrackingVideoOverlay';
+import { projectCourtMarkings } from './courtMarkingOverlay';
 import { ShuttleOverlay, ShuttleControls, ShuttleDiagnostics, type ShuttleMode } from './ShuttleOverlay';
 import {
   framesForCameraSegmentAtTime,
@@ -415,6 +416,19 @@ export default function BadmintonTrackingLab() {
       Array.isArray(point) && point.length === 2 && point.every(Number.isFinite) && point[0] >= 0 && point[0] < dimensions.width &&
       point[1] >= 0 && point[1] < dimensions.height)
     ? acceptedCourtCorners : null;
+  const courtOverlayLines = courtOverlayCorners
+    ? projectCourtMarkings(overlayFrame?.calibration?.hInvMatrix, dimensions.width, dimensions.height)
+    : [];
+  const playbackSegmentId = overlayFrame?.cameraSegmentId ?? displayFrames[0]?.cameraSegmentId;
+  const upcomingCourtFrame = displayFrames.find(frame => frame.timestampSec > time + 0.05 &&
+    frame.cameraSegmentId === playbackSegmentId && isMetricCalibrationValid(frame) &&
+    frame.calibrationState === 'CALIBRATED' && Array.isArray(frame.calibration?.corners));
+  const statusCalibration = sessionStatus?.calibration;
+  const firstCourtTime = upcomingCourtFrame?.timestampSec ??
+    (statusCalibration?.state === 'CALIBRATED' && statusCalibration.cameraSegmentId === playbackSegmentId
+      ? statusCalibration.createdAtTimestampSec : null);
+  const courtStartsLater = !calibrating && !courtOverlayCorners &&
+    firstCourtTime != null && Number.isFinite(firstCourtTime) && time + 0.05 < firstCourtTime;
   const overlayStatusKey = hasLiveOverlayWindow
     ? 'idle'
     : overlayWindowStatus === 'loading' || overlayWindowStatus === 'error'
@@ -1670,6 +1684,11 @@ export default function BadmintonTrackingLab() {
               >
                 <polygon points={courtOverlayCorners.map(point => point.join(',')).join(' ')}
                   fill="none" stroke="#38bdf8" strokeWidth={dimensions.width / 400} />
+                {courtOverlayLines.map(line => (
+                  <line key={line.id} data-testid={`court-marking-${line.id}`}
+                    x1={line.from[0]} y1={line.from[1]} x2={line.to[0]} y2={line.to[1]}
+                    stroke="#38bdf8" strokeOpacity="0.8" strokeWidth={dimensions.width / 800} />
+                ))}
               </svg>
             )}
             {(calibrating || (corners.length > 0 && !state.sessionId && frames.length === 0) ||
@@ -1721,6 +1740,26 @@ export default function BadmintonTrackingLab() {
               </svg>
             )}
           </div>
+          {courtStartsLater && (
+            <div role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded border border-sky-900 bg-slate-900 px-3 py-2 text-sm text-sky-200">
+              <span>{th
+                ? `วิดีโอช่วงนี้ยังไม่ผ่านการปรับเทียบสนาม ระบบเริ่มแสดงแนวเส้นสนามที่ ${firstCourtTime!.toFixed(1)} วินาที`
+                : `This part of the video is not court calibrated yet. Court line guides begin at ${firstCourtTime!.toFixed(1)} s.`}</span>
+              <button type="button" className="rounded border border-sky-700 bg-sky-950 px-2 py-1 text-sky-100 hover:bg-sky-900"
+                onClick={() => {
+                  const video = videoRef.current;
+                  if (!video || firstCourtTime == null) return;
+                  const target = Math.min(firstCourtTime,
+                    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : Infinity);
+                  video.currentTime = target;
+                  setTime(target);
+                  setUIPreference('videoCurrentTime', target);
+                  void loadOverlayWindow(target, true);
+                }}>
+                {th ? 'ไปยังช่วงที่ตรวจพบสนาม' : 'Jump to detected court'}
+              </button>
+            </div>
+          )}
           <ShuttleControls mode={shuttleMode} onChange={setShuttleMode} />
           <ShuttleDiagnostics frames={displayFrames} time={time} />
           <button

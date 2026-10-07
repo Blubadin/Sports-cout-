@@ -219,7 +219,8 @@ it('displays accepted automatic court geometry and removes it immediately after 
     cameraSegmentId: 'segment-0', calibrationState: 'CALIBRATED' as const, calibrationId: 'court-1',
     calibration: { calibrationId: 'court-1', cameraSegmentId: 'segment-0', state: 'CALIBRATED' as const,
       source: 'automatic' as const, createdAtFrame: 0, createdAtTimestampSec: 0,
-      corners: [[100, 100], [1100, 100], [1100, 600], [100, 600]] },
+      corners: [[100, 100], [1100, 100], [1100, 600], [100, 600]],
+      hInvMatrix: [[1000 / 6.1, 0, 100], [0, 500 / 13.4, 100], [0, 0, 1]] },
   };
   trackingSessionStore.updateProjectState('p1', { file, telemetry: [frame] });
   render(<BadmintonTrackingLab />);
@@ -228,10 +229,43 @@ it('displays accepted automatic court geometry and removes it immediately after 
   Object.defineProperty(video, 'videoHeight', { value: 720 });
   fireEvent.loadedMetadata(video);
   expect(await screen.findByLabelText('Validated court calibration')).toBeInTheDocument();
+  expect(screen.getByTestId('court-marking-singles-left')).toHaveAttribute('x1');
+  expect(screen.getByTestId('court-marking-short-service-top')).toBeInTheDocument();
   act(() => trackingSessionStore.updateProjectState('p1', { telemetry: [{ ...frame,
     cameraSegmentId: 'segment-1', calibrationState: 'CALIBRATION_LOST', calibrationId: null,
   }] }));
   await waitFor(() => expect(screen.queryByLabelText('Validated court calibration')).not.toBeInTheDocument());
+  expect(screen.queryByTestId('court-marking-singles-left')).not.toBeInTheDocument();
+});
+
+it('explains the uncalibrated opening and seeks to the first observed court calibration', async () => {
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  const calibration = {
+    calibrationId: 'court-1', cameraSegmentId: 'segment-0', state: 'CALIBRATED' as const,
+    source: 'automatic' as const, createdAtFrame: 69, createdAtTimestampSec: 4.6,
+    corners: [[100, 100], [1100, 100], [1100, 600], [100, 600]],
+    hInvMatrix: [[1000 / 6.1, 0, 100], [0, 500 / 13.4, 100], [0, 0, 1]],
+  };
+  const opening: TrackingTelemetryV1 = {
+    schemaVersion: 1, analysisId: 'court-run', timestampSec: 0, frameIndex: 0, players: [],
+    cameraSegmentId: 'segment-0', calibrationState: 'UNCALIBRATED', calibrationId: null,
+  };
+  const calibrated: TrackingTelemetryV1 = {
+    ...opening, timestampSec: 4.6, frameIndex: 69, calibrationState: 'CALIBRATED',
+    calibrationId: 'court-1', calibration,
+  };
+  trackingSessionStore.updateProjectState('p1', { file, telemetry: [opening, calibrated] });
+  render(<BadmintonTrackingLab />);
+  const video = document.querySelector('video')!;
+  Object.defineProperty(video, 'videoWidth', { value: 1280 });
+  Object.defineProperty(video, 'videoHeight', { value: 720 });
+  fireEvent.loadedMetadata(video);
+  expect(await screen.findByText(/Court line guides begin at 4.6 s/)).toBeInTheDocument();
+  expect(screen.queryByLabelText('Validated court calibration')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Jump to detected court' }));
+  expect(video.currentTime).toBeCloseTo(4.6);
+  expect(await screen.findByLabelText('Validated court calibration')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Jump to detected court' })).not.toBeInTheDocument();
 });
 
 it('restores a saved seek after reload from the bounded backend telemetry page', async () => {
