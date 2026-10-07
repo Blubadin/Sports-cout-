@@ -26,7 +26,7 @@ Each document or artifact is classified into exactly one category:
 
 | Document / Artifact | Category | Date / Cycle | Authoritative Reference & Superseding Context |
 | :--- | :--- | :--- | :--- |
-| [`docs/evidence/PHASE_3_CLOSEOUT.md`](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/docs/evidence/PHASE_3_CLOSEOUT.md) | **CURRENT** | 2026-10-06 | **Master Phase 3 Closeout Report**. Final authoritative audit covering Phase 3.3–3.5D exit gates, real runtime evidence, GT gaps, and Phase 4 dependencies. |
+| [`docs/evidence/PHASE_3_CLOSEOUT.md`](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/docs/evidence/PHASE_3_CLOSEOUT.md) | **CURRENT** | 2026-10-07 | **Master Phase 3 Closeout Re-Audit Report**. Final authoritative audit at HEAD SHA `9531b7942e59c02e602897900e9a2b7428f64347` incorporating Phase 3.5E Analysis Export Foundation, real runtime evidence, GT gaps, and Phase 4 dependencies. Previous audit at commit `cec74f0` is **SUPERSEDED**. |
 | [`docs/evidence/PHASE_3_CURRENT_STATUS.md`](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/docs/evidence/PHASE_3_CURRENT_STATUS.md) | **CURRENT** | 2026-10-06 | **Primary Status Audit**. Master audit for `main` baseline `bf4f5bc15a3ca4e22a4efdf830230692e8038bdc`. Details Phase 3.3–3.5D statuses, CI status, and blockers. |
 | [`docs/evidence/PHASE_3_FINAL_RUNTIME_VALIDATION.md`](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/docs/evidence/PHASE_3_FINAL_RUNTIME_VALIDATION.md) | **CURRENT** | 2026-10-06 | **Authoritative Final Runtime & Durability Audit**. Master validation report covering 10-minute durability (baseline, cancel, kill), resource telemetry, browser IndexedDB storage durability, hardware backend execution (NVIDIA vs AMD vs CPU), and duration checks. |
 | [`docs/evidence/PHASE_3_EXPORT_VALIDATION.md`](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/docs/evidence/PHASE_3_EXPORT_VALIDATION.md) | **CURRENT** | 2026-10-06 | **Authoritative Phase 3.5E Export Validation**. Complete evidence report for Phase 3.5E Analysis Export Foundation, covering overlay video rendering, 2D continuous Gaussian court heatmaps, match PDF reports, ZIP bundling, 25/25 automated tests, and real-video smoke test evidence. |
@@ -80,8 +80,8 @@ Historical documents contain statements that were accurate when written but have
 - **Current Authoritative Resolution**: The audited and verified main HEAD is `bf4f5bc15a3ca4e22a4efdf830230692e8038bdc`. All Phase 3 final engineering remediation is committed on `fix/phase3-final-remediation` branching directly from `bf4f5bc15a3ca4e22a4efdf830230692e8038bdc`.
 
 ### 3.5. Outdated Test Counts
-- **Stale Statement**: Early logs cite 604 or 648 passing Python unit tests.
-- **Current Authoritative Resolution**: The current Python test suite comprises **662 unit and contract tests** across 28 test modules in `ai_service/tests/`, achieving 100% pass (662 passed, 4 skipped) on both NVIDIA CUDA and CPU environments. Frontend Vitest comprises **1,004 unit/integration tests** across 105 test files.
+- **Stale Statement**: Early logs cite 604, 648, or 662 passing Python unit tests.
+- **Current Authoritative Resolution**: The current Python test suite comprises **704 unit and contract tests** across 29 test modules in `ai_service/tests/`, achieving 100% pass (700 passed, 4 skipped) on both NVIDIA CUDA and CPU environments (including 25 new tests in `test_analysis_exporter.py`). Frontend Vitest comprises **1,009 unit/integration tests** across 106 test files.
 
 ### 3.6. Environment-Sensitive GPU Test Setup
 - **Stale Statement**: `PHASE_3_HANDOFF_ANTIGRAVITY_2026-10-05.md` (lines 83–84) recorded: *"The CUDA Python suite has one known environment-sensitive existing failure because a test assumes CUDA is unavailable; the isolated CUDA_VISIBLE_DEVICES=-1 case passes. Report this rather than changing the test."*
