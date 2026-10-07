@@ -29,12 +29,20 @@ export interface TrackingOverlayWindowRequest {
   status: TrackingSessionStatus | null;
 }
 
-export type TrackingOverlayStatusText = 'loading' | 'error' | 'unavailable' | 'idle';
+export type TrackingOverlayStatusText =
+  | 'loading'
+  | 'error'
+  | 'unavailable'
+  | 'calibrating'
+  | 'calibration_unavailable'
+  | 'idle';
 
 export function trackingOverlayStatusText(status: TrackingOverlayStatusText, isThai: boolean): string | null {
   if (status === 'loading') return isThai ? 'กำลังโหลดข้อมูลการติดตามช่วงนี้…' : 'Loading tracking data for this time…';
   if (status === 'error') return isThai ? 'โหลดข้อมูลการติดตามไม่สำเร็จ' : 'Could not load tracking data';
   if (status === 'unavailable') return isThai ? 'ไม่มีข้อมูลการติดตามสำหรับช่วงเวลานี้' : 'No tracking data is available for this time';
+  if (status === 'calibrating') return isThai ? 'กำลังคำนวณตำแหน่งเส้นสนาม…' : 'Calibrating court geometry…';
+  if (status === 'calibration_unavailable') return isThai ? 'ไม่สามารถระบุตำแหน่งเส้นสนามได้' : 'Court calibration unavailable';
   return null;
 }
 
@@ -97,10 +105,22 @@ export type FetchOverlayPage = (
   telemetry: TrackingTelemetryV1[];
 }>;
 
-/** Loads one bounded backend result window and rejects replies from superseded seeks/owners. */
+export type FetchLocalTelemetry = (
+  sessionId: string,
+  startTimeSec: number,
+  endTimeSec: number,
+  signal: AbortSignal,
+) => Promise<TrackingTelemetryV1[] | null>;
+
+/**
+ * Loads one bounded backend result window and manages IndexedDB -> RAM Cache -> Overlay hierarchy.
+ * Rejects replies from superseded seeks/owners and performs non-blocking bounded prefetch.
+ */
 export class TrackingOverlayWindowLoader {
   private generation = 0;
   private controller: AbortController | null = null;
+  private ramCacheSessionId: string | null = null;
+  private ramCache: TrackingTelemetryV1[] = [];
 
   public cancel(): void {
     this.generation += 1;
@@ -108,17 +128,126 @@ export class TrackingOverlayWindowLoader {
     this.controller = null;
   }
 
+  public clearCache(): void {
+    this.ramCacheSessionId = null;
+    this.ramCache = [];
+  }
+
+  public getCachedFrames(
+    sessionId: string,
+    targetTimeSec: number,
+    pastSec = 5.0,
+    futureSec = 15.0,
+  ): TrackingTelemetryV1[] | null {
+    if (this.ramCacheSessionId !== sessionId || this.ramCache.length === 0) return null;
+    const minTime = targetTimeSec - pastSec;
+    const maxTime = targetTimeSec + futureSec;
+    const slice = this.ramCache.filter((f) => f.timestampSec >= minTime && f.timestampSec <= maxTime);
+    if (!slice.length) return null;
+
+    // Verify slice has adequate coverage for the requested playhead
+    const hasFrameAtOrBefore = slice.some((f) => f.timestampSec <= targetTimeSec && (targetTimeSec - f.timestampSec) <= 1.0);
+    const hasFrameAtOrAfter = slice.some((f) => f.timestampSec >= targetTimeSec && (f.timestampSec - targetTimeSec) <= 2.0);
+    if (hasFrameAtOrBefore && (hasFrameAtOrAfter || slice.length >= 5)) {
+      return slice;
+    }
+    return null;
+  }
+
+  public addFramesToCache(
+    sessionId: string,
+    newFrames: TrackingTelemetryV1[],
+    centerTimeSec?: number,
+  ): void {
+    if (this.ramCacheSessionId !== sessionId) {
+      this.ramCacheSessionId = sessionId;
+      this.ramCache = [];
+    }
+    if (!newFrames.length) return;
+
+    const frameMap = new Map<number, TrackingTelemetryV1>();
+    for (const f of this.ramCache) {
+      frameMap.set(f.timestampSec, f);
+    }
+    for (const f of newFrames) {
+      frameMap.set(f.timestampSec, f);
+    }
+    const merged = Array.from(frameMap.values()).sort((a, b) => a.timestampSec - b.timestampSec);
+
+    // Bounded memory: keep around center playhead [T - 8s, T + 25s] or max 600 frames
+    if (centerTimeSec !== undefined && Number.isFinite(centerTimeSec)) {
+      const minT = centerTimeSec - 8.0;
+      const maxT = centerTimeSec + 25.0;
+      this.ramCache = merged.filter((f) => f.timestampSec >= minT && f.timestampSec <= maxT);
+    } else if (merged.length > 600) {
+      this.ramCache = merged.slice(-600);
+    } else {
+      this.ramCache = merged;
+    }
+  }
+
   public async load(
     request: TrackingOverlayWindowRequest,
     fetchStatus: FetchOverlayStatus,
     fetchPage: FetchOverlayPage,
+    fetchLocal?: FetchLocalTelemetry,
   ): Promise<TrackingOverlayWindowLoadResult> {
     this.cancel();
     const generation = this.generation;
     const controller = new AbortController();
     this.controller = controller;
     const isCurrent = () => this.generation === generation && !controller.signal.aborted;
+
     try {
+      // 1. RAM Cache check (0ms immediate hit)
+      const cached = this.getCachedFrames(request.sessionId, request.timeSec, 5.0, 15.0);
+      if (cached && cached.length > 0) {
+        return {
+          status: 'ready',
+          window: {
+            projectId: request.projectId,
+            sessionId: request.sessionId,
+            cameraSegmentId: targetSegmentId(cached, request.timeSec),
+            targetTimeSec: request.timeSec,
+            startCursor: 0,
+            nextCursor: cached.length,
+            frames: cached,
+          },
+        };
+      }
+
+      // 2. Local Persisted Telemetry (IndexedDB) check
+      if (fetchLocal) {
+        try {
+          const localFrames = await fetchLocal(
+            request.sessionId,
+            Math.max(0, request.timeSec - 5.0),
+            request.timeSec + 15.0,
+            controller.signal,
+          );
+          if (!isCurrent()) return { status: 'stale' };
+          if (localFrames && localFrames.length > 0) {
+            this.addFramesToCache(request.sessionId, localFrames, request.timeSec);
+            const readySlice = this.getCachedFrames(request.sessionId, request.timeSec, 5.0, 15.0) || localFrames;
+            return {
+              status: 'ready',
+              window: {
+                projectId: request.projectId,
+                sessionId: request.sessionId,
+                cameraSegmentId: targetSegmentId(readySlice, request.timeSec),
+                targetTimeSec: request.timeSec,
+                startCursor: 0,
+                nextCursor: readySlice.length,
+                frames: readySlice,
+              },
+            };
+          }
+        } catch {
+          // If local storage error occurs, continue to backend recovery
+        }
+      }
+
+      // 3. Backend Fallback & Gap Recovery
       let status = request.status;
       if (!status || !Number.isSafeInteger(status.committedResultCursor)) {
         status = await fetchStatus(request.sessionId, controller.signal);
@@ -160,6 +289,23 @@ export class TrackingOverlayWindowLoader {
 
       if (!isCurrent()) return { status: 'stale' };
       if (!page?.telemetry.length) return { status: 'unavailable' };
+
+      // Populate RAM Cache with retrieved telemetry
+      this.addFramesToCache(request.sessionId, page.telemetry, request.timeSec);
+
+      // Non-blocking prefetch next window for seamless playback
+      if (page.nextCursor < total) {
+        const nextStart = page.nextCursor;
+        const prefetchLimit = Math.min(MAX_TRACKING_OVERLAY_WINDOW_FRAMES, total - nextStart);
+        void fetchPage(request.sessionId, nextStart, prefetchLimit, controller.signal)
+          .then((nextPage) => {
+            if (isCurrent() && nextPage?.telemetry?.length) {
+              this.addFramesToCache(request.sessionId, nextPage.telemetry, request.timeSec);
+            }
+          })
+          .catch(() => {});
+      }
+
       const frames = page.telemetry;
       return {
         status: 'ready',

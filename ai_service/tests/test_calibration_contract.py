@@ -46,10 +46,10 @@ class TestCalibrationContract(unittest.TestCase):
         self.assertEqual(before["calibrationState"], "UNCALIBRATED")
         self.assertIsNone(before["players"][0]["courtPosition"])
         self.assertIsNone(before["players"][0]["speedMps"])
-        self.assertIsNone(before["players"][0]["totalDistanceM"])
-        self.assertEqual(before["players"][0]["state"], "observed")
-        self.assertEqual(before["players"][0]["detectionConfidence"], 0.9)
+        self.assertEqual(before["players"][0]["state"], "lost")
+        self.assertIsNone(before["players"][0]["trackId"])
         self.assertIsNone(self.analyzer.profiles[1].last_real_pos)
+        self.assertTrue(before["rawPlayerDetections"][0]["eligibility"]["courtEligibilityUnavailable"])
 
         self.analyzer.set_court_corners(self.corners, created_at_frame=1, created_at_timestamp_sec=0.1)
         first = self.analyzer.process_frame(self.frame, timestamp_sec=0.1)

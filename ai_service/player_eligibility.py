@@ -34,6 +34,7 @@ class CourtEnvelopeZone(str, Enum):
     IN_COURT = "IN_COURT"          # Strictly within court lines (+ boundary line margin)
     NEAR_COURT = "NEAR_COURT"      # Outside court lines but within excursion margin (playing recovery)
     FAR_OUTSIDE = "FAR_OUTSIDE"    # Beyond excursion envelope (spectator, umpire, linesman, audience)
+    UNAVAILABLE = "UNAVAILABLE"    # Court calibration or geometry unavailable / untrustworthy
 
 
 class EligibilityStatus(str, Enum):
@@ -53,6 +54,8 @@ class CourtEnvelopeConfig:
     min_confidence: float = 0.25    # Minimum detection confidence
     boundary_tolerance_m: float = 0.05  # Line thickness tolerance in meters
     boundary_tolerance_px: float = 5.0  # Line thickness tolerance in pixels
+    player_promotion_min_in_court_observations: int = 3  # Min in-court observations before promoting unknown track
+    far_outside_grace_frames: int = 15  # Max frames a known player can stay in FAR_OUTSIDE before losing profile
 
 
 @dataclass
@@ -76,6 +79,7 @@ class PlayerEligibility:
             "confidence": round(self.confidence, 3),
             "reasons": list(self.reasons),
             "isEligibleForProfile": self.is_eligible_for_profile,
+            "courtEligibilityUnavailable": bool(self.provenance.get("courtEligibilityUnavailable", False)),
             "provenance": dict(self.provenance),
         }
 
@@ -87,9 +91,10 @@ def classify_court_envelope(
     court_mapper: Any | None = None,
     is_metric_valid: bool = False,
     config: CourtEnvelopeConfig | None = None,
+    calibration_state: str | None = None,
 ) -> tuple[CourtEnvelopeZone, float | None, float | None]:
     """
-    Classify ground position into IN_COURT, NEAR_COURT, or FAR_OUTSIDE.
+    Classify ground position into IN_COURT, NEAR_COURT, FAR_OUTSIDE, or UNAVAILABLE.
 
     Returns:
     - zone: CourtEnvelopeZone
@@ -99,6 +104,10 @@ def classify_court_envelope(
     cfg = config or CourtEnvelopeConfig()
     dist_m: float | None = None
     dist_px: float | None = None
+
+    # Part 2 Invariant: Calibration state must control envelope availability
+    if calibration_state in ("UNCALIBRATED", "CALIBRATION_LOST", "RECALIBRATING"):
+        return CourtEnvelopeZone.UNAVAILABLE, None, None
 
     # 1. Metric evaluation on calibrated court plane
     can_use_metric = bool(is_metric_valid and court_mapper and getattr(court_mapper, "is_calibrated", False) and ground_m is not None)
@@ -138,8 +147,9 @@ def classify_court_envelope(
         else:
             return CourtEnvelopeZone.FAR_OUTSIDE, None, dist_px
 
-    # 3. Uncalibrated / No corners fallback: unconstrained image-space
-    return CourtEnvelopeZone.NEAR_COURT, None, 0.0
+    # 3. Uncalibrated / No corners: court geometry is untrustworthy/unavailable.
+    # PART 2 Invariant: DO NOT use uncalibrated -> NEAR_COURT -> eligible.
+    return CourtEnvelopeZone.UNAVAILABLE, None, None
 
 
 def evaluate_player_eligibility(
@@ -153,10 +163,13 @@ def evaluate_player_eligibility(
     game_type: str = "doubles",
     is_metric_valid: bool = False,
     config: CourtEnvelopeConfig | None = None,
+    in_court_observations: int | None = None,
+    calibration_state: str | None = None,
+    far_outside_frames: int = 0,
 ) -> PlayerEligibility:
     """
     Evaluate whether a single detection qualifies as an eligible player candidate.
-    Combines foot evidence, envelope zone, aspect ratio, player history, and scene state.
+    Combines foot evidence, envelope zone, aspect ratio, player history, temporal confirmation, and scene state.
     """
     cfg = config or CourtEnvelopeConfig()
     reasons: list[str] = []
@@ -165,16 +178,117 @@ def evaluate_player_eligibility(
     track_id = detection.get("track_id")
 
     # 1. Check known player history
-    is_known_player = False
-    known_pid = None
-    if active_profiles and track_id is not None:
-        for pid, p in active_profiles.items():
-            if p.track_id is not None and p.track_id == track_id and p.missed_frames < 30:
-                is_known_player = True
-                known_pid = pid
-                break
+    is_known_player = bool(detection.get("is_known_player", detection.get("isKnownPlayer", False)))
+    known_pid = detection.get("known_player_id", detection.get("playerId"))
+    has_established_profiles_for_reacquisition = False
+    if not is_known_player and active_profiles is not None and track_id is not None:
+        if track_id in active_profiles:
+            is_known_player = True
+            known_pid = track_id
+        else:
+            for pid, p in active_profiles.items():
+                p_track = getattr(p, "track_id", p.get("track_id") if isinstance(p, dict) else None)
+                p_missed = getattr(p, "missed_frames", p.get("missed_frames", 0) if isinstance(p, dict) else 0)
+                if p_track is not None and p_track == track_id and p_missed < 30:
+                    is_known_player = True
+                    known_pid = pid
+                    break
+                if getattr(p, "identity_needs_reacquisition", False) and (
+                    getattr(p, "color_hist", None) is not None
+                    or getattr(p, "reid_embedding", None) is not None
+                ):
+                    has_established_profiles_for_reacquisition = True
 
-    # 2. Check scene state constraints
+    effective_in_court_obs = (
+        in_court_observations
+        if in_court_observations is not None
+        else cfg.player_promotion_min_in_court_observations
+    )
+
+    scene_str = scene_state.value if isinstance(scene_state, SceneState) else str(scene_state or "UNKNOWN")
+
+    # 2. Check court calibration status (PART 2 Invariant)
+    if envelope_zone == CourtEnvelopeZone.UNAVAILABLE or calibration_state in (
+        "UNCALIBRATED", "CALIBRATION_LOST", "RECALIBRATING"
+    ):
+        if is_known_player:
+            # Existing known players may retain identity using temporal tracking for bounded grace
+            reasons.append("uncalibrated_known_player_continuity")
+            return PlayerEligibility(
+                status=EligibilityStatus.ELIGIBLE,
+                envelope_zone=CourtEnvelopeZone.UNAVAILABLE,
+                envelope_distance_m=envelope_dist_m,
+                envelope_distance_px=envelope_dist_px,
+                confidence=det_conf * 0.7,
+                reasons=reasons,
+                is_eligible_for_profile=True,
+                provenance={
+                    "knownPlayerId": known_pid,
+                    "isKnownPlayer": True,
+                    "courtEligibilityUnavailable": True,
+                    "calibrationState": calibration_state or "UNAVAILABLE",
+                    "groundProvenance": ground_point.provenance,
+                },
+            )
+        elif scene_str == SceneState.SIDE_PLAY.value:
+            # SIDE_PLAY: preserve 2D tracking and pose keypoints while suppressing court metrics
+            reasons.append("side_play_2d_tracking")
+            return PlayerEligibility(
+                status=EligibilityStatus.ELIGIBLE,
+                envelope_zone=CourtEnvelopeZone.UNAVAILABLE,
+                envelope_distance_m=None,
+                envelope_distance_px=None,
+                confidence=det_conf * 0.8,
+                reasons=reasons,
+                is_eligible_for_profile=True,
+                provenance={
+                    "isKnownPlayer": False,
+                    "sidePlay2DTracking": True,
+                    "courtEligibilityUnavailable": True,
+                    "calibrationState": calibration_state or "UNAVAILABLE",
+                    "groundProvenance": ground_point.provenance,
+                },
+            )
+        elif has_established_profiles_for_reacquisition:
+            # Pre-cut established player seeking reacquisition via appearance/ReID
+            reasons.append("uncalibrated_reacquisition_candidate")
+            return PlayerEligibility(
+                status=EligibilityStatus.ELIGIBLE,
+                envelope_zone=CourtEnvelopeZone.UNAVAILABLE,
+                envelope_distance_m=envelope_dist_m,
+                envelope_distance_px=envelope_dist_px,
+                confidence=det_conf * 0.5,
+                reasons=reasons,
+                is_eligible_for_profile=True,
+                provenance={
+                    "isKnownPlayer": False,
+                    "isReacquisitionCandidate": True,
+                    "courtEligibilityUnavailable": True,
+                    "calibrationState": calibration_state or "UNAVAILABLE",
+                    "groundProvenance": ground_point.provenance,
+                },
+            )
+        else:
+            # Unknown person: new semantic identity creation = BLOCKED!
+            reasons.append("court_eligibility_unavailable")
+            reasons.append("unknown_person_blocked_without_court")
+            return PlayerEligibility(
+                status=EligibilityStatus.UNRESOLVED,
+                envelope_zone=CourtEnvelopeZone.UNAVAILABLE,
+                envelope_distance_m=envelope_dist_m,
+                envelope_distance_px=envelope_dist_px,
+                confidence=det_conf * 0.3,
+                reasons=reasons,
+                is_eligible_for_profile=False,
+                provenance={
+                    "isKnownPlayer": False,
+                    "courtEligibilityUnavailable": True,
+                    "calibrationState": calibration_state or "UNAVAILABLE",
+                    "groundProvenance": ground_point.provenance,
+                },
+            )
+
+    # 3. Check scene state constraints
     # Non-gameplay scenes must not promote new unknown detections into players
     scene_str = scene_state.value if isinstance(scene_state, SceneState) else str(scene_state or "UNKNOWN")
     is_non_gameplay_scene = scene_str in (
@@ -200,7 +314,7 @@ def evaluate_player_eligibility(
             },
         )
 
-    # 3. Geometry and Envelope Evaluation
+    # 4. Geometry and Envelope Evaluation
     bbox = detection.get("bbox", [0, 0, 100, 100])
     bw = max(1.0, float(bbox[2] - bbox[0]))
     bh = max(1.0, float(bbox[3] - bbox[1]))
@@ -211,22 +325,42 @@ def evaluate_player_eligibility(
 
     if envelope_zone == CourtEnvelopeZone.FAR_OUTSIDE:
         if is_known_player:
-            # Known player made an extreme excursion (e.g. retrieving deep smash)
-            reasons.append("known_player_excursion_far_outside")
-            return PlayerEligibility(
-                status=EligibilityStatus.CANDIDATE,
-                envelope_zone=envelope_zone,
-                envelope_distance_m=envelope_dist_m,
-                envelope_distance_px=envelope_dist_px,
-                confidence=det_conf * 0.7,
-                reasons=reasons,
-                is_eligible_for_profile=True,
-                provenance={
-                    "knownPlayerId": known_pid,
-                    "isKnownPlayer": True,
-                    "groundProvenance": ground_point.provenance,
-                },
-            )
+            if far_outside_frames <= cfg.far_outside_grace_frames:
+                # Known player made a temporary excursion outside court
+                reasons.append("known_player_excursion_far_outside")
+                return PlayerEligibility(
+                    status=EligibilityStatus.CANDIDATE,
+                    envelope_zone=envelope_zone,
+                    envelope_distance_m=envelope_dist_m,
+                    envelope_distance_px=envelope_dist_px,
+                    confidence=det_conf * 0.7,
+                    reasons=reasons,
+                    is_eligible_for_profile=True,
+                    provenance={
+                        "knownPlayerId": known_pid,
+                        "isKnownPlayer": True,
+                        "farOutsideFrames": far_outside_frames,
+                        "groundProvenance": ground_point.provenance,
+                    },
+                )
+            else:
+                # Grace period expired: transition toward lost/unresolved, never reassign to outsider
+                reasons.append("known_player_excursion_grace_expired")
+                return PlayerEligibility(
+                    status=EligibilityStatus.UNRESOLVED,
+                    envelope_zone=envelope_zone,
+                    envelope_distance_m=envelope_dist_m,
+                    envelope_distance_px=envelope_dist_px,
+                    confidence=det_conf * 0.3,
+                    reasons=reasons,
+                    is_eligible_for_profile=False,
+                    provenance={
+                        "knownPlayerId": known_pid,
+                        "isKnownPlayer": True,
+                        "farOutsideFrames": far_outside_frames,
+                        "groundProvenance": ground_point.provenance,
+                    },
+                )
         else:
             # Non-player outside playing envelope (umpire, linesman, coach, spectator)
             reasons.append("detection_far_outside_court_envelope")
@@ -261,44 +395,127 @@ def evaluate_player_eligibility(
             },
         )
 
-    # 4. In-Court or Near-Court evaluation
+    # 5. NEAR_COURT evaluation
+    if envelope_zone == CourtEnvelopeZone.NEAR_COURT:
+        if is_known_player:
+            # Known player making an excursion/recovery outside court lines
+            reasons.append("known_player_near_court_excursion")
+            reasons.append("player_near_court_excursion")
+            final_conf = min(1.0, max(0.2, (det_conf * 0.6) + (ground_point.confidence * 0.4)))
+            return PlayerEligibility(
+                status=EligibilityStatus.ELIGIBLE,
+                envelope_zone=envelope_zone,
+                envelope_distance_m=envelope_dist_m,
+                envelope_distance_px=envelope_dist_px,
+                confidence=final_conf,
+                reasons=reasons,
+                is_eligible_for_profile=True,
+                provenance={
+                    "knownPlayerId": known_pid,
+                    "isKnownPlayer": True,
+                    "groundProvenance": ground_point.provenance,
+                    "poseSource": ground_point.pose_source,
+                    "isPoseStale": ground_point.is_stale,
+                },
+            )
+        else:
+            # PART 1 Invariant: Unknown people in NEAR_COURT must NOT automatically become P1-P4!
+            reasons.append("unknown_person_near_court_candidate_only")
+            final_conf = min(1.0, max(0.1, (det_conf * 0.5) + (ground_point.confidence * 0.3)))
+            return PlayerEligibility(
+                status=EligibilityStatus.CANDIDATE,
+                envelope_zone=envelope_zone,
+                envelope_distance_m=envelope_dist_m,
+                envelope_distance_px=envelope_dist_px,
+                confidence=final_conf,
+                reasons=reasons,
+                is_eligible_for_profile=False,
+                provenance={
+                    "isKnownPlayer": False,
+                    "groundProvenance": ground_point.provenance,
+                    "poseSource": ground_point.pose_source,
+                    "isPoseStale": ground_point.is_stale,
+                },
+            )
+
+    # 6. IN_COURT evaluation
     if envelope_zone == CourtEnvelopeZone.IN_COURT:
-        reasons.append("player_in_court")
-        final_conf = min(1.0, max(0.2, (det_conf * 0.6) + (ground_point.confidence * 0.4)))
-        return PlayerEligibility(
-            status=EligibilityStatus.ELIGIBLE,
-            envelope_zone=envelope_zone,
-            envelope_distance_m=envelope_dist_m,
-            envelope_distance_px=envelope_dist_px,
-            confidence=final_conf,
-            reasons=reasons,
-            is_eligible_for_profile=True,
-            provenance={
-                "isKnownPlayer": is_known_player,
-                "groundProvenance": ground_point.provenance,
-                "poseSource": ground_point.pose_source,
-                "isPoseStale": ground_point.is_stale,
-            },
-        )
-    else:  # NEAR_COURT
-        reasons.append("player_near_court_excursion")
-        status = EligibilityStatus.ELIGIBLE if (is_known_player or det_conf >= 0.35) else EligibilityStatus.CANDIDATE
-        final_conf = min(1.0, max(0.2, (det_conf * 0.5) + (ground_point.confidence * 0.4)))
-        return PlayerEligibility(
-            status=status,
-            envelope_zone=envelope_zone,
-            envelope_distance_m=envelope_dist_m,
-            envelope_distance_px=envelope_dist_px,
-            confidence=final_conf,
-            reasons=reasons,
-            is_eligible_for_profile=True,
-            provenance={
-                "isKnownPlayer": is_known_player,
-                "groundProvenance": ground_point.provenance,
-                "poseSource": ground_point.pose_source,
-                "isPoseStale": ground_point.is_stale,
-            },
-        )
+        if is_known_player:
+            reasons.append("player_in_court")
+            final_conf = min(1.0, max(0.2, (det_conf * 0.6) + (ground_point.confidence * 0.4)))
+            return PlayerEligibility(
+                status=EligibilityStatus.ELIGIBLE,
+                envelope_zone=envelope_zone,
+                envelope_distance_m=envelope_dist_m,
+                envelope_distance_px=envelope_dist_px,
+                confidence=final_conf,
+                reasons=reasons,
+                is_eligible_for_profile=True,
+                provenance={
+                    "knownPlayerId": known_pid,
+                    "isKnownPlayer": True,
+                    "groundProvenance": ground_point.provenance,
+                    "poseSource": ground_point.pose_source,
+                    "isPoseStale": ground_point.is_stale,
+                },
+            )
+        else:
+            # PART 1 Invariant: Unknown + IN_COURT requires temporal confirmation before profile promotion!
+            min_obs = cfg.player_promotion_min_in_court_observations
+            if effective_in_court_obs >= min_obs:
+                reasons.append("player_in_court")
+                reasons.append("player_in_court_confirmed")
+                final_conf = min(1.0, max(0.2, (det_conf * 0.6) + (ground_point.confidence * 0.4)))
+                return PlayerEligibility(
+                    status=EligibilityStatus.ELIGIBLE,
+                    envelope_zone=envelope_zone,
+                    envelope_distance_m=envelope_dist_m,
+                    envelope_distance_px=envelope_dist_px,
+                    confidence=final_conf,
+                    reasons=reasons,
+                    is_eligible_for_profile=True,
+                    provenance={
+                        "isKnownPlayer": False,
+                        "inCourtObservations": effective_in_court_obs,
+                        "minInCourtObservationsRequired": min_obs,
+                        "groundProvenance": ground_point.provenance,
+                        "poseSource": ground_point.pose_source,
+                        "isPoseStale": ground_point.is_stale,
+                    },
+                )
+            else:
+                reasons.append("awaiting_in_court_confirmation")
+                reasons.append(f"in_court_observations_{effective_in_court_obs}_of_{min_obs}")
+                final_conf = min(1.0, max(0.1, (det_conf * 0.5) + (ground_point.confidence * 0.4)))
+                return PlayerEligibility(
+                    status=EligibilityStatus.CANDIDATE,
+                    envelope_zone=envelope_zone,
+                    envelope_distance_m=envelope_dist_m,
+                    envelope_distance_px=envelope_dist_px,
+                    confidence=final_conf,
+                    reasons=reasons,
+                    is_eligible_for_profile=False,
+                    provenance={
+                        "isKnownPlayer": False,
+                        "inCourtObservations": effective_in_court_obs,
+                        "minInCourtObservationsRequired": min_obs,
+                        "groundProvenance": ground_point.provenance,
+                        "poseSource": ground_point.pose_source,
+                        "isPoseStale": ground_point.is_stale,
+                    },
+                )
+
+    # Fallback safety (unexpected zone)
+    return PlayerEligibility(
+        status=EligibilityStatus.UNRESOLVED,
+        envelope_zone=envelope_zone,
+        envelope_distance_m=envelope_dist_m,
+        envelope_distance_px=envelope_dist_px,
+        confidence=det_conf * 0.2,
+        reasons=["unresolved_court_envelope"],
+        is_eligible_for_profile=False,
+        provenance={"isKnownPlayer": is_known_player},
+    )
 
 
 def select_eligible_player_candidates(
@@ -312,6 +529,7 @@ def select_eligible_player_candidates(
 
     Invariants:
     - Never promote SPECTATOR_OR_OFFICIAL.
+    - Never promote candidates where is_eligible_for_profile is False.
     - Never force-fill: if only 1 player is eligible in singles, return 1 candidate!
       If only 2 are eligible in doubles, return 2 candidates!
     - Unobserved profiles remain UNRESOLVED without force-filling.
@@ -319,7 +537,7 @@ def select_eligible_player_candidates(
     eligible_pairs = [
         (d, e) for d, e in zip(detections, eligibilities)
         if e.is_eligible_for_profile
-        and e.status != EligibilityStatus.SPECTATOR_OR_OFFICIAL
+        and e.status == EligibilityStatus.ELIGIBLE
     ]
 
     if not eligible_pairs:
