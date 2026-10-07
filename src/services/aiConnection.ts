@@ -7,7 +7,11 @@ export type AIConnectionCode =
   | 'MIXED_CONTENT'
   | 'NETWORK_ERROR'
   | 'BROWSER_SECURITY_BLOCKED'
-  | 'CSP_BLOCKED';
+  | 'CSP_BLOCKED'
+  | 'AI_BUSY'
+  | 'AI_SESSION_CONFLICT'
+  | 'AI_SERVER_ERROR'
+  | 'AI_REQUEST_REJECTED';
 
 export interface AIConnectionSnapshot {
   code: AIConnectionCode;
@@ -31,6 +35,10 @@ const messages: Record<Exclude<AIConnectionCode, 'CONNECTED'>, string> = {
   NETWORK_ERROR: 'AI service network connection failed.',
   BROWSER_SECURITY_BLOCKED: 'AI service connection is blocked by browser security.',
   CSP_BLOCKED: 'AI service connection is blocked by browser security policy.',
+  AI_BUSY: 'Another AI analysis is running. Wait for it to finish or cancel it before starting a new analysis.',
+  AI_SESSION_CONFLICT: 'AI service rejected this operation because the tracking session is not in a valid state.',
+  AI_SERVER_ERROR: 'AI service encountered an internal error while handling the request.',
+  AI_REQUEST_REJECTED: 'AI service rejected the request.',
 };
 
 export class AIConnectionError extends Error {

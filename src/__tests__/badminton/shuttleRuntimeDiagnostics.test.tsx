@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import BadmintonTrackingLab, { deriveShuttleEngineStatus } from '../../components/labs/BadmintonTrackingLab';
 import { aiTrackingService } from '../../services/aiTrackingService';
-import { createDefaultProjectTrackingState, trackingSessionStore } from '../../services/trackingSessionStore';
+import { createDefaultProjectTrackingState, getDefaultProcessingConfig, trackingSessionStore } from '../../services/trackingSessionStore';
 import type { ShuttleProvenance } from '../../types';
 
 let testProjectId = 'shuttle_diag_project_1';
@@ -184,6 +184,40 @@ describe('Phase 2.9C: Shuttle Runtime Diagnostics', () => {
   });
 
   describe('Advanced section diagnostics rendering', () => {
+    it('shows current model readiness after a completed session used an unavailable model', async () => {
+      vi.mocked(aiTrackingService.getCapabilities).mockResolvedValue({
+        selectedDevice: 'cuda', cudaAvailable: true, mpsAvailable: false,
+        shuttle: {
+          enabled: false, requested: false, active: false, status: 'DISABLED',
+          provider: 'rallylens_tracknet', model: 'rallylens-shuttle-tracknet.pth',
+          configuredModel: 'rallylens-shuttle-tracknet.pth', modelAvailable: true,
+          probeStatus: 'AVAILABLE', runtime: 'pytorch', precision: 'fp32',
+          device: 'cuda', windowSize: 9, confidenceThreshold: 0.5,
+          recoveryEnabled: true, auxiliaryDetectorAvailable: false,
+        },
+      });
+      trackingSessionStore.updateProjectState(testProjectId, {
+        ...createDefaultProjectTrackingState(testProjectId),
+        status: 'COMPLETED',
+        processingConfig: { ...getDefaultProcessingConfig(), shuttleEnabled: true },
+        sessionStatus: {
+          status: 'COMPLETED',
+          shuttle: {
+            enabled: true, status: 'MODEL_UNAVAILABLE', provider: 'opencv_onnx',
+            model: null, failureReason: 'No local ONNX model artifact path configured',
+          },
+        } as any,
+      });
+
+      render(<BadmintonTrackingLab />);
+      await waitFor(() => expect(aiTrackingService.getCapabilities).toHaveBeenCalled());
+      fireEvent.click(screen.getByRole('button', { name: /Advanced settings/i }));
+
+      await waitFor(() => expect(screen.getByTestId('shuttle-tracking-status')).toHaveAttribute('data-status', 'AVAILABLE'));
+      expect(screen.getByTestId('diag-provider-model')).toHaveTextContent('rallylens_tracknet / rallylens-shuttle-tracknet.pth');
+      expect(screen.getByTestId('diag-last-failure')).toHaveTextContent('—');
+    });
+
     it('renders measured zero as 0 and null/undefined as em dash —', async () => {
       const mockSessionStatus = {
         sessionId: 'session_diag_test',

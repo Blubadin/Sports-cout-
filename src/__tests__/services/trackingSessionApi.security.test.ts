@@ -74,6 +74,20 @@ describe('TrackingSessionApiClient connection security', () => {
     await expect(client.createSession('doubles')).rejects.toMatchObject({ code: 'AUTH_FAILED' });
   });
 
+  it('distinguishes a busy analysis worker and session conflict from a network failure', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 429 } as Response);
+    await expect(client.createSession('doubles')).rejects.toMatchObject({
+      code: 'AI_BUSY',
+      message: 'Another AI analysis is running. Wait for it to finish or cancel it before starting a new analysis.',
+    });
+
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 409 } as Response);
+    await expect(client.createSession('doubles')).rejects.toMatchObject({
+      code: 'AI_SESSION_CONFLICT',
+      message: 'AI service rejected this operation because the tracking session is not in a valid state.',
+    });
+  });
+
   it('does not log a credential when an authenticated request fails', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     client.setCredential('secret-value');

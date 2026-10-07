@@ -149,6 +149,23 @@ class TestAnalysisJobAPI(unittest.TestCase):
         self.assertEqual(server.analysis_job_store.get_job(session_id)["status"], "ERROR")
         self.assertEqual(server.analysis_job_store.get_job(session_id)["checkpoint"]["committedCursor"], 0)
 
+    def test_corrupt_committed_chunk_returns_session_error_instead_of_network_failure(self):
+        session_id = self._create_ready_demo()
+        server.analysis_job_store.append_result_chunk(session_id, 1, [{"frameIndex": 1}])
+        chunk_path = server.analysis_job_store.job_path(session_id) / "chunks" / "000000000001.json"
+        chunk_path.unlink()
+
+        server.analysis_job_store.recover()
+        server.tracking_sessions.clear()
+
+        status = self.client.get(f"/api/tracking/sessions/{session_id}/status")
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["status"], "ERROR")
+        self.assertIn("Committed result chunk 1 is unreadable", status.json()["error"])
+
+        results = self.client.get(f"/api/tracking/sessions/{session_id}/results")
+        self.assertEqual(results.status_code, 409)
+
     def test_restore_keeps_active_segment_and_does_not_restore_pre_cut_calibration(self):
         session_id = self._create_ready_demo()
         session = server.tracking_sessions[session_id]

@@ -21,6 +21,11 @@ import type {
 import { isCalibrationState, isMetricCalibrationValid, parseCalibrationProvenance } from '../types/calibration';
 import { parseSceneEvidence, parseSceneTransition } from '../types/scene';
 import { parseSegmentCapabilities } from '../types/capabilities';
+import type {
+  StartExportRequest,
+  StartExportResponse,
+  ExportJobProgress,
+} from '../types/export';
 import {
   AIConnectionError,
   type AIConnectionCode,
@@ -464,6 +469,34 @@ export class TrackingSessionApiClient {
     await this.request(`/api/tracking/sessions/${sessionId}`, { method: 'DELETE' });
   }
 
+  public async startSessionExport(
+    sessionId: string,
+    req?: StartExportRequest
+  ): Promise<StartExportResponse> {
+    const res = await this.request(`/api/tracking/sessions/${sessionId}/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req ?? {}),
+    });
+    return res.json();
+  }
+
+  public async getExportStatus(exportId: string): Promise<ExportJobProgress> {
+    const res = await this.request(`/api/tracking/exports/${exportId}/status`);
+    return res.json();
+  }
+
+  public async cancelExport(exportId: string): Promise<{ exportId: string; status: string }> {
+    const res = await this.request(`/api/tracking/exports/${exportId}/cancel`, {
+      method: 'POST',
+    });
+    return res.json();
+  }
+
+  public getExportDownloadUrl(exportId: string): string {
+    return this.getApiUrl(`/api/tracking/exports/${exportId}/download`);
+  }
+
   public connectTelemetry(): WebSocket {
     const connection = this.resolveConnection();
     if (!connection.endpoint || connection.code !== 'CONNECTED') {
@@ -556,7 +589,10 @@ export class TrackingSessionApiClient {
     if (response.status === 403) throw new AIConnectionError('AUTH_FAILED');
     if (!response.ok) {
       if (preserveValidationError && response.status === 422) return response;
-      throw new AIConnectionError('NETWORK_ERROR');
+      if (response.status === 409) throw new AIConnectionError('AI_SESSION_CONFLICT');
+      if (response.status === 429) throw new AIConnectionError('AI_BUSY');
+      if (response.status >= 500) throw new AIConnectionError('AI_SERVER_ERROR');
+      throw new AIConnectionError('AI_REQUEST_REJECTED');
     }
     return response;
   }

@@ -3,7 +3,7 @@ import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
 import { isCompatibleResumableTrackingSession, MAX_TRACKING_RESULTS_PAGE_SIZE, type BackendCapabilities } from '../../services/trackingSessionApi';
-import type { AIConnectionSnapshot } from '../../services/aiConnection';
+import { AIConnectionError, type AIConnectionSnapshot } from '../../services/aiConnection';
 import type {
   TrackingTelemetryV1,
   TrackingOverlayMode,
@@ -21,6 +21,7 @@ import {
 } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 import TrackingVideoOverlay, { resolveOverlayAtTime } from './TrackingVideoOverlay';
+import { projectCourtMarkings } from './courtMarkingOverlay';
 import { ShuttleOverlay, ShuttleControls, ShuttleDiagnostics, type ShuttleMode } from './ShuttleOverlay';
 import {
   framesForCameraSegmentAtTime,
@@ -34,6 +35,7 @@ import {
   useProjectTrackingSession,
   computeVideoFingerprint,
 } from '../../services/trackingSessionStore';
+import ExportConfigModal from './ExportConfigModal';
 
 function formatDiagnosticCount(val: number | null | undefined): string {
   if (val === null || val === undefined) return '—';
@@ -190,6 +192,10 @@ function connectionStatusText(connection: AIConnectionSnapshot | null, th: boole
     NETWORK_ERROR: 'Local AI network error',
     BROWSER_SECURITY_BLOCKED: 'Local AI Blocked by browser security',
     CSP_BLOCKED: 'Local AI Blocked by browser security',
+    AI_BUSY: 'Another Local AI analysis is running',
+    AI_SESSION_CONFLICT: 'Local AI tracking session conflict',
+    AI_SERVER_ERROR: 'Local AI service error',
+    AI_REQUEST_REJECTED: 'Local AI rejected the request',
   };
   if (!th) return english[connection.code];
   const thai: Record<AIConnectionSnapshot['code'], string> = {
@@ -202,6 +208,10 @@ function connectionStatusText(connection: AIConnectionSnapshot | null, th: boole
     NETWORK_ERROR: 'เกิดข้อผิดพลาดเครือข่าย Local AI',
     BROWSER_SECURITY_BLOCKED: 'Local AI ถูกบล็อกโดยความปลอดภัยของเบราว์เซอร์',
     CSP_BLOCKED: 'Local AI ถูกบล็อกโดยนโยบายความปลอดภัย',
+    AI_BUSY: 'Local AI กำลังวิเคราะห์งานอื่นอยู่ กรุณารอหรือยกเลิกงานเดิมก่อนเริ่มงานใหม่',
+    AI_SESSION_CONFLICT: 'เซสชันติดตามของ Local AI อยู่ในสถานะที่ทำรายการนี้ไม่ได้',
+    AI_SERVER_ERROR: 'บริการ Local AI เกิดข้อผิดพลาดขณะประมวลผลคำขอ',
+    AI_REQUEST_REJECTED: 'บริการ Local AI ปฏิเสธคำขอนี้',
   };
   return thai[connection.code];
 }
@@ -232,6 +242,7 @@ export default function BadmintonTrackingLab() {
   const [profile, setProfile] = useState<ProcessingProfile>('auto');
   const [detectorInputSize, setDetectorInputSize] = useState<number>(640);
   const [useCourtRoi, setUseCourtRoi] = useState<boolean>(false);
+  const [exportTargetSessionId, setExportTargetSessionId] = useState<string | null>(null);
   const [courtRoiMarginPx, setCourtRoiMarginPx] = useState<number>(60);
   const [frameStride, setFrameStride] = useState<number>(2);
   const [poseStride, setPoseStride] = useState<number>(1);
@@ -284,6 +295,11 @@ export default function BadmintonTrackingLab() {
   const sessionStatus = state.sessionStatus;
   const actualInferenceDevice = sessionStatus?.effectiveDevice ?? sessionStatus?.device ?? inferenceDevice;
   const analysis = state.analysis;
+  const completedAnalysisSessionId = analysis?.status === 'completed' && /^session_[a-f0-9]{8}$/.test(analysis.id)
+    ? analysis.id : null;
+  const exportSessionId = state.sessionId && sessionStatus?.status === 'COMPLETED'
+    ? state.sessionId : completedAnalysisSessionId;
+  const exportingPreviousAnalysis = Boolean(exportSessionId && exportSessionId !== state.sessionId);
   const chunks = state.chunks;
   const error = state.error;
   const overlayMode = state.uiPreferences.overlayMode;
@@ -407,6 +423,19 @@ export default function BadmintonTrackingLab() {
       Array.isArray(point) && point.length === 2 && point.every(Number.isFinite) && point[0] >= 0 && point[0] < dimensions.width &&
       point[1] >= 0 && point[1] < dimensions.height)
     ? acceptedCourtCorners : null;
+  const courtOverlayLines = courtOverlayCorners
+    ? projectCourtMarkings(overlayFrame?.calibration?.hInvMatrix, dimensions.width, dimensions.height)
+    : [];
+  const playbackSegmentId = overlayFrame?.cameraSegmentId ?? displayFrames[0]?.cameraSegmentId;
+  const upcomingCourtFrame = displayFrames.find(frame => frame.timestampSec > time + 0.05 &&
+    frame.cameraSegmentId === playbackSegmentId && isMetricCalibrationValid(frame) &&
+    frame.calibrationState === 'CALIBRATED' && Array.isArray(frame.calibration?.corners));
+  const statusCalibration = sessionStatus?.calibration;
+  const firstCourtTime = upcomingCourtFrame?.timestampSec ??
+    (statusCalibration?.state === 'CALIBRATED' && statusCalibration.cameraSegmentId === playbackSegmentId
+      ? statusCalibration.createdAtTimestampSec : null);
+  const courtStartsLater = !calibrating && !courtOverlayCorners &&
+    firstCourtTime != null && Number.isFinite(firstCourtTime) && time + 0.05 < firstCourtTime;
   const overlayStatusKey = hasLiveOverlayWindow
     ? 'idle'
     : overlayWindowStatus === 'loading' || overlayWindowStatus === 'error'
@@ -414,11 +443,12 @@ export default function BadmintonTrackingLab() {
       : displayResolutionStatus === 'resolved' ? 'idle' : 'unavailable';
   const overlayStatus = trackingOverlayStatusText(overlayStatusKey, th);
 
-  const effectiveShuttleProv =
-    sessionStatus?.shuttle ||
-    sessionStatus?.runtimeProvenance?.shuttle ||
-    analysis?.runtimeProvenance?.shuttle ||
-    null;
+  // This control describes the runtime available for the next analysis. A
+  // completed analysis keeps its historical provenance in the results, but it
+  // must not override a fresh capability probe after the service is restarted.
+  const effectiveShuttleProv = (processing || sessionStatus?.status === 'PROCESSING')
+    ? sessionStatus?.shuttle || sessionStatus?.runtimeProvenance?.shuttle || null
+    : null;
 
   const shuttleStatusInfo = deriveShuttleEngineStatus({
     enabled: shuttleTrackingEnabled || Boolean(effectiveShuttleProv?.enabled),
@@ -476,6 +506,14 @@ export default function BadmintonTrackingLab() {
       setConnection(snapshot);
       setOnline(snapshot.connected);
       if (snapshot.connected) {
+        const previousError = store.getProjectState(activeProjectId)?.error;
+        if (previousError === new AIConnectionError('NETWORK_ERROR').message) {
+          update({
+            error: th
+              ? 'เชื่อมต่อ Local AI ได้แล้ว แต่คำขอก่อนหน้าล้มเหลว กดเริ่มวิเคราะห์อีกครั้งได้'
+              : 'Local AI is reachable, but the previous request failed. Retry the analysis.',
+          });
+        }
         try {
           const caps = await aiTrackingService.getCapabilities();
           if (alive) {
@@ -499,7 +537,7 @@ export default function BadmintonTrackingLab() {
       alive = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [activeProjectId, store, th, update]);
 
   // 2. Profile configuration helper
   const selectProfile = (nextProfile: ProcessingProfile) => {
@@ -837,27 +875,45 @@ export default function BadmintonTrackingLab() {
   };
 
   const choose = (next: File | undefined) => {
-    if (!next) return;
+    if (!next || processing) return;
+    const nextFingerprint = computeVideoFingerprint(next);
     const isReconnecting =
-      (state.sessionId || state.analysis) &&
-      (state.localFileName === next.name ||
-        state.videoFingerprint === computeVideoFingerprint(next));
+      Boolean(state.sessionId || state.analysis) &&
+      state.videoFingerprint === nextFingerprint;
 
     setFile(next);
     setLocalFileName(next.name);
     setVideoSourceType('local');
 
-    if (!isReconnecting && state.status === 'IDLE') {
+    if (!isReconnecting) {
       update({
+        sessionId: null,
+        videoFingerprint: nextFingerprint,
+        status: 'IDLE',
+        progress: 0,
+        currentFrame: 0,
+        totalFrames: 0,
+        analyzedFrames: 0,
         corners: [],
         telemetry: [],
         cursor: 0,
         analysis: null,
         chunks: [],
+        chunksNextCursor: null,
+        chunksHasMore: false,
         error: null,
         sessionStatus: null,
       });
       setCalibrating(false);
+      setTime(0);
+      setRecoverySelectionKey(null);
+      setRecoverySelectionFrame(null);
+      setRecoveryViewReady(false);
+      setRecoveredKey(null);
+      setRecoveryError(null);
+      setOverlayWindow(null);
+      setOverlayWindowStatus('idle');
+      setUIPreference('videoCurrentTime', 0);
     }
   };
 
@@ -884,9 +940,13 @@ export default function BadmintonTrackingLab() {
 
     const fail = (err: unknown) => {
       if (current()) {
+        const latestState = store.getProjectState(activeProjectId);
+        const canRetryPreparedSession = err instanceof AIConnectionError && err.code === 'AI_BUSY' &&
+          latestState?.sessionId === id &&
+          ['VIDEO_READY', 'READY_TO_ANALYZE', 'CANCELLED', 'INTERRUPTED'].includes(latestState.status);
         update({
           error: err instanceof Error ? err.message : 'Tracking failed',
-          status: 'ERROR',
+          status: canRetryPreparedSession ? latestState.status : 'ERROR',
         });
       }
     };
@@ -1383,6 +1443,13 @@ export default function BadmintonTrackingLab() {
       {/* Video Selection & Reconnection */}
       <div className="space-y-2">
         <span className="block text-sm">{th ? 'เลือกไฟล์วิดีโอจากเครื่อง' : 'Select video file'}</span>
+        {processing && (
+          <p className="text-xs text-amber-300">
+            {th
+              ? 'ยกเลิกการวิเคราะห์และรอให้หยุดก่อนจึงจะเปลี่ยนวิดีโอได้'
+              : 'Cancel analysis and wait for it to stop before changing videos.'}
+          </p>
+        )}
         <input
           ref={fileInputRef}
           aria-label="Select video file"
@@ -1624,6 +1691,11 @@ export default function BadmintonTrackingLab() {
               >
                 <polygon points={courtOverlayCorners.map(point => point.join(',')).join(' ')}
                   fill="none" stroke="#38bdf8" strokeWidth={dimensions.width / 400} />
+                {courtOverlayLines.map(line => (
+                  <line key={line.id} data-testid={`court-marking-${line.id}`}
+                    x1={line.from[0]} y1={line.from[1]} x2={line.to[0]} y2={line.to[1]}
+                    stroke="#38bdf8" strokeOpacity="0.8" strokeWidth={dimensions.width / 800} />
+                ))}
               </svg>
             )}
             {(calibrating || (corners.length > 0 && !state.sessionId && frames.length === 0) ||
@@ -1675,6 +1747,26 @@ export default function BadmintonTrackingLab() {
               </svg>
             )}
           </div>
+          {courtStartsLater && (
+            <div role="status" className="mt-2 flex flex-wrap items-center gap-2 rounded border border-sky-900 bg-slate-900 px-3 py-2 text-sm text-sky-200">
+              <span>{th
+                ? `วิดีโอช่วงนี้ยังไม่ผ่านการปรับเทียบสนาม ระบบเริ่มแสดงแนวเส้นสนามที่ ${firstCourtTime!.toFixed(1)} วินาที`
+                : `This part of the video is not court calibrated yet. Court line guides begin at ${firstCourtTime!.toFixed(1)} s.`}</span>
+              <button type="button" className="rounded border border-sky-700 bg-sky-950 px-2 py-1 text-sky-100 hover:bg-sky-900"
+                onClick={() => {
+                  const video = videoRef.current;
+                  if (!video || firstCourtTime == null) return;
+                  const target = Math.min(firstCourtTime,
+                    Number.isFinite(video.duration) && video.duration > 0 ? video.duration : Infinity);
+                  video.currentTime = target;
+                  setTime(target);
+                  setUIPreference('videoCurrentTime', target);
+                  void loadOverlayWindow(target, true);
+                }}>
+                {th ? 'ไปยังช่วงที่ตรวจพบสนาม' : 'Jump to detected court'}
+              </button>
+            </div>
+          )}
           <ShuttleControls mode={shuttleMode} onChange={setShuttleMode} />
           <ShuttleDiagnostics frames={displayFrames} time={time} />
           <button
@@ -1813,12 +1905,27 @@ export default function BadmintonTrackingLab() {
         </button>
       )}
 
-      {!processing && (analysis?.status === 'completed' || sessionStatus?.status === 'COMPLETED') && (
-        <p className="text-sm text-emerald-300 font-medium">
-          {th
-            ? 'วิเคราะห์เสร็จสมบูรณ์แล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกายและการเคลื่อนที่'
-            : 'Analysis complete. Play the video to inspect detected body positions and movement.'}
-        </p>
+      {exportSessionId && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 shadow-sm">
+          <p className="text-sm text-emerald-300 font-medium">
+            {exportingPreviousAnalysis
+              ? th ? 'ผลวิเคราะห์รอบก่อนเสร็จแล้ว สามารถส่งออกได้ระหว่างรอบปัจจุบัน'
+                : 'The previous analysis is complete and can be exported while the current run continues.'
+              : th
+              ? 'วิเคราะห์เสร็จสมบูรณ์แล้ว กดเล่นวิดีโอเพื่อดูตำแหน่งร่างกายและการเคลื่อนที่'
+              : 'Analysis complete. Play the video to inspect detected body positions and movement.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => setExportTargetSessionId(exportSessionId)}
+            className="flex shrink-0 items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium text-sm transition shadow"
+          >
+            <span>📥</span>
+            <span>{th
+              ? exportingPreviousAnalysis ? 'ส่งออกผลรอบก่อน (EXPORT)' : 'ส่งออกผลลัพธ์ (EXPORT)'
+              : exportingPreviousAnalysis ? 'EXPORT PREVIOUS' : 'EXPORT'}</span>
+          </button>
+        </div>
       )}
 
       <TrackingLabInspector
@@ -1837,6 +1944,15 @@ export default function BadmintonTrackingLab() {
           hasMoreChunks={state.chunksHasMore}
           language={th ? 'th' : 'en'}
           title={th ? 'ผลการเคลื่อนที่ของผู้เล่น' : 'Player movement results'}
+        />
+      )}
+
+      {exportTargetSessionId && (
+        <ExportConfigModal
+          isOpen={true}
+          onClose={() => setExportTargetSessionId(null)}
+          sessionId={exportTargetSessionId}
+          language={th ? 'th' : 'en'}
         />
       )}
     </div>

@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import sys
 import errno
+import subprocess
 from unittest.mock import patch
 from pathlib import Path
 
@@ -9,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from analysis_job_store import (
     AnalysisJobStore,
+    JobStoreBusyError,
     JobStoreCorruptionError,
     JobStoreSequenceError,
 )
@@ -65,6 +67,52 @@ class TestAnalysisJobStore(unittest.TestCase):
 
         with self.assertRaises(JobStoreCorruptionError):
             self.store.get_job("session_test")
+
+    def test_environment_store_lock_prevents_another_service_process_from_recovering_jobs(self):
+        with patch.dict("os.environ", {"SPORTSCOUT_ANALYSIS_STORE_DIR": self.temp_dir.name}):
+            owner = AnalysisJobStore.from_environment()
+
+        child_script = (
+            "import sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "from analysis_job_store import AnalysisJobStore, JobStoreBusyError\n"
+            "try:\n"
+            "    AnalysisJobStore(sys.argv[2], acquire_process_lock=True)\n"
+            "except JobStoreBusyError:\n"
+            "    print('LOCKED')\n"
+            "else:\n"
+            "    raise SystemExit(3)\n"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", child_script, str(Path(__file__).parent.parent), self.temp_dir.name],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("LOCKED", result.stdout)
+        finally:
+            owner.close()
+
+        reopened = AnalysisJobStore(self.temp_dir.name, acquire_process_lock=True)
+        reopened.close()
+
+    def test_recovery_report_includes_safe_corruption_reason(self):
+        self.store.append_result_chunk("session_test", 1, [{"frameIndex": 1}])
+        chunk_path = self.store.job_path("session_test") / "chunks" / "000000000001.json"
+        chunk_path.unlink()
+
+        recovered = AnalysisJobStore(Path(self.temp_dir.name), page_limit=3)
+
+        self.assertIn(
+            "session_test: recovery failed (JobStoreCorruptionError): Committed result chunk 1 is unreadable",
+            recovered.recovery_report["issues"],
+        )
+        self.assertIn(
+            "Committed result chunk 1 is unreadable",
+            recovered.get_job("session_test")["error"],
+        )
 
     def test_restart_marks_processing_job_interrupted(self):
         self.store.update_job("session_test", {"status": "PROCESSING"})
