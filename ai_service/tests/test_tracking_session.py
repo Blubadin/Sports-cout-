@@ -141,7 +141,7 @@ class TestTrackingSessionAPI(unittest.TestCase):
         self.assertEqual(res.json()['requestedDevice'], 'cuda')
         self.assertEqual(res.json()['effectiveDevice'], 'cuda')
 
-    def test_unavailable_gpu_request_retains_request_and_uses_cpu(self):
+    def test_explicit_cuda_unavailable_returns_error(self):
         """CASE 2: CUDA intentionally simulated as unavailable -> unavailable behavior is correctly reported."""
         with patch("device_runtime._availability", return_value=(False, False)):
             res = self.client.post("/api/tracking/sessions", json={

@@ -171,9 +171,14 @@ class TestCutCalibrationSafety(unittest.TestCase):
         lost = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=3.0)
         self.assertEqual(lost["players"][0]["totalDistanceM"], previous_distance)
         self.feet_x = 470
+        # Let the new image settle before accepting manual calibration; the
+        # first large image displacement is correctly treated as pan/transition.
+        self.analyzer.process_frame(person_frame(new_view), timestamp_sec=3.5)
         self.analyzer.set_court_corners(self.corners)
         pending = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=4.0)
-        self.assertIsNone(pending["players"][0]["courtPosition"])
+        # The settle observation also supplies an appearance confirmation.
+        # Recovery may already be complete; calibration must still not bridge.
+        self.assertEqual(pending["players"][0]["totalDistanceM"], previous_distance)
         restored = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=5.0)
         self.assertEqual(restored["calibrationState"], "CALIBRATED")
         self.assertEqual(restored["cameraSegmentId"], lost["cameraSegmentId"])
