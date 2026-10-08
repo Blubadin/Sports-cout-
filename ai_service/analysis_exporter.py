@@ -1451,6 +1451,7 @@ class AnalysisExporter:
         engine = job.get("metadata", {}).get("engine") or {}
         facts = render_facts or {}
         session_id = job.get("sessionId") or meta.get("sessionId")
+        effective_device = engine.get("effectiveDevice") if "effectiveDevice" in engine else engine.get("device")
 
         manifest = {
             "exportVersion": "1.0.0",
@@ -1468,10 +1469,10 @@ class AnalysisExporter:
                 "poseModel": engine.get("poseModel"),
                 "shuttleModel": engine.get("shuttleModel") or (engine.get("shuttle") or {}).get("model"),
                 "requestedDevice": engine.get("requestedDevice") or meta.get("device"),
-                "effectiveDevice": engine.get("effectiveDevice") or engine.get("device"),
-                "device": engine.get("effectiveDevice") or engine.get("device"),
+                "effectiveDevice": effective_device,
+                "device": effective_device,
                 "runtime": engine.get("runtime"),
-                "precision": engine.get("precision"),
+                "precision": None if engine.get("runtime") == "recorded" else engine.get("precision"),
                 "executionValidated": engine.get("executionValidated"),
                 "fallbackReason": engine.get("fallbackReason") or ((engine.get("inferenceProviders") or {}).get("detector") or {}).get("fallbackReason"),
                 "detectorDevice": engine.get("detectorDevice"),

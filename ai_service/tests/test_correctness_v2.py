@@ -259,6 +259,13 @@ class RenderedExportTests(unittest.TestCase):
             self.assertEqual(manifest["videoCodec"], "avc1")
             for key in ("detectorModel", "poseModel", "shuttleModel", "precision", "runtime", "effectiveDevice"):
                 self.assertIsNone(manifest["provenance"][key])
+            exporter._generate_manifest({"sessionId": "recorded-session", "metadata": {"engine": {
+                "effectiveDevice": None, "device": "cpu", "runtime": "recorded", "precision": "fp32"}}},
+                [], ExportOptions(), [], path, Path(folder)/"source.mp4")
+            recorded = json.loads(path.read_text())["provenance"]
+            self.assertIsNone(recorded["effectiveDevice"])
+            self.assertIsNone(recorded["device"])
+            self.assertIsNone(recorded["precision"])
 
     def test_shuttle_heatmaps_use_measured_metric_data_and_separate_landings(self):
         with tempfile.TemporaryDirectory() as folder:
