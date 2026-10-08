@@ -289,6 +289,11 @@ class RenderedExportTests(unittest.TestCase):
         summary_text = [text.get_text() for ax in summary.axes for text in ax.texts]
         self.assertIn("real-session", summary_text)
         self.assertNotIn("reference", summary_text)
+        diagnostics = exporter._build_pdf_page_diagnostics(job, [{"isMetricValid": True}, {"isMetricValid": False}], ExportOptions())
+        diagnostic_text = [text.get_text() for ax in diagnostics.axes for text in ax.texts]
+        self.assertIn("1/2 marked valid; accuracy unreviewed", diagnostic_text)
+        self.assertFalse(any("false metrics leaked" in text for text in diagnostic_text))
+        plt.close(diagnostics)
         players = exporter._build_pdf_page_players(job, [{"players": [{"playerId": "P1", "state": "observed", "totalDistanceM": 0.0}]}], [])
         text = [text.get_text() for ax in players.axes for text in ax.texts]
         self.assertIn("0.0 m", text)

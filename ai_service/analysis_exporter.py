@@ -1367,9 +1367,9 @@ class AnalysisExporter:
             ("Total Evaluated Frames:", str(len(analysis_frames))),
             ("Camera Segments Detected:", f"{len(camera_segs)} discrete camera segments"),
             ("Scene Classifications Observed:", ", ".join(sorted(scenes))),
-            ("Court Calibration State:", "Rejected during unconfirmed intervals (0 false metrics leaked)"),
-            ("Feet Contact Provenance:", "Verified within image bounds; no 0,0 fallback"),
-            ("Identity Switching Policy:", "Continuous trajectory quarantine (separate from ByteTrack MOT ID)"),
+            ("Court Calibration Frames:", f"{sum(bool(r.get('isMetricValid')) for r in analysis_frames)}/{len(analysis_frames)} marked valid; accuracy unreviewed"),
+            ("Feet Contact Evidence:", "See recorded ground quality; bbox is visual only"),
+            ("Semantic Identity:", "Raw tracks separated; accuracy not certified"),
         ]
 
         y_pos = 0.77
