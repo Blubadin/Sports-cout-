@@ -1,179 +1,66 @@
-# SportsScout — Phase 3 Final Closeout & Hardening Report
+# Phase 3 correctness remediation V2 — validation status
 
-**Document Date:** 2026-10-07  
-**Target Branch:** `fix/phase3-closeout-final`  
-**Base Commit SHA:** `b611a9651c8a6aed18a286e1e01b35ee412199a0`  
-**Final Status:** **PHASE 3 ARCHITECTURE & SAFETY GATES VALIDATED — GATES FROZEN & ENFORCED**  
-**Lead Engineer:** Senior Computer Vision / ML Systems & Release Engineer  
+Date: 2026-10-08. Branch: `fix/phase3-sol-correctness-v2`.
+Base: `e6b4068fa045b93d8fd5c1dfb6258468db8f81b5` (PR #33 head).
+Main reference: `b611a9651c8a6aed18a286e1e01b35ee412199a0`.
 
----
+**Status: CONDITIONAL PASS for code review. Phase 3 is not fully validated. Do not merge PR #33 or this remediation until the outstanding data gates are satisfied.**
 
-## 1. Executive Summary
+The previous statement that all mandatory capabilities and safety gates were validated was unsupported. Passing a gate-enforcement unit test establishes that the evaluator rejects bad evidence; it does not establish that a real model meets an accuracy threshold. The initial audit is recorded in [the baseline discrepancy table](PHASE_3_CORRECTNESS_V2_BASELINE.md). Historical endurance, recovery and runtime reports remain historical evidence for their recorded revision and configuration.
 
-This closeout document concludes Phase 3 implementation, verification, and hardening for **SportsScout Badminton Tracking Lab**. 
+## Evidence levels
 
-All mandatory Phase 3 capabilities, safety invariants, benchmark gates, and hardening deliverables have been implemented, tested, and validated without regressions:
-1. **Preview Overlay Continuity (Phase 10A)**: Solved the user-observed "No tracking data is available for this time" flicker during playback. Implemented a 3-level caching architecture (1,000-frame RAM ring buffer, IndexedDB, backend API), non-blocking 3-second range prefetching, 150ms temporal hold grace period, and 7 explicit data availability states (`LOADING`, `AVAILABLE`, `PARTIAL`, `TRUE_GAP`, `INVALID_SEGMENT`, `NOT_ANALYZED`, `ERROR`). Achieved **0 false tracking gaps** across validation playback.
-2. **Video Export Production Hardening (Phase 10B)**: Hardened deterministic offline video rendering and report packaging. Verified OpenCV MP4 encoder (`mp4v`/`avc1`) with hardware fallback, 1-based exact frame alignment, preset configuration (`ANALYSIS`, `CLEAN`, `DEBUG`, `CUSTOM`), background cancellation, and verified ZIP packaging containing MP4 video, PDF report, tactical heatmaps, JSON metadata, and run manifest.
-3. **PR #31 Reconciliation**: Safely reconciled diverged PR #31 (`fix/phase3-final-remediation`) without merging its superseded/stale tracking code. Ported benchmark schemas, diagnostic tools (`doctor.ps1`, `bootstrap-windows.ps1`), 18 benchmark safety gates (`ai_service/tests/test_phase3_benchmark_gates.py`), and documentation.
-4. **Frozen Acceptance Thresholds**: Formally established and approved `docs/evidence/PHASE_3_ACCEPTANCE_THRESHOLDS_FROZEN.md` with status `APPROVED_FROZEN`.
-5. **Zero Regression Test Suite**: Passed **729/729 Python unittests**, **1,019/1,019 Vitest frontend tests** (across 107 test files), TypeScript typecheck (0 errors), and ESLint within baseline.
+| Area | Implemented behavior | Current validation level | Limit |
+|---|---|---|---|
+| Player eligibility | Unknown people without court evidence remain raw tracks, including SIDE_PLAY. Semantic keys cannot stand in for MOT track IDs. Known continuity is bounded; new-track reacquisition needs distinctive appearance and consecutive confirmation. Initial jersey evidence is retained; partial seeding cannot transfer a live athlete to an empty slot. | UNIT-VALIDATED; pipeline INTEGRATION-VALIDATED; real samples reviewed | No independent spectator/identity accuracy certification. Singles/doubles counts remain maxima. Similar jerseys remain ambiguous. |
+| Ground points | Both ankles, single ankle, bbox hierarchy retained. Raw point reports confidence, pose source, age, freshness, metric eligibility and quality. Bbox is visual only. | UNIT-VALIDATED; sampled real overlays reviewed | Monocular foot estimates and calibration have no independently measured error bounds. |
+| Distance | Bounded robust median/adaptive EMA; confidence/calibration/identity uncertainty; provenance, gap, camera and calibration resets; speed plausibility gate. | UNIT-VALIDATED on physical synthetic trajectories; real-video execution evidence | Correctness on synthetic motion is not real distance ground truth. |
+| Preview | Time/cursor-aware indexed local reads, bounded pages/RAM, cache-hole detection, cancellation and owner/generation checks. | UNIT-VALIDATED; browser INTEGRATION-VALIDATED with real full-clip telemetry and IndexedDB | Full lab interactive control flow and all scene boundaries remain NOT VALIDATED. |
+| Export | Exact sourceFrame mapping; fallback only for absent sourceFrame; canonical court/raw/pose normalization. | INTEGRATION-VALIDATED using decoded rendered pixels and production telemetry fixture | Full real DEBUG export is execution/sample evidence, not exhaustive frame review. |
+| CUDA | AUTO alone may retry CPU. Explicit CUDA unavailability/failure is terminal. Actual provider/device execution is recorded. | UNIT-VALIDATED; real CUDA tensor/detector/pose/shuttle execution | No hardware portability certification. |
+| Doctor | auto/cpu/cuda modes; configured artifact paths; actual inference; optional configured shuttle. | INTEGRATION-VALIDATED on CPU and CUDA | CPU inference on a CUDA-enabled workstation does not validate a separate CPU-only installation. Mock tests cover absent CUDA. |
+| Shuttle shot layer | Contact/return/terminal lifecycle, visibility/edge continuity, conservative reacquisition, null unknowns, nine metric landing zones, separate plots and coverage. | UNIT-VALIDATED; connected to analyzer/exporter | Automatic wrist/reversal contact is experimental. Production terminal/3D metric measurement is NOT VALIDATED. |
+| Held-out GT | Existing annotation/gate protocol retained; conflicting annotation key fixed. | NOT VALIDATED | Independent reviewed labels, blinded evaluation, approved held-out results remain required. |
 
----
+## Metric definitions and limitations
 
-## 2. Repository & Runtime Environment Baseline
+`rawGroundPoint` is the observed anatomical/bbox point; `filteredGroundPoint` is a separate stabilized metric point. Raw telemetry is retained. Both ankles need fresh non-stale pose and sufficient confidence for metric use; one ankle carries larger uncertainty. Bbox fallback contributes no physical distance or metric heatmap samples.
 
-| Parameter | Specification / Observed Runtime |
-| :--- | :--- |
-| **Operating System** | Windows 11 Home Single Language (64-bit) |
-| **Node.js** | v20.18.0 |
-| **Python** | 3.12.10 (`.\.local-services\python\Scripts\python.exe`) |
-| **PyTorch** | 2.5.1+cu124 |
-| **CUDA Acceleration** | NVIDIA GeForce RTX 4050 Laptop GPU (6,141 MB VRAM) / CUDA 12.4 |
-| **OpenCV** | 4.10.0 (VideoWriter with `mp4v` codec verified) |
-| **Working Branch** | `fix/phase3-closeout-final` |
-| **Base Commit** | `b611a9651c8a6aed18a286e1e01b35ee412199a0` |
+The stabilization window is three observations. A median suppresses isolated jitter; coherent translation bypasses median delay. An adaptive EMA raises its cutoff for faster motion. Its state resets at every anatomical provenance change, identity gap, calibration change or camera change. Confidence-weighted uncertainty uses conservative **assumptions**, 0.12 m for both ankles and 0.24 m for a single ankle before confidence scaling. Missing calibration confidence uses a conservative 0.5 assumption instead of perfect confidence. These are not calibrated statistical confidence intervals. Accepted travel exceeds twice this uncertainty radius and respects 11 m/s for both instantaneous filtered motion and the accepted-anchor interval. The accepted anchor is retained for small steps, allowing slow coherent travel to accumulate without integrating every noisy frame.
 
----
+`totalTrackedDistanceM` includes valid COURT_PLAY/RALLY and COURT_IDLE intervals. `distanceDuringActivePlayM` excludes COURT_IDLE. Replay, transition, invalid calibration and unavailable identity intervals contribute no travel. `metricDistanceCoverage` is metric-eligible ground observations divided by counted ground observations, not a claim of full-video coverage. `validMovementSamples` counts accepted integration updates. Provenance distributions include observed fallback points. `rawMovementM` and `filteredMovementM` are path lengths within eligible continuous intervals; resets are not bridges. `jitterRejectedDistanceM` is the nonnegative filtered path minus accepted travel. It names rejected movement diagnostically; it is not proof that all rejected displacement was noise. Local frontend samples preserve accepted cumulative travel and canonical speed, so queries do not reconstruct pose noise as physical distance. Lateral/front-back summaries remain approximate directional allocation between sampled points.
 
-## 3. PR #31 Reconciliation Audit
+Reports use **Total Distance (m)**. Lower results than the old 644.7/811.5 m do not, by themselves, prove correctness. Review ground quality and coverage alongside totals. Small oscillatory motion below the assumed uncertainty and frequent provenance changes can be undercounted; real error must be measured against reviewed trajectories.
 
-A strict categorization was performed between current `main` and `origin/fix/phase3-final-remediation` (PR #31):
+## Shuttle semantics
 
-### Category A: Superseded / Rejected Files (NOT Ported)
-- `ai_service/player_eligibility.py`: PR #32 in `main` introduced quarantine penalties, non-player latching, and geometric isolation. PR #31's version was outdated. **Rejected.**
-- `ai_service/analyzer_v2.py`: Main contains PR #32's fixes. **Rejected.**
-- `ai_service/semantic_identity.py`: Main contains PR #32's fixes. **Rejected.**
-- `ai_service/analysis_exporter.py`: Main contains PR #32's exporter architecture with OpenCV encoder probing and git commit SHA injection. **Retained and hardened.**
+A detector point is an image observation, not a landing or an airborne metric point. Flight heatmaps require observed, explicitly metric-eligible measured positions from a validated source. An image-plane homography is not a 3D shuttle model. If those positions are unavailable, trajectory output explicitly says `INSUFFICIENT_SHUTTLE_METRIC_DATA`.
 
-### Category B: Required & Ported Tools
-- `ai_service/annotate_gt.py`: Ground truth annotation tool for human double-blind tagging.
-- `ai_service/benchmark_schema.py`: Extended benchmark models and certification schemas.
-- `ai_service/phase3_benchmark.py`: Complete evaluation harness with 18 safety gates.
-- `ai_service/runtime_doctor.py` & `scripts/doctor.ps1`: Diagnostic suite for hardware and environment.
-- `scripts/bootstrap-windows.ps1`: Automation for Windows local stack setup.
-- `ai_service/requirements-cpu.txt`, `requirements-cuda.txt`, `constraints-tested.txt`: Strict dependency pin files.
-- `ai_service/tests/test_phase3_benchmark_gates.py`: 17 gate verification tests (all passing).
-- `docs/PYTHON_RUNTIME.md`, `docs/evidence/PHASE_3_BENCHMARK_GATE_VERIFICATION.md`, `docs/evidence/PHASE_3_GT_PROTOCOL.md`, `docs/evidence/PHASE_3_EVIDENCE_INDEX.md`.
+Contact inference needs three confident measured observations, a velocity reversal, a unique nearby fresh wrist and sufficient identity evidence. It may miss real contacts and is not accuracy-certified. Explicit contact and terminal evidence are accepted only above the documented confidence gates. Tracking loss, off-frame absence and camera cuts end unresolved shots as UNKNOWN, with no invented landing. While OUT_OF_FRAME, measured coordinates are null; exit observations and velocity are continuity evidence only.
 
----
+Reacquisition is bounded by elapsed time, edge, direction, velocity, court/rally state and camera segment. Ambiguous entry does not inherit the old shot. A supported next contact ends the prior shot RETURNED and begins a new one. Confirmed out-of-court metric landings become OUT_SIDE/OUT_LONG. Nine-zone percentages use confirmed **in-court metric landings** as denominator. Landing coverage is confirmed metric landings divided by detected shots, including confirmed OUT results. Unknown and returned shots never enter landing heatmaps. Hitter filtering requires sufficient semantic evidence.
 
-## 4. Phase 10A: Preview Overlay Continuity Hardening
+The analyzer does not currently supply a validated automatic ground-contact/net/out classifier or 3D shuttle measurement. The event layer supports evidence from such a provider or reviewed annotations. Do not infer that fixture landings establish production landing accuracy. A real clip with zero supported metric landings must report insufficient data.
 
-### The Root Cause
-During real video playback, seeking or advancing across the 250-frame overlay window boundary caused `activeRemoteWindow` to momentarily evaluate to `null` while `overlayWindowLoader.load` was fetching the next page. In that render frame:
-- `sourceOverlayFrames` collapsed to `[]`.
-- `displayResolutionStatus` evaluated to `'unavailable'`.
-- The UI immediately rendered the Thai warning: *"ไม่มีข้อมูลการติดตามสำหรับช่วงเวลานี้"* (*"No tracking data is available for this time"*), flashing a disruptive banner across the video player.
+## Export and provenance
 
-### The Remediation Architecture
-1. **Explicit Data Availability State Machine**:
-   - `LOADING`: Telemetry query in flight. Retains last known visual state (< 150ms hold) or subtle spinner; NEVER renders "No tracking data".
-   - `AVAILABLE`: Full tracking telemetry exists for current timestamp (players + court + shuttle).
-   - `PARTIAL`: Some layers resolved (e.g. players present, court pending). Displays available layers without warning.
-   - `TRUE_GAP`: Model analyzed the frame and legitimately found no players (e.g. audience pan, camera transition). Displays subtle *"ไม่พบผู้เล่นในช่วงเวลานี้"* (*"No players detected in this segment"*).
-   - `INVALID_SEGMENT`: Playhead is outside analyzed video range. Displays *"อยู่นอกช่วงเวลาที่วิเคราะห์"*.
-   - `NOT_ANALYZED`: Video has not been analyzed yet.
-   - `ERROR`: Telemetry retrieval failed. Displays retry option.
-2. **3-Level Hierarchical Caching**:
-   - *Level 1 (RAM Ring Buffer)*: Expanded `TrackingOverlayWindowLoader` buffer to 1,000 frames (~33s at 30 fps, < 2MB RAM). Hits return in < 1ms with zero network/IPC overhead.
-   - *Level 2 (IndexedDB)*: Persisted local storage checked in < 50ms.
-   - *Level 3 (Backend API)*: Bounded REST query `/api/tracking/sessions/{id}/results`.
-3. **Non-Blocking 3-Second Range Prefetching**:
-   - When playback reaches within 3.0 seconds of the active window's boundary, background prefetching loads the upcoming window (`lastFrameTime + 2.0s`) before the current window expires.
-   - Smooth window handover: existing `overlayWindow` is retained as fallback until the new window resolves.
-4. **Continuous Overlay Verification**:
-   - False Tracking Gap count: **0** across validation playback.
-   - `src/components/labs/trackingOverlayWindow.test.tsx` expanded with 8 vitest tests asserting all availability states and seamless cache hits.
+Source frames are decoded source-video numbers, distinct from telemetry indices. Stride-2 regression renders six frames and inspects pixels to verify overlays only on 2, 4 and 6. Legacy frameIndex fallback is counted explicitly. Schema normalization occurs at the export boundary; the actual frame-150 fixture exercises court, pose and rejected raw-person rendering.
 
----
+Manifest values come from recorded engine/job facts or remain null. Actual selected codec is recorded after encoder fallback. Session/job identifiers are existing job keys; project may legitimately be null for a standalone run. Source SHA256 is recorded when provided. `repositorySha` and `repositoryDirty` describe the export-time checkout; `analysisRepositorySha`/`analysisRepositoryDirty` are null unless captured at analysis time. A dirty checkout must not be presented as execution of its clean HEAD. Source audio is not multiplexed into the overlay MP4 and this is recorded.
 
-## 5. Phase 10B: Video Export Production Hardening
+## Verification and real footage
 
-### Pipeline Hardening Details
-1. **Hardware-Aware Video Encoder Verification**:
-   - `probe_video_encoder()` verifies encoder viability before rendering by writing and reading back test frames.
-   - Verified OpenCV `mp4v` codec on Windows (avc1 fallback supported).
-2. **1-Based Exact Source Frame Alignment**:
-   - Corrected 0-based vs 1-based frame indexing between telemetry records and OpenCV `VideoCapture.read()`.
-   - Telemetry aligned at O(1) time via dictionary lookup `frame_map[current_source_frame]`.
-3. **Scene Transition Overlay Protection**:
-   - Telemetry invalidated during `REPLAY`, `CAMERA_TRANSITION`, `CLOSE_UP`, or `UNKNOWN` scenes.
-   - Shuttle trail cleared on camera cuts (`cam_seg != last_camera_segment`).
-4. **Export Presets & User Controls**:
-   - `ANALYSIS`: Full court, player bounding boxes, pose skeletons, ground points, shuttle trail, player labels.
-   - `CLEAN`: Passthrough / transcode without graphics.
-   - `DEBUG`: Includes confidences, track IDs, calibration metrics.
-   - `CUSTOM`: Interactive individual toggle per layer.
-5. **Robust Job Management & Artifact Bundling**:
-   - Safe multi-threaded background export with progress tracking (0%–100%) and responsive cancellation via `cancel_event`.
-   - Bundled ZIP archive contains:
-     - `video.mp4` (burned-in overlays)
-     - `SportsScout_Report.pdf` (match report & embedded heatmaps)
-     - `heatmaps/` (2D Gaussian player court density)
-     - `analysis_summary.json` & `export_manifest.json`
-     - `README.txt`
+Baseline before production edits: 729 Python tests run, four skipped, no failures; 1,021 Vitest tests across 107 files passed. Final verification and real-video results are recorded in [V2 evidence](PHASE_3_CORRECTNESS_V2_RESULTS.md).
 
----
+The local `Badminton test.mp4` is 1,280 × 720, 30 fps, 8,869 frames, 295.633 s. A fresh bounded run and an initial full run executed detector/pose/RallyLens on CUDA. Sample review of the full run exposed identity swaps when athletes changed ends; distinctive-appearance reassociation now has a regression and rejects contradictory court-side/MOT ownership.
 
-## 6. Phase 3 Safety Gates & Benchmark Certification Audit
+The final full staged run replayed recorded neural observations through fresh identity/ground/distance/shot logic at `8ba56690d8f26448ea0569277509f7088bd74272`, using measured source-frame-matched detector, pose and shuttle observations from the first full CUDA run. No neural inference was rerun in this full stage; final bounded detector/pose inference ran separately on CUDA. Stage provenance and the original execution facts are recorded. Approximate visually inspected calibration is not GT. Final metrics and ground provenance are in the V2 results; conservative gating can undercount movement and lower totals are not proof of correctness. Sample overlays and the real browser seek harness were reviewed. Zero supported shots/landings produces explicitly insufficient shuttle metric plots, not invented flight/landing coordinates. Independently reviewed accuracy labels remain missing. **HELD-OUT-VALIDATED: no.**
 
-All 18 benchmark safety gates in `ai_service/phase3_benchmark.py` are strictly enforced:
+## Outstanding acceptance work
 
-| Gate # | Name | Verification Test | Status |
-| :--- | :--- | :--- | :--- |
-| **Gate 1** | Thresholds Approval (`APPROVED_FROZEN`) | `test_gate_1_thresholds_not_approved` | **PASS** |
-| **Gate 2** | Source Media SHA-256 | `test_gate_2_missing_source_sha` | **PASS** |
-| **Gate 3** | Media SHA Parity (GT == Eval) | `test_gate_3_source_sha_mismatch` | **PASS** |
-| **Gate 4** | Human Primary Reviewer ID | `test_gate_4_missing_reviewer` | **PASS** |
-| **Gate 5** | Reviewer Independence | `test_gate_5_same_primary_and_independent_reviewer` | **PASS** |
-| **Gate 6** | Prediction Blinding Status (`BLINDED`) | `test_gate_6_prediction_blinding_missing` | **PASS** |
-| **Gate 7** | Annotation Completeness | `test_gate_7_incomplete_annotations` | **PASS** |
-| **Gate 8** | Scenario Coverage (14 Scenarios) | `test_gate_8_missing_scenario` | **PASS** |
-| **Gate 9** | UNKNOWN Protection (No Absent Coercion) | `test_gate_9_unknown_handling` | **PASS** |
-| **Gate 10** | Dev Data as Holdout Prevention | `test_gate_10_development_data_passed_as_holdout` | **PASS** |
-| **Gate 11** | Cross-Split Leakage Prevention | `test_gate_11_split_leakage` | **PASS** |
-| **Gate 12** | Required Unavailable Metric Enforcement | `test_gate_12_unsupported_required_metric` | **PASS** |
-| **Gate 13** | Missing Shuttle Metrics Guard | `test_gate_13_missing_shuttle_metrics` | **PASS** |
-| **Gate 14** | Synthetic Fixture Demarcation | `test_gate_14_valid_synthetic_evaluator_fixture` | **PASS** |
-| **Gate 15** | Deterministic Repeat Evaluation | `test_gate_15_deterministic_repeat_evaluation` | **PASS** |
-| **Gate 16** | Capability-Level Independent Outcomes | `test_capability_level_independent_outcomes` | **PASS** |
-| **Gate 17** | Experimental Capability Isolation | `test_optional_experimental_capability_does_not_fail_mandatory` | **PASS** |
-| **Gate 18** | Option B Shuttle Provenance Validation | Shuttle closeout harness | **PASS** |
+1. Independently annotate real player trajectories and calibration uncertainty; evaluate stationary jitter, fast direction changes and singles/doubles spectators on held-out footage.
+2. Supply reviewed terminal/metric shuttle evidence or validate an automatic provider before claiming real tactical landing/flight analytics.
+3. Extend the production-module browser seek evidence to complete interactive lab controls and real scene boundaries.
+4. Run the frozen held-out evaluator with reviewer independence and blinding requirements intact. Do not lower thresholds to pass.
 
-### Truthful Capability Outcome Status
-- **Endurance & Stability (600s / 10-minute real video)**: `VALIDATED` (`phase3-real-2026-10-05-10min-report.json`)
-- **Preview Overlay Continuity**: `VALIDATED` (False Tracking Gaps = 0)
-- **Video Export Pipeline**: `VALIDATED` (Encoder verified, frame parity 100%, packaging verified)
-- **Tracking Foundation & Quarantine**: `VALIDATED` (Spectator quarantine penalty, MOT vs P1..P4 separation)
-- **Synthetic Gate Logic**: `VALIDATED` (All 18 gates certified)
-- **Real-Data Held-Out Benchmark**: `NOT VALIDATED / HELD-OUT DATASET PENDING` (Human double-blind annotation across all 14 scenarios pending completion per `PHASE_3_GT_PROTOCOL.md`).
-
----
-
-## 7. Verification Evidence Summary
-
-```text
-======================================================================
-Python Tests (ai_service/tests):
-Ran 729 tests in 52.118s
-OK (skipped=4, failures=0, errors=0)
-
-Vitest Suite (src/__tests__ & src/components):
-Test Files: 107 passed (107)
-Tests:      1,019 passed (1,019)
-Duration:   54.44s
-
-TypeScript Check (tsc --noEmit):
-Exit Code: 0 (Zero errors)
-
-ESLint (node scripts/lint-with-baseline.mjs):
-ESLint src baseline: PASS; 462/462 findings within baseline (0 new violations)
-======================================================================
-```
-
----
-
-## 8. Final Decision & Recommendation
-
-Phase 3 development and hardening are **COMPLETE**. All mandatory verification gates have passed with zero regressions. The branch `fix/phase3-closeout-final` is stable, secure, and ready for review and integration.
+Code and fixture verification can support review. They do not support the previous PHASE 3 COMPLETE, all capabilities validated, zero false gaps across real playback, or merge-ready claims. No merge is performed by this remediation.

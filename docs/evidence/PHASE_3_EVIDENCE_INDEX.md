@@ -2,6 +2,8 @@
 
 This index provides an authoritative classification of all Phase 3 evidence, evaluation reports, and design documentation across the SportsScout repository.
 
+**2026-10-08 correction:** Current remediation status is [PHASE_3_FINAL_CLOSEOUT.md](PHASE_3_FINAL_CLOSEOUT.md), with the [pre-edit discrepancy table](PHASE_3_CORRECTNESS_V2_BASELINE.md) and [V2 verification results](PHASE_3_CORRECTNESS_V2_RESULTS.md). The remediation starts from PR #33 head `e6b4068fa045b93d8fd5c1dfb6258468db8f81b5`, against main reference `b611a9651c8a6aed18a286e1e01b35ee412199a0`. Older rows marked CURRENT below are historical authorities for their stated revisions; their broad correctness/merge-readiness claims are superseded by this correction. Runtime execution and synthetic gate tests do not establish held-out accuracy. Neither PR #33 nor the remediation has been merged.
+
 In accordance with SportsScout engineering rules:
 - **Historical integrity is preserved**: historical reports remain unmodified as timestamped records of their respective test cycles.
 - **Stale claims are resolved here**: ambiguities in older documents (outdated SHAs, earlier test counts, historical process-kill interruptions, prior lint setups, and shuttle checkpoint availability) are explicitly cross-referenced to current authoritative documents.
