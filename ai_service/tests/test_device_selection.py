@@ -22,8 +22,9 @@ class TestDeviceSelection(unittest.TestCase):
         self.assertEqual(resolve_device(torch_module=fake_torch(mps_available=True)), 'cpu')
         self.assertEqual(resolve_device(torch_module=fake_torch()), 'cpu')
 
-    def test_explicit_unavailable_cuda_falls_back(self):
-        self.assertEqual(resolve_device('cuda', torch_module=fake_torch()), 'cpu')
+    def test_explicit_unavailable_cuda_errors(self):
+        with self.assertRaises(ValueError):
+            resolve_device('cuda', torch_module=fake_torch())
 
     def test_capability_report_names_selected_device(self):
         report = capability_report(torch_module=fake_torch(mps_available=True, version='2.4.0'))
@@ -57,7 +58,7 @@ class TestDeviceSelection(unittest.TestCase):
 
     def test_capability_report_cuda_simulated_unavailable_reports_cpu_fallback(self):
         """CASE 2: CUDA intentionally simulated as unavailable -> unavailable behavior is correctly reported."""
-        report = capability_report(requested='cuda', torch_module=fake_torch(cuda_available=False, version='2.5.1'))
+        report = capability_report(requested='auto', torch_module=fake_torch(cuda_available=False, version='2.5.1'))
         self.assertEqual(report['selectedDevice'], 'cpu')
         self.assertFalse(report['cudaAvailable'])
         self.assertEqual(report['fallbackReason'], 'CUDA unavailable; CPU selected')

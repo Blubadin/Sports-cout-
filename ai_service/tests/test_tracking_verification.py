@@ -224,11 +224,11 @@ class TestDistanceTrackerNoiseFiltering(unittest.TestCase):
     def test_sub_jitter_ignored(self):
         # Initial point
         start_px = self.mapper.real_to_pixel((3.0, 6.0))
-        self.tracker.update(1, start_px)
+        self.tracker.update(1, start_px, provenance="pose_both_ankles", confidence=.9)
 
         # Movement of only 0.01m (jitter)
         jitter_px = self.mapper.real_to_pixel((3.0, 6.01))
-        self.tracker.update(1, jitter_px)
+        self.tracker.update(1, jitter_px, provenance="pose_both_ankles", confidence=.9)
 
         stats = self.tracker.get_stats(1)
         self.assertEqual(stats["total_dist_m"], 0.0)

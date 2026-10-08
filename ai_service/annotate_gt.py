@@ -141,7 +141,7 @@ class AnnotationTool:
         if self.active_mode == "PLAYER":
             cv2.putText(frame, f"Active Player: {self.active_player_id} (Press 1-4 to switch)", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         elif self.active_mode == "SHUTTLE":
-            cv2.putText(frame, f"Shuttle Vis: {anno.get('shuttle', {}).get('visibility')} (Press v=vis, a=abs, o=occ, u=unk)", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(frame, f"Shuttle Vis: {anno.get('shuttle', {}).get('visibility')} (Press v=vis, b=abs, o=occ, u=unk)", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
         cv2.imshow("SportsScout GT Annotator", frame)
 
@@ -171,10 +171,10 @@ class AnnotationTool:
                 self.active_mode = "PLAYER"
                 
             # Shuttle Vis
-            elif key in [ord('v'), ord('a'), ord('o'), ord('u')]:
+            elif key in [ord('v'), ord('b'), ord('o'), ord('u')]:
                 self.active_mode = "SHUTTLE"
                 anno = self._get_frame_anno()
-                vis_map = {'v': 'visible', 'a': 'absent', 'o': 'occluded', 'u': 'unknown'}
+                vis_map = {'v': 'visible', 'b': 'absent', 'o': 'occluded', 'u': 'unknown'}
                 anno["shuttle"]["visibility"] = vis_map[chr(key)]
                 if chr(key) != 'v':
                     anno["shuttle"]["x"] = None

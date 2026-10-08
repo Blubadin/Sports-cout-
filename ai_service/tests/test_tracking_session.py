@@ -149,9 +149,8 @@ class TestTrackingSessionAPI(unittest.TestCase):
                 "game_type": "singles",
                 "device": "cuda",
             })
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()['requestedDevice'], 'cuda')
-        self.assertEqual(res.json()['effectiveDevice'], 'cpu')
+        self.assertEqual(res.status_code, 422)
+        self.assertIn('CUDA', res.text)
 
 
 if __name__ == "__main__":

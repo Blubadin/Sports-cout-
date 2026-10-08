@@ -522,7 +522,7 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
             timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
-            telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+            telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec, source_frame=frame_idx)
             telemetry["sourceFrame"] = frame_idx
             telemetry["is_synthetic"] = False
             asyncio.run_coroutine_threadsafe(broadcast_telemetry(telemetry), loop)
@@ -1221,6 +1221,7 @@ def _session_identity(session: TrackingSession, current: dict | None = None) -> 
 def _session_job_metadata(session: TrackingSession, existing: dict | None = None) -> dict:
     metadata = dict(existing or {})
     metadata["session"] = {
+        "sessionId": session.session_id,
         "videoSource": session.video_source,
         "ownedVideo": bool(session.owned_video_path),
         "gameType": session.game_type,
@@ -1235,6 +1236,10 @@ def _session_job_metadata(session: TrackingSession, existing: dict | None = None
         "players": session.player_assignments,
         "mediaHash": session.media_hash,
     }
+    if session.analyzer is not None and hasattr(session.analyzer, "get_provenance"):
+        metadata["engine"] = session.analyzer.get_provenance()
+        if getattr(session, "shuttle_pipeline", None) is not None:
+            metadata["engine"]["shuttle"] = session.shuttle_pipeline.get_provenance()
     return metadata
 
 
@@ -1725,7 +1730,7 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
                     _finish_resume_warmup(session, resume_analyzer_frame)
                 continue
             with session._state_lock:
-                telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+                telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec, source_frame=frame_idx)
                 telemetry["sourceFrame"] = frame_idx
                 if session.is_resuming and frame_idx <= resume_source_frame:
                     if frame_idx >= resume_source_frame:
@@ -1769,6 +1774,8 @@ def create_tracking_session(req: CreateSessionRequest):
     except (ValueError, InvalidEngineConfigError, ModelNotFoundError, PoseArchitectureNotImplementedError) as error:
         logger.error('Tracking session configuration rejected (%s)', type(error).__name__)
         detail = 'Invalid tracking configuration; check device (cuda/mps), model and processing settings'
+        if str(error).startswith('Explicit CUDA requested'):
+            detail = 'Explicit CUDA requested but CUDA is unavailable; select AUTO or CPU to permit CPU execution'
         raise HTTPException(status_code=422, detail=detail) from error
     try:
         session.job_store.create_job(

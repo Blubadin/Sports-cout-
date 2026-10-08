@@ -98,8 +98,8 @@ class TestCutCalibrationSafety(unittest.TestCase):
         self.analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1)
         self.analyzer._detector = "dummy"
         self.analyzer.pose_adapter = MagicMock()
-        self.analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
-            "keypoints": [(100, 150, 0.9)], "metrics": {},
+        self.analyzer.pose_adapter.estimate_pose_in_roi.side_effect = lambda frame, bbox: {
+            "keypoints": [(self.feet_x, 260, .9) for _ in range(17)], "metrics": {},
             "keypointCoordinateSpace": "pixel",
         }
         self.feet_x = 170
@@ -160,7 +160,9 @@ class TestCutCalibrationSafety(unittest.TestCase):
         cv2.polylines(new_view, [np.array(self.corners, dtype=np.int32)], True, (230, 230, 230), 3)
         self.analyzer.set_court_corners(self.corners)
         first = self.analyzer.process_frame(person_frame(court_frame()), timestamp_sec=0.0)
-        self.feet_x = 200
+        # About 0.73 m in one second: resolvable motion above conservative
+        # uncertainty with physically plausible speed, before testing the cut.
+        self.feet_x = 230
         moved = self.analyzer.process_frame(person_frame(court_frame()), timestamp_sec=1.0)
         previous_distance = moved["players"][0]["totalDistanceM"]
         self.assertGreater(previous_distance, 0)

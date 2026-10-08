@@ -209,6 +209,11 @@ def match_tracks_to_profiles_with_reid(
     - raw_tracker_id_switches: count of raw MOT track changes for existing players
     - semantic_player_id_switches: count of semantic identity swaps
     """
+    # Defense at the identity boundary: an unavailable court cannot seed a profile,
+    # even if an upstream caller incorrectly passes an otherwise eligible person.
+    any_established = any(p.color_hist is not None or getattr(p, "reid_embedding", None) is not None for p in profiles.values())
+    if not any_established:
+        detections = [d for d in detections if not (d.get("eligibility") and d["eligibility"].provenance.get("courtEligibilityUnavailable"))]
     if not detections:
         for p in profiles.values():
             p.missed_frames += 1
@@ -321,6 +326,11 @@ def match_tracks_to_profiles_with_reid(
                 raw_track_bonus_val=raw_track_bonus_val,
             )
             cost_matrix[i, j] = c.total_cost
+            eligibility = d.get("eligibility")
+            if eligibility is not None and eligibility.provenance.get("courtEligibilityUnavailable"):
+                established = (p.color_hist is not None or getattr(p, "reid_embedding", None) is not None)
+                if not established:
+                    cost_matrix[i, j] = 1e6
             row_costs.append(c)
         costs_grid.append(row_costs)
 
@@ -332,9 +342,11 @@ def match_tracks_to_profiles_with_reid(
                             or getattr(profiles[pid], "reid_embedding", None) is not None))
                    for pid in active_pids]
     for i, needs_evidence in enumerate(reacquiring):
-        if not needs_evidence:
-            continue
         for j, evidence in enumerate(costs_grid[i]):
+            eligibility = detections[j].get("eligibility")
+            uncalibrated_new_track = bool(eligibility and eligibility.provenance.get("courtEligibilityUnavailable") and profiles[active_pids[i]].track_id != detections[j].get("track_id"))
+            if not needs_evidence and not uncalibrated_new_track:
+                continue
             other = [row[j] for k, row in enumerate(costs_grid) if k != i]
             hsv_supported = (evidence.hsv_distance is not None and evidence.hsv_distance <= .2
                              and all(c.hsv_distance is None or
@@ -361,7 +373,9 @@ def match_tracks_to_profiles_with_reid(
         if cost < gate:
             d = detections[c]
             new_track_id = d.get("track_id")
-            if reacquiring[r]:
+            eligibility = d.get("eligibility")
+            uncalibrated_new_track = bool(eligibility and eligibility.provenance.get("courtEligibilityUnavailable") and p.track_id != new_track_id)
+            if reacquiring[r] or uncalibrated_new_track:
                 # Require three consecutive eligible frames on the same raw MOT
                 # track, each with independently checked, distinctive appearance.
                 if new_track_id is None:
