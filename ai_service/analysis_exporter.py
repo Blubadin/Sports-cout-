@@ -1461,6 +1461,7 @@ class AnalysisExporter:
             "repositoryDirty": _get_repository_dirty(),
             "analysisRepositorySha": engine.get("repositorySha"),
             "analysisRepositoryDirty": engine.get("repositoryDirty"),
+            "analysisPostprocessing": engine.get("postprocessing"),
             "provenance": {
                 "pipelineVersion": "3.5E",
                 "detectorModel": engine.get("detectorModel"),

@@ -136,6 +136,29 @@ class EligibilityRuntimeTests(unittest.TestCase):
         self.assertEqual(result[0], {})
         self.assertTrue(all(p.track_id is None for p in profiles.values()))
 
+    def test_distinctive_athletes_change_ends_despite_recycled_mot_ids(self):
+        from analyzer_v2 import PlayerProfile
+        from semantic_identity import match_tracks_to_profiles_with_reid
+        profiles = {1: PlayerProfile(1), 2: PlayerProfile(2)}
+        boxes = [[70, 10, 110, 60], [70, 120, 110, 170]]
+        detections = [{"bbox": box, "center": (90, (box[1]+box[3])/2), "real_pos": (3, y), "track_id": track, "conf": .95}
+                      for box, y, track in zip(boxes, (3, 10), (1, 2))]
+        initial = np.zeros((200, 200, 3), dtype=np.uint8)
+        initial[10:60, 70:110] = (20, 20, 210)
+        initial[120:170, 70:110] = (160, 160, 160)
+        owners = {}
+        match_tracks_to_profiles_with_reid(profiles, detections, initial, None, last_known_track_owners=owners)
+        switched = np.zeros_like(initial)
+        switched[10:60, 70:110] = (160, 160, 160)
+        switched[120:170, 70:110] = (20, 20, 210)
+        for _ in range(2):
+            self.assertEqual(match_tracks_to_profiles_with_reid(profiles, detections, switched, None, last_known_track_owners=owners)[0], {})
+        matched, _, raw_switches, semantic_switches = match_tracks_to_profiles_with_reid(profiles, detections, switched, None, last_known_track_owners=owners)
+        self.assertEqual(matched[1]["track_id"], 2)
+        self.assertEqual(matched[2]["track_id"], 1)
+        self.assertEqual(raw_switches, 2)
+        self.assertEqual(semantic_switches, 0)
+
     def test_known_continuity_is_bounded(self):
         ground = resolve_canonical_ground_point([10, 10, 30, 60], 100, 100)
         for age, expected in ((1, True), (16, False)):

@@ -341,11 +341,25 @@ def match_tracks_to_profiles_with_reid(
                        and (profiles[pid].color_hist is not None
                             or getattr(profiles[pid], "reid_embedding", None) is not None))
                    for pid in active_pids]
+    # A court-side prior or recycled MOT id cannot override a distinctive
+    # appearance belonging to the other established athlete (change of ends).
+    appearance_reassociation_pairs = set()
+    for i, row in enumerate(costs_grid):
+        for j, evidence in enumerate(row):
+            other = [grid[j] for k, grid in enumerate(costs_grid) if k != i]
+            distinctive = (evidence.hsv_distance is not None and evidence.hsv_distance <= .2
+                           and all(c.hsv_distance is None or c.hsv_distance >= evidence.hsv_distance + .1 for c in other))
+            if distinctive and profiles[active_pids[i]].track_id != detections[j].get("track_id"):
+                appearance_reassociation_pairs.add((i, j))
+            if evidence.hsv_distance is not None and evidence.hsv_distance >= .5 and any(
+                    c.hsv_distance is not None and c.hsv_distance <= .2 for c in other):
+                cost_matrix[i, j] = 1e6
+
     for i, needs_evidence in enumerate(reacquiring):
         for j, evidence in enumerate(costs_grid[i]):
             eligibility = detections[j].get("eligibility")
             uncalibrated_new_track = bool(eligibility and eligibility.provenance.get("courtEligibilityUnavailable") and profiles[active_pids[i]].track_id != detections[j].get("track_id"))
-            if not needs_evidence and not uncalibrated_new_track:
+            if not needs_evidence and not uncalibrated_new_track and (i, j) not in appearance_reassociation_pairs:
                 continue
             other = [row[j] for k, row in enumerate(costs_grid) if k != i]
             hsv_supported = (evidence.hsv_distance is not None and evidence.hsv_distance <= .2
@@ -369,13 +383,13 @@ def match_tracks_to_profiles_with_reid(
         cost = cost_matrix[r, c]
         p = profiles[pid]
 
-        gate = 100.0 if p.last_real_pos is None else 25.0
+        gate = 100.0 if p.last_real_pos is None or (r, c) in appearance_reassociation_pairs else 25.0
         if cost < gate:
             d = detections[c]
             new_track_id = d.get("track_id")
             eligibility = d.get("eligibility")
             uncalibrated_new_track = bool(eligibility and eligibility.provenance.get("courtEligibilityUnavailable") and p.track_id != new_track_id)
-            if reacquiring[r] or uncalibrated_new_track:
+            if reacquiring[r] or uncalibrated_new_track or (r, c) in appearance_reassociation_pairs:
                 # Require three consecutive eligible frames on the same raw MOT
                 # track, each with independently checked, distinctive appearance.
                 if new_track_id is None:
@@ -408,7 +422,7 @@ def match_tracks_to_profiles_with_reid(
                 and new_track_id in last_known_track_owners
             ):
                 prior_owner = last_known_track_owners[new_track_id]
-                if prior_owner != pid and profiles[prior_owner].missed_frames < 30:
+                if prior_owner != pid and profiles[prior_owner].missed_frames < 30 and (r, c) not in appearance_reassociation_pairs:
                     semantic_player_id_switches += 1
 
             if last_known_track_owners is not None and new_track_id is not None:
