@@ -54,7 +54,7 @@ from pose_coordinate_space import (
 )
 from pose_association import associate_poses_to_athletes
 from reid_adapter import BaseReIDAdapter, create_reid_provider
-from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts
+from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts, jersey_histogram
 from ground_position import (
     resolve_canonical_ground_point,
     CANONICAL_PROVENANCE_BOTH_ANKLES,
@@ -86,6 +86,7 @@ class PlayerProfile:
         self.team = team  # 0: Unknown, 1: Team 1 (Top / Far Court), 2: Team 2 (Bottom / Near Court)
         self.name = name or f"Player {player_id}"
         self.color_hist: np.ndarray | None = None
+        self.identity_color_hist: np.ndarray | None = None
         self.last_real_pos: tuple[float, float] | None = None
         self.last_bbox: list[int] | None = None
         self.missed_frames = 0
@@ -114,24 +115,12 @@ class PlayerProfile:
                 self.reid_embedding = updated / norm
 
     def update_appearance(self, frame: np.ndarray, bbox: list[int]):
-        """Extract HSV color histogram from upper 60% of bbox (shirt / jersey)."""
-        x1, y1, x2, y2 = [int(v) for v in bbox]
-        h, w = frame.shape[:2]
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(w, x2), min(h, y2)
-        if x2 <= x1 or y2 <= y1:
+        """Adapt visual appearance without overwriting initial identity evidence."""
+        hist = jersey_histogram(frame, bbox)
+        if hist is None:
             return
-
-        # Focus on upper torso (jersey/shirt)
-        torso_y2 = y1 + int((y2 - y1) * 0.65)
-        crop = frame[y1:torso_y2, x1:x2]
-        if crop.size == 0:
-            return
-
-        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-        hist = cv2.calcHist([hsv], [0, 1], None, [16, 16], [0, 180, 0, 256])
-        cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
-
+        if getattr(self, "identity_color_hist", None) is None:
+            self.identity_color_hist = hist.copy()
         if self.color_hist is None:
             self.color_hist = hist
         else:
@@ -1372,6 +1361,7 @@ class BadmintonAnalyzerV2:
             pa.track_id, pb.track_id = pb.track_id, pa.track_id
             pa.detection_confidence, pb.detection_confidence = pb.detection_confidence, pa.detection_confidence
             pa.color_hist, pb.color_hist = pb.color_hist, pa.color_hist
+            pa.identity_color_hist, pb.identity_color_hist = pb.identity_color_hist, pa.identity_color_hist
             pa.reid_embedding, pb.reid_embedding = pb.reid_embedding, pa.reid_embedding
             pa.last_real_pos, pb.last_real_pos = pb.last_real_pos, pa.last_real_pos
             pa.last_bbox, pb.last_bbox = pb.last_bbox, pa.last_bbox

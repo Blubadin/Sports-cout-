@@ -166,6 +166,43 @@ class EligibilityRuntimeTests(unittest.TestCase):
                 CourtEnvelopeZone.UNAVAILABLE, scene_state="SIDE_PLAY", unavailable_frames=age)
             self.assertEqual(elig.is_eligible_for_profile, expected)
 
+    def test_one_visible_near_athlete_is_not_transferred_into_an_empty_slot(self):
+        from analyzer_v2 import PlayerProfile
+        from semantic_identity import match_tracks_to_profiles_with_reid
+        profiles = {1: PlayerProfile(1, team=1), 2: PlayerProfile(2, team=2)}
+        image = np.zeros((200, 200, 3), dtype=np.uint8)
+        image[120:170, 70:110] = (160, 160, 160)
+        image[10:60, 70:110] = (20, 20, 210)
+        gray = dict(bbox=[70,120,110,170], center=(90,170), real_pos=(3,10), track_id=7, conf=.95)
+        red = dict(bbox=[70,10,110,60], center=(90,60), real_pos=(3,3), track_id=8, conf=.95)
+        initial = match_tracks_to_profiles_with_reid(profiles, [gray], image, None)[0]
+        self.assertEqual(initial[1]["track_id"], 7)
+        self.assertEqual(profiles[1].team, 2)
+        for _ in range(5):
+            matched = match_tracks_to_profiles_with_reid(profiles, [gray, red], image, None)[0]
+            self.assertEqual(matched[1]["track_id"], 7)
+            self.assertEqual(matched[2]["track_id"], 8)
+
+    def test_jersey_reference_does_not_drift_with_background_or_adaptive_updates(self):
+        from analyzer_v2 import PlayerProfile
+        from semantic_identity import compute_identity_association_cost
+        profile = PlayerProfile(1)
+        bbox = [20, 10, 120, 190]
+        image = np.full((200, 150, 3), (40, 180, 40), dtype=np.uint8)
+        image[46:100, 50:90] = (20, 20, 210)
+        profile.update_appearance(image, bbox)
+        reference = profile.identity_color_hist.copy()
+        changed_background = np.full_like(image, (220, 60, 20))
+        changed_background[46:100, 50:90] = (20, 20, 210)
+        cost = compute_identity_association_cost(profile, {"bbox": bbox}, changed_background)
+        self.assertAlmostEqual(cost.hsv_distance, 0)
+        wrong_athlete = np.full_like(image, (160, 160, 160))
+        for _ in range(60):
+            profile.update_appearance(wrong_athlete, bbox)
+        np.testing.assert_array_equal(reference, profile.identity_color_hist)
+        cost = compute_identity_association_cost(profile, {"bbox": bbox}, wrong_athlete)
+        self.assertGreater(cost.hsv_distance, .5)
+
     def test_explicit_cuda_unavailable_errors_auto_uses_cpu(self):
         fake = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False))
         self.assertEqual(resolve_device("auto", torch_module=fake), "cpu")
