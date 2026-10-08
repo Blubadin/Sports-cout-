@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProcessingConfig } from '../types';
-import { isCompatibleResumableTrackingSession, TrackingSessionApiClient, type TrackingSessionSummary } from './trackingSessionApi';
+import { isCompatibleResumableTrackingSession, toTrackingTelemetryV1, TrackingSessionApiClient, type TrackingSessionSummary } from './trackingSessionApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -81,5 +81,20 @@ describe('tracking session listing page envelope', () => {
       pageIssues: ['job-b: journal read failed'],
       pageIssueCount: 1,
     });
+  });
+});
+
+
+describe('canonical metric and shot telemetry transport', () => {
+  it('preserves measured quality, separate filtered points, source frame and unknown shot fields', () => {
+    const rawGroundPoint = { xPx: 20, yPx: 30, provenance: 'bbox_bottom_center', metricEligible: false };
+    const filteredGroundPoint = { xM: 2, yM: 3 };
+    const distanceMetrics = { totalTrackedDistanceM: 1, metricDistanceCoverage: 0.5 };
+    const shuttleShotEvents = { visibility: 'OUT_OF_FRAME', measuredPositionPx: null, shots: [{ shotId: 's1', hitterPlayerId: null, landingPositionM: null, outcome: 'UNKNOWN' }] };
+    const actual = toTrackingTelemetryV1({ schemaVersion: 1, analysisId: 'a', timestampSec: 1, frameIndex: 2, sourceFrame: 4,
+      shuttleShotEvents, players: [{ playerId: 'P1', state: 'observed', rawGroundPoint, filteredGroundPoint, distanceMetrics, poseSource: 'fresh', isPoseStale: false }] });
+    expect(actual.sourceFrame).toBe(4);
+    expect(actual.shuttleShotEvents).toEqual(shuttleShotEvents);
+    expect(actual.players[0]).toMatchObject({ rawGroundPoint, filteredGroundPoint, distanceMetrics, poseSource: 'fresh', isPoseStale: false });
   });
 });

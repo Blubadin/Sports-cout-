@@ -18,7 +18,7 @@ import { isMetricCalibrationValid } from '../../types/calibration';
 import {
   getLatestTrackingAnalysisForProject,
   getTrackingSampleChunkPage,
-  getTrackingTelemetryPage,
+  getTrackingTelemetryTimeRange,
 } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 import TrackingVideoOverlay, { resolveOverlayAtTime } from './TrackingVideoOverlay';
@@ -27,6 +27,7 @@ import { ShuttleOverlay, ShuttleControls, ShuttleDiagnostics, type ShuttleMode }
 import {
   framesForCameraSegmentAtTime,
   TrackingOverlayWindowLoader,
+  estimateCursor,
   trackingOverlayStatusText,
   trackingOverlayWindowContainsTime,
   type TrackingOverlayWindow,
@@ -368,15 +369,16 @@ export default function BadmintonTrackingLab() {
         { projectId, sessionId, timeSec: targetTime, status: state.sessionStatus },
         (id, signal) => aiTrackingService.getSessionStatus(id, signal),
         (id, cursor, limit, signal) => aiTrackingService.getSessionResults(id, cursor, limit, signal),
-        async (reqSessionId) => {
+        async (reqSessionId, startTimeSec, endTimeSec, signal) => {
           try {
             const currentAnalysis = analysisRef.current;
             const analysisId = currentAnalysis?.id;
             if (analysisId && (analysisId === reqSessionId || currentAnalysis?.pipelineRunId === reqSessionId)) {
-              const page = await getTrackingTelemetryPage(analysisId, 0);
-              if (page?.frames && page.frames.length > 0) {
-                return page.frames;
-              }
+              const status = state.sessionStatus;
+              const count = status?.committedResultCursor;
+              if (!status || !count || signal.aborted) return null;
+              return getTrackingTelemetryTimeRange(analysisId, startTimeSec, endTimeSec,
+                Math.max(0, estimateCursor(startTimeSec, count, status) - 1), signal);
             }
           } catch {
             // Ignore storage lookup error and fall through to backend

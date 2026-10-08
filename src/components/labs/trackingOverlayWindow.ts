@@ -115,17 +115,17 @@ function validPositive(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
-function estimateCursor(timeSec: number, count: number, status: TrackingSessionStatus): number {
-  const duration = validPositive(status.videoDurationSec)
-    ? status.videoDurationSec
-    : validPositive(status.lastTelemetryTimestampSec)
-      ? status.lastTelemetryTimestampSec
-      : null;
-  if (duration !== null) return Math.min(count - 1, Math.max(0, Math.floor((timeSec / duration) * count)));
-
+export function estimateCursor(timeSec: number, count: number, status: TrackingSessionStatus): number {
+  // Running jobs have a committed prefix shorter than the source video.
+  if (validPositive(status.lastTelemetryTimestampSec)) {
+    return Math.min(count - 1, Math.max(0, Math.floor((timeSec / status.lastTelemetryTimestampSec) * count)));
+  }
   const sourceFps = status.videoMetadata?.nominalFps ?? status.sourceFps;
   const frameStride = Number.isSafeInteger(status.frameStride) && status.frameStride > 0 ? status.frameStride : 1;
   if (validPositive(sourceFps)) return Math.min(count - 1, Math.max(0, Math.floor((timeSec * sourceFps) / frameStride)));
+  if (validPositive(status.videoDurationSec)) {
+    return Math.min(count - 1, Math.max(0, Math.floor((timeSec / status.videoDurationSec) * count)));
+  }
   return 0;
 }
 
@@ -213,13 +213,13 @@ export class TrackingOverlayWindowLoader {
     // Fast check: if targetTimeSec falls within the span of cached frames
     const firstCached = this.ramCache[0].timestampSec;
     const lastCached = this.ramCache[this.ramCache.length - 1].timestampSec;
-    if (targetTimeSec >= firstCached - 0.2 && targetTimeSec <= lastCached + 0.2) {
+    if (targetTimeSec >= firstCached - 0.2 && targetTimeSec <= lastCached + 0.2 && slice.some((f) => Math.abs(f.timestampSec - targetTimeSec) <= .2)) {
       return slice;
     }
 
     // Verify slice has adequate coverage for the requested playhead
-    const hasFrameAtOrBefore = slice.some((f) => f.timestampSec <= targetTimeSec && (targetTimeSec - f.timestampSec) <= 1.5);
-    const hasFrameAtOrAfter = slice.some((f) => f.timestampSec >= targetTimeSec && (f.timestampSec - targetTimeSec) <= 2.5);
+    const hasFrameAtOrBefore = slice.some((f) => f.timestampSec <= targetTimeSec && (targetTimeSec - f.timestampSec) <= .2);
+    const hasFrameAtOrAfter = slice.some((f) => f.timestampSec >= targetTimeSec && (f.timestampSec - targetTimeSec) <= .2);
     if (hasFrameAtOrBefore && (hasFrameAtOrAfter || slice.length >= 3)) {
       return slice;
     }
@@ -250,7 +250,7 @@ export class TrackingOverlayWindowLoader {
     if (centerTimeSec !== undefined && Number.isFinite(centerTimeSec)) {
       const minT = centerTimeSec - 12.0;
       const maxT = centerTimeSec + 35.0;
-      this.ramCache = merged.filter((f) => f.timestampSec >= minT && f.timestampSec <= maxT);
+      this.ramCache = merged.filter((f) => f.timestampSec >= minT && f.timestampSec <= maxT).slice(0, 1000);
     } else if (merged.length > 1000) {
       this.ramCache = merged.slice(-1000);
     } else {
@@ -298,7 +298,10 @@ export class TrackingOverlayWindowLoader {
             controller.signal,
           );
           if (!isCurrent()) return { status: 'stale' };
-          if (localFrames && localFrames.length > 0) {
+          if (localFrames && localFrames.length > 0 &&
+              localFrames[0].timestampSec <= request.timeSec + .2 &&
+              localFrames[localFrames.length - 1].timestampSec >= request.timeSec - .2 &&
+              localFrames.some((frame) => Math.abs(frame.timestampSec - request.timeSec) <= .2)) {
             this.addFramesToCache(request.sessionId, localFrames, request.timeSec);
             const readySlice = this.getCachedFrames(request.sessionId, request.timeSec, 5.0, 15.0) || localFrames;
             return {
@@ -371,7 +374,8 @@ export class TrackingOverlayWindowLoader {
         const prefetchLimit = Math.min(MAX_TRACKING_OVERLAY_WINDOW_FRAMES, total - nextStart);
         void fetchPage(request.sessionId, nextStart, prefetchLimit, controller.signal)
           .then((nextPage) => {
-            if (isCurrent() && nextPage?.telemetry?.length) {
+            if (isCurrent() && nextPage?.telemetry?.length && nextPage.sessionId === request.sessionId &&
+                nextPage.telemetry.length <= prefetchLimit && nextPage.nextCursor === nextStart + nextPage.telemetry.length && nextPage.nextCursor <= total) {
               this.addFramesToCache(request.sessionId, nextPage.telemetry, request.timeSec);
             }
           })
