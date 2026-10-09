@@ -183,6 +183,100 @@ class EligibilityRuntimeTests(unittest.TestCase):
             self.assertEqual(matched[1]["track_id"], 7)
             self.assertEqual(matched[2]["track_id"], 8)
 
+    def test_doubles_can_initialize_four_players_after_intro_camera_cuts(self):
+        from analyzer_v2 import BadmintonAnalyzerV2
+        from semantic_identity import match_tracks_to_profiles_with_reid
+        analyzer = BadmintonAnalyzerV2(game_type="doubles", max_players=4, device="cpu")
+        analyzer.start_camera_segment()
+        analyzer.start_camera_segment()
+        self.assertTrue(all(not p.identity_needs_reacquisition for p in analyzer.profiles.values()))
+        image = np.full((200, 200, 3), 160, dtype=np.uint8)
+        detections = [dict(bbox=[x, y, x + 30, y + 50], center=(x+15, y+50),
+                           real_pos=(court_x, court_y), track_id=track, conf=.95)
+                      for x, y, court_x, court_y, track in ((20, 10, 1, 3, 87), (100, 10, 5, 3, 89),
+                                                            (20, 120, 1, 10, 94), (100, 120, 5, 10, 97))]
+        matched = match_tracks_to_profiles_with_reid(analyzer.profiles, detections, image, None)[0]
+        self.assertEqual([matched[pid]["track_id"] for pid in (1, 2, 3, 4)], [87, 89, 94, 97])
+        analyzer.start_camera_segment()
+        self.assertTrue(all(p.identity_needs_reacquisition for p in analyzer.profiles.values()))
+        # Identical jerseys after a cut do not prove which athlete is P1..P4.
+        self.assertEqual(match_tracks_to_profiles_with_reid(analyzer.profiles, detections, image, None)[0], {})
+
+    def test_partial_doubles_initialization_does_not_steal_returning_players(self):
+        from analyzer_v2 import BadmintonAnalyzerV2
+        from semantic_identity import match_tracks_to_profiles_with_reid
+        analyzer = BadmintonAnalyzerV2(game_type="doubles", max_players=4, device="cpu")
+        image = np.full((200, 200, 3), 160, dtype=np.uint8)
+        image[10:60, 20:50] = (20, 20, 210)
+        image[10:60, 100:130] = (210, 20, 20)
+        detections = [dict(bbox=[x, y, x+30, y+50], center=(x+15, y+50),
+                           real_pos=(court_x, court_y), track_id=track, conf=.95)
+                      for x, y, court_x, court_y, track in ((20,10,1,3,11), (100,10,5,3,12),
+                                                            (20,120,1,10,21), (100,120,5,10,22))]
+        match_tracks_to_profiles_with_reid(analyzer.profiles, detections[:2], image, None)
+        analyzer.start_camera_segment()
+        for _ in range(2):
+            matched = match_tracks_to_profiles_with_reid(analyzer.profiles, detections, image, None)[0]
+            self.assertEqual({pid: d["track_id"] for pid, d in matched.items()}, {3: 21, 4: 22})
+        matched = match_tracks_to_profiles_with_reid(analyzer.profiles, detections, image, None)[0]
+        self.assertEqual({pid: d["track_id"] for pid, d in matched.items()}, {1:11, 2:12, 3:21, 4:22})
+
+    def test_partial_doubles_same_jerseys_can_fill_visible_remaining_slots(self):
+        from analyzer_v2 import BadmintonAnalyzerV2
+        from semantic_identity import match_tracks_to_profiles_with_reid
+        analyzer = BadmintonAnalyzerV2(game_type="doubles", max_players=4, device="cpu")
+        image = np.full((200, 200, 3), 160, dtype=np.uint8)
+        detections = [dict(bbox=[x,y,x+30,y+50], center=(x+15,y+50), real_pos=(cx,cy), track_id=t, conf=.95)
+                      for x,y,cx,cy,t in ((20,10,1,3,11),(100,10,5,3,12),(20,120,1,10,21),(100,120,5,10,22))]
+        match_tracks_to_profiles_with_reid(analyzer.profiles, detections[:2], image, None)
+        matched = match_tracks_to_profiles_with_reid(analyzer.profiles, detections, image, None)[0]
+        self.assertEqual({pid: d["track_id"] for pid,d in matched.items()}, {1:11,2:12,3:21,4:22})
+
+    def test_same_jersey_doubles_keep_mot_owners_when_spatial_matching_would_swap(self):
+        from analyzer_v2 import PlayerProfile
+        from semantic_identity import match_tracks_to_profiles_with_reid
+        profiles = {1: PlayerProfile(1), 2: PlayerProfile(2)}
+        image = np.full((200, 200, 3), 160, dtype=np.uint8)
+        detections = [dict(bbox=[x,10,x+30,60], center=(x+15,60), real_pos=(cx,3), track_id=t, conf=.95)
+                      for x,cx,t in ((20, .2, 11), (100, 5.9, 12))]
+        owners = {}
+        match_tracks_to_profiles_with_reid(profiles, detections, image, None, last_known_track_owners=owners)
+        moved = [dict(d, real_pos=(6.1-d['real_pos'][0],3)) for d in detections]
+        matched, _, _, switches = match_tracks_to_profiles_with_reid(profiles, moved, image, None, last_known_track_owners=owners)
+        self.assertEqual({pid:d['track_id'] for pid,d in matched.items()}, {1:11,2:12})
+        self.assertEqual(switches, 0)
+
+    def test_jersey_crop_noise_does_not_drop_continuous_mot_observations(self):
+        from analyzer_v2 import PlayerProfile
+        from semantic_identity import match_tracks_to_profiles_with_reid
+        profiles = {1: PlayerProfile(1), 2: PlayerProfile(2), 3: PlayerProfile(3), 4: PlayerProfile(4)}
+        image = np.full((200,200,3),160,dtype=np.uint8)
+        image[10:60,100:130] = (20,20,210)
+        detections = [dict(bbox=[x,y,x+30,y+50], center=(x+15,y+50), real_pos=(cx,cy), track_id=t, conf=.95)
+                      for x,y,cx,cy,t in ((20,10,1,3,11),(100,10,5,3,12),(20,120,1,10,21),(100,120,5,10,22))]
+        match_tracks_to_profiles_with_reid(profiles, detections, image, None)
+        image[:] = 160
+        matched = match_tracks_to_profiles_with_reid(profiles, detections, image, None)[0]
+        self.assertEqual({pid:d['track_id'] for pid,d in matched.items()}, {1:11,2:12,3:21,4:22})
+
+    def test_proven_reassociation_retires_the_absent_owners_prediction(self):
+        from analyzer_v2 import PlayerProfile
+        from semantic_identity import match_tracks_to_profiles_with_reid
+        profiles = {1: PlayerProfile(1), 2: PlayerProfile(2)}
+        image = np.full((200,200,3),160,dtype=np.uint8)
+        image[10:60,20:50] = (20,20,210)
+        detections = [dict(bbox=[x,y,x+30,y+50], center=(x+15,y+50), real_pos=(3,cy), track_id=t, conf=.95)
+                      for x,y,cy,t in ((20,10,3,11),(100,120,10,12))]
+        match_tracks_to_profiles_with_reid(profiles, detections, image, None)
+        image[:] = 160
+        image[120:170,100:130] = (20,20,210)
+        for _ in range(3):
+            matched = match_tracks_to_profiles_with_reid(profiles, detections[1:], image, None)[0]
+        self.assertEqual(matched[1]['track_id'], 12)
+        self.assertIsNone(profiles[2].track_id)
+        self.assertIsNone(profiles[2].last_bbox)
+        self.assertTrue(profiles[2].identity_needs_reacquisition)
+
     def test_jersey_reference_does_not_drift_with_background_or_adaptive_updates(self):
         from analyzer_v2 import PlayerProfile
         from semantic_identity import compute_identity_association_cost

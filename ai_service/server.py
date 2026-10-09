@@ -1282,7 +1282,7 @@ def _checkpoint_payload(session: TrackingSession) -> dict:
         "durationSec": session.duration_sec,
         "elapsedSec": session.elapsed_sec,
         "playerSummary": analyzer.get_live_player_statuses(),
-        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None, "needsReacquisition": profile.identity_needs_reacquisition} for pid, profile in analyzer.profiles.items()},
+        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None, "identityEstablished": profile.identity_established, "needsReacquisition": profile.identity_needs_reacquisition} for pid, profile in analyzer.profiles.items()},
         "identityCounters": {"rawTrackerIdSwitches": analyzer.raw_tracker_id_switches, "semanticPlayerIdSwitches": analyzer.semantic_player_id_switches},
         "frameStride": session.frame_stride,
         "segmentCalibrationState": {
@@ -1464,15 +1464,18 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
         profile.name = saved.get("name", profile.name)
         profile.team = saved.get("team", 0)
         # MOT/spatial continuity and pending confirmation counts are not durable.
-        # Older checkpoints in a later segment must also forbid initial seeding.
-        profile.identity_needs_reacquisition = saved.get("needsReacquisition", segment_id not in (None, "segment-0"))
+        # Empty slots can still seed after an intro cut or backend restart.
+        profile.identity_established = saved.get("identityEstablished", bool(
+            saved.get("colorHistogram") is not None or saved.get("reidEmbedding") is not None
+        ))
+        profile.identity_needs_reacquisition = bool(profile.identity_established)
         profile.identity_confirmation_track = None
         profile.identity_confirmation_frames = 0
         histogram = saved.get("colorHistogram")
         embedding = saved.get("reidEmbedding")
         if histogram is not None:
             restored_histogram = np.asarray(histogram, dtype=np.float32)
-            if restored_histogram.shape != (16, 16) or not np.isfinite(restored_histogram).all():
+            if restored_histogram.shape not in ((8, 2), (16, 16)) or not np.isfinite(restored_histogram).all():
                 raise JobStoreError("Invalid saved appearance histogram")
             profile.color_hist = restored_histogram
         if embedding is not None:
@@ -2053,6 +2056,11 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
                  if frame.get("frameIndex") == selected_frame_index),
                 None,
             )
+            if selected_frame is None:
+                try:
+                    selected_frame = session.job_store.find_result_frame(session_id, selected_frame_index)
+                except (OSError, JobStoreError, ValueError):
+                    raise HTTPException(status_code=507, detail="Selected calibration frame could not be read from committed results") from None
             timestamp_tolerance = max(0.05, 1.0 / session.source_fps) if session.source_fps > 0 else 0.05
             if (
                 selected_frame is None
@@ -2443,6 +2451,7 @@ def get_session_status(session_id: str):
         "processingConfig": public_metadata(session.processing_config),
         "effectiveProcessingConfig": public_metadata(session.effective_processing_config),
         "runtimeProvenance": runtime_provenance,
+        "gameType": session.game_type,
         "provenance": runtime_provenance,
         "performance": performance_stats,
         "quality": quality_stats,

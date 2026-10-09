@@ -99,6 +99,7 @@ class PlayerProfile:
         self.last_eligibility_status: str | None = None
         self.last_ground_pt: CanonicalGroundPoint | None = None
         self.identity_needs_reacquisition = False
+        self.identity_established = False
         self.identity_confirmation_track = None
         self.identity_confirmation_frames = 0
 
@@ -116,6 +117,7 @@ class PlayerProfile:
 
     def update_appearance(self, frame: np.ndarray, bbox: list[int]):
         """Adapt visual appearance without overwriting initial identity evidence."""
+        self.identity_established = True
         hist = jersey_histogram(frame, bbox)
         if hist is None:
             return
@@ -472,7 +474,13 @@ class BadmintonAnalyzerV2:
         self.track_in_court_counts.clear()
         self.track_far_outside_counts.clear()
         for profile in self.profiles.values():
-            profile.identity_needs_reacquisition = True
+            # A cut before the first eligible observation must not require
+            # appearance evidence for an identity which has never existed.
+            profile.identity_established = bool(
+                profile.identity_established or profile.last_bbox is not None
+                or profile.color_hist is not None or profile.reid_embedding is not None
+            )
+            profile.identity_needs_reacquisition = profile.identity_established
             profile.identity_confirmation_track = None
             profile.identity_confirmation_frames = 0
             profile.last_real_pos = None

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
-import { isCompatibleResumableTrackingSession, MAX_TRACKING_RESULTS_PAGE_SIZE, type BackendCapabilities } from '../../services/trackingSessionApi';
+import { isCompatibleResumableTrackingSession, isTrackingSessionConfigurationCompatible, MAX_TRACKING_RESULTS_PAGE_SIZE, type BackendCapabilities } from '../../services/trackingSessionApi';
 import { AIConnectionError, type AIConnectionSnapshot } from '../../services/aiConnection';
 import type {
   TrackingTelemetryV1,
@@ -839,6 +839,8 @@ export default function BadmintonTrackingLab() {
             candidate = page.sessions.find((item) => isCompatibleResumableTrackingSession(item, {
               projectId: activeProjectId,
               videoFingerprint: fingerprint,
+              gameType,
+              trackedPlayerCount,
               processingConfig: state.processingConfig,
             })) ?? null;
             if (candidate || !page.nextCursor) break;
@@ -967,12 +969,6 @@ export default function BadmintonTrackingLab() {
 
     let id: string | null = state.sessionId;
     const currentBackendStatus = state.status;
-    const sameDeviceRequest = (state.processingConfig?.requestedDevice ?? state.processingConfig?.device ?? 'auto') === devicePreference;
-    const isResumable =
-      id &&
-      ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCELLED', 'INTERRUPTED'].includes(currentBackendStatus) &&
-      sameDeviceRequest &&
-      (!file || !state.videoFingerprint || state.videoFingerprint === computeVideoFingerprint(file));
 
     const fail = (err: unknown) => {
       if (current()) {
@@ -1017,10 +1013,17 @@ export default function BadmintonTrackingLab() {
           : {}),
       };
 
+      // Read the server's immutable run configuration. UI preferences may have
+      // changed since this session was created (including singles -> doubles).
+      const existing = id ? await aiTrackingService.getSessionStatus(id) : null;
+      if (!current()) return;
+      const isResumable = id && existing &&
+        ['VIDEO_READY', 'READY_TO_ANALYZE', 'PROCESSING', 'CANCELLED', 'INTERRUPTED'].includes(currentBackendStatus) &&
+        state.videoFingerprint === computeVideoFingerprint(file) &&
+        isTrackingSessionConfigurationCompatible(existing, { gameType, trackedPlayerCount, processingConfig });
+
       if (!isResumable) {
-        if (id && sameDeviceRequest && ['VIDEO_READY', 'READY_TO_ANALYZE', 'CANCELLED', 'INTERRUPTED', 'ERROR'].includes(currentBackendStatus)) {
-          void aiTrackingService.deleteSession(id).catch(() => {});
-        }
+        // Keep the old job and its committed results available for review.
         update({
           status: 'UPLOADING',
           error: null,
@@ -1028,6 +1031,8 @@ export default function BadmintonTrackingLab() {
           telemetry: [],
           cursor: 0,
           sessionStatus: null,
+          analysis: null,
+          chunks: [],
         });
 
         const created = await aiTrackingService.createSession(gameType, 'upload', {

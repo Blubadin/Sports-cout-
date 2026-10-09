@@ -688,6 +688,7 @@ export type BackendSessionStatus =
 
 export interface TrackingSessionStatus {
   sessionId: string;
+  gameType?: 'singles' | 'doubles';
   status: BackendSessionStatus;
   progressPct: number;
   currentFrame: number;

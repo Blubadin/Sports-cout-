@@ -8,6 +8,8 @@ describe('tracking session page selection', () => {
   const expected = {
     projectId: 'project-a',
     videoFingerprint: 'video-a',
+    gameType: 'singles' as const,
+    trackedPlayerCount: 2,
     processingConfig: { device: 'auto', useCourtRoi: false, courtRoiMarginPx: 60, poseStride: 1, frameStride: 2, detectorInputSize: 640, detectorModel: 'yolov8n.pt' } as ProcessingConfig,
   };
   const candidate: TrackingSessionSummary = {
@@ -15,6 +17,7 @@ describe('tracking session page selection', () => {
     runId: 'run-001',
     status: 'INTERRUPTED',
     gameType: 'singles',
+    trackedPlayerCount: 2,
     projectId: 'project-a',
     videoFingerprint: 'video-a',
     progressPct: 45,
@@ -35,6 +38,9 @@ describe('tracking session page selection', () => {
     ['a different project', { projectId: 'project-b' }],
     ['a different media fingerprint', { videoFingerprint: 'video-b' }],
     ['a missing media fingerprint', { videoFingerprint: null }],
+    ['a different match type', { gameType: 'doubles' }],
+    ['a different player count', { trackedPlayerCount: 4 }],
+    ['an unknown player count', { trackedPlayerCount: undefined }],
     ['a different run configuration', { processingConfig: { ...expected.processingConfig, frameStride: 1 } }],
   ])('rejects %s', (_description, override) => {
     expect(isCompatibleResumableTrackingSession({ ...candidate, ...override } as TrackingSessionSummary, expected)).toBe(false);

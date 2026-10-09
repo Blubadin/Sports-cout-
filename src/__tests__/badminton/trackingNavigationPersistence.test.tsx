@@ -73,6 +73,13 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
 
   const mockStatus = (status: any, overrides: any = {}) => ({
     sessionId: 'session-123',
+    gameType: 'singles',
+    trackedPlayerCount: 2,
+    processingConfig: {
+      profile: 'auto', requestedProfile: 'auto', device: 'auto', requestedDevice: 'auto',
+      detectorInputSize: 640, useCourtRoi: false, courtRoiMarginPx: 60, courtRoiMarginM: .5,
+      frameStride: 2, poseStride: 1, shuttleEnabled: false, autoCourtCalibrationEnabled: false,
+    },
     status,
     progressPct: 0,
     currentFrame: 0,
@@ -227,7 +234,7 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       corners: [[0, 0], [100, 0], [100, 100], [0, 100]] // Valid corners
     });
     
-    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(mockStatus('VIDEO_READY') as any);
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockStatus('VIDEO_READY') as any);
     const createSpy = vi.spyOn(aiTrackingService, 'createSession');
     const uploadSpy = vi.spyOn(aiTrackingService, 'uploadSessionVideo').mockResolvedValueOnce(undefined as any);
     const startSpy = vi.spyOn(aiTrackingService, 'startSessionAnalysis').mockResolvedValueOnce({} as any);
@@ -255,7 +262,7 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       corners: [[0, 0], [100, 0], [100, 100], [0, 100]]
     });
 
-    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(mockStatus('READY_TO_ANALYZE') as any);
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockStatus('READY_TO_ANALYZE') as any);
     const createSpy = vi.spyOn(aiTrackingService, 'createSession');
     const uploadSpy = vi.spyOn(aiTrackingService, 'uploadSessionVideo');
     const startSpy = vi.spyOn(aiTrackingService, 'startSessionAnalysis').mockResolvedValueOnce({} as any);

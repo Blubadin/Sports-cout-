@@ -116,6 +116,8 @@ export const MAX_TRACKING_SESSION_PAGE_SIZE = 250;
 export interface TrackingSessionCompatibility {
   projectId: string;
   videoFingerprint: string | null;
+  gameType: BadmintonGameType;
+  trackedPlayerCount: number;
   processingConfig: ProcessingConfig;
   runId?: string | null;
 }
@@ -137,6 +139,15 @@ function sessionConfigMatches(expected: ProcessingConfig, actual: ProcessingConf
   return RESUME_CONFIG_KEYS.every((key) => expected[key] === undefined || expected[key] === actual[key]);
 }
 
+export function isTrackingSessionConfigurationCompatible(
+  candidate: { gameType?: BadmintonGameType; trackedPlayerCount?: number; processingConfig?: ProcessingConfig },
+  expected: Pick<TrackingSessionCompatibility, 'gameType' | 'trackedPlayerCount' | 'processingConfig'>,
+): boolean {
+  return candidate.gameType === expected.gameType &&
+    candidate.trackedPlayerCount === expected.trackedPlayerCount &&
+    sessionConfigMatches(expected.processingConfig, candidate.processingConfig);
+}
+
 export function isCompatibleResumableTrackingSession(
   candidate: TrackingSessionSummary,
   expected: TrackingSessionCompatibility,
@@ -152,7 +163,7 @@ export function isCompatibleResumableTrackingSession(
     !Number.isSafeInteger(candidate.committedCursor) || (candidate.committedCursor ?? -1) < 0 ||
     (candidate.committedCursor ?? 0) < (candidate.checkpointSequence ?? 0) ||
     (candidate.committedCursor ?? 0) > (candidate.checkpointSequence ?? 0) * 256) return false;
-  return sessionConfigMatches(expected.processingConfig, candidate.processingConfig);
+  return isTrackingSessionConfigurationCompatible(candidate, expected);
 }
 
 function asConnectionFailure(code: AIConnectionCode): Exclude<AIConnectionCode, 'CONNECTED'> {
