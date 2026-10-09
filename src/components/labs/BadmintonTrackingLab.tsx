@@ -470,13 +470,11 @@ export default function BadmintonTrackingLab() {
       ? statusCalibration.createdAtTimestampSec : null);
   const courtStartsLater = !calibrating && !courtOverlayCorners &&
     firstCourtTime != null && Number.isFinite(firstCourtTime) && time + 0.05 < firstCourtTime;
-  const overlayStatusKey = hasLiveOverlayWindow
+  const overlayStatusKey = hasLiveOverlayWindow || displayResolutionStatus === 'resolved'
     ? 'idle'
     : overlayWindowStatus === 'loading' || overlayWindowStatus === 'error' || overlayWindowStatus === 'unavailable'
       ? overlayWindowStatus
-      : displayResolutionStatus === 'resolved'
-        ? 'idle'
-        : 'idle';
+      : 'idle';
   const overlayStatus = trackingOverlayStatusText(overlayStatusKey, th);
 
   // This control describes the runtime available for the next analysis. A
@@ -622,10 +620,10 @@ export default function BadmintonTrackingLab() {
   // 4. Load persisted project analysis from IndexedDB if not already in state
   useEffect(() => {
     let alive = true;
-    if (activeProjectId && !state.analysis) {
+    if (activeProjectId && !state.analysis && !processing) {
       void getLatestTrackingAnalysisForProject(activeProjectId)
         .then(async (latest) => {
-          if (!latest || !alive) return;
+          if (!latest || !alive || (state.sessionId && latest.id !== state.sessionId)) return;
           const page = await getTrackingSampleChunkPage(latest.id);
           if (alive) {
             update({
@@ -633,8 +631,6 @@ export default function BadmintonTrackingLab() {
               chunks: page.chunks,
               chunksNextCursor: page.nextCursor,
               chunksHasMore: page.hasMore,
-              trackedPlayerCount: latest.trackedPlayerCount ?? state.trackedPlayerCount,
-              gameType: latest.gameType ?? state.gameType,
             });
           }
         })
@@ -643,7 +639,7 @@ export default function BadmintonTrackingLab() {
     return () => {
       alive = false;
     };
-  }, [activeProjectId, state.analysis]);
+  }, [activeProjectId, state.analysis, state.sessionId, processing]);
 
   // 5. Try restoring file handle from IndexedDB on hard page refresh
   useEffect(() => {
