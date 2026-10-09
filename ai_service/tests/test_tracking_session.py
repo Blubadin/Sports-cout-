@@ -129,8 +129,9 @@ class TestTrackingSessionAPI(unittest.TestCase):
         self.assertEqual(payload["sessions"][0]["sessionId"], session_id)
         self.assertEqual(payload["sessions"][0]["videoFingerprint"], "rally.mp4:123:456")
 
-    def test_unavailable_gpu_request_retains_request_and_uses_cpu(self):
-        with patch("device_runtime._availability", return_value=(False, False)):
+    def test_available_gpu_request_honors_cuda_selection(self):
+        """CASE 1: CUDA available -> capability may be available and selected."""
+        with patch("device_runtime._availability", return_value=(True, False)):
             res = self.client.post("/api/tracking/sessions", json={
                 "video_source": "demo",
                 "game_type": "singles",
@@ -138,8 +139,20 @@ class TestTrackingSessionAPI(unittest.TestCase):
             })
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()['requestedDevice'], 'cuda')
-        self.assertEqual(res.json()['effectiveDevice'], 'cpu')
+        self.assertEqual(res.json()['effectiveDevice'], 'cuda')
+
+    def test_explicit_cuda_unavailable_returns_error(self):
+        """CASE 2: CUDA intentionally simulated as unavailable -> unavailable behavior is correctly reported."""
+        with patch("device_runtime._availability", return_value=(False, False)):
+            res = self.client.post("/api/tracking/sessions", json={
+                "video_source": "demo",
+                "game_type": "singles",
+                "device": "cuda",
+            })
+        self.assertEqual(res.status_code, 422)
+        self.assertIn('CUDA', res.text)
 
 
 if __name__ == "__main__":
     unittest.main()
+

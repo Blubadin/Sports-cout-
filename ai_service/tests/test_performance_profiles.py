@@ -506,7 +506,9 @@ class TestPhase4PerformanceAndQualityHardening(unittest.TestCase):
 
             active_bboxes = [p["bbox"] for p in res["players"] if p["bbox"] is not None]
             self.assertIn([380, 450, 420, 500], active_bboxes)
-            self.assertIn([70, 450, 90, 500], active_bboxes)
+            # An unknown near-court person cannot fill the remaining player slot.
+            self.assertNotIn([70, 450, 90, 500], active_bboxes)
+            self.assertTrue(any(d["trackId"] == 2 for d in res["rawPlayerDetections"]))
             self.assertNotIn([0, 450, 20, 500], active_bboxes)
 
     def test_runtime_provenance_contract(self):

@@ -274,6 +274,7 @@ class DistanceTracker:
                 "speedSum": float(data.get("speed_sum", 0.0)),
                 "speedCount": int(data.get("speed_count", 0)),
                 "zoneDistanceM": dict(data.get("zone_dist", {})),
+                "distanceQuality": {key: data.get(key) for key in ("distanceDuringActivePlayM", "metricSamples", "observationSamples", "rawMovementM", "filteredMovementM", "jitterRejectedDistanceM", "validMovementSamples", "provenanceDistribution", "groundPointQuality")},
             }
             for player_id, data in self._data.items()
         }
@@ -284,6 +285,7 @@ class DistanceTracker:
             player_id = int(raw_player_id)
             data = self._get_or_create(player_id)
             data["total_dist_m"] = float(aggregate.get("totalDistanceM", 0.0))
+            data.update({key: value for key, value in (aggregate.get("distanceQuality") or {}).items() if value is not None})
             data["max_speed_ms"] = float(aggregate.get("maxSpeedMps", 0.0))
             data["speed_sum"] = float(aggregate.get("speedSum", 0.0))
             data["speed_count"] = int(aggregate.get("speedCount", 0))
@@ -299,6 +301,15 @@ class DistanceTracker:
     def pause_metric_tracking(self) -> None:
         """Keep accumulated distance but never bridge across an invalid interval."""
         self.break_metric_segment()
+
+    def pause_player(self, player_id):
+        data = self._data.get(player_id)
+        if data is not None:
+            data["prev_real"] = None
+            data["prev_time"] = None
+            data["filter_real"] = None
+            data["filteredGroundPoint"] = None
+            data["current_speed_ms"] = None
 
     def break_metric_segment(self) -> None:
         """End the current metric trajectory without clearing accumulated totals."""
@@ -324,6 +335,11 @@ class DistanceTracker:
         calibration_id: str | None = None,
         provenance: str | None = None,
         allow_canonical_writes: bool = True,
+        confidence: float = 1.0,
+        metric_eligible: bool = True,
+        calibration_confidence: float = 1.0,
+        identity_confidence: float = 1.0,
+        scene_state: str = "COURT_PLAY",
     ) -> dict:
         d = self._get_or_create(player_id)
         if not self.mapper.is_calibrated:
@@ -353,13 +369,69 @@ class DistanceTracker:
 
         # Long tracking loss continuity check (Task 5: long gap breaks distance continuity)
         if d["prev_real"] is not None and timestamp_sec is not None and d.get("prev_time") is not None:
-            gap = timestamp_sec - d["prev_time"]
+            gap = timestamp_sec - d.get("filter_time", d["prev_time"])
             if gap > self.max_tracking_gap:
                 d["prev_real"] = None
                 d["prev_time"] = None
                 d["current_speed_ms"] = 0.0
 
         real = self.mapper.pixel_to_real(center_px)
+        d["rawGroundPoint"] = {"xM": real[0], "yM": real[1]}
+        d["groundPointQuality"] = provenance or "unspecified"
+        d["observationSamples"] = d.get("observationSamples", 0) + 1
+        d.setdefault("provenanceDistribution", {})[provenance or "unspecified"] = d.get("provenanceDistribution", {}).get(provenance or "unspecified", 0) + 1
+        allowed = scene_state in ("COURT_PLAY", "RALLY", "COURT_IDLE")
+        if not metric_eligible or provenance == "bbox_bottom_center" or not allowed or not allow_canonical_writes or identity_confidence < .5:
+            d["prev_real"] = None
+            d["prev_time"] = None
+            d["filter_real"] = None
+            d["filteredGroundPoint"] = None
+            d["current_speed_ms"] = None
+            return d
+        d["metricSamples"] = d.get("metricSamples", 0) + 1
+        # A provenance switch changes the anatomical anchor, not the athlete's travel.
+        if provenance != d.get("last_provenance"):
+            d["prev_real"] = None
+            d["prev_time"] = None
+        t = float(timestamp_sec) if timestamp_sec is not None else d.get("filter_time", -1 / self.fps) + 1 / self.fps
+        dt = t - d.get("filter_time", t - 1 / self.fps)
+        raw_prev = d.get("raw_previous")
+        reset = d["prev_real"] is None or dt <= 0 or dt > self.max_tracking_gap
+        if raw_prev is not None and not reset:
+            d["rawMovementM"] = d.get("rawMovementM", 0.0) + CourtMapper.euclidean_distance(raw_prev, real)
+        d["raw_previous"] = real
+        # Adaptive confidence-weighted EMA. At high velocity the cutoff rises,
+        # preserving lunges; stationary ankles receive ~100 ms smoothing.
+        previous = d.get("filter_real")
+        window = d.setdefault("filter_window", [])
+        if reset:
+            window.clear()
+        window.append(real)
+        del window[:-3]
+        robust = tuple(float(v) for v in np.median(window, axis=0))
+        if len(window) < 3:
+            robust = real
+        else:
+            v1, v2 = np.subtract(window[1], window[0]), np.subtract(window[2], window[1])
+            if np.dot(v1, v2) > .8 * np.linalg.norm(v1) * np.linalg.norm(v2):
+                # Coherent translation bypasses median delay (lunges/straight runs).
+                robust = real
+        if reset or previous is None or provenance is None:
+            filtered = real
+        else:
+            velocity = CourtMapper.euclidean_distance(previous, robust) / max(dt, .001)
+            alpha = min(1.0, dt * (8.0 + 12.0 * velocity) * max(.4, confidence))
+            filtered = tuple(previous[i] + alpha * (robust[i] - previous[i]) for i in (0, 1))
+        d["filter_real"], d["filter_time"] = filtered, t
+        d["filteredGroundPoint"] = {"xM": filtered[0], "yM": filtered[1]}
+        d["filteredMovementM"] = d.get("filteredMovementM", 0.0) + (CourtMapper.euclidean_distance(previous, filtered) if previous is not None and not reset else 0)
+        real = filtered
+        # Conservative proxy uncertainty in meters. These are model assumptions,
+        # not certified error bounds; single-foot and weak calibration increase them.
+        uncertainty = (0.12 if provenance == "pose_both_ankles" else 0.24) if provenance else 0.0
+        uncertainty /= max(.25, confidence * calibration_confidence * identity_confidence)
+        d["measurementUncertaintyM"] = uncertainty
+        instantaneous_speed = CourtMapper.euclidean_distance(previous, filtered) / max(dt, .001) if previous is not None and not reset else 0.0
         pct = self.mapper.real_to_percent(real)
         zone = self.mapper.get_zone_2d(real)
 
@@ -400,22 +472,13 @@ class DistanceTracker:
         dist = CourtMapper.euclidean_distance(d["prev_real"], real)
         speed_ms = dist / delta_t
 
-        # Task 6: Provenance change continuity check (suppress fake spikes from anchor shifts)
-        last_prov = d.get("last_provenance")
-        if last_prov is not None and provenance is not None and last_prov != provenance:
-            is_implausible_jump = (dist > 0.35 and speed_ms > 7.0) or (speed_ms > 10.0)
-            if is_implausible_jump:
-                d["prev_real"] = real
-                d["prev_time"] = timestamp_sec
-                d["last_provenance"] = provenance
-                self._record_speed(d, 0.0)
-                d["current_speed_ms"] = 0.0
-                return d
-
         d["last_provenance"] = provenance
 
-        # Filter spatial jitter (< 0.03m / 3cm) and impossible speeds (> 11.0 m/s)
-        if dist >= 0.03 and speed_ms <= 11.0:
+        # Integrate travel beyond the anchor's uncertainty radius; reject impossible speed.
+        if dist > 2.0 * uncertainty and speed_ms <= 11.0 and instantaneous_speed <= 11.0:
+            d["validMovementSamples"] = d.get("validMovementSamples", 0) + 1
+            if scene_state in ("COURT_PLAY", "RALLY"):
+                d["distanceDuringActivePlayM"] = d.get("distanceDuringActivePlayM", 0.0) + dist
             if allow_canonical_writes:
                 d["total_dist_m"] += dist
                 if zone in d["zone_dist"]:
@@ -432,6 +495,13 @@ class DistanceTracker:
         else:
             self._record_speed(d, 0.0)
             d["current_speed_ms"] = 0.0
+            d["jitterRejectedDistanceM"] = max(0.0, d.get("filteredMovementM", 0.0) - d["total_dist_m"])
+            if speed_ms > 11.0 or instantaneous_speed > 11.0:
+                d["prev_real"] = real
+                d["prev_time"] = timestamp_sec
+            # Keep the accepted anchor: slow real travel eventually exceeds its
+            # uncertainty radius, whereas stationary noise remains inside it.
+            return d
 
         d["prev_real"] = real
         if timestamp_sec is not None:
@@ -453,6 +523,18 @@ class DistanceTracker:
         return {
             "player_id": player_id,
             "total_dist_m": round(d["total_dist_m"], 2),
+            "totalTrackedDistanceM": round(d["total_dist_m"], 2),
+            "distanceDuringActivePlayM": round(d.get("distanceDuringActivePlayM", 0.0), 2),
+            "metricDistanceCoverage": d.get("metricSamples", 0) / max(1, d.get("observationSamples", 0)),
+            "groundPointQuality": d.get("groundPointQuality"),
+            "rawGroundPoint": d.get("rawGroundPoint"),
+            "filteredGroundPoint": d.get("filteredGroundPoint"),
+            "rawMovementM": round(d.get("rawMovementM", 0.0), 3),
+            "filteredMovementM": round(d.get("filteredMovementM", 0.0), 3),
+            "jitterRejectedDistanceM": round(max(0.0, d.get("filteredMovementM", 0.0) - d["total_dist_m"]), 3),
+            "validMovementSamples": d.get("validMovementSamples", 0),
+            "provenanceDistribution": dict(d.get("provenanceDistribution", {})),
+            "measurementUncertaintyM": d.get("measurementUncertaintyM"),
             "max_speed_ms": round(d["max_speed_ms"], 2),
             "current_speed_ms": d["current_speed_ms"],
             "avg_speed_ms": round(

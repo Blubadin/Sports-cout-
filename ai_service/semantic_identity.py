@@ -23,6 +23,51 @@ from reid_adapter import BaseReIDAdapter, DisabledReIDAdapter
 from player_eligibility import CourtEnvelopeZone
 
 
+def jersey_histogram(frame, bbox):
+    """Central upper torso; exclude court background, head and lower body."""
+    if frame is None or not frame.size or bbox is None:
+        return None
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    width, height = x2-x1, y2-y1
+    x1, x2 = x1+int(width*.3), x1+int(width*.7)
+    y1, y2 = y1+int(height*.2), y1+int(height*.5)
+    h, w = frame.shape[:2]
+    crop = frame[max(0,y1):min(h,y2), max(0,x1):min(w,x2)]
+    if not crop.size:
+        return None
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    # Hue is undefined for white/gray jerseys, and red wraps around hue zero.
+    # Canonicalize achromatic pixels and use a circular red-centered hue bin.
+    hsv[:, :, 0] = (hsv[:, :, 0].astype(np.uint16) + 11) % 180
+    hsv[:, :, 0][hsv[:, :, 1] < 64] = 0
+    hsv[:, :, 1] = np.where(hsv[:, :, 1] < 64, 0, 255)
+    counts = cv2.calcHist([hsv], [0, 1], None, [8, 2], [0, 180, 0, 256])
+    peak = np.unravel_index(np.argmax(counts), counts.shape)
+    # Only an actual majority jersey color is identity evidence. Background,
+    # skin and folds can vary without adapting an athlete into somebody else.
+    if counts[peak] / counts.sum() < .55:
+        return None
+    hist = np.zeros_like(counts)
+    hist[peak] = 1
+    return hist
+
+
+def _has_observed_track_continuity(profile: Any, detection: dict[str, Any]) -> bool:
+    """Recent overlapping boxes on the same real MOT track, within one segment."""
+    if (profile.track_id is None or profile.track_id != detection.get("track_id")
+            or profile.missed_frames > 15 or getattr(profile, "identity_needs_reacquisition", False)):
+        return False
+    previous, current = profile.last_bbox, detection.get("bbox")
+    if previous is None or current is None:
+        return False
+    overlap = max(0, min(previous[2], current[2]) - max(previous[0], current[0])) * max(
+        0, min(previous[3], current[3]) - max(previous[1], current[1]))
+    previous_area = max(0, previous[2]-previous[0]) * max(0, previous[3]-previous[1])
+    current_area = max(0, current[2]-current[0]) * max(0, current[3]-current[1])
+    union = previous_area + current_area - overlap
+    return union > 0 and overlap / union >= .3
+
+
 @dataclass(frozen=True)
 class SemanticIdentityCosts:
     """Explicit decomposition of identity association cost components."""
@@ -104,22 +149,13 @@ def compute_identity_association_cost(
     hsv_appearance_cost = 0.0
     hsv_distance = None
     if profile.color_hist is not None and frame is not None and frame.size > 0:
-        bbox = detection.get("bbox")
-        if bbox is not None:
-            x1, y1, x2, y2 = [int(v) for v in bbox]
-            h, w = frame.shape[:2]
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(w, x2), min(h, y2)
-            if x2 > x1 and y2 > y1:
-                torso_y2 = y1 + int((y2 - y1) * 0.65)
-                crop = frame[y1:torso_y2, x1:x2]
-                if crop.size > 0:
-                    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-                    det_hist = cv2.calcHist([hsv], [0, 1], None, [16, 16], [0, 180, 0, 256])
-                    cv2.normalize(det_hist, det_hist, 0, 1, cv2.NORM_MINMAX)
-                    bhatt_dist = float(cv2.compareHist(profile.color_hist, det_hist, cv2.HISTCMP_BHATTACHARYYA))
-                    hsv_distance = bhatt_dist
-                    hsv_appearance_cost = float(bhatt_dist * hsv_weight)
+        det_hist = jersey_histogram(frame, detection.get("bbox"))
+        if det_hist is not None:
+            reference = getattr(profile, "identity_color_hist", None)
+            reference = reference if reference is not None else profile.color_hist
+            bhatt_dist = float(cv2.compareHist(reference, det_hist, cv2.HISTCMP_BHATTACHARYYA))
+            hsv_distance = bhatt_dist
+            hsv_appearance_cost = float(bhatt_dist * hsv_weight)
 
     # 5. ReID Appearance Cost (Cosine distance scaled by reid_weight)
     reid_appearance_cost = 0.0
@@ -209,6 +245,11 @@ def match_tracks_to_profiles_with_reid(
     - raw_tracker_id_switches: count of raw MOT track changes for existing players
     - semantic_player_id_switches: count of semantic identity swaps
     """
+    # Defense at the identity boundary: an unavailable court cannot seed a profile,
+    # even if an upstream caller incorrectly passes an otherwise eligible person.
+    any_established = any(p.color_hist is not None or getattr(p, "reid_embedding", None) is not None for p in profiles.values())
+    if not any_established:
+        detections = [d for d in detections if not (d.get("eligibility") and d["eligibility"].provenance.get("courtEligibilityUnavailable"))]
     if not detections:
         for p in profiles.values():
             p.missed_frames += 1
@@ -256,7 +297,7 @@ def match_tracks_to_profiles_with_reid(
                 if "pose_obj" in d and d["pose_obj"] is not None:
                     p.last_pose = d["pose_obj"]
                     p.last_pose_age = 0
-                if p.team == 0 and d["real_pos"] is not None:
+                if d["real_pos"] is not None:
                     p.team = 1 if d["real_pos"][1] < net_y else 2
                 p.update_appearance(frame, d["bbox"])
 
@@ -321,8 +362,26 @@ def match_tracks_to_profiles_with_reid(
                 raw_track_bonus_val=raw_track_bonus_val,
             )
             cost_matrix[i, j] = c.total_cost
+            eligibility = d.get("eligibility")
+            if eligibility is not None and eligibility.provenance.get("courtEligibilityUnavailable"):
+                established = (p.color_hist is not None or getattr(p, "reid_embedding", None) is not None)
+                if not established:
+                    cost_matrix[i, j] = 1e6
             row_costs.append(c)
         costs_grid.append(row_costs)
+
+    # During partial initialization an empty slot cannot absorb a returning
+    # athlete whose appearance belongs to an established (possibly cut) profile.
+    for i, pid in enumerate(active_pids):
+        p = profiles[pid]
+        if getattr(p, "identity_established", False) or p.last_bbox is not None or p.color_hist is not None or p.reid_embedding is not None:
+            continue
+        for j in range(n_detections):
+            if any(k != i and profiles[active_pids[k]].last_bbox is None and (
+                (row[j].hsv_distance is not None and row[j].hsv_distance <= .2)
+                or (row[j].reid_similarity is not None and row[j].reid_similarity >= .75)
+            ) for k, row in enumerate(costs_grid)):
+                cost_matrix[i, j] = 1e6
 
     # Cut/resume removes spatial continuity. Retained appearance is evidence,
     # never a license to seed identities again or to fill unseen player slots.
@@ -331,10 +390,55 @@ def match_tracks_to_profiles_with_reid(
                        and (profiles[pid].color_hist is not None
                             or getattr(profiles[pid], "reid_embedding", None) is not None))
                    for pid in active_pids]
+    # A court-side prior or recycled MOT id cannot override a distinctive
+    # appearance belonging to the other established athlete (change of ends).
+    appearance_reassociation_pairs = set()
+    for i, row in enumerate(costs_grid):
+        for j, evidence in enumerate(row):
+            if profiles[active_pids[i]].last_bbox is None and profiles[active_pids[i]].track_id is None and any(
+                    other_pid != active_pids[i] and other_profile.last_bbox is not None
+                    and other_profile.track_id == detections[j].get("track_id")
+                    for other_pid, other_profile in profiles.items()):
+                # An empty slot cannot take an established athlete's live MOT
+                # track merely because only one athlete was visible at seeding.
+                cost_matrix[i, j] = 1e6
+            other = [grid[j] for k, grid in enumerate(costs_grid) if k != i]
+            distinctive = (evidence.hsv_distance is not None and evidence.hsv_distance <= .2
+                           and all(c.hsv_distance is None or c.hsv_distance >= evidence.hsv_distance + .1 for c in other))
+            if distinctive and profiles[active_pids[i]].track_id != detections[j].get("track_id"):
+                appearance_reassociation_pairs.add((i, j))
+    for i, row in enumerate(costs_grid):
+        p = profiles[active_pids[i]]
+        for j, evidence in enumerate(row):
+            # A jersey crop can change with folds, lighting or court background.
+            # Recent MOT + image continuity is retained unless a different
+            # established athlete has distinctive contrary appearance evidence.
+            continuous = _has_observed_track_continuity(p, detections[j]) and not any(
+                k != i and (k, j) in appearance_reassociation_pairs for k in range(n_profiles)
+            )
+            other = [grid[j] for k, grid in enumerate(costs_grid) if k != i]
+            owner = next((other_pid for other_pid, other_profile in profiles.items()
+                          if other_profile.last_bbox is not None
+                          and other_profile.track_id is not None
+                          and other_profile.track_id == detections[j].get("track_id")), None)
+            if owner is not None and owner != active_pids[i] and (i, j) not in appearance_reassociation_pairs:
+                # Missing detections never release an athlete's observed MOT
+                # identity to another player or an empty semantic slot.
+                cost_matrix[i, j] = 1e6
+            if continuous:
+                continue
+            if getattr(profiles[active_pids[i]], "identity_color_hist", None) is not None and evidence.hsv_distance is not None and evidence.hsv_distance >= .5:
+                cost_matrix[i, j] = 1e6
+            if evidence.hsv_distance is not None and evidence.hsv_distance >= .5 and any(
+                    c.hsv_distance is not None and c.hsv_distance <= evidence.hsv_distance - .1 for c in other):
+                cost_matrix[i, j] = 1e6
+
     for i, needs_evidence in enumerate(reacquiring):
-        if not needs_evidence:
-            continue
         for j, evidence in enumerate(costs_grid[i]):
+            eligibility = detections[j].get("eligibility")
+            uncalibrated_new_track = bool(eligibility and eligibility.provenance.get("courtEligibilityUnavailable") and profiles[active_pids[i]].track_id != detections[j].get("track_id"))
+            if not needs_evidence and not uncalibrated_new_track and (i, j) not in appearance_reassociation_pairs:
+                continue
             other = [row[j] for k, row in enumerate(costs_grid) if k != i]
             hsv_supported = (evidence.hsv_distance is not None and evidence.hsv_distance <= .2
                              and all(c.hsv_distance is None or
@@ -357,11 +461,13 @@ def match_tracks_to_profiles_with_reid(
         cost = cost_matrix[r, c]
         p = profiles[pid]
 
-        gate = 100.0 if p.last_real_pos is None else 25.0
+        gate = 100.0 if p.last_real_pos is None or (r, c) in appearance_reassociation_pairs else 25.0
         if cost < gate:
             d = detections[c]
             new_track_id = d.get("track_id")
-            if reacquiring[r]:
+            eligibility = d.get("eligibility")
+            uncalibrated_new_track = bool(eligibility and eligibility.provenance.get("courtEligibilityUnavailable") and p.track_id != new_track_id)
+            if reacquiring[r] or uncalibrated_new_track or (r, c) in appearance_reassociation_pairs:
                 # Require three consecutive eligible frames on the same raw MOT
                 # track, each with independently checked, distinctive appearance.
                 if new_track_id is None:
@@ -394,7 +500,7 @@ def match_tracks_to_profiles_with_reid(
                 and new_track_id in last_known_track_owners
             ):
                 prior_owner = last_known_track_owners[new_track_id]
-                if prior_owner != pid and profiles[prior_owner].missed_frames < 30:
+                if prior_owner != pid and profiles[prior_owner].missed_frames < 30 and (r, c) not in appearance_reassociation_pairs:
                     semantic_player_id_switches += 1
 
             if last_known_track_owners is not None and new_track_id is not None:
@@ -414,7 +520,7 @@ def match_tracks_to_profiles_with_reid(
             if "pose_obj" in d and d["pose_obj"] is not None:
                 p.last_pose = d["pose_obj"]
                 p.last_pose_age = 0
-            if p.team == 0 and d["real_pos"] is not None:
+            if (p.team == 0 or p.color_hist is None) and d["real_pos"] is not None:
                 p.team = 1 if d["real_pos"][1] < net_y else 2
             p.update_appearance(frame, d["bbox"])
 
@@ -442,6 +548,16 @@ def match_tracks_to_profiles_with_reid(
 
     for pid, p in profiles.items():
         if pid not in matched_pids:
+            if p.track_id is not None and any(d.get("track_id") == p.track_id for d in matched.values()):
+                # A proven reassociation must also retire the old owner's
+                # prediction. One observed person cannot carry two labels.
+                p.track_id = None
+                p.last_bbox = None
+                p.last_real_pos = None
+                p.last_ground_pt = None
+                p.last_pose = None
+                p.missed_frames = 30
+                p.identity_needs_reacquisition = True
             p.missed_frames += 1
             # A failed evidence frame breaks confirmation (a pending accepted
             # assignment above deliberately keeps its counter).

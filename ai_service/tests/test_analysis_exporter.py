@@ -487,7 +487,9 @@ class TestAnalysisExporter(unittest.TestCase):
         self.exporter.export(self.session_id, target_zip_path=out_zip)
         with zipfile.ZipFile(out_zip, "r") as zf:
             self.assertIn("heatmaps/player_movement_heatmap.png", zf.namelist())
-            self.assertIn("heatmaps/shuttle_heatmap.png", zf.namelist())
+            self.assertIn("heatmaps/shuttle_trajectory_heatmap.png", zf.namelist())
+            self.assertIn("heatmaps/shuttle_landing_heatmap.png", zf.namelist())
+            self.assertIn("data/shuttle_shots.json", zf.namelist())
             img_bytes = zf.read("heatmaps/player_movement_heatmap.png")
             self.assertTrue(img_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
 

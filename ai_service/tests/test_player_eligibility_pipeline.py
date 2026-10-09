@@ -540,17 +540,23 @@ class TestAnalyzerFullPipeline(unittest.TestCase):
         analyzer._detector = "dummy"
         analyzer.set_court_corners(self.corners)
 
+        analyzer._estimate_pose = lambda frame, bbox: {
+            "keypoints": [((bbox[0]+bbox[2])/2, bbox[3], .95) for _ in range(17)],
+            "keypointCoordinateSpace": "pixel", "metrics": {},
+        }
         # Step 1: initial frame
         analyzer.detect_and_track = lambda f: [
             {"bbox": [600, 350, 660, 520], "center": (630, 435), "conf": 0.92, "track_id": 10}
         ]
         analyzer.process_frame(self.frame, timestamp_sec=0.0)
 
-        # Step 2: motion in segment 1
+        # Step 2: resolvable ankle motion (~0.7 m / 0.1 s), below the speed
+        # ceiling and above conservative missing-calibration uncertainty.
         analyzer.detect_and_track = lambda f: [
-            {"bbox": [620, 350, 680, 520], "center": (650, 435), "conf": 0.92, "track_id": 10}
+            {"bbox": [690, 350, 750, 520], "center": (720, 435), "conf": 0.92, "track_id": 10}
         ]
-        res1 = analyzer.process_frame(self.frame, timestamp_sec=0.1)
+        analyzer.process_frame(self.frame, timestamp_sec=0.1)
+        res1 = analyzer.process_frame(self.frame, timestamp_sec=0.2)
         dist_before_cut = res1["players"][0]["totalDistanceM"]
         self.assertIsNotNone(dist_before_cut)
         self.assertGreater(dist_before_cut, 0.0)
@@ -684,7 +690,9 @@ class TestAnalyzerFullPipeline(unittest.TestCase):
             {"bbox": [450, 480, 510, 600], "center": (480, 540), "conf": 0.90, "track_id": 3},
             {"bbox": [750, 480, 810, 600], "center": (780, 540), "conf": 0.90, "track_id": 4},
         ]
-        res2 = analyzer.process_frame(frame2, timestamp_sec=0.033)
+        # Lost synthetic court geometry requires distinctive appearance over three frames.
+        for t in (.033, .066, .099):
+            res2 = analyzer.process_frame(frame2, timestamp_sec=t)
 
         # Appearance + spatial continuity preserves semantic identity (P1 stays P1, P2 stays P2)
         self.assertEqual(analyzer.profiles[1].track_id, 2)

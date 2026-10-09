@@ -34,6 +34,10 @@ from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.ndimage import gaussian_filter
+try:
+    from ai_service.shuttle_shots import collect_shots, shot_analytics, point
+except ImportError:
+    from shuttle_shots import collect_shots, shot_analytics, point
 
 try:
     from ai_service.analysis_job_store import AnalysisJobStore, JobStoreError
@@ -426,6 +430,36 @@ def _get_git_commit_sha() -> Optional[str]:
     return None
 
 
+def normalize_export_frame(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Single boundary for canonical telemetry and controlled legacy aliases."""
+    result = dict(row)
+    cal = dict(row.get("calibration") or {})
+    cal["courtCornersPx"] = cal.get("corners") or cal.get("courtCornersPx") or row.get("courtCornersPx")
+    result["calibration"] = cal
+    result["rawPlayerDetections"] = [dict(d, trackId=d.get("trackId", d.get("track_id")), bboxPx=d.get("bboxPx", d.get("bbox"))) for d in row.get("rawPlayerDetections", [])]
+    players = []
+    for original in row.get("players", []):
+        player = dict(original)
+        if isinstance(player.get("pose"), dict):
+            pose = dict(player["pose"])
+            pose["keypoints"] = [dict(kp) if isinstance(kp, dict) else {"x": kp[0], "y": kp[1], "score": kp[2] if len(kp) > 2 else 1.0} for kp in pose.get("keypoints", [])]
+            player["pose"] = pose
+        players.append(player)
+    result["players"] = players
+    return result
+
+
+def _get_repository_dirty() -> Optional[bool]:
+    """Export-time checkout state; analysis-time state may be unknown."""
+    try:
+        import subprocess
+        result = subprocess.run(["git", "status", "--porcelain"], cwd=str(Path(__file__).resolve().parent),
+                                capture_output=True, text=True, timeout=2.0, check=False)
+        return bool(result.stdout.strip()) if result.returncode == 0 else None
+    except Exception:
+        return None
+
+
 class AnalysisExporter:
     """Production export engine that generates a complete SportsScout analysis bundle."""
 
@@ -487,7 +521,7 @@ class AnalysisExporter:
             # Stage 2: Render video with overlays
             progress.update("rendering_video", "Rendering video overlays against source timeline...", 10.0)
             output_video_path = video_dir / "analysis_overlay.mp4"
-            self._render_video(
+            render_facts = self._render_video(
                 source_media_path,
                 analysis_frames,
                 output_video_path,
@@ -530,17 +564,19 @@ class AnalysisExporter:
             readme_path = job_dir / "README.txt"
 
             self._generate_summary_json(job, analysis_frames, summary_path)
+            (data_dir / "shuttle_shots.json").write_text(json.dumps({"shots": collect_shots(analysis_frames), "analytics": shot_analytics(collect_shots(analysis_frames))}, indent=2), encoding="utf-8")
 
             all_artifacts = [
                 "video/analysis_overlay.mp4",
                 "report/SportsScout_Report.pdf",
                 *(f"heatmaps/{p.name}" for p in heatmap_artifacts),
                 "data/analysis_summary.json",
+                "data/shuttle_shots.json",
                 "data/export_manifest.json",
                 "README.txt",
             ]
 
-            self._generate_manifest(job, analysis_frames, options, all_artifacts, manifest_path, source_media_path)
+            self._generate_manifest(job, analysis_frames, options, all_artifacts, manifest_path, source_media_path, render_facts=render_facts)
             self._generate_readme(job, options, all_artifacts, readme_path)
 
             # Stage 6: Create ZIP Archive
@@ -620,7 +656,7 @@ class AnalysisExporter:
                 f"but found {len(frames)} frames in stored chunks"
             )
 
-        return job, frames, source_media_path
+        return job, [normalize_export_frame(row) for row in frames], source_media_path
 
     def _check_storage(self, source_media_path: Path, temp_dir: Path) -> None:
         try:
@@ -648,7 +684,7 @@ class AnalysisExporter:
         progress_start: float,
         progress_end: float,
         codec: Optional[str] = None,
-    ) -> None:
+    ) -> Dict[str, Any]:
         cap = cv2.VideoCapture(str(source_media_path))
         if not cap.isOpened():
             raise SourceVideoMissingError(f"OpenCV could not open source video: {source_media_path}")
@@ -662,15 +698,15 @@ class AnalysisExporter:
         total_source_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # Check if telemetry frame indices are 0-based or 1-based to ensure exact source alignment
-        raw_indices = [row.get("frameIndex") for row in analysis_frames if isinstance(row.get("frameIndex"), int)]
+        raw_indices = [row.get("frameIndex") for row in analysis_frames if "sourceFrame" not in row and isinstance(row.get("frameIndex"), int)]
         is_zero_indexed = len(raw_indices) > 0 and min(raw_indices) == 0 and (total_source_frames <= 0 or max(raw_indices) < total_source_frames)
 
         # Index canonical frames by 1-based source frame index for O(1) alignment
         frame_map: Dict[int, Dict[str, Any]] = {}
         for row in analysis_frames:
-            f_idx = row.get("frameIndex")
+            f_idx = row.get("sourceFrame") if "sourceFrame" in row else row.get("frameIndex")
             if isinstance(f_idx, int):
-                canonical_idx = f_idx + 1 if is_zero_indexed else f_idx
+                canonical_idx = f_idx + 1 if "sourceFrame" not in row and is_zero_indexed else f_idx
                 if canonical_idx > 0:
                     frame_map[canonical_idx] = row
 
@@ -683,17 +719,16 @@ class AnalysisExporter:
             alt_codec = "avc1" if selected_codec == "mp4v" else "mp4v"
             fourcc = cv2.VideoWriter_fourcc(*alt_codec)
             writer = cv2.VideoWriter(str(output_video_path), fourcc, fps, (width, height))
+            selected_codec = alt_codec
             if not writer.isOpened():
                 cap.release()
                 raise EncoderUnavailableError("No compatible MP4 video encoder (mp4v/avc1) available via OpenCV")
 
         # Overlay render state
         current_data: Optional[Dict[str, Any]] = None
-        current_data_frame: int = 0
         shuttle_trail_pts: List[Tuple[int, int]] = []
         last_camera_segment: Optional[str] = None
         # Bounded freshness window: ~0.25 seconds or at least 3 frames
-        freshness_limit_frames = max(3, int(round(fps * 0.25)))
 
         current_source_frame = 0
         try:
@@ -710,11 +745,9 @@ class AnalysisExporter:
                 # Update canonical frame data if an observation exists on this frame
                 if current_source_frame in frame_map:
                     current_data = frame_map[current_source_frame]
-                    current_data_frame = current_source_frame
                 elif current_data is not None:
                     # Clear stale telemetry if outside freshness tolerance
-                    if (current_source_frame - current_data_frame) > freshness_limit_frames:
-                        current_data = None
+                    current_data = None
 
                 # Invalidate overlay on camera cut, transition, replay, close-up
                 if current_data is not None:
@@ -757,6 +790,8 @@ class AnalysisExporter:
 
         if not output_video_path.exists() or output_video_path.stat().st_size == 0:
             raise VideoRenderFailedError("Video rendering produced an empty or missing output file")
+        return {"videoCodec": selected_codec, "resolution": [width, height], "fps": fps,
+                "legacyFrameIndexFallbackCount": sum("sourceFrame" not in row for row in analysis_frames)}
 
     def _render_overlays_on_frame(
         self,
@@ -769,6 +804,7 @@ class AnalysisExporter:
         shuttle_trail_pts: List[Tuple[int, int]],
     ) -> None:
         # 1. Court Overlay
+        data = normalize_export_frame(data)
         if options.court:
             # Check calibration validity: only render if valid and scene is COURT/RALLY
             is_valid = data.get("isMetricValid") is True or data.get("canUseCourtMetric") is True
@@ -952,10 +988,10 @@ class AnalysisExporter:
             raw_dets = data.get("rawPlayerDetections") or []
             confirmed_track_ids = {p.get("trackId") for p in players if p.get("state") in ("observed", "predicted")}
             for rd in raw_dets:
-                rd_track = rd.get("track_id")
+                rd_track = rd.get("trackId")
                 if rd_track is not None and rd_track in confirmed_track_ids:
                     continue
-                r_bbox = rd.get("bbox")
+                r_bbox = rd.get("bboxPx")
                 if r_bbox and len(r_bbox) == 4:
                     rx1, ry1, rx2, ry2 = [int(round(c)) for c in r_bbox]
                     cv2.rectangle(img, (rx1, ry1), (rx2, ry2), (120, 120, 120), 1, cv2.LINE_AA)
@@ -980,12 +1016,20 @@ class AnalysisExporter:
 
         for row in analysis_frames:
             # Strictly enforce calibration validity: only calibrated observations enter tactical heatmaps
-            if row.get("isMetricValid") is not True and row.get("canUseCourtMetric") is not True:
+            if row.get("isMetricValid", row.get("canUseCourtMetric")) is not True:
                 continue
+            if row.get("sceneState") not in ("COURT_PLAY", "COURT_IDLE"):
+                continue
+            shuttle = row.get("shuttle") or {}
+            shuttle_metric = point(shuttle.get("courtPositionM") or shuttle.get("positionM"))
+            if shuttle.get("state") == "observed" and shuttle_metric and shuttle.get("metricEligible") is True:
+                shuttle_pts.append(shuttle_metric)
 
             for p in row.get("players", []):
+                if p.get("state") != "observed" or p.get("groundPointProvenance") == "bbox_bottom_center" or (p.get("rawGroundPoint") or {}).get("metricEligible") is False:
+                    continue
                 pid = p.get("playerId")
-                cp = p.get("courtPosition") or p.get("courtPositionM")
+                cp = p.get("filteredGroundPoint") or p.get("courtPosition") or p.get("courtPositionM")
                 if cp:
                     if isinstance(cp, dict) and "xM" in cp and "yM" in cp:
                         xm, ym = float(cp["xM"]), float(cp["yM"])
@@ -1014,9 +1058,13 @@ class AnalysisExporter:
         generated.append(p2_path)
 
         # 3. Shuttle Heatmap (rendered only if valid shuttle observations exist)
-        shuttle_path = output_dir / "shuttle_heatmap.png"
-        self._plot_court_heatmap(shuttle_pts, "Shuttle Landing & Flight Distribution", shuttle_path)
+        shuttle_path = output_dir / "shuttle_trajectory_heatmap.png"
+        self._plot_court_heatmap(shuttle_pts, "Shuttle Trajectory" if shuttle_pts else "INSUFFICIENT_SHUTTLE_METRIC_DATA", shuttle_path)
         generated.append(shuttle_path)
+        landing_pts = [point(s["landingPositionM"]) for s in collect_shots(analysis_frames) if s.get("outcome") == "CONFIRMED_LANDING" and point(s.get("landingPositionM"))]
+        landing_path = output_dir / "shuttle_landing_heatmap.png"
+        self._plot_court_heatmap(landing_pts, "Confirmed Shuttle Landings" if landing_pts else "INSUFFICIENT_SHUTTLE_METRIC_DATA", landing_path)
+        generated.append(landing_path)
 
         return generated
 
@@ -1099,6 +1147,12 @@ class AnalysisExporter:
                 fig3 = self._build_pdf_page_diagnostics(job, analysis_frames, options)
                 pdf.savefig(fig3)
                 plt.close(fig3)
+                fig4 = self._build_pdf_page_shuttle(analysis_frames)
+                pdf.savefig(fig4)
+                plt.close(fig4)
+                fig5 = self._build_pdf_page_ground_quality(analysis_frames)
+                pdf.savefig(fig5)
+                plt.close(fig5)
         except Exception as e:
             raise PdfGenerationFailedError(f"Failed to generate PDF report: {e}") from e
 
@@ -1119,16 +1173,16 @@ class AnalysisExporter:
         ax.text(0.08, 0.89, f"Generated: {date_str} | SportsScout Tactical Workstation", color="#94a3b8", fontsize=10)
 
         # Match Info Card
-        ax.add_patch(plt.Rectangle((0.08, 0.68), 0.84, 0.18, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
+        ax.add_patch(plt.Rectangle((0.08, 0.665), 0.84, 0.195, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
         ax.text(0.10, 0.83, "1. MATCH & ANALYSIS INFORMATION", color="#38bdf8", fontsize=12, fontweight="bold")
 
         info_items = [
             ("Match / File Name:", str(match_name)),
-            ("Sport / Game Type:", f"Badminton ({meta.get('gameType', 'doubles').capitalize()})"),
-            ("Duration:", f"{vid_meta.get('durationSec', 0.0):.1f} s ({len(analysis_frames)} analyzed frames)"),
-            ("Source Resolution:", f"{vid_meta.get('width', 1280)} x {vid_meta.get('height', 720)} @ {vid_meta.get('nominalFps', 30.0)} FPS"),
-            ("Analysis Session ID:", str(job.get("id", "session-unknown"))),
-            ("Processing Profile:", str(meta.get("processingConfig", {}).get("profile", "reference"))),
+            ("Sport / Game Type:", f"Badminton ({str(meta.get('gameType') or 'unknown').capitalize()})"),
+            ("Duration:", f"{vid_meta.get('durationSec', 'unknown')} s ({len(analysis_frames)} analyzed frames)"),
+            ("Source Resolution:", f"{vid_meta.get('width', 'unknown')} x {vid_meta.get('height', 'unknown')} @ {vid_meta.get('nominalFps', 'unknown')} FPS"),
+            ("Analysis Session ID:", str(job.get("sessionId") or meta.get("sessionId") or "unknown")),
+            ("Processing Profile:", str(meta.get("processingConfig", {}).get("profile") or "unknown")),
             ("Audio Track Status:", "Not included in video overlay (visual analysis export)"),
         ]
 
@@ -1144,7 +1198,7 @@ class AnalysisExporter:
 
         # Compute coverage stats
         total_frames = max(1, len(analysis_frames))
-        cal_frames = sum(1 for r in analysis_frames if r.get("isMetricValid") is True or r.get("canUseCourtMetric") is True)
+        cal_frames = sum(1 for r in analysis_frames if r.get("isMetricValid", r.get("canUseCourtMetric")) is True)
         player_frames = sum(1 for r in analysis_frames if any(p.get("state") == "observed" for p in r.get("players", [])))
         pose_frames = sum(1 for r in analysis_frames if any(p.get("pose") and not p["pose"].get("isStale") for p in r.get("players", [])))
         shuttle_frames = sum(1 for r in analysis_frames if r.get("shuttle") and r["shuttle"].get("state") == "observed")
@@ -1153,8 +1207,8 @@ class AnalysisExporter:
             ("COURT CALIBRATION", "PARTIAL" if cal_frames > 0 else "NOT AVAILABLE", f"{cal_frames}/{total_frames} valid frames ({cal_frames*100/total_frames:.1f}%)"),
             ("PLAYER TRACKING", "AVAILABLE" if player_frames > 0 else "NOT AVAILABLE", f"{player_frames}/{total_frames} frames with players ({player_frames*100/total_frames:.1f}%)"),
             ("POSE ESTIMATION", "AVAILABLE" if pose_frames > 0 else "NOT AVAILABLE", f"{pose_frames}/{total_frames} fresh pose observations ({pose_frames*100/total_frames:.1f}%)"),
-            ("GROUND POINTS", "AVAILABLE" if player_frames > 0 else "NOT AVAILABLE", "Derived canonical foot contacts with explicit provenance"),
-            ("SEMANTIC IDENTITY", "AVAILABLE", "Distinct P1..P4 player slots quarantined from MOT track IDs"),
+            ("GROUND POINTS", "AVAILABLE" if player_frames > 0 else "NOT AVAILABLE", "Observed anchors with explicit provenance; bbox is visual only"),
+            ("SEMANTIC IDENTITY", "AVAILABLE", "Semantic slots are distinct from raw MOT tracks"),
             ("SHUTTLE TRACKING", "PARTIAL" if shuttle_frames > 0 else "NOT VALIDATED", f"{shuttle_frames}/{total_frames} observed shuttle locations"),
         ]
 
@@ -1170,10 +1224,57 @@ class AnalysisExporter:
         ax.text(
             0.08, 0.12,
             "SPORTSCOUT TRUST & INTEGRITY STATEMENT:\n"
-            "This report accurately reflects observed tracking data. Missing or uncalibrated observations are never\n"
-            "represented as zero. Biomechanical kinematics and tactical metrics are 2D pixel estimates.",
+            "Model observations are estimates; execution does not certify tracking or physical accuracy.\n"
+            "Missing observations stay unknown. See ground quality and shuttle evidence before using metrics.",
             color="#64748b", fontsize=8, style="italic"
         )
+        return fig
+
+    def _build_pdf_page_ground_quality(self, frames):
+        fig, ax = plt.subplots(figsize=(8.5, 11), facecolor="#0b1219")
+        ax.axis("off")
+        latest = {}
+        for row in frames:
+            for player in row.get("players", []):
+                if player.get("distanceMetrics"):
+                    latest[player["playerId"]] = player["distanceMetrics"]
+        lines = ["GROUND POINT & DISTANCE QUALITY", "Metric estimates require valid calibration and fresh ankle evidence."]
+        for pid, metrics in sorted(latest.items()):
+            coverage = metrics.get("metricDistanceCoverage")
+            coverage_label = f"{coverage:.1%}" if isinstance(coverage, (int, float)) else "unknown"
+            lines += [f"{pid}: total {metrics.get('totalTrackedDistanceM')} m; active {metrics.get('distanceDuringActivePlayM')} m",
+                      f"  Metric ground coverage: {coverage_label}; valid movements: {metrics.get('validMovementSamples')}",
+                      f"  Raw / filtered / rejected: {metrics.get('rawMovementM')} / {metrics.get('filteredMovementM')} / {metrics.get('jitterRejectedDistanceM')} m",
+                      f"  Ground quality: {metrics.get('groundPointQuality')}"]
+        if not latest:
+            lines.append("Ground metric quality unavailable for this legacy session.")
+        lines += ["", "Coverage is eligible ground observations / counted ground observations.",
+                  "BBox fallback and stale pose are visual only; they add no metric travel.",
+                  "COURT_IDLE contributes to total travel, but not active-play travel.",
+                  "Replay, invalid calibration and identity gaps contribute no travel.",
+                  "Rejected movement is diagnostic, not confirmed noise.",
+                  "Uncertainty assumptions and filtering can undercount small motion.",
+                  "Physical accuracy has not been validated against held-out ground truth."]
+        ax.text(.02, .97, "\n".join(lines), va="top", color="white", fontsize=9, linespacing=1.5)
+        return fig
+
+    def _build_pdf_page_shuttle(self, frames):
+        analytics = shot_analytics(collect_shots(frames))
+        fig, ax = plt.subplots(figsize=(8.5, 11), facecolor="#0b1219")
+        ax.axis("off")
+        lines = ["SHUTTLE SHOTS & LANDING EVIDENCE", analytics["status"],
+                 f"Detected Shots: {analytics['detectedShots']}",
+                 f"Valid Landing Events: {analytics['confirmedLandings']}",
+                 f"Landing Analytics Coverage: {analytics['landingAnalyticsCoverage']:.1%}",
+                 f"Most Targeted Zone: {analytics['MostTargetedZone'] or 'unknown'}",
+                 f"Out of frame / reacquired: {analytics['outOfFrameShots']} / {analytics['reacquiredShots']}",
+                 "Front / Mid / Rear Distribution:"]
+        for depth in ("FRONT", "MID", "REAR"):
+            lines.append(f"  {depth}: {sum(n for z, n in analytics['landingCountByZone'].items() if z.startswith(depth))}")
+        lines += ["3x3 Zone Distribution:"] + [f"  {z}: {n} ({analytics['landingPercentageByZone'][z]:.1f}%)" for z, n in analytics['landingCountByZone'].items()]
+        lines += ["IN / OUT / NET / RETURNED:"] + [f"  {k}: {v}" for k, v in analytics['outcomes'].items()]
+        lines += ["Tracking loss is UNKNOWN, never a landing.", "Airborne 2D detections do not provide physical flight positions."]
+        ax.text(.03, .98, "\n".join(lines), va="top", color="white", fontsize=10, linespacing=1.5)
         return fig
 
     def _build_pdf_page_players(
@@ -1191,14 +1292,14 @@ class AnalysisExporter:
         ax.text(0.10, 0.82, "3. INDIVIDUAL ATHLETE SUMMARY", color="#38bdf8", fontsize=12, fontweight="bold")
 
         # Table headers
-        headers = ["Player", "Slot", "Observations", "Coverage", "Max Distance (m)", "Status"]
+        headers = ["Player", "Slot", "Observations", "Coverage", "Total Distance (m)", "Status"]
         col_x = [0.11, 0.22, 0.32, 0.48, 0.65, 0.80]
         for x, h in zip(col_x, headers):
             ax.text(x, 0.78, h, color="#38bdf8", fontsize=8.5, fontweight="bold")
 
         total_frames = max(1, len(analysis_frames))
         p_counts: Dict[str, int] = {"P1": 0, "P2": 0, "P3": 0, "P4": 0}
-        p_dist: Dict[str, float] = {"P1": 0.0, "P2": 0.0, "P3": 0.0, "P4": 0.0}
+        p_dist: Dict[str, Optional[float]] = {"P1": None, "P2": None, "P3": None, "P4": None}
 
         for r in analysis_frames:
             for p in r.get("players", []):
@@ -1207,13 +1308,13 @@ class AnalysisExporter:
                     p_counts[pid] += 1
                     dist = p.get("totalDistanceM")
                     if isinstance(dist, (int, float)) and math.isfinite(dist):
-                        p_dist[pid] = max(p_dist[pid], float(dist))
+                        p_dist[pid] = max(p_dist[pid] or 0.0, float(dist))
 
         y_pos = 0.74
         for pid in ("P1", "P2", "P3", "P4"):
             obs = p_counts[pid]
             cov_pct = obs * 100.0 / total_frames
-            dist_val = f"{p_dist[pid]:.1f} m" if p_dist[pid] > 0 else "N/A"
+            dist_val = f"{p_dist[pid]:.1f} m" if p_dist[pid] is not None else "N/A"
             status = "Tracked" if obs > 0 else "Unobserved"
 
             ax.text(col_x[0], y_pos, f"Player {pid[-1]}", color="#f1f5f9", fontsize=8.5, fontweight="bold")
@@ -1266,9 +1367,9 @@ class AnalysisExporter:
             ("Total Evaluated Frames:", str(len(analysis_frames))),
             ("Camera Segments Detected:", f"{len(camera_segs)} discrete camera segments"),
             ("Scene Classifications Observed:", ", ".join(sorted(scenes))),
-            ("Court Calibration State:", "Rejected during unconfirmed intervals (0 false metrics leaked)"),
-            ("Feet Contact Provenance:", "Verified within image bounds; no 0,0 fallback"),
-            ("Identity Switching Policy:", "Continuous trajectory quarantine (separate from ByteTrack MOT ID)"),
+            ("Court Calibration Frames:", f"{sum(bool(r.get('isMetricValid')) for r in analysis_frames)}/{len(analysis_frames)} marked valid; accuracy unreviewed"),
+            ("Feet Contact Evidence:", "See recorded ground quality; bbox is visual only"),
+            ("Semantic Identity:", "Raw tracks separated; accuracy not certified"),
         ]
 
         y_pos = 0.77
@@ -1305,7 +1406,7 @@ class AnalysisExporter:
 
     def _generate_summary_json(self, job: Dict[str, Any], analysis_frames: List[Dict[str, Any]], output_path: Path) -> None:
         total_frames = len(analysis_frames)
-        cal_frames = sum(1 for r in analysis_frames if r.get("isMetricValid") is True or r.get("canUseCourtMetric") is True)
+        cal_frames = sum(1 for r in analysis_frames if r.get("isMetricValid", r.get("canUseCourtMetric")) is True)
 
         players_summary: Dict[str, Any] = {}
         for pid in ("P1", "P2", "P3", "P4"):
@@ -1313,12 +1414,13 @@ class AnalysisExporter:
             players_summary[pid] = {
                 "observedFrames": obs_count,
                 "coverageFraction": round(obs_count / max(1, total_frames), 3),
+                "distanceMetrics": next((p.get("distanceMetrics") for r in reversed(analysis_frames) for p in r.get("players", []) if p.get("playerId") == pid and p.get("distanceMetrics")), None),
             }
 
-        session_id = job.get("id") or job.get("metadata", {}).get("session", {}).get("sessionId") or "session"
+        session_id = job.get("sessionId") or job.get("metadata", {}).get("session", {}).get("sessionId")
         summary = {
             "sessionId": session_id,
-            "analysisJobId": job.get("id"),
+            "analysisJobId": job.get("id") or job.get("sessionId"),
             "exportedAt": datetime.datetime.now().isoformat(),
             "frameCount": total_frames,
             "totalSamples": total_frames,
@@ -1327,6 +1429,7 @@ class AnalysisExporter:
             "cameraSegmentCount": len(set(r.get("cameraSegmentId", "seg-0") for r in analysis_frames)),
             "players": players_summary,
             "shuttleObservedCount": sum(1 for r in analysis_frames if r.get("shuttle") and r["shuttle"].get("state") == "observed"),
+            "shuttleAnalytics": shot_analytics(collect_shots(analysis_frames)),
         }
 
         output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -1339,11 +1442,16 @@ class AnalysisExporter:
         artifact_list: List[str],
         output_path: Path,
         source_media_path: Path,
+        render_facts: Optional[Dict[str, Any]] = None,
     ) -> None:
         meta = job.get("metadata", {}).get("session", {})
         vid_meta = meta.get("videoMetadata", {})
 
         git_sha = _get_git_commit_sha()
+        engine = job.get("metadata", {}).get("engine") or {}
+        facts = render_facts or {}
+        session_id = job.get("sessionId") or meta.get("sessionId")
+        effective_device = engine.get("effectiveDevice") if "effectiveDevice" in engine else engine.get("device")
 
         manifest = {
             "exportVersion": "1.0.0",
@@ -1351,29 +1459,44 @@ class AnalysisExporter:
             "createdAt": datetime.datetime.now().isoformat(),
             "sportsScoutVersion": "0.11.0-pilot.1",
             "repositorySha": git_sha,
+            "repositoryDirty": _get_repository_dirty(),
+            "analysisRepositorySha": engine.get("repositorySha"),
+            "analysisRepositoryDirty": engine.get("repositoryDirty"),
+            "analysisPostprocessing": engine.get("postprocessing"),
             "provenance": {
                 "pipelineVersion": "3.5E",
-                "detectorModel": job.get("metadata", {}).get("engine", {}).get("detectorModel") or "yolov8x",
-                "poseModel": job.get("metadata", {}).get("engine", {}).get("poseModel") or "yolov8x-pose",
-                "shuttleModel": job.get("metadata", {}).get("engine", {}).get("shuttleModel") or "tracknet-v2",
-                "device": job.get("metadata", {}).get("engine", {}).get("device") or ("cuda" if cv2.cuda.getCudaEnabledDeviceCount() > 0 else "cpu"),
-                "runtime": "onnxruntime" if "onnx" in str(job) else "pytorch",
-                "precision": "fp16",
-                "analysisSessionId": job.get("id"),
+                "detectorModel": engine.get("detectorModel"),
+                "poseModel": engine.get("poseModel"),
+                "shuttleModel": engine.get("shuttleModel") or (engine.get("shuttle") or {}).get("model"),
+                "requestedDevice": engine.get("requestedDevice") or meta.get("device"),
+                "effectiveDevice": effective_device,
+                "device": effective_device,
+                "runtime": engine.get("runtime"),
+                "precision": None if engine.get("runtime") == "recorded" else engine.get("precision"),
+                "executionValidated": engine.get("executionValidated"),
+                "fallbackReason": engine.get("fallbackReason") or ((engine.get("inferenceProviders") or {}).get("detector") or {}).get("fallbackReason"),
+                "detectorDevice": engine.get("detectorDevice"),
+                "poseDevice": engine.get("poseDevice"),
+                "shuttleDevice": engine.get("shuttleDevice"),
+                "inferenceProviders": {**(engine.get("inferenceProviders") or {}), "shuttle": engine.get("shuttle")} if engine else None,
+                "analysisSessionId": session_id,
             },
-            "analysisJobId": job.get("id"),
+            "analysisJobId": job.get("id") or job.get("sessionId"),
             "sourceMediaSha256": job.get("identity", {}).get("mediaHash"),
             "sourceFilename": vid_meta.get("filename", source_media_path.name),
-            "sourceResolution": [vid_meta.get("width", 1280), vid_meta.get("height", 720)],
-            "sourceFps": vid_meta.get("nominalFps", 30.0),
-            "sourceDurationSec": vid_meta.get("durationSec", 0.0),
+            "projectId": meta.get("projectId"),
+            "analysisSessionId": session_id,
+            "sourceResolution": [vid_meta.get("width"), vid_meta.get("height")],
+            "sourceFps": vid_meta.get("nominalFps"),
+            "sourceDurationSec": vid_meta.get("durationSec"),
             "analysisResultRevision": int(job.get("checkpoint", {}).get("committedSequence", 1)),
             "selectedOverlays": options.to_dict(),
             "exportPreset": options.preset,
             "videoEncoder": "opencv_videowriter",
-            "videoCodec": "mp4v",
-            "outputResolution": [vid_meta.get("width", 1280), vid_meta.get("height", 720)],
-            "outputFps": vid_meta.get("nominalFps", 30.0),
+            "videoCodec": facts.get("videoCodec"),
+            "legacyFrameIndexFallbackCount": facts.get("legacyFrameIndexFallbackCount", sum("sourceFrame" not in row for row in analysis_frames)),
+            "outputResolution": facts.get("resolution"),
+            "outputFps": facts.get("fps"),
             "hasAudio": False,
             "audioNote": "Source audio was not multiplexed into the overlay render.",
             "calibrationCoverage": round(sum(1 for r in analysis_frames if r.get("isMetricValid")) / max(1, len(analysis_frames)), 3),
@@ -1408,8 +1531,10 @@ heatmaps/
   player_movement_heatmap.png   - Tactical court movement distribution
   player_1_heatmap.png          - Player 1 movement distribution
   player_2_heatmap.png          - Player 2 movement distribution
-  shuttle_heatmap.png           - Shuttle landing / trajectory heatmap
+  shuttle_trajectory_heatmap.png - Measured metric trajectory, or explicit insufficient data
+  shuttle_landing_heatmap.png    - Confirmed metric landings, or explicit insufficient data
 data/
+  shuttle_shots.json            - Evidence-gated shot events with null unknowns
   analysis_summary.json         - Machine-readable high-level metrics
   export_manifest.json          - Provenance, audit hashes, and export configuration
 README.txt                      - Package overview (this file)

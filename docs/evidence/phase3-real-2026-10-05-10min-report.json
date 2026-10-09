@@ -1520,6 +1520,72 @@
         "pending": 64,
         "semanticOwners": 26,
         "transitionHistory": 128
+      },
+      "exactInvariants": {
+        "chainIntegrity": true,
+        "duplicateOrOrderViolations": 0,
+        "schemaOrSyntheticViolations": 0,
+        "frameIndexGaps": 0,
+        "timestampAlignmentViolations": 0,
+        "expectedRowCount": 9000,
+        "actualRowCount": 9000
+      },
+      "completionGate": "PASS",
+      "observationCounts": {
+        "rows": 9000,
+        "duplicateOrOrderViolations": 0,
+        "frameIndexGaps": 0,
+        "timestampAlignmentViolations": 0,
+        "schemaOrSyntheticViolations": 0,
+        "isMetricValid": 0,
+        "canUseCourtMetric": 0,
+        "canBuildHeatmap": 0,
+        "canEstimateHit": 0,
+        "allowCanonicalWrites": 0,
+        "shuttleObservations": 0,
+        "playerObservations": 36000,
+        "playerObserved": 12683,
+        "courtPositionAvailable": 0
+      },
+      "sceneCounts": {
+        "COURT_IDLE": 8736,
+        "CAMERA_TRANSITION": 69,
+        "CLOSE_UP": 195
+      },
+      "qualityAccuracyMetrics": {
+        "groundErrorM": null,
+        "calibrationErrorPx": null,
+        "idSwitchesAgainstGt": null,
+        "cutF1": null,
+        "relockSec": null,
+        "shuttlePrecision": null,
+        "shuttleRecall": null,
+        "shuttleReacquisitionSec": null
+      },
+      "qualityStatus": "NOT VALIDATED: no qualified GT or approved thresholds",
+      "sampledBufferGate": "PASS",
+      "bufferScope": "5-second controller samples of 2-second worker snapshots; not every append or internal vendor buffer",
+      "durableReconstruction": [
+        {
+          "pid": 696,
+          "restoredFromDurableJob": false,
+          "startResult": {
+            "status": "started",
+            "sessionId": "baseline"
+          },
+          "recoveryReport": {
+            "interrupted": [],
+            "deleted": [],
+            "issues": []
+          }
+        }
+      ],
+      "recoveryGate": "NOT APPLICABLE",
+      "rssDiagnostics": {
+        "sampleCount": 368,
+        "first20PercentMedianBytes": 1441288192,
+        "last20PercentMedianBytes": 1326739456,
+        "stabilityAcceptance": "NOT VALIDATED: no frozen RAM growth threshold"
       }
     },
     {
@@ -3059,7 +3125,230 @@
         "pending": 64,
         "semanticOwners": 26,
         "transitionHistory": 128
+      },
+      "exactInvariants": {
+        "chainIntegrity": true,
+        "duplicateOrOrderViolations": 0,
+        "schemaOrSyntheticViolations": 0,
+        "frameIndexGaps": 0,
+        "timestampAlignmentViolations": 0,
+        "expectedRowCount": 9000,
+        "actualRowCount": 9000
+      },
+      "completionGate": "PASS",
+      "observationCounts": {
+        "rows": 9000,
+        "duplicateOrOrderViolations": 0,
+        "frameIndexGaps": 0,
+        "timestampAlignmentViolations": 0,
+        "schemaOrSyntheticViolations": 0,
+        "isMetricValid": 0,
+        "canUseCourtMetric": 0,
+        "canBuildHeatmap": 0,
+        "canEstimateHit": 0,
+        "allowCanonicalWrites": 0,
+        "shuttleObservations": 0,
+        "playerObservations": 36000,
+        "playerObserved": 9749,
+        "courtPositionAvailable": 0
+      },
+      "sceneCounts": {
+        "COURT_IDLE": 8736,
+        "CAMERA_TRANSITION": 69,
+        "CLOSE_UP": 195
+      },
+      "qualityAccuracyMetrics": {
+        "groundErrorM": null,
+        "calibrationErrorPx": null,
+        "idSwitchesAgainstGt": null,
+        "cutF1": null,
+        "relockSec": null,
+        "shuttlePrecision": null,
+        "shuttleRecall": null,
+        "shuttleReacquisitionSec": null
+      },
+      "qualityStatus": "NOT VALIDATED: no qualified GT or approved thresholds",
+      "sampledBufferGate": "PASS",
+      "bufferScope": "5-second controller samples of 2-second worker snapshots; not every append or internal vendor buffer",
+      "durableReconstruction": [
+        {
+          "pid": 26436,
+          "restoredFromDurableJob": false,
+          "startResult": {
+            "status": "started",
+            "sessionId": "cancel_restart"
+          },
+          "recoveryReport": {
+            "interrupted": [],
+            "deleted": [],
+            "issues": []
+          }
+        },
+        {
+          "pid": 3576,
+          "restoredFromDurableJob": true,
+          "startResult": {
+            "status": "resumed",
+            "sessionId": "cancel_restart"
+          },
+          "recoveryReport": {
+            "interrupted": [],
+            "deleted": [],
+            "issues": []
+          }
+        }
+      ],
+      "recoveryGate": "PASS",
+      "rssDiagnostics": {
+        "sampleCount": 368,
+        "first20PercentMedianBytes": 1451085824,
+        "last20PercentMedianBytes": 1330114560,
+        "stabilityAcceptance": "NOT VALIDATED: no frozen RAM growth threshold"
       }
+    }
+  ],
+  "postProcessingRunnerSha256": "30347c5a2bd548e8004819ae7cc4417d91c0f342a5099c45f99df95160e3bd5e",
+  "comparisons": [
+    {
+      "recoveredRun": "cancel_restart",
+      "exactFieldDifferenceRowCounts": {
+        "players": 2934,
+        "rawPlayerDetections": 4437,
+        "rawTrackerIdSwitches": 4423
+      },
+      "playerIdentityDifferenceCounts": {
+        "trackId": 2934,
+        "state": 2934,
+        "eligibilityStatus": 2934
+      },
+      "numericDiagnostics": {
+        "bboxPct": {
+          "pairedFiniteValues": 38996,
+          "availabilityOrShapeDifferences": 2934,
+          "valuesOutsideTolerance": 0,
+          "maxAbsoluteDifference": 0
+        },
+        "groundPointPct": {
+          "pairedFiniteValues": 19498,
+          "availabilityOrShapeDifferences": 2934,
+          "valuesOutsideTolerance": 0,
+          "maxAbsoluteDifference": 0
+        },
+        "leftFootPx": {
+          "pairedFiniteValues": 9346,
+          "availabilityOrShapeDifferences": 565,
+          "valuesOutsideTolerance": 0,
+          "maxAbsoluteDifference": 0
+        },
+        "rightFootPx": {
+          "pairedFiniteValues": 9136,
+          "availabilityOrShapeDifferences": 555,
+          "valuesOutsideTolerance": 0,
+          "maxAbsoluteDifference": 0
+        },
+        "courtPositionM": {
+          "pairedFiniteValues": 0,
+          "availabilityOrShapeDifferences": 0,
+          "valuesOutsideTolerance": 0,
+          "maxAbsoluteDifference": null
+        },
+        "speedMps": {
+          "pairedFiniteValues": 0,
+          "availabilityOrShapeDifferences": 0,
+          "valuesOutsideTolerance": 0,
+          "maxAbsoluteDifference": null
+        },
+        "totalDistanceM": {
+          "pairedFiniteValues": 0,
+          "availabilityOrShapeDifferences": 0,
+          "valuesOutsideTolerance": 0,
+          "maxAbsoluteDifference": null
+        }
+      },
+      "differenceExamples": [
+        {
+          "frameIndex": 4578,
+          "timestampSec": 305.167,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        },
+        {
+          "frameIndex": 4579,
+          "timestampSec": 305.233,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        },
+        {
+          "frameIndex": 4580,
+          "timestampSec": 305.3,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        },
+        {
+          "frameIndex": 4581,
+          "timestampSec": 305.367,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        },
+        {
+          "frameIndex": 4582,
+          "timestampSec": 305.433,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        },
+        {
+          "frameIndex": 4583,
+          "timestampSec": 305.5,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        },
+        {
+          "frameIndex": 4584,
+          "timestampSec": 305.567,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        },
+        {
+          "frameIndex": 4585,
+          "timestampSec": 305.633,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        },
+        {
+          "frameIndex": 4586,
+          "timestampSec": 305.7,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        },
+        {
+          "frameIndex": 4587,
+          "timestampSec": 305.767,
+          "baselineScene": "COURT_IDLE",
+          "resumedScene": "COURT_IDLE",
+          "baselineSegment": "segment-15",
+          "resumedSegment": "segment-15"
+        }
+      ],
+      "numericalQualityAcceptance": "NOT VALIDATED: diagnostic differences are not approved GT accuracy tolerances",
+      "temporalStateRestoredExactly": false
     }
   ]
 }

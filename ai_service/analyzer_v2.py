@@ -37,6 +37,7 @@ from scene_lifecycle import (
 )
 from court_roi import calculate_court_roi, inverse_transform_bbox
 from device_runtime import resolve_device
+from shuttle_shots import ShuttleShotTracker
 from engine_config import (
     TrackingEngineConfig,
     create_baseline_engine_config,
@@ -53,7 +54,7 @@ from pose_coordinate_space import (
 )
 from pose_association import associate_poses_to_athletes
 from reid_adapter import BaseReIDAdapter, create_reid_provider
-from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts
+from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts, jersey_histogram
 from ground_position import (
     resolve_canonical_ground_point,
     CANONICAL_PROVENANCE_BOTH_ANKLES,
@@ -85,6 +86,7 @@ class PlayerProfile:
         self.team = team  # 0: Unknown, 1: Team 1 (Top / Far Court), 2: Team 2 (Bottom / Near Court)
         self.name = name or f"Player {player_id}"
         self.color_hist: np.ndarray | None = None
+        self.identity_color_hist: np.ndarray | None = None
         self.last_real_pos: tuple[float, float] | None = None
         self.last_bbox: list[int] | None = None
         self.missed_frames = 0
@@ -97,6 +99,7 @@ class PlayerProfile:
         self.last_eligibility_status: str | None = None
         self.last_ground_pt: CanonicalGroundPoint | None = None
         self.identity_needs_reacquisition = False
+        self.identity_established = False
         self.identity_confirmation_track = None
         self.identity_confirmation_frames = 0
 
@@ -113,24 +116,13 @@ class PlayerProfile:
                 self.reid_embedding = updated / norm
 
     def update_appearance(self, frame: np.ndarray, bbox: list[int]):
-        """Extract HSV color histogram from upper 60% of bbox (shirt / jersey)."""
-        x1, y1, x2, y2 = [int(v) for v in bbox]
-        h, w = frame.shape[:2]
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(w, x2), min(h, y2)
-        if x2 <= x1 or y2 <= y1:
+        """Adapt visual appearance without overwriting initial identity evidence."""
+        self.identity_established = True
+        hist = jersey_histogram(frame, bbox)
+        if hist is None:
             return
-
-        # Focus on upper torso (jersey/shirt)
-        torso_y2 = y1 + int((y2 - y1) * 0.65)
-        crop = frame[y1:torso_y2, x1:x2]
-        if crop.size == 0:
-            return
-
-        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-        hist = cv2.calcHist([hsv], [0, 1], None, [16, 16], [0, 180, 0, 256])
-        cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
-
+        if getattr(self, "identity_color_hist", None) is None:
+            self.identity_color_hist = hist.copy()
         if self.color_hist is None:
             self.color_hist = hist
         else:
@@ -172,6 +164,7 @@ class BadmintonAnalyzerV2:
         self.max_players = resolved_max
 
         self.fps = fps
+        self.shot_tracker = ShuttleShotTracker(game_type)
         self.requested_device = device if device is not None else (engine_config.device if engine_config else 'auto')
         self.device = resolve_device(self.requested_device)
 
@@ -481,7 +474,13 @@ class BadmintonAnalyzerV2:
         self.track_in_court_counts.clear()
         self.track_far_outside_counts.clear()
         for profile in self.profiles.values():
-            profile.identity_needs_reacquisition = True
+            # A cut before the first eligible observation must not require
+            # appearance evidence for an identity which has never existed.
+            profile.identity_established = bool(
+                profile.identity_established or profile.last_bbox is not None
+                or profile.color_hist is not None or profile.reid_embedding is not None
+            )
+            profile.identity_needs_reacquisition = profile.identity_established
             profile.identity_confirmation_track = None
             profile.identity_confirmation_frames = 0
             profile.last_real_pos = None
@@ -611,6 +610,7 @@ class BadmintonAnalyzerV2:
         frame: np.ndarray,
         timestamp_sec: float | None = None,
         frame_index: int | None = None,
+        source_frame: int | None = None,
     ) -> dict:
         """Process a single frame and generate structured telemetry."""
         if frame_index is not None:
@@ -901,6 +901,11 @@ class BadmintonAnalyzerV2:
 
             in_court_count = self.track_in_court_counts.get(det_track_id, 1 if det_track_id is None else 0)
             far_outside_count = self.track_far_outside_counts.get(det_track_id, 0)
+            if not hasattr(self, "track_uncalibrated_counts"):
+                self.track_uncalibrated_counts = {}
+            self.track_uncalibrated_counts[det_track_id] = self.track_uncalibrated_counts.get(det_track_id, 0) + 1 if zone == CourtEnvelopeZone.UNAVAILABLE else 0
+            if len(self.track_uncalibrated_counts) > 4096:
+                self.track_uncalibrated_counts.pop(next(iter(self.track_uncalibrated_counts)))
 
             elig = evaluate_player_eligibility(
                 detection=d,
@@ -916,6 +921,7 @@ class BadmintonAnalyzerV2:
                 in_court_observations=in_court_count,
                 calibration_state=calibration_state,
                 far_outside_frames=far_outside_count,
+                unavailable_frames=self.track_uncalibrated_counts[det_track_id],
             )
             d["envelope_zone"] = zone
             d["eligibility"] = elig
@@ -950,8 +956,14 @@ class BadmintonAnalyzerV2:
                         calibration_id=self.calibration_context.provenance.calibration_id if metric_valid else None,
                         provenance=ground_pt.provenance,
                         allow_canonical_writes=transition.allow_canonical_writes,
+                        confidence=ground_pt.confidence,
+                        metric_eligible=metric_valid and ground_pt.metric_eligible and p.missed_frames == 0,
+                        calibration_confidence=(self.calibration_context.provenance.confidence if self.calibration_context.provenance.confidence is not None else .5) if metric_valid else 0.0,
+                        identity_confidence=0.0 if p.identity_needs_reacquisition else 1.0,
+                        scene_state=transition.to_state.value,
                     )
             else:
+                self.dist_tracker.pause_player(pid)
                 if p.missed_frames < 30:
                     p.last_pose_age += 1
                 if p.missed_frames >= 15:
@@ -1089,6 +1101,9 @@ class BadmintonAnalyzerV2:
                 "playerRelativeZone": rel_zone if tracking_state != "lost" else None,
                 "speedMps": stats.get("current_speed_ms") if (metric_valid and court_position is not None and transition.allow_canonical_writes and tracking_state != "lost") else None,
                 "totalDistanceM": stats.get("total_dist_m") if self.dist_tracker.has_metric_observation(pid) else None,
+                "rawGroundPoint": ground_pt.to_dict() if ground_pt is not None and tracking_state == "observed" else None,
+                "filteredGroundPoint": stats.get("filteredGroundPoint") if tracking_state == "observed" and metric_valid else None,
+                "distanceMetrics": {key: stats.get(key) for key in ("totalTrackedDistanceM", "distanceDuringActivePlayM", "metricDistanceCoverage", "groundPointQuality", "rawMovementM", "filteredMovementM", "jitterRejectedDistanceM", "validMovementSamples", "provenanceDistribution", "measurementUncertaintyM")},
                 "detectionConfidence": confidence,
                 "confidence": confidence,
                 "state": tracking_state,
@@ -1145,7 +1160,12 @@ class BadmintonAnalyzerV2:
         # does not create or assert a hit/contact event and does not affect metrics.
         if transition.capabilities is not None:
             image_players = []
-            for player in player_telemetry:
+            # Hit readiness is an image-space capability, not semantic promotion.
+            image_observations = [{"state": "observed", "pose": d.get("pose_obj"),
+                "detectionConfidence": d.get("conf"), "poseAgeFrames": d["ground_pt"].pose_age_frames,
+                "isPoseStale": d["ground_pt"].is_stale, "poseSource": d["ground_pt"].pose_source}
+                for d in raw_detections if d.get("ground_pt") is not None]
+            for player in image_observations:
                 pose = player.get("pose")
                 raw_keypoints = pose.get("keypoints") if isinstance(pose, dict) else None
                 keypoints = tuple(
@@ -1215,6 +1235,17 @@ class BadmintonAnalyzerV2:
             if detection.get("bbox") is not None
         ]
 
+        shot_events = self.shot_tracker.update({
+            "frameIndex": self.frame_count, "sourceFrame": source_frame or self.frame_count,
+            "timestampSec": t_sec, "cameraSegmentId": self.calibration_context.camera_segment_id,
+            "sceneState": transition.to_state.value, "isMetricValid": metric_valid,
+            "players": player_telemetry, "shuttle": shuttle_obs.to_dict() if shuttle_obs is not None else None,
+        }, w, h)
+
+        shuttle_telemetry = shuttle_obs.to_dict() if shuttle_obs is not None else None
+        if shuttle_telemetry is not None and shot_events["visibility"] == "OUT_OF_FRAME":
+            shuttle_telemetry = dict(shuttle_telemetry, positionPx=None, positionM=None, velocityPxPerSec=None, speedPxPerSec=None, validity={"positionValid": False, "reason": "no_reliable_position"})
+
         return {
             # Canonical V1 Protocol (PDF §45 & §47)
             "schemaVersion": 1,
@@ -1222,6 +1253,8 @@ class BadmintonAnalyzerV2:
             "pipelineRunId": getattr(self, "pipeline_run_id", getattr(self, "analysis_id", "live_session")),
             "timestampSec": round(t_sec, 3),
             "frameIndex": self.frame_count,
+            **({"sourceFrame": source_frame} if source_frame is not None else {}),
+            "shuttleShotEvents": shot_events,
             "timebase": getattr(self, "timebase", None),
             "sceneState": transition.to_state.value,
             "sceneTransition": transition.to_dict(),
@@ -1256,7 +1289,7 @@ class BadmintonAnalyzerV2:
             "device": self.device,
             "players": player_telemetry,
             "rawPlayerDetections": raw_player_detections,
-            "shuttle": shuttle_obs.to_dict() if shuttle_obs is not None else None,
+            "shuttle": shuttle_telemetry,
 
             # Backward compatibility aliases
             "timestamp": round(t_sec, 3),
@@ -1336,6 +1369,7 @@ class BadmintonAnalyzerV2:
             pa.track_id, pb.track_id = pb.track_id, pa.track_id
             pa.detection_confidence, pb.detection_confidence = pb.detection_confidence, pa.detection_confidence
             pa.color_hist, pb.color_hist = pb.color_hist, pa.color_hist
+            pa.identity_color_hist, pb.identity_color_hist = pb.identity_color_hist, pa.identity_color_hist
             pa.reid_embedding, pb.reid_embedding = pb.reid_embedding, pa.reid_embedding
             pa.last_real_pos, pb.last_real_pos = pb.last_real_pos, pa.last_real_pos
             pa.last_bbox, pb.last_bbox = pb.last_bbox, pa.last_bbox
@@ -1389,6 +1423,12 @@ class BadmintonAnalyzerV2:
             "courtRoiMarginM": self.court_roi_margin_m,
             "autoCourtCalibrationEnabled": self.auto_calibration_provider is not None,
             "device": self.device,
+            "requestedDevice": self.requested_device,
+            "effectiveDevice": self.device,
+            "executionValidated": bool(execution is not None and execution.status == 'READY'),
+            "detectorDevice": (self.detector_adapter.get_provenance() or {}).get('effectiveDevice') if hasattr(self.detector_adapter, 'get_provenance') else None,
+            "poseDevice": (self.pose_adapter.get_provenance() or {}).get('effectiveDevice') if hasattr(self.pose_adapter, 'get_provenance') else None,
+            "shuttleDevice": self.shuttle_pipeline.get_provenance().get('effectiveDevice') if self.shuttle_pipeline is not None else None,
             "inferenceProviders": {
                 'detector': self.detector_adapter.get_provenance() if hasattr(self.detector_adapter, 'get_provenance') else None,
                 'pose': self.pose_adapter.get_provenance() if hasattr(self.pose_adapter, 'get_provenance') else None,

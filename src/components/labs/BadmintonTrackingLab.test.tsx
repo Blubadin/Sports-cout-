@@ -155,6 +155,36 @@ it('provides a clearly visible video file picker button', async () => {
   expect(await screen.findByRole('button', { name: /Choose video file/i })).toBeInTheDocument();
   expect(screen.getByLabelText('Select video file')).toBeInTheDocument();
 });
+
+it.each([['doubles', 4], ['singles', 3]] as const)(
+  'creates a new %s run with %i players instead of resuming a two-player session', async (gameType, count) => {
+    const file = new File(['video'], 'doubles.mp4', { type: 'video/mp4' });
+    const config = { ...createDefaultProjectTrackingState('p1').processingConfig, autoCourtCalibrationEnabled: true };
+    const oldStatus: TrackingSessionStatus = {
+      sessionId: 'old-two-player', gameType: 'singles', status: 'CANCELLED',
+      progressPct: 5, currentFrame: 50, totalFrames: 1000, analyzedFrames: 25,
+      frameStride: 2, elapsedSec: 1, videoDurationSec: 30, lastTelemetryTimestampSec: 1,
+      sourceFps: 30, samplingFps: 15, analysisFps: 25, trackedPlayerCount: 2,
+      device: 'auto', processingConfig: config, players: [], error: null,
+    };
+    trackingSessionStore.updateProjectState('p1', {
+      file, sessionId: oldStatus.sessionId, status: 'CANCELLED',
+      videoFingerprint: computeVideoFingerprint(file), processingConfig: config,
+    });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(oldStatus);
+    vi.mocked(aiTrackingService.createSession).mockResolvedValue({ sessionId: 'new-player-count', status: 'READY', trackedPlayerCount: count });
+    vi.mocked(aiTrackingService.uploadSessionVideo).mockResolvedValue({ width: 1280, height: 720 });
+    render(<BadmintonTrackingLab />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /Run Movement Analysis/i })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText('Game type'), { target: { value: gameType } });
+    fireEvent.change(screen.getByLabelText('Players to track'), { target: { value: String(count) } });
+    fireEvent.click(screen.getByRole('button', { name: /Run Movement Analysis/i }));
+    await waitFor(() => expect(aiTrackingService.startSessionAnalysis).toHaveBeenCalledWith('new-player-count'));
+    expect(aiTrackingService.createSession).toHaveBeenCalledWith(gameType, 'upload', expect.objectContaining({ trackedPlayerCount: count }));
+    expect(aiTrackingService.startSessionAnalysis).not.toHaveBeenCalledWith('old-two-player');
+    expect(aiTrackingService.deleteSession).not.toHaveBeenCalledWith('old-two-player');
+  },
+);
 it('starts automatic court analysis without inventing or submitting manual corners', async () => {
   const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
   trackingSessionStore.updateProjectState('p1', { file });

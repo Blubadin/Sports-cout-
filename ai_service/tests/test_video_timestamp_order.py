@@ -37,7 +37,7 @@ class StrictTimestampAnalyzer:
         self.dist_tracker = SimpleNamespace(fps=30.0)
         self.timestamps = []
 
-    def process_frame(self, frame, timestamp_sec):
+    def process_frame(self, frame, timestamp_sec, source_frame=None):
         if self.timestamps and timestamp_sec <= self.timestamps[-1]:
             raise ValueError("frames and timestamps must be strictly ordered")
         self.timestamps.append(timestamp_sec)

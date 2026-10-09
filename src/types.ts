@@ -489,6 +489,31 @@ export interface TrackingPlayerV1 {
     y: number;
   } | null;
   groundPointProvenance?: GroundPointProvenance | null;
+  rawGroundPoint?: {
+    groundPx: { x: number; y: number };
+    groundPct: { x: number; y: number };
+    provenance: GroundPointProvenance;
+    confidence: number;
+    poseSource: string;
+    poseAgeFrames: number;
+    poseAgeSec: number;
+    validity: string;
+    metricEligible: boolean;
+    metricQuality: string;
+  } | null;
+  filteredGroundPoint?: { xM: number; yM: number } | null;
+  distanceMetrics?: {
+    totalTrackedDistanceM?: number | null;
+    distanceDuringActivePlayM?: number | null;
+    metricDistanceCoverage?: number | null;
+    groundPointQuality?: string | null;
+    rawMovementM?: number | null;
+    filteredMovementM?: number | null;
+    jitterRejectedDistanceM?: number | null;
+    validMovementSamples?: number | null;
+    provenanceDistribution?: Record<string, number>;
+    measurementUncertaintyM?: number | null;
+  } | null;
   groundPositionM?: { xM: number; yM: number } | null;
   courtPositionM?: { xM: number; yM: number } | null;
   /** Source-frame pixel coordinates. */
@@ -546,6 +571,8 @@ export interface TrackingTelemetryV1 {
   pipelineRunId?: string;
   timestampSec: number;
   frameIndex: number;
+  sourceFrame?: number;
+  shuttleShotEvents?: import('./types/shuttleShots').ShuttleShotEvents | null;
   timebase?: string | null;
   sceneState?: import('./types/scene').SceneState | string | null;
   sceneTransition?: import('./types/scene').SceneStateTransition | null;
@@ -661,6 +688,7 @@ export type BackendSessionStatus =
 
 export interface TrackingSessionStatus {
   sessionId: string;
+  gameType?: 'singles' | 'doubles';
   status: BackendSessionStatus;
   progressPct: number;
   currentFrame: number;
