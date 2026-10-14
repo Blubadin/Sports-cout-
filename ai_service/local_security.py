@@ -52,6 +52,7 @@ class SecuritySettings:
     remote_enabled: bool = False
     auth_token: str | None = None
     legacy_direct_sources: bool = False
+    pilot_release: bool = False
 
     @classmethod
     def from_env(cls, values: Mapping[str, str] | None = None) -> SecuritySettings:
@@ -63,6 +64,7 @@ class SecuritySettings:
             remote_enabled=_enabled(source.get("SPORTSCOUT_AI_REMOTE_ENABLED")),
             auth_token=token,
             legacy_direct_sources=_enabled(source.get("SPORTSCOUT_AI_LEGACY_DIRECT_SOURCES")),
+            pilot_release=source.get("SPORTSCOUT_RELEASE_CHANNEL", "").strip().lower() == "pilot",
         )
 
     @property
@@ -70,6 +72,8 @@ class SecuritySettings:
         return self.remote_enabled or self.auth_token is not None
 
     def validate_bind(self) -> None:
+        if self.pilot_release and not self.auth_token:
+            raise SecurityConfigurationError("Pilot AI mode requires a device credential")
         if not is_loopback_host(self.host) and not self.remote_enabled:
             raise SecurityConfigurationError("Non-loopback AI host requires SPORTSCOUT_AI_REMOTE_ENABLED=true")
         if self.remote_enabled and self.auth_token is None:

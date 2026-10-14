@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useCallback } from 'react';
 import { ScoutProject, MatchInfo, Team, AppSettings, SportType, EventRow, TelestrationShape } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
+import { scopedStorageKey } from '../pilot/releasePolicy';
 import { useScoutContext } from './ScoutContext';
 import { DEFAULT_TEAMS } from '../data';
 import { getValidSportType, sanitizeEvents } from '../utils/scoutData';
@@ -43,7 +44,7 @@ function sanitizeProjectCourtCalibration<T extends { videoMeta?: ScoutProject['v
 function readLegacyProjects(): ScoutProject[] {
   if (typeof window === 'undefined') return [];
   try {
-    const parsed = JSON.parse(window.localStorage.getItem('scout_projects') || '[]');
+    const parsed = JSON.parse(window.localStorage.getItem(scopedStorageKey('scout_projects')) || '[]');
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];

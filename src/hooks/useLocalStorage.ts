@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { scopedStorageKey } from '../pilot/releasePolicy';
 
 function safeMerge<T>(initial: T, parsed: any): T {
   if (initial === null || initial === undefined) return parsed;
@@ -54,6 +55,7 @@ function safeMerge<T>(initial: T, parsed: any): T {
 }
 
 export function useLocalStorage<T>(key: string, initialValue: T) {
+  key = scopedStorageKey(key);
   const [storedValue, setStoredValue] = useState<T>(() => {
     if (typeof window === "undefined") {
       return initialValue;

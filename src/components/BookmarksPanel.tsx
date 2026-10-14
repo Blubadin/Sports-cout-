@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../pilot/releasePolicy';
 import React, { useState } from 'react';
 import { Clapperboard, Copy, FileVideo, Play, Repeat, Star, Trash2, Youtube } from 'lucide-react';
 import { useScoutContext } from '../context/ScoutContext';
@@ -33,6 +34,7 @@ export default function BookmarksPanel() {
     const { start, end } = getPreviewRange(event);
     const text = `${formatPreciseTime(start)} - ${formatPreciseTime(end)}`;
     try {
+      if (!exportsAllowed()) return;
       await navigator.clipboard.writeText(text);
       showToast(t('keyMoments.rangeCopied', settings.uiLanguage));
     } catch {

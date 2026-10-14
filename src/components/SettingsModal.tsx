@@ -1,3 +1,4 @@
+import { exportsAllowed, scopedStorageKey } from '../pilot/releasePolicy';
 import React from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { SportType } from '../types';
@@ -38,7 +39,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = React.useState<SettingsCategory>('general');
 
   const handleSaveTeamAsDefault = () => {
-    localStorage.setItem('sportscout_default_teams', JSON.stringify(teams));
+    localStorage.setItem(scopedStorageKey('sportscout_default_teams'), JSON.stringify(teams));
     showToast(isThai ? 'บันทึกรายชื่อทีมปัจจุบันเป็นค่าเริ่มต้นของระบบแล้ว' : 'Saved current teams as default');
   };
 
@@ -61,6 +62,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   };
 
   const handleExportDiagnostics = async () => {
+    if (!exportsAllowed()) return;
     const storageEstimate = await navigator.storage?.estimate?.().catch(() => undefined);
     const report = createPilotDiagnosticReport({
       projects,
@@ -492,7 +494,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       {t('settings.dataManagement', settings.uiLanguage)}
                     </h3>
                     <div className="flex flex-col gap-3">
-                      <button onClick={handleExportDiagnostics} className="flex items-center justify-center gap-2 p-3 bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 rounded-xl font-bold hover:bg-sky-100 transition-colors cursor-pointer border border-sky-200 dark:border-sky-900/50">
+                      <button onClick={handleExportDiagnostics} disabled={!exportsAllowed()} className="flex items-center justify-center gap-2 p-3 bg-sky-50 dark:bg-sky-900/20 text-sky-700 dark:text-sky-300 rounded-xl font-bold hover:bg-sky-100 transition-colors cursor-pointer border border-sky-200 dark:border-sky-900/50">
                         <ShieldCheck size={18} /> {isThai ? 'ส่งออกข้อมูลวินิจฉัยเพื่อการสนับสนุน (Diagnostic Export)' : 'Export Diagnostic Report'}
                       </button>
                       <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">

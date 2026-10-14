@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../../pilot/releasePolicy';
 import React from 'react';
 import {
   Copy,
@@ -245,6 +246,7 @@ export default function ControllerSettingsPanel({
   };
 
   const exportProfile = () => {
+    if (!exportsAllowed()) return;
     if (!draftProfile) return;
     const blob = new Blob([JSON.stringify(createControllerProfileExport(draftProfile), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -376,7 +378,7 @@ export default function ControllerSettingsPanel({
               {familyProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
             </select>
             <button type="button" onClick={duplicateProfile} aria-label={t('controller.duplicate', language)} title={t('controller.duplicate', language)} className="rounded-md border border-slate-600 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Copy size={16} /></button>
-            <button type="button" onClick={exportProfile} aria-label={t('controller.export', language)} title={t('controller.export', language)} className="rounded-md border border-slate-600 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Download size={16} /></button>
+            <button type="button" onClick={exportProfile} disabled={!exportsAllowed()} aria-label={t('controller.export', language)} title={t('controller.export', language)} className="rounded-md border border-slate-600 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Download size={16} /></button>
             <button type="button" onClick={() => importInputRef.current?.click()} aria-label={t('controller.import', language)} title={t('controller.import', language)} className="rounded-md border border-slate-600 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Upload size={16} /></button>
             <input ref={importInputRef} type="file" accept="application/json,.json" onChange={importProfile} className="hidden" />
           </div>

@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../../pilot/releasePolicy';
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Trophy, Flag, Shield, Activity, Target, Flame, AlertTriangle, 
@@ -215,7 +216,7 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => window.print()}
+              disabled={!exportsAllowed()} onClick={() => { if (exportsAllowed()) window.print(); }}
               className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
             >
               <Printer size={15} />

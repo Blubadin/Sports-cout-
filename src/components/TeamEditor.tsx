@@ -1,4 +1,5 @@
 import React from 'react';
+import { scopedStorageKey } from '../pilot/releasePolicy';
 import { useScoutContext } from '../context/ScoutContext';
 import { COUNTRIES } from '../countries';
 import CustomSelect, { Option } from './ui/CustomSelect';
@@ -47,7 +48,7 @@ export default function TeamEditor({ teamIndex }: { teamIndex: number }) {
   };
 
   const handleSaveAsDefault = () => {
-    localStorage.setItem('sportscout_default_teams', JSON.stringify(teams));
+    localStorage.setItem(scopedStorageKey('sportscout_default_teams'), JSON.stringify(teams));
     showToast(isThai ? 'บันทึกทีมเป็นค่าเริ่มต้นของระบบแล้ว' : 'Saved teams as system default');
   };
 

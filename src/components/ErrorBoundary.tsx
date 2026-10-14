@@ -1,3 +1,4 @@
+import { exportsAllowed, scopedStorageKey } from '../pilot/releasePolicy';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { PROJECTS_REPOSITORY_KEY } from '../utils/projectRepository';
 import { indexedDbStorageAdapter } from '../utils/storageAdapter';
@@ -42,9 +43,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   private handleExportRecovery = async () => {
+    if (!exportsAllowed()) return;
     try {
       const localStorageSnapshot = SCOUT_STORAGE_KEYS.reduce<Record<string, string | null>>((acc, key) => {
-        acc[key] = localStorage.getItem(key);
+        acc[key] = localStorage.getItem(scopedStorageKey(key));
         return acc;
       }, {});
 
@@ -78,11 +80,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleResetRuntime = () => {
     try {
-      localStorage.removeItem('scout_settings');
-      localStorage.removeItem('scout_match_info');
-      localStorage.removeItem('scout_teams');
-      localStorage.removeItem('scout_events');
-      localStorage.removeItem('active_scout_project_id');
+      localStorage.removeItem(scopedStorageKey('scout_settings'));
+      localStorage.removeItem(scopedStorageKey('scout_match_info'));
+      localStorage.removeItem(scopedStorageKey('scout_teams'));
+      localStorage.removeItem(scopedStorageKey('scout_events'));
+      localStorage.removeItem(scopedStorageKey('active_scout_project_id'));
 
       if ('caches' in window) {
         window.caches.keys().then((keys) => {
@@ -114,7 +116,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </div>
               <h2 className="text-2xl font-bold tracking-tight">The app could not finish loading</h2>
               <p className="text-sm text-slate-400 mt-2">
-                Try reloading first. If the problem continues, export a recovery backup before resetting runtime data.
+                {exportsAllowed() ? 'Try reloading first. If the problem continues, export a recovery backup before resetting runtime data.' : 'กรุณาโหลดหน้าใหม่ หากยังมีปัญหาให้ติดต่อผู้ดูแล โดยไม่ต้องรีเซ็ตข้อมูล'}
               </p>
             </div>
 
@@ -138,7 +140,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </button>
 
               <button
-                onClick={() => void this.handleExportRecovery()}
+                disabled={!exportsAllowed()} onClick={() => void this.handleExportRecovery()}
                 className="w-full bg-slate-700 hover:bg-slate-600 text-slate-100 font-medium py-3 px-4 rounded-xl border border-slate-600 transition-all duration-200"
               >
                 Export recovery backup

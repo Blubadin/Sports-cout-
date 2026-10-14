@@ -1,8 +1,9 @@
+import { exportsAllowed } from '../pilot/releasePolicy';
 import React, { useEffect } from 'react';
 
 export default function DiagnosticLogs() {
   useEffect(() => {
-    if (import.meta.env.PROD) {
+    if (import.meta.env.PROD || !exportsAllowed()) {
       return;
     }
 

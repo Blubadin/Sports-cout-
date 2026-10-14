@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { scopedStorageKey } from '../pilot/releasePolicy';
 import type {
   TrackingTelemetryV1,
   TrackingOverlayMode,
@@ -152,7 +153,7 @@ class TrackingSessionStore {
   }
 
   private getStorageKey(projectId: string): string {
-    return `scout_tracking_session_${projectId}`;
+    return scopedStorageKey(`scout_tracking_session_${projectId}`);
   }
 
   private hydrateFromStorage(): void {
@@ -160,8 +161,9 @@ class TrackingSessionStore {
     try {
       for (let i = 0; i < window.localStorage.length; i++) {
         const key = window.localStorage.key(i);
-        if (key && key.startsWith('scout_tracking_session_')) {
-          const projectId = key.replace('scout_tracking_session_', '');
+        const prefix = scopedStorageKey('scout_tracking_session_');
+        if (key && key.startsWith(prefix)) {
+          const projectId = key.slice(prefix.length);
           const raw = window.localStorage.getItem(key);
           if (raw) {
             const data = JSON.parse(raw);

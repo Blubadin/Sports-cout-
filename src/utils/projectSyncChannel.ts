@@ -1,3 +1,5 @@
+import { scopedStorageKey } from '../pilot/releasePolicy';
+
 export const PROJECT_SYNC_CHANNEL_NAME = "sportscout:project-sync:v1";
 export const PROJECT_SYNC_STORAGE_KEY = "sportscout:project-sync:v1:message";
 export const PROJECT_SYNC_MESSAGE_TYPE = "project-revision";
@@ -78,6 +80,8 @@ function parseProjectSyncMessage(value: unknown): ProjectSyncMessage | undefined
 }
 
 export function createProjectSyncChannel(): ProjectSyncChannel {
+  const channelName = scopedStorageKey(PROJECT_SYNC_CHANNEL_NAME);
+  const storageKey = scopedStorageKey(PROJECT_SYNC_STORAGE_KEY);
   const sourceId = createSourceId();
   const listeners = new Set<ProjectSyncListener>();
   let broadcastChannel: BroadcastChannel | undefined;
@@ -99,7 +103,7 @@ export function createProjectSyncChannel(): ProjectSyncChannel {
   };
 
   const onStorage = (event: StorageEvent) => {
-    if (event.key !== PROJECT_SYNC_STORAGE_KEY || event.newValue === null) return;
+    if (event.key !== storageKey || event.newValue === null) return;
     try {
       deliver(JSON.parse(event.newValue));
     } catch {
@@ -110,7 +114,7 @@ export function createProjectSyncChannel(): ProjectSyncChannel {
   let candidate: BroadcastChannel | undefined;
   try {
     if (typeof BroadcastChannel !== "undefined") {
-      candidate = new BroadcastChannel(PROJECT_SYNC_CHANNEL_NAME);
+      candidate = new BroadcastChannel(channelName);
       candidate.onmessage = (event: MessageEvent<unknown>) => deliver(event.data);
       broadcastChannel = candidate;
     }
@@ -135,10 +139,10 @@ export function createProjectSyncChannel(): ProjectSyncChannel {
     try {
       if (typeof window !== "undefined") {
         window.localStorage.setItem(
-          PROJECT_SYNC_STORAGE_KEY,
+          storageKey,
           JSON.stringify(message),
         );
-        window.localStorage.removeItem(PROJECT_SYNC_STORAGE_KEY);
+        window.localStorage.removeItem(storageKey);
       }
     } catch {
       // Storage may be disabled, full, or inaccessible in private contexts.

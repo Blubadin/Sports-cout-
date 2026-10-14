@@ -672,3 +672,6 @@ body.scout-marking-active [data-scout-hovered="true"] {
 }
 .scouting-table-row[data-team-id="THA"] { border-left-color: #3b82f6; }
 .scouting-table-row[data-team-id="JPN"] { border-left-color: #ef4444; }
+@media print {
+  html[data-sportscout-pilot="true"] body { display: none !important; }
+}

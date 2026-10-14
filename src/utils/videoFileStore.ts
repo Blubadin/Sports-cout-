@@ -1,4 +1,5 @@
 import { get, set } from "idb-keyval";
+import { scopedStorageKey } from '../pilot/releasePolicy';
 
 export type VideoFilePermission = "granted" | "denied" | "prompt";
 
@@ -10,10 +11,10 @@ export type PersistentVideoFileHandle = {
 };
 
 export const getProjectVideoFileHandleKey = (projectId: string) =>
-  `scout-video-handle:${projectId}`;
+  scopedStorageKey(`scout-video-handle:${projectId}`);
 
 export const getLegacyVideoFileHandleKey = (fileName: string) =>
-  `videoFileHandle-${fileName}`;
+  scopedStorageKey(`videoFileHandle-${fileName}`);
 
 export async function saveProjectVideoFileHandle(
   projectId: string | null,

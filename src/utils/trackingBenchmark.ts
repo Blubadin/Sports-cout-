@@ -1,3 +1,4 @@
+import { scopedStorageKey } from '../pilot/releasePolicy';
 import type {
   ProcessingConfig,
   TrackingRuntimeProvenance,
@@ -729,8 +730,8 @@ export function deserializeBenchmarkRun(jsonStr: string): TrackingBenchmarkRun {
 // Persistence Helpers (idb-keyval with Memory Fallback)
 // -------------------------------------------------------------
 
-const BENCHMARK_STORE_PREFIX = 'scout_tracking_benchmark_';
-const BENCHMARK_INDEX_KEY = 'scout_tracking_benchmark_index';
+const BENCHMARK_STORE_PREFIX = scopedStorageKey('scout_tracking_benchmark_');
+const BENCHMARK_INDEX_KEY = scopedStorageKey('scout_tracking_benchmark_index');
 const inMemoryBenchmarkStore = new Map<string, TrackingBenchmarkRun>();
 
 function isIndexedDbAvailable(): boolean {

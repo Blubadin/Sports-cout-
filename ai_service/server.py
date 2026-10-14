@@ -229,6 +229,9 @@ async def add_pna_and_cors_headers(request: Request, call_next):
 
 @app.middleware("http")
 async def enforce_ai_security(request: Request, call_next):
+    from release_policy import export_is_restricted
+    if request.method != 'OPTIONS' and export_is_restricted(request.url.path):
+        return JSONResponse(status_code=403, content={"code": "EXPORT_DISABLED_IN_PILOT", "detail": "Export is disabled in this pilot release"})
     settings = SecuritySettings.from_env()
     try:
         settings.validate_bind()

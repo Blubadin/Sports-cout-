@@ -18,6 +18,7 @@ import type {
   TrackingQualityStats,
   ShuttleProvenance,
 } from '../types';
+import { requireExportPermission } from '../pilot/releasePolicy';
 import { isCalibrationState, isMetricCalibrationValid, parseCalibrationProvenance } from '../types/calibration';
 import { parseSceneEvidence, parseSceneTransition } from '../types/scene';
 import { parseSegmentCapabilities } from '../types/capabilities';
@@ -460,6 +461,7 @@ export class TrackingSessionApiClient {
     sessionId: string,
     req?: StartExportRequest
   ): Promise<StartExportResponse> {
+    requireExportPermission();
     const res = await this.request(`/api/tracking/sessions/${sessionId}/export`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -469,6 +471,7 @@ export class TrackingSessionApiClient {
   }
 
   public async getExportStatus(exportId: string): Promise<ExportJobProgress> {
+    requireExportPermission();
     const res = await this.request(`/api/tracking/exports/${exportId}/status`);
     return res.json();
   }
@@ -481,6 +484,7 @@ export class TrackingSessionApiClient {
   }
 
   public getExportDownloadUrl(exportId: string): string {
+    requireExportPermission();
     return this.getApiUrl(`/api/tracking/exports/${exportId}/download`);
   }
 

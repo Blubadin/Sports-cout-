@@ -9,6 +9,7 @@ import type {
   TrackingPlayerV1,
 } from '../../types';
 import { isMetricCalibrationValid } from '../../types/calibration';
+import { scopedStorageKey } from '../../pilot/releasePolicy';
 import type { CalibrationProvenance, CalibrationState } from '../../types/calibration';
 
 export interface TrackingCalibrationEvent {
@@ -362,7 +363,7 @@ function openTrackingDatabase(): Promise<IDBDatabase | null> {
   if (trackingDbPromise) return trackingDbPromise;
 
   trackingDbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    const request = window.indexedDB.open(scopedStorageKey(DB_NAME), DB_VERSION);
     request.onupgradeneeded = () => {
       ensureTrackingObjectStores(request.result);
       ensureTrackingIndexes(request.result, request.transaction);

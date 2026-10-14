@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../../pilot/releasePolicy';
 import { OUT_ZONE_LABELS } from "../../sports";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useScoutContext } from "../../context/ScoutContext";
@@ -584,8 +585,9 @@ export default function ScoutHUDMode({
   };
 
   const handleCopyEvent = (event: any) => {
+    if (!exportsAllowed()) return;
     const text = `[${event.videoTime ? parseFloat(event.videoTime).toFixed(2) : "0.00"}] ${event.teamCode || ""} ${event.skillCode || ""} ${event.areaCode || ""} ${event.resultText || ""}`;
-    if (navigator.clipboard && window.isSecureContext) {
+    if (exportsAllowed() && navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(text).catch(() => {});
     } else {
       const textArea = document.createElement("textarea");

@@ -1,5 +1,7 @@
 import { motion } from 'motion/react';
 import React, { useState, useEffect } from 'react';
+import { registerPilotSave } from './pilot/pilotLifecycle';
+import { PILOT_RELEASE } from './pilot/releasePolicy';
 import { ScoutProvider, useScoutContext } from './context/ScoutContext';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { t } from './i18n';
@@ -111,6 +113,7 @@ function EmptyProjectState() {
   const [selectedSport, setSelectedSport] = useState<SportType>(matchInfo.sportType || 'volleyball');
 
   const loadPilotSamples = async () => {
+    if (PILOT_RELEASE) return;
     const sampleProjects = createPilotSampleProjects(`pilot-${Date.now()}`);
     const importResults = await Promise.all(sampleProjects.map(project => importProject(project)));
     const importedCount = importResults.filter(Boolean).length;
@@ -196,6 +199,7 @@ function EmptyProjectState() {
           <button
             type="button"
             onClick={loadPilotSamples}
+            hidden={PILOT_RELEASE}
             disabled={!repositoryReady}
             className="w-full py-3 border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300 rounded-lg font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -220,7 +224,9 @@ function EmptyProjectState() {
             settings.uiLanguage === 'th' ? 'เลือกกีฬาและสร้างโปรเจกต์' : 'Choose a sport and project',
             settings.uiLanguage === 'th' ? 'เปิดวิดีโอการแข่งขัน' : 'Open the match video',
             settings.uiLanguage === 'th' ? 'บันทึกเหตุการณ์ด้วยปุ่มหรือ HUD' : 'Tag events with controls or HUD',
-            settings.uiLanguage === 'th' ? 'ตรวจสถิติและส่งออกข้อมูล' : 'Review and export the analysis',
+            PILOT_RELEASE
+              ? settings.uiLanguage === 'th' ? 'ตรวจสถิติและรายงานภายในระบบ' : 'Review statistics and reports in the app'
+              : settings.uiLanguage === 'th' ? 'ตรวจสถิติและส่งออกข้อมูล' : 'Review and export the analysis',
           ].map((step, index) => (
             <li key={step} className="flex gap-2 text-xs font-semibold leading-relaxed text-gray-600 dark:text-gray-300">
               <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-600 text-[11px] font-black text-white">{index + 1}</span>
@@ -252,7 +258,10 @@ function AppContent() {
     editLastEvent,
     quickBookmarkCurrentMoment,
   } = useScoutContext();
-  const { activeProjectId, projects, repositoryReady, saveStatus } = useWorkspace();
+  const { activeProjectId, projects, repositoryReady, saveStatus, flushPendingSaves } = useWorkspace();
+  useEffect(() => {
+    if (PILOT_RELEASE) return registerPilotSave(flushPendingSaves);
+  }, [flushPendingSaves]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isKeyboardShortcutsOpen, setIsKeyboardShortcutsOpen] = useState(false);
   const [isMatchInfoOpen, setIsMatchInfoOpen] = useState(false);

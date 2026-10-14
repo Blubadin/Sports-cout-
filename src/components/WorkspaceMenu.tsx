@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../pilot/releasePolicy';
 import React, { useState, useRef, useEffect } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useScoutContext } from '../context/ScoutContext';
@@ -85,6 +86,7 @@ export default function WorkspaceMenu() {
   };
 
   const handleExport = (proj: ScoutProject) => {
+    if (!exportsAllowed()) return;
     const exportData = createProjectsExport([proj]);
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
     const dlAnchorElem = document.createElement('a');
@@ -96,6 +98,7 @@ export default function WorkspaceMenu() {
   };
 
   const handleExportAll = () => {
+    if (!exportsAllowed()) return;
     const exportData = createProjectsExport(projects);
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
     const dlAnchorElem = document.createElement('a');
@@ -207,7 +210,7 @@ export default function WorkspaceMenu() {
             <button
               type="button"
               onClick={handleExportAll}
-              disabled={projects.length === 0}
+              disabled={!exportsAllowed() || projects.length === 0}
               className="cursor-pointer p-1 text-gray-500 hover:text-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               title={settings.uiLanguage === 'th' ? 'สำรองทุกโครงการ (Export All Projects)' : 'Export All Projects'}
             >
@@ -267,7 +270,7 @@ export default function WorkspaceMenu() {
                       <button onClick={() => duplicateProject(proj.id)} className="p-2 md:p-1 text-gray-400 hover:text-sky-600 rounded-lg bg-gray-100 md:bg-transparent">
                         <Copy size={14} className="md:w-3 md:h-3" />
                       </button>
-                      <button onClick={() => handleExport(proj)} className="p-2 md:p-1 text-gray-400 hover:text-green-600 rounded-lg bg-gray-100 md:bg-transparent" title={settings.uiLanguage === 'th' ? 'สำรองข้อมูลโปรเจกต์ (Backup Project)' : 'Backup Project (Export JSON)'}>
+                      <button onClick={() => handleExport(proj)} disabled={!exportsAllowed()} className="p-2 md:p-1 text-gray-400 hover:text-green-600 rounded-lg bg-gray-100 md:bg-transparent" title={settings.uiLanguage === 'th' ? 'สำรองข้อมูลโปรเจกต์ (Backup Project)' : 'Backup Project (Export JSON)'}>
                         <Download size={14} className="md:w-3 md:h-3" />
                       </button>
                       <button onClick={() => {

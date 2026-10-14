@@ -10,6 +10,7 @@ benchmark_results/
 .env*
 !.env.example
 .vercel
+supabase/.temp/
 __pycache__/
 *.py[cod]
 *$py.class

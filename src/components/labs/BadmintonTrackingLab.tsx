@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../../pilot/releasePolicy';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -1905,7 +1906,7 @@ export default function BadmintonTrackingLab() {
         </button>
       )}
 
-      {exportSessionId && (
+      {exportSessionId && exportsAllowed() && (
         <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 shadow-sm">
           <p className="text-sm text-emerald-300 font-medium">
             {exportingPreviousAnalysis
@@ -1947,7 +1948,7 @@ export default function BadmintonTrackingLab() {
         />
       )}
 
-      {exportTargetSessionId && (
+      {exportTargetSessionId && exportsAllowed() && (
         <ExportConfigModal
           isOpen={true}
           onClose={() => setExportTargetSessionId(null)}

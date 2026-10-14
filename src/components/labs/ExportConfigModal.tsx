@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../../pilot/releasePolicy';
 import React, { useState, useEffect, useRef } from 'react';
 import type {
   ExportPreset,
@@ -69,6 +70,7 @@ export default function ExportConfigModal({
   }, []);
 
   const handleStartExport = async () => {
+    if (!exportsAllowed()) return;
     setIsExporting(true);
     setExportError(null);
     setExportProgress(null);
@@ -132,6 +134,7 @@ export default function ExportConfigModal({
   };
 
   const handleDownload = () => {
+    if (!exportsAllowed()) return;
     if (!exportProgress?.exportId) return;
     const downloadUrl = trackingSessionApi.getExportDownloadUrl(exportProgress.exportId);
     window.open(downloadUrl, '_blank');
@@ -148,7 +151,7 @@ export default function ExportConfigModal({
     setIsCancelling(false);
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !exportsAllowed()) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">

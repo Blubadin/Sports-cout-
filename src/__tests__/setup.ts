@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 import { vi } from 'vitest';
 
+if (typeof window !== 'undefined') {
+
 // Mock matchMedia for components that use it
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
@@ -33,3 +35,4 @@ const localStorageMock = (() => {
   };
 })();
 Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+}

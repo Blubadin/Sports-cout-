@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../pilot/releasePolicy';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useScoutContext } from '../context/ScoutContext';
 import { EventRow } from '../types';
@@ -435,8 +436,9 @@ export default function ScoutingTable() {
   };
 
   const copyToClipboard = async (text: string, id: string) => {
+    if (!exportsAllowed()) return;
     try {
-      if (navigator.clipboard && window.isSecureContext) {
+      if (exportsAllowed() && navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
       } else {
         const textArea = document.createElement("textarea");
@@ -878,6 +880,7 @@ function ExportButtons({ events, isFiltered }: { events: EventRow[]; isFiltered:
   const { settings } = useScoutContext();
   const filenameSuffix = isFiltered ? '_filtered' : '';
   const exportCSV = () => {
+    if (!exportsAllowed()) return;
     if (events.length === 0) return;
     const csvContent = createEventsCsv(events, settings.uiLanguage);
       
@@ -893,6 +896,7 @@ function ExportButtons({ events, isFiltered }: { events: EventRow[]; isFiltered:
   };
 
   const exportJSON = () => {
+    if (!exportsAllowed()) return;
     if (events.length === 0) return;
     const exportData = createEventsExport(events);
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
@@ -906,10 +910,10 @@ function ExportButtons({ events, isFiltered }: { events: EventRow[]; isFiltered:
 
   return (
     <>
-      <button onClick={exportCSV} disabled={events.length === 0} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-40">
+      <button onClick={exportCSV} disabled={!exportsAllowed() || events.length === 0} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-40">
         <Download size={14} /> {isFiltered ? t('table.exportFilteredCsv', settings.uiLanguage) : t('table.exportCsv', settings.uiLanguage)}
       </button>
-      <button onClick={exportJSON} disabled={events.length === 0} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-40">
+      <button onClick={exportJSON} disabled={!exportsAllowed() || events.length === 0} className="flex items-center gap-1 text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-40">
         <FileJson size={14} /> {isFiltered ? t('table.exportFilteredJson', settings.uiLanguage) : t('table.exportJson', settings.uiLanguage)}
       </button>
     </>

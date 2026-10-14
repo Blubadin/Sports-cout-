@@ -69,7 +69,12 @@
     var exportBtn = document.createElement('button');
     exportBtn.style.cssText = 'padding: 10px 20px; background: #0f766e; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px;';
     exportBtn.textContent = 'Export Local Backup';
+    var allowBackup = document.querySelector('meta[name="sportscout-release-channel"]');
+    var canExport = allowBackup && allowBackup.content === 'development';
+    exportBtn.disabled = !canExport;
+    exportBtn.hidden = !canExport;
     exportBtn.addEventListener('click', function() {
+      if (!canExport) return;
       var snapshot = {};
       for (var index = 0; index < localStorage.length; index += 1) {
         var key = localStorage.key(index);

@@ -1,12 +1,14 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, loadEnv} from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(() => {
+export default defineConfig(({ command, mode }) => {
+  const pilot = command === 'build' || loadEnv(mode, process.cwd(), '').VITE_SPORTSCOUT_RELEASE_CHANNEL === 'pilot';
   return {
     plugins: [
+      { name: 'sportscout-release-policy', transformIndexHtml: () => [{ tag: 'meta', attrs: { name: 'sportscout-release-channel', content: pilot ? 'pilot' : 'development' }, injectTo: 'head-prepend' }] },
       react(), 
       tailwindcss(),
       VitePWA({

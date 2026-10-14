@@ -1,8 +1,20 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
-import App from './App.tsx';
+import PilotGate from './pilot/PilotGate';
+import { PILOT_RELEASE } from './pilot/releasePolicy';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
+
+if (PILOT_RELEASE) {
+  document.documentElement.dataset.sportscoutPilot = 'true';
+  window.print = () => undefined;
+  document.addEventListener('click', event => {
+    if (event.target instanceof Element && event.target.closest('a[download]')) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+}
 
 // Monkeypatch HTMLMediaElement.prototype.play to catch unhandled play() promise rejections
 const originalPlay = HTMLMediaElement.prototype.play;
@@ -105,7 +117,7 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <PilotGate />
     </ErrorBoundary>
   </StrictMode>,
 );

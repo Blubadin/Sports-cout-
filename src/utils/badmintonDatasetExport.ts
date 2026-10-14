@@ -1,3 +1,4 @@
+import { requireExportPermission } from '../pilot/releasePolicy';
 /**
  * badmintonDatasetExport.ts — Training Dataset Exporter (PDF §95)
  * Extracts paired temporal windows around manual scouting events:
@@ -112,6 +113,7 @@ export function downloadBadmintonTrainingDataset(
   payload: BadmintonDatasetPayload,
   filename = 'badminton_ai_training_dataset.json'
 ): void {
+  requireExportPermission();
   const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
   const downloadAnchor = document.createElement('a');
   downloadAnchor.setAttribute('href', dataStr);

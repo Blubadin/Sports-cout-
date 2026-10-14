@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../pilot/releasePolicy';
 import React, { useMemo, useState, lazy, Suspense } from 'react';
 import { AlertTriangle, ChevronDown, FilterX, Printer, X } from 'lucide-react';
 import { useScoutContext } from '../context/ScoutContext';
@@ -708,7 +709,7 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
             </h2>
             <button
               type="button"
-              onClick={() => window.print()}
+              disabled={!exportsAllowed()} onClick={() => { if (exportsAllowed()) window.print(); }}
               className="print:hidden inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 text-xs font-semibold text-gray-600 hover:border-sky-400 hover:text-sky-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
             >
               <Printer size={14} />
@@ -1057,7 +1058,7 @@ function MapTimeInput({
             <h2 className="text-base font-black text-gray-800 dark:text-gray-100">{settings.uiLanguage === 'th' ? 'รายงานสรุปสำหรับโค้ช' : 'Coach summary report'}</h2>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{matchInfo.sportType ? SPORT_TEMPLATES[matchInfo.sportType].name : 'All sports'} · {matchInfo.setOrGame ? `Set ${matchInfo.setOrGame}` : '-'}</p>
           </div>
-          <button type="button" onClick={() => window.print()} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 hover:border-sky-400 hover:text-sky-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+          <button type="button" disabled={!exportsAllowed()} onClick={() => { if (exportsAllowed()) window.print(); }} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 hover:border-sky-400 hover:text-sky-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
             <Printer size={14} /> {t('dashboard.printCoachSummary', settings.uiLanguage)}
           </button>
         </header>

@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../pilot/releasePolicy';
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useScoutContext } from "../context/ScoutContext";
 import { Play, Pause, Repeat, X, ArrowLeftToLine, Copy, Maximize2, Star, Move } from "lucide-react";
@@ -162,6 +163,7 @@ export default function SegmentPreviewPanel({ isPlaying, setIsPlaying, seekTo, c
   };
 
   const copyTimeRange = () => {
+    if (!exportsAllowed()) return;
     navigator.clipboard.writeText(`${formatPreciseTime(pStart)} - ${formatPreciseTime(pEnd)}`);
   };
 

@@ -1,3 +1,4 @@
+import { exportsAllowed } from '../../pilot/releasePolicy';
 import React, { useState, useEffect } from "react";
 import { useScoutContext } from "../../context/ScoutContext";
 import { formatPreciseTime } from "../../utils";
@@ -118,7 +119,7 @@ export default function PhoneScoutMode({
 
   const handleCopyEvent = (event: any) => {
     const text = event.eventText || "";
-    if (navigator.clipboard) {
+    if (exportsAllowed() && navigator.clipboard) {
       navigator.clipboard.writeText(text);
     }
   };
