@@ -5,6 +5,7 @@ import type { TrackingSessionStatus, TrackingTelemetryV1 } from '../../types';
 import TrackingVideoOverlay, { resolveOverlayAtTime } from './TrackingVideoOverlay';
 import { ShuttleDiagnostics, ShuttleOverlay } from './ShuttleOverlay';
 import {
+  deriveOverlayAvailabilityState,
   framesForCameraSegmentAtTime,
   MAX_TRACKING_OVERLAY_WINDOW_FRAMES,
   TrackingOverlayWindowLoader,
@@ -138,5 +139,86 @@ describe('bounded seek-time overlay windows', () => {
     expect(screen.getByTestId('shuttle-trail')).toHaveAttribute('cx', '101');
     render(<ShuttleDiagnostics frames={[before, atCut, later]} time={10.2} />);
     expect(screen.getByLabelText('Shuttle diagnostics')).toHaveTextContent('Observed % (samples): 100.0%');
+  });
+
+  it('correctly maps explicit overlay availability states without false gap flicker', () => {
+    // 1. Not analyzed
+    expect(deriveOverlayAvailabilityState({
+      hasSession: false, isProcessing: false, totalCommitted: 0,
+      timeSec: 5, overlayWindowStatus: 'idle', resolutionStatus: 'unavailable', playerCount: 0,
+    })).toBe('NOT_ANALYZED');
+
+    // 2. Loading
+    expect(deriveOverlayAvailabilityState({
+      hasSession: true, isProcessing: false, totalCommitted: 100,
+      timeSec: 5, overlayWindowStatus: 'loading', resolutionStatus: 'unavailable', playerCount: 0,
+    })).toBe('LOADING');
+
+    // 3. Error
+    expect(deriveOverlayAvailabilityState({
+      hasSession: true, isProcessing: false, totalCommitted: 100,
+      timeSec: 5, overlayWindowStatus: 'error', resolutionStatus: 'unavailable', playerCount: 0,
+    })).toBe('ERROR');
+
+    // 4. Invalid segment (past analyzed duration)
+    expect(deriveOverlayAvailabilityState({
+      hasSession: true, isProcessing: false, totalCommitted: 100, analyzedDurationSec: 10,
+      timeSec: 12, overlayWindowStatus: 'ready', resolutionStatus: 'unavailable', playerCount: 0,
+    })).toBe('INVALID_SEGMENT');
+
+    // 5. Available (fully resolved with players)
+    expect(deriveOverlayAvailabilityState({
+      hasSession: true, isProcessing: false, totalCommitted: 100, analyzedDurationSec: 10,
+      timeSec: 5, overlayWindowStatus: 'ready', resolutionStatus: 'resolved', playerCount: 2,
+      hasCourt: true, hasShuttle: true,
+    })).toBe('AVAILABLE');
+
+    // 6. Partial (players resolved but court or shuttle missing)
+    expect(deriveOverlayAvailabilityState({
+      hasSession: true, isProcessing: false, totalCommitted: 100, analyzedDurationSec: 10,
+      timeSec: 5, overlayWindowStatus: 'ready', resolutionStatus: 'resolved', playerCount: 2,
+      hasCourt: false, hasShuttle: true,
+    })).toBe('PARTIAL');
+
+    // 7. True gap (session analyzed frame but 0 players detected)
+    expect(deriveOverlayAvailabilityState({
+      hasSession: true, isProcessing: false, totalCommitted: 100, analyzedDurationSec: 10,
+      timeSec: 5, overlayWindowStatus: 'ready', resolutionStatus: 'resolved', playerCount: 0,
+    })).toBe('TRUE_GAP');
+
+    // Bilingual translations
+    expect(trackingOverlayStatusText('true_gap', false)).toBe('No players detected in this segment');
+    expect(trackingOverlayStatusText('true_gap', true)).toBe('ไม่พบผู้เล่นในช่วงเวลานี้');
+    expect(trackingOverlayStatusText('not_analyzed', false)).toBe('Video has not been analyzed yet');
+    expect(trackingOverlayStatusText('not_analyzed', true)).toBe('ยังไม่ได้วิเคราะห์วิดีโอ');
+    expect(trackingOverlayStatusText('invalid_segment', false)).toBe('Outside analyzed video range');
+    expect(trackingOverlayStatusText('invalid_segment', true)).toBe('อยู่นอกช่วงเวลาที่วิเคราะห์');
+  });
+
+  it('serves seamless playback from RAM cache without triggering network fetches', async () => {
+    const rows = Array.from({ length: 300 }, (_, index) => frame(index));
+    const fetchPage = pageFor(rows);
+    const loader = new TrackingOverlayWindowLoader();
+
+    // Initial load populates RAM cache
+    const initial = await loader.load(
+      { projectId: 'project-a', sessionId: 'run-1', timeSec: 5, status: status({ committedResultCursor: 300 }) },
+      vi.fn(), fetchPage,
+    );
+    expect(initial.status).toBe('ready');
+    const callsAfterFirst = fetchPage.mock.calls.length;
+
+    // Subsequent playhead sample within cached range hits RAM cache immediately
+    const cachedSlice = loader.getCachedFrames('run-1', 6.0);
+    expect(cachedSlice).not.toBeNull();
+    expect(cachedSlice!.length).toBeGreaterThan(0);
+
+    const hit = await loader.load(
+      { projectId: 'project-a', sessionId: 'run-1', timeSec: 6.0, status: status({ committedResultCursor: 300 }) },
+      vi.fn(), fetchPage,
+    );
+    expect(hit.status).toBe('ready');
+    // No new backend fetch was needed
+    expect(fetchPage.mock.calls.length).toBe(callsAfterFirst);
   });
 });

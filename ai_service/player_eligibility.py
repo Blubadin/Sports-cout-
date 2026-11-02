@@ -166,6 +166,7 @@ def evaluate_player_eligibility(
     in_court_observations: int | None = None,
     calibration_state: str | None = None,
     far_outside_frames: int = 0,
+    unavailable_frames: int = 0,
 ) -> PlayerEligibility:
     """
     Evaluate whether a single detection qualifies as an eligible player candidate.
@@ -182,10 +183,8 @@ def evaluate_player_eligibility(
     known_pid = detection.get("known_player_id", detection.get("playerId"))
     has_established_profiles_for_reacquisition = False
     if not is_known_player and active_profiles is not None and track_id is not None:
-        if track_id in active_profiles:
-            is_known_player = True
-            known_pid = track_id
-        else:
+        # Profile keys are semantic IDs, never raw MOT track IDs.
+        if active_profiles:
             for pid, p in active_profiles.items():
                 p_track = getattr(p, "track_id", p.get("track_id") if isinstance(p, dict) else None)
                 p_missed = getattr(p, "missed_frames", p.get("missed_frames", 0) if isinstance(p, dict) else 0)
@@ -211,6 +210,12 @@ def evaluate_player_eligibility(
     if envelope_zone == CourtEnvelopeZone.UNAVAILABLE or calibration_state in (
         "UNCALIBRATED", "CALIBRATION_LOST", "RECALIBRATING"
     ):
+        if is_known_player and unavailable_frames > cfg.far_outside_grace_frames:
+            return PlayerEligibility(
+                status=EligibilityStatus.UNRESOLVED, envelope_zone=CourtEnvelopeZone.UNAVAILABLE,
+                envelope_distance_m=None, envelope_distance_px=None, confidence=det_conf * .3,
+                reasons=["uncalibrated_continuity_grace_expired"], is_eligible_for_profile=False,
+                provenance={"isKnownPlayer": True, "courtEligibilityUnavailable": True})
         if is_known_player:
             # Existing known players may retain identity using temporal tracking for bounded grace
             reasons.append("uncalibrated_known_player_continuity")
@@ -230,17 +235,17 @@ def evaluate_player_eligibility(
                     "groundProvenance": ground_point.provenance,
                 },
             )
-        elif scene_str == SceneState.SIDE_PLAY.value:
+        elif scene_str == SceneState.SIDE_PLAY.value and not has_established_profiles_for_reacquisition:
             # SIDE_PLAY: preserve 2D tracking and pose keypoints while suppressing court metrics
             reasons.append("side_play_2d_tracking")
             return PlayerEligibility(
-                status=EligibilityStatus.ELIGIBLE,
+                status=EligibilityStatus.UNRESOLVED,
                 envelope_zone=CourtEnvelopeZone.UNAVAILABLE,
                 envelope_distance_m=None,
                 envelope_distance_px=None,
                 confidence=det_conf * 0.8,
                 reasons=reasons,
-                is_eligible_for_profile=True,
+                is_eligible_for_profile=False,
                 provenance={
                     "isKnownPlayer": False,
                     "sidePlay2DTracking": True,

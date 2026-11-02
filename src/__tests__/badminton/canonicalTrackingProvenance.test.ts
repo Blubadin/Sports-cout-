@@ -372,7 +372,7 @@ describe('Phase 1: Canonical Tracking Data Provenance & Integrity', () => {
     expect(observedPlayer.groundPointProvenance).toBe('pose_both_ankles');
   });
 
-  it('R04: predicted and manual observationState and groundPointProvenance are preserved through downsampling', () => {
+  it('R04: raw predicted bbox provenance stays visual while manual ankle samples remain metric', () => {
     const rawFrames: TrackingTelemetryV1[] = [
       {
         schemaVersion: 1,
@@ -416,12 +416,12 @@ describe('Phase 1: Canonical Tracking Data Provenance & Integrity', () => {
     ];
 
     const result = downsampleAndChunkTrackingSamples('analysis_provenance_states', rawFrames, 10, 15);
-    const p1Sample = result.chunks[0].samples.find((s) => s.playerId === 'P1')!;
+    const p1Sample = result.chunks[0].samples.find((s) => s.playerId === 'P1');
     const p2Sample = result.chunks[0].samples.find((s) => s.playerId === 'P2')!;
 
-    expect(p1Sample.trackingState).toBe('predicted');
-    expect(p1Sample.observationState).toBe('predicted');
-    expect(p1Sample.groundPointProvenance).toBe('bbox_bottom_center');
+    expect(rawFrames[0].players[0].groundPointProvenance).toBe('bbox_bottom_center');
+    expect(rawFrames[0].players[0].observationState).toBe('predicted');
+    expect(p1Sample).toBeUndefined();
 
     expect(p2Sample.trackingState).toBe('tracked');
     expect(p2Sample.observationState).toBe('manual');

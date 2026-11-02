@@ -1,0 +1,17 @@
+# Frozen tested constraints from the authoritative Phase 3 validation run (2026-10-05)
+# Python 3.12 64-bit on Windows 11 / Linux x86_64
+fastapi==0.142.2
+uvicorn==0.54.0
+opencv-python==5.0.0.93
+numpy==2.5.2
+scipy==1.18.1
+websockets==17.2
+pydantic==2.13.5
+pydantic_core==2.46.5
+ultralytics==8.3.203
+lap==0.5.13
+torch==2.5.1+cu124
+torchvision==0.20.1+cu124
+psutil==7.2.2
+polars==1.44.2
+starlette==1.7.0

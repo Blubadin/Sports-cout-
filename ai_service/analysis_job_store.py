@@ -508,6 +508,31 @@ class AnalysisJobStore:
                 "committedSequence": sequence_count,
             }
 
+    def find_result_frame(self, session_id: str, frame_index: int) -> dict[str, Any] | None:
+        """Find a committed observation with logarithmic, bounded chunk reads.
+
+        Canonical frame indexes are ordered, but need not equal result cursors.
+        Only journal-committed, checksum-verified chunks can satisfy this lookup.
+        """
+        if type(frame_index) is not int or frame_index < 0:
+            raise ValueError("Frame index must be a non-negative integer")
+        with self._lock:
+            checkpoint = self.get_job(session_id)["checkpoint"]
+            low, high = 1, checkpoint["committedSequence"]
+            while low <= high:
+                sequence = (low + high) // 2
+                chunk = self._read_chunk(session_id, sequence)
+                if self._index_record(session_id, sequence) != (chunk["startCursor"], chunk["endCursor"], sequence):
+                    raise JobStoreCorruptionError(f"Committed result chunk {sequence} index mismatch")
+                items = chunk["items"]
+                if frame_index < items[0]["frameIndex"]:
+                    high = sequence - 1
+                elif frame_index > items[-1]["frameIndex"]:
+                    low = sequence + 1
+                else:
+                    return next((item for item in items if item["frameIndex"] == frame_index), None)
+            return None
+
     def iter_chunks(self, session_id: str) -> Iterable[list[dict[str, Any]]]:
         job = self.get_job(session_id)
         for sequence in range(1, job["checkpoint"]["committedSequence"] + 1):

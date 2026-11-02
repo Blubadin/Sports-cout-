@@ -92,6 +92,27 @@ def non_court_geometry_frames() -> dict[str, np.ndarray]:
 
 
 class TestDynamicCourtCalibrationFoundation(unittest.TestCase):
+    def test_oblique_broadcast_court_uses_each_lines_own_coverage(self):
+        # Physical court projected into a broadcast-sized trapezoid. This is a
+        # geometry fixture, not a real-video accuracy claim.
+        frame = np.full((720, 1280, 3), (40, 150, 40), dtype=np.uint8)
+        corners = np.float32([[400, 352], [870, 352], [1000, 636], [270, 636]])
+        cv2.fillConvexPoly(frame, corners.astype(np.int32), (40, 150, 40))
+        transform = cv2.getPerspectiveTransform(np.float32([[0, 0], [6.1, 0], [6.1, 13.4], [0, 13.4]]), corners)
+        def line(a, b):
+            points = cv2.perspectiveTransform(np.float32([[a, b]]), transform)[0].round().astype(int)
+            cv2.line(frame, tuple(points[0]), tuple(points[1]), (240, 240, 240), 3)
+        for x in (0, .46, 5.64, 6.1):
+            line((x, 0), (x, 13.4))
+        line((3.05, 0), (3.05, 4.72))
+        line((3.05, 8.68), (3.05, 13.4))
+        for y in (0, .76, 4.72, 8.68, 12.64, 13.4):
+            line((0, y), (6.1, y))
+        candidate = AutomaticCourtCalibrationProvider().get_candidate(frame)
+        self.assertIsNotNone(candidate)
+        self.assertGreaterEqual(candidate.supporting_evidence['outer_boundary_coverage_min'], .65)
+        np.testing.assert_allclose(candidate.corners_px, corners, atol=8)
+
     def setUp(self):
         self.court_corners = [[70, 35], [570, 35], [570, 445], [70, 445]]
 

@@ -1,0 +1,77 @@
+# Phase 3 correctness remediation V2 — results
+
+**Verdict: CONDITIONAL PASS for review; Phase 3 remains incomplete and merge blocked pending data acceptance.** No merge, push or PR creation was performed.
+
+Base: `e6b4068fa045b93d8fd5c1dfb6258468db8f81b5` (PR #33 head). Branch: `fix/phase3-sol-correctness-v2`. Main reference: `b611a9651c8a6aed18a286e1e01b35ee412199a0`. Final analysis-core revision exercised: `8ba56690d8f26448ea0569277509f7088bd74272`; export provenance was additionally repaired and suite-validated at `628aca1`. The final later commit changes documentation only. Real analysis captured `repositoryDirty=true` because documentation edits were pending, not because uncommitted production changes were executed.
+
+## Root causes and repairs
+
+1. SIDE_PLAY bypassed trustworthy court evidence, and semantic P1/P2 keys were confused with raw MOT IDs. Unknown people now retain raw tracks/pose only; established continuity is bounded to 15 unavailable-court frames. Profile seeding independently enforces the invariant. Reacquisition requires distinctive HSV/ReID, no contradictory evidence, and three consecutive confirmations; two/four players are maxima. Late real-video review exposed P1/P2 following court ends after a change of ends. Distinctive appearance now blocks contradictory MOT/court-side associations and survives recycled track IDs. A central jersey reference is retained independently of adaptive appearance. Achromatic pixels and circular red hue are canonicalized; a majority color needs 55% crop support. Contradictory distinctive color is rejected rather than adapted into another athlete. Empty slots cannot take established live tracks, and initial side comes from the observed athlete. Regressions cover change of ends, background/adaptation and one-visible-athlete seeding. Same-color clothing remains ambiguous.
+2. Per-frame distance treated ground anchors alike and integrated small ankle jitter. Fresh ankle observations now carry confidence/source/age/validity/metric eligibility; bbox remains visual only. Three-point median and adaptive EMA preserve separate raw/filtered points. Uncertainty scales with anatomical provenance, pose, calibration and identity evidence. Integration resets at provenance/camera/calibration/identity gaps, retains an accepted anchor for small steps, and checks both instantaneous and anchor-interval speed against 11 m/s. Missing calibration confidence assumes 0.5 conservatively. These uncertainty radii are engineering assumptions, not calibrated error bounds.
+3. Local preview began at cursor zero and cache spans could hide holes. Time-aware indexed retrieval uses at most four local reads, validates coverage, preserves cancellation/ownership and bounds RAM. Accepted backend cumulative metrics and speed survive transport/local queries; jitter is not re-integrated. Directional travel allocation remains approximate.
+4. Export used sample index rather than sourceFrame and expected obsolete court/raw/pose shapes. One input normalizer handles canonical and controlled legacy formats. Exact sourceFrame alignment is tested on decoded pixels at 2/4/6 for stride two; legacy fallback is counted. Production frame-150 telemetry executes court, pose and rejected raw-person rendering. Player heatmaps exclude predicted/bbox-only positions.
+5. Explicit CUDA silently retried CPU, and doctor demanded CUDA and hard-coded models. Only AUTO may fall back with a reason. Explicit CUDA unavailability/inference failure is terminal, including session boundaries. Doctor auto/cpu/cuda executes real tensors/configured detector/pose and optional configured shuttle, records paths/devices, and performs no hidden downloads.
+6. Shuttle flight detections were conflated with landings and the heatmap point list was empty. The canonical shot layer models contact, flight, return/terminal event, null unknowns and conservative off-frame continuity. Detector loss cannot become a landing. OUT_OF_FRAME measured coordinates are null. Reacquisition checks time, edges, direction, velocity, camera and rally; nine landing zones retain six-zone aliases. Explicit evidence must pass confidence/calibration gates. Separate trajectory and landing plots use qualifying real metric samples only, otherwise explicitly report insufficient data.
+7. Export invented runtime/model/session defaults, and encoder fallback did not describe the actual codec. Manifest now uses recorded facts or null, including analysis/export repository revisions, stage provenance, source hash, real job/session IDs and actual encoder. The PDF reports Total Distance, metric coverage/quality, valid zero totals and insufficient shuttle analytics. Hard-coded claims of zero leaked false metrics and verified feet/identity accuracy were replaced with recorded calibration counts and uncertified accuracy wording. Annotator absent is `b`; previous remains `a`, and AST validation checks all declared keys.
+
+## Verification
+
+| Check | PASS | FAIL | SKIPPED / qualification |
+|---|---:|---:|---|
+| Pre-edit Python suite | 725 | 0 | 4; 729 run |
+| Pre-edit Vitest | 1,021 | 0 | 0; 107 files |
+| Final Python unittest discovery | 761 | 0 | 4; 765 run, 84.788 s |
+| Final frontend Vitest | 1,028 | 0 | 0; 108 files, 114.91 s |
+| TypeScript typecheck | PASS | 0 | — |
+| Production build | PASS | 0 | Existing chunk-size warning |
+| Lint baseline | PASS | 0 new | Existing 432 errors / 30 warnings, all 462 within baseline |
+| CPU doctor / CUDA doctor | PASS / PASS | 0 | Real model inference on this workstation |
+| Opt-in RallyLens/API suite | 9 | 0 | 0; two previously skipped real-model tests enabled, 22.072 s |
+| Real browser storage/seek harness | PASS | 0 | Production modules; full lab control flow not tested |
+| Independent held-out evaluation | — | — | NOT RUN / NOT VALIDATED |
+
+Commands: isolated `SPORTSCOUT_ANALYSIS_STORE_DIR`, `.local-services/python/Scripts/python.exe -m unittest discover -s ai_service/tests`; `npx vitest run`; `npm run typecheck`; `npm run build`; `npm run lint`. Doctor ran configured local models with `--mode cpu` and `--mode cuda` and explicit shuttle artifact. The isolated store avoids unrelated persisted jobs affecting pagination fixtures. The default full suite skips two explicitly gated RallyLens cases, one reviewed-GT case requiring a different media SHA, and one integration fixture requiring repository-root YOLO weights. The two RallyLens cases were subsequently enabled with the actual local model/video and passed, including a real ten-frame upload/start/results API session on CPU. Do not add the nine targeted passes to the full-suite count: seven overlap ordinary unit tests. The separate reviewed-GT media (SHA `84160d02...`) was not substituted with this clip. Earlier fixture failures were repaired to use fresh poses, strict confirmations and realistic recalibration motion; production thresholds were not weakened to satisfy tests.
+
+The 35 correctness regressions include 9,000 noisy stationary observations with 2–10 cm jitter (<0.3 m accepted), 10 m straight (±0.35 m), 5 m out/return (±0.55 m), fast 2 m lunge (±0.3 m), persistent jumps, anatomical anchor switches, one-ankle uncertainty, cuts/calibration/gaps, SIDE_PLAY/MOT collision, distinctive change of ends, CPU/CUDA modes, reachable annotation keys, rendered schema/stride pixels, truthful provenance and shuttle events/landings/reacquisition. Full suites also cover scene/calibration, established excursions, singles/doubles maxima, transport/cache and lifecycle integration.
+
+## Real video, identity and ground/distance results
+
+Source: `Badminton test.mp4`, 1,280 × 720, 30 fps, 8,869 frames, 295.633 s. SHA256: `e7c5581bdf88f622aff88901bab139133fea50f93c25c0a928056294a2bc9a4e`. Initial outer court corners were manually inspected approximate calibration, **not GT**. All frames were marked calibrated/COURT_PLAY by the pipeline; those labels are not independently certified rally labels.
+
+A fresh bounded 300-frame run executed detector, pose and RallyLens on CUDA (294/297 observed player frames, 98 shuttle observations). The first full run also executed all three models on CUDA and yielded 3,808 shuttle observations, but sample review found a change-of-ends identity error. Its athlete totals and the intermediate replay totals are historical diagnostic results, not final corrected player results.
+
+The final 8,869-frame staged run `session_298a202909714f47af0df9c2d237b1bf` took 191.25 s for analysis. Identity, ground/distance, scene and shot logic reran on decoded real frames at the final code revision. Detector, pose and RallyLens neural observations were reused, preserving raw track IDs, bounding boxes and serialized percentage pose coordinates. It reused exact source-frame/timestamp-matched measured observations from `session_1e98a80158fb40dfa20c968294b2400c`, after checking the source SHA. No neural inference was rerun in this full stage. Manifest records `FRESH_ANALYZER_WITH_RECORDED_NEURAL_OBSERVATIONS`, recorded provider/runtime facts, null effective inference devices and original CUDA execution provenance separately. A separate final-code bounded 300-frame run freshly executed detector/pose on CUDA with recorded shuttle observations. The full replay uses serialized model measurements, not synthetic fabricated coordinates. This is real-video pipeline execution with recorded observations, not all-model execution of a clean final checkout.
+
+| Player | Observed frames | Raw movement m | Filtered m | Accepted m | Rejected filtered m | Metric coverage | Accepted updates |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| P1 | 7479 | 1594.803 | 1176.438 | 54.18 | 1122.254 | 78.0% | 87 |
+| P2 | 7482 | 1147.996 | 885.087 | 46.62 | 838.466 | 70.3% | 76 |
+
+Ground provenance counts:
+
+- P1: `{"pose_both_ankles": 5528, "pose_right_ankle": 177, "bbox_bottom_center": 1643, "pose_left_ankle": 131}`.
+- P2: `{"bbox_bottom_center": 2223, "pose_both_ankles": 5035, "pose_right_ankle": 114, "pose_left_ankle": 110}`.
+
+Raw/filtered path lengths include only eligible continuous intervals; resets do not bridge. Rejected filtered movement is `max(filtered − accepted, 0)`, a diagnostic rejected-motion total, not proven jitter. Coverage means metric-eligible counted ground observations / all counted ground observations, not the entire video duration. COURT_IDLE contributes to total but not active-play distance; replay/transitions/invalid calibration/unavailable identity do not contribute.
+
+These results are not calibrated real physical distance. Frequent bbox fallback, provenance resets and conservative uncertainty thresholds can substantially undercount travel. A reduction from the user's historical 644.7/811.5 m is not correctness proof. There are no independently reviewed trajectory/error labels. Sampled court, pose, ankle/bbox anchors, raw spectator boxes, shuttle and identity overlays were inspected, including before/after the change of ends. P1 remains the initially gray athlete and P2 the red athlete in those samples; absolute P1/P2 court roles are intentionally not fixed. Some far-player pose estimates are visibly poor; this review is not pose accuracy certification. Athlete-relative tactical orientation across an end change still needs independent evaluation.
+
+## Preview and export results
+
+The browser harness populated real production IndexedDB storage with all 8,869 final-stage telemetry frames and sought 0, 147.7, 294.5, 70, 250 and 149 s against the actual video. It used production storage, normalizer, loader, camera-segment selection and overlay. Each seek resolved with 2–4 indexed local reads and zero backend calls; repeating 149 s from RAM needed zero reads. Source timestamps matched playhead times within one frame. Cancellation/session/rapid seek/cache-hole/partial-prefix behavior is also tested. This validates these production modules, not complete interactive BadmintonTrackingLab controls or every real scene boundary.
+
+The new full DEBUG ZIP contains the overlay MP4, PDF, telemetry, statistics, manifest, player heatmaps, separate shuttle trajectory/landing images and `data/shuttle_shots.json`. PDF pages and decoded video samples were inspected. Existing real session/job IDs propagate; project is null for the standalone run. No invented runtime/precision/model or placeholder session is substituted. PDF and manifest were regenerated after the final provenance/claim fixes; the overlay MP4 and measurement telemetry were retained, with those stages recorded. Actual sourceFrame alignment and encoder facts are recorded; source audio is not muxed and that limitation is explicit.
+
+## CUDA and shuttle results
+
+CUDA doctor executed real FP32 torch tensors, configured YOLOv8n detector/YOLOv8n-pose and RallyLens artifact on NVIDIA CUDA; CPU doctor executed the configured models on CPU. This CPU run used CUDA-capable installed torch, not a fresh CPU-only installation. Mock absence-of-CUDA tests show CPU workflow is allowed and explicit CUDA fails. Hardware existence is not treated as execution validation. AMD/MPS are not claimed validated.
+
+Real shuttle observations: 3808 / 8869. Supported detected shots: 0; confirmed metric landings: 0; coverage: 0.0%. Trajectory/landing output reports `INSUFFICIENT_SHUTTLE_METRIC_DATA`. The conservative wrist/reversal contact detector did not establish contacts on this clip. There is no validated production automatic ground-contact/net/out classifier or 3D measured shuttle source. Fixture events validate segmentation, nine-zone/OUT behavior, clear exit/reentry and loss→UNKNOWN; they do not validate real event precision/recall. No unknown landing enters tactical heatmaps, and no airborne image point is projected into a fake metric trajectory.
+
+## Claims corrected, acceptance gates and risks
+
+The closeout now distinguishes IMPLEMENTED, UNIT-VALIDATED, INTEGRATION-VALIDATED, sampled real execution and NOT VALIDATED. It retracts PHASE 3 COMPLETE, all mandatory capabilities validated, blanket zero-gap playback, physical-distance certification and merge readiness. Runtime documentation distinguishes historical execution, explicit device semantics and current hardware limits. The evidence index supersedes stale authorities without rewriting historical raw reports.
+
+Player/ground/distance/preview/export/GPU code gates pass their named unit/integration evidence; real samples supply limited execution review. Shuttle structural/unknown/zone/coverage/separate-output gates pass fixtures. **The real metric trajectory heatmap gate is NOT met** because no qualifying real metric flight source exists. Real contact/terminal accuracy, reviewed landing coverage, independent physical distance accuracy and held-out player/spectator certification remain NOT VALIDATED. No acceptance threshold was lowered to hide those gaps.
+
+Remaining work before full acceptance: independently reviewed calibration/player trajectories including stationary and lunge error; spectator/reentry/cut/change-of-ends and doubles held-out labels; validated real terminal and 3D/metric shuttle evidence with contacts/landings/net/out accuracy; full interactive lab playback/seek and scene-boundary checks; independent blinded frozen held-out evaluation. Distinctive shirt matching can fail on similar clothing/appearance drift, monocular foot calibration remains uncertain, and directional/athlete-relative zones need review across end changes. Until then this is **CONDITIONAL PASS for review, not complete and not ready to merge**.

@@ -221,6 +221,7 @@ describe('Phase 2.9C: Shuttle Runtime Diagnostics', () => {
     it('renders measured zero as 0 and null/undefined as em dash —', async () => {
       const mockSessionStatus = {
         sessionId: 'session_diag_test',
+        gameType: 'singles',
         runId: 'session_diag_test',
         projectId: testProjectId,
         videoFingerprint: 'fingerprint-shuttle-diagnostics',

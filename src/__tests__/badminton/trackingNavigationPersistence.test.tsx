@@ -7,6 +7,7 @@ import { aiTrackingService } from '../../../src/services/aiTrackingService';
 import * as videoFileStore from '../../../src/utils/videoFileStore';
 import * as trackingStorage from '../../../src/services/storage/trackingStorage';
 import type { TrackingSessionStatus } from '../../../src/types';
+import { TrackingOverlayWindowLoader } from '../../../src/components/labs/trackingOverlayWindow';
 
 // Mock dependencies
 vi.mock('../../../src/services/aiTrackingService', () => ({
@@ -73,6 +74,13 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
 
   const mockStatus = (status: any, overrides: any = {}) => ({
     sessionId: 'session-123',
+    gameType: 'singles',
+    trackedPlayerCount: 2,
+    processingConfig: {
+      profile: 'auto', requestedProfile: 'auto', device: 'auto', requestedDevice: 'auto',
+      detectorInputSize: 640, useCourtRoi: false, courtRoiMarginPx: 60, courtRoiMarginM: .5,
+      frameStride: 2, poseStride: 1, shuttleEnabled: false, autoCourtCalibrationEnabled: false,
+    },
     status,
     progressPct: 0,
     currentFrame: 0,
@@ -227,7 +235,7 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       corners: [[0, 0], [100, 0], [100, 100], [0, 100]] // Valid corners
     });
     
-    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(mockStatus('VIDEO_READY') as any);
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockStatus('VIDEO_READY') as any);
     const createSpy = vi.spyOn(aiTrackingService, 'createSession');
     const uploadSpy = vi.spyOn(aiTrackingService, 'uploadSessionVideo').mockResolvedValueOnce(undefined as any);
     const startSpy = vi.spyOn(aiTrackingService, 'startSessionAnalysis').mockResolvedValueOnce({} as any);
@@ -255,7 +263,7 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
       corners: [[0, 0], [100, 0], [100, 100], [0, 100]]
     });
 
-    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValueOnce(mockStatus('READY_TO_ANALYZE') as any);
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockStatus('READY_TO_ANALYZE') as any);
     const createSpy = vi.spyOn(aiTrackingService, 'createSession');
     const uploadSpy = vi.spyOn(aiTrackingService, 'uploadSessionVideo');
     const startSpy = vi.spyOn(aiTrackingService, 'startSessionAnalysis').mockResolvedValueOnce({} as any);
@@ -510,5 +518,46 @@ describe('Phase 0.1 — Tracking Navigation Persistence', () => {
     await waitFor(() => {
       expect(screen.getByText(/Player movement results/i)).toBeInTheDocument();
     });
+  });
+
+  it('does not hydrate an old singles result into a new four-player run', async () => {
+    const oldAnalysis = { id: 'old-singles', projectId: 'project-1', sportType: 'badminton',
+      gameType: 'singles', trackedPlayerCount: 2, status: 'completed', players: [],
+      summary: { durationSeconds: 0, sampleCount: 0, players: {} } } as unknown as trackingStorage.TrackingAnalysis;
+    const latestSpy = vi.spyOn(trackingStorage, 'getLatestTrackingAnalysisForProject').mockResolvedValue(oldAnalysis);
+    trackingSessionStore.updateProjectState('project-1', {
+      sessionId: 'new-doubles', status: 'PROCESSING', gameType: 'doubles', trackedPlayerCount: 4,
+    });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockStatus('PROCESSING', {
+      sessionId: 'new-doubles', gameType: 'doubles', trackedPlayerCount: 4,
+    }) as unknown as TrackingSessionStatus);
+    render(<BadmintonTrackingLab />);
+    await waitFor(() => expect(aiTrackingService.getSessionStatus).toHaveBeenCalledWith('new-doubles'));
+    expect(latestSpy).not.toHaveBeenCalled();
+    expect(trackingSessionStore.getProjectState('project-1')).toMatchObject({
+      gameType: 'doubles', trackedPlayerCount: 4, analysis: null,
+    });
+  });
+
+  it('clears an unavailable message when cached telemetry resolves the displayed frame', async () => {
+    const loadSpy = vi.spyOn(TrackingOverlayWindowLoader.prototype, 'load').mockResolvedValue({ status: 'unavailable' });
+    vi.spyOn(TrackingOverlayWindowLoader.prototype, 'getCachedFrames').mockReturnValue([{
+      schemaVersion: 1, analysisId: 'cached-doubles', timestampSec: 0, frameIndex: 1,
+      cameraSegmentId: 'segment-0', players: [{ playerId: 'P1', trackId: 3, state: 'observed',
+        detectionConfidence: .9, bboxPct: { x: 10, y: 20, width: 10, height: 30 } }],
+    }]);
+    trackingSessionStore.updateProjectState('project-1', {
+      sessionId: 'cached-doubles', status: 'COMPLETED', gameType: 'doubles', trackedPlayerCount: 4,
+      file: new File(['video'], 'doubles.webm', { type: 'video/webm' }),
+    });
+    vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(mockStatus('COMPLETED', {
+      sessionId: 'cached-doubles', gameType: 'doubles', trackedPlayerCount: 4,
+      committedResultCursor: 1, analyzedFrames: 1, totalFrames: 1, videoDurationSec: 1,
+    }) as unknown as TrackingSessionStatus);
+    const { container } = render(<BadmintonTrackingLab />);
+    await waitFor(() => expect(container.querySelector('video')).not.toBeNull());
+    fireEvent.loadedMetadata(container.querySelector('video')!);
+    await waitFor(() => expect(loadSpy).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText(/No tracking data is available for this time/i)).not.toBeInTheDocument());
   });
 });

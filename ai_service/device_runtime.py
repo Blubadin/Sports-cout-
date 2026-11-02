@@ -46,7 +46,7 @@ def resolve_device(requested: str | None = None, *, torch_module: Any = _SENTINE
     if choice not in {"cuda", "mps", "cpu"}:
         raise ValueError(f"Unsupported tracking device: {requested}")
     if choice == "cuda" and not cuda_available:
-        return "cpu"
+        raise ValueError("Explicit CUDA requested but CUDA is unavailable; select AUTO or CPU to permit CPU execution")
     if choice == "mps" and not mps_available:
         raise ValueError("Requested mps device is unavailable")
     return choice
@@ -64,13 +64,13 @@ class InferenceExecution:
     """
 
     def __init__(self, requested='cpu', *, backend='pytorch', precision='fp32'):
-        self.requested = requested or 'auto'
+        self.requested = (requested or 'auto').strip().lower()
         self.device = resolve_device(self.requested)
         self.backend = backend
         self.precision = precision
         self.status = 'PENDING'
         self.fallback_reason = None
-        if self.requested in ('auto', 'cuda') and self.device == 'cpu':
+        if self.requested == 'auto' and self.device == 'cpu':
             self._warn('CUDA unavailable; CPU selected')
 
     def _warn(self, reason):
@@ -83,7 +83,7 @@ class InferenceExecution:
         try:
             result = operation(self.device)
         except Exception as error:
-            if self.device != 'cuda':
+            if self.device != 'cuda' or self.requested != 'auto':
                 self.status = 'ERROR'
                 raise InferenceExecutionError(f'{self.device} {stage} failed ({type(error).__name__})') from error
             self._warn(f'CUDA {stage} failed ({type(error).__name__}); retrying identical input on CPU')
@@ -102,6 +102,7 @@ class InferenceExecution:
             'requestedDevice': self.requested, 'effectiveDevice': self.device,
             'device': self.device, 'backend': self.backend, 'precision': self.precision,
             'fallbackReason': self.fallback_reason, 'executionStatus': self.status,
+            'executionValidated': self.status == 'READY',
         }
 
 

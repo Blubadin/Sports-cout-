@@ -1,0 +1,1148 @@
+{
+  "schemaVersion": 1,
+  "frameIndex": 150,
+  "sourceFrame": 150,
+  "timestampSec": 4.967,
+  "sceneState": "COURT_PLAY",
+  "cameraSegmentId": "segment-0",
+  "isMetricValid": true,
+  "canUseCourtMetric": true,
+  "calibration": {
+    "calibrationId": "cal-201b3926b58d4f1ebec877964e91d594",
+    "calibrationVersion": "cal-201b3926b58d4f1ebec877964e91d594",
+    "cameraSegmentId": "segment-0",
+    "state": "CALIBRATED",
+    "source": "manual",
+    "createdAtFrame": 0,
+    "createdAtTimestampSec": 0.0,
+    "confidence": null,
+    "reprojectionErrorPx": null,
+    "corners": [
+      [
+        371.0,
+        314.0
+      ],
+      [
+        912.0,
+        314.0
+      ],
+      [
+        1018.0,
+        704.0
+      ],
+      [
+        263.0,
+        704.0
+      ]
+    ],
+    "hMatrix": [
+      [
+        0.01654450090272683,
+        0.004581554096139737,
+        -7.576617821099532
+      ],
+      [
+        -4.0446191468764253e-19,
+        0.07035759288976146,
+        -22.092284167385106
+      ],
+      [
+        -4.712998300974755e-20,
+        0.001488240121284615,
+        1.0
+      ]
+    ],
+    "hInvMatrix": [
+      [
+        88.68852597672078,
+        -13.622813474696219,
+        371.0
+      ],
+      [
+        -3.856039156456504e-15,
+        14.21310705678679,
+        313.99999999999994
+      ],
+      [
+        -7.57571543508154e-18,
+        -0.02115251617002359,
+        1.0
+      ]
+    ]
+  },
+  "players": [
+    {
+      "playerId": "P1",
+      "trackId": 8,
+      "teamCode": "team1",
+      "bboxPct": {
+        "x": 33.99,
+        "y": 33.49,
+        "width": 5.58,
+        "height": 23.23
+      },
+      "groundPointPct": {
+        "x": 37.83,
+        "y": 54.23
+      },
+      "groundPointProvenance": "pose_both_ankles",
+      "groundPositionM": {
+        "xM": 1.41,
+        "yM": 3.4
+      },
+      "courtPositionM": {
+        "xM": 1.41,
+        "yM": 3.4
+      },
+      "courtPosition": {
+        "xM": 1.41,
+        "yM": 3.4,
+        "xPct": 24.51,
+        "yPct": 25.72
+      },
+      "absoluteZone": "ML",
+      "playerRelativeZone": "MR",
+      "speedMps": 0.0,
+      "totalDistanceM": 1.37,
+      "rawGroundPoint": {
+        "groundPx": {
+          "x": 484.2,
+          "y": 390.4
+        },
+        "groundPct": {
+          "x": 37.83,
+          "y": 54.23
+        },
+        "provenance": "pose_both_ankles",
+        "validity": "OBSERVED",
+        "metricEligible": true,
+        "metricQuality": "BOTH_ANKLES",
+        "confidence": 0.775,
+        "poseSource": "fresh",
+        "poseAgeFrames": 0,
+        "poseAgeSec": 0.0,
+        "isStale": false,
+        "staleReason": null,
+        "leftFoot": {
+          "positionPx": {
+            "x": 503.4,
+            "y": 392.4
+          },
+          "positionPct": {
+            "x": 39.33,
+            "y": 54.5
+          },
+          "confidence": 0.8,
+          "courtPositionM": {
+            "xM": 1.61,
+            "yM": 3.48
+          },
+          "source": "detected",
+          "ageFrames": 0,
+          "ageSec": 0.0,
+          "isStale": false,
+          "staleReason": null
+        },
+        "rightFoot": {
+          "positionPx": {
+            "x": 465.1,
+            "y": 388.5
+          },
+          "positionPct": {
+            "x": 36.34,
+            "y": 53.96
+          },
+          "confidence": 0.75,
+          "courtPositionM": {
+            "xM": 1.2,
+            "yM": 3.32
+          },
+          "source": "detected",
+          "ageFrames": 0,
+          "ageSec": 0.0,
+          "isStale": false,
+          "staleReason": null
+        },
+        "groundPositionM": {
+          "xM": 1.41,
+          "yM": 3.4
+        }
+      },
+      "filteredGroundPoint": {
+        "xM": 1.4951696479612757,
+        "yM": 3.446711955655457
+      },
+      "distanceMetrics": {
+        "totalTrackedDistanceM": 1.37,
+        "distanceDuringActivePlayM": 1.37,
+        "metricDistanceCoverage": 0.4421768707482993,
+        "groundPointQuality": "pose_both_ankles",
+        "rawMovementM": 5.857,
+        "filteredMovementM": 4.166,
+        "jitterRejectedDistanceM": 2.793,
+        "validMovementSamples": 4,
+        "provenanceDistribution": {
+          "pose_both_ankles": 144,
+          "bbox_bottom_center": 142,
+          "pose_right_ankle": 5,
+          "pose_left_ankle": 3
+        },
+        "measurementUncertaintyM": 0.15483870967741933
+      },
+      "detectionConfidence": 0.834,
+      "confidence": 0.834,
+      "state": "observed",
+      "observationState": "observed",
+      "reviewState": "unreviewed",
+      "athleteId": null,
+      "identityCosts": {
+        "spatialCost": 0.1,
+        "courtSidePenalty": 0.0,
+        "rawTrackContinuityBonus": -4.0,
+        "hsvAppearanceCost": 1.6305,
+        "reidAppearanceCost": 0.0,
+        "quarantinePenalty": 0.0,
+        "totalCost": -2.2695,
+        "reidSimilarity": null,
+        "isAmbiguous": false,
+        "hsvDistance": 0.20381154981346727
+      },
+      "leftFootPx": {
+        "x": 503.4,
+        "y": 392.4
+      },
+      "rightFootPx": {
+        "x": 465.1,
+        "y": 388.5
+      },
+      "leftFootConfidence": 0.8,
+      "rightFootConfidence": 0.75,
+      "leftFootCourtM": {
+        "xM": 1.61,
+        "yM": 3.48
+      },
+      "rightFootCourtM": {
+        "xM": 1.2,
+        "yM": 3.32
+      },
+      "leftFoot": {
+        "positionPx": {
+          "x": 503.4,
+          "y": 392.4
+        },
+        "positionPct": {
+          "x": 39.33,
+          "y": 54.5
+        },
+        "confidence": 0.8,
+        "courtPositionM": {
+          "xM": 1.61,
+          "yM": 3.48
+        },
+        "source": "detected",
+        "ageFrames": 0,
+        "ageSec": 0.0,
+        "isStale": false,
+        "staleReason": null
+      },
+      "rightFoot": {
+        "positionPx": {
+          "x": 465.1,
+          "y": 388.5
+        },
+        "positionPct": {
+          "x": 36.34,
+          "y": 53.96
+        },
+        "confidence": 0.75,
+        "courtPositionM": {
+          "xM": 1.2,
+          "yM": 3.32
+        },
+        "source": "detected",
+        "ageFrames": 0,
+        "ageSec": 0.0,
+        "isStale": false,
+        "staleReason": null
+      },
+      "envelopeZone": "IN_COURT",
+      "eligibilityStatus": "ELIGIBLE",
+      "poseSource": "fresh",
+      "poseAgeFrames": 0,
+      "poseAgeSec": 0.0,
+      "isPoseStale": false,
+      "staleReason": null,
+      "id": 1,
+      "team": 1,
+      "name": "Player 1",
+      "bbox": [
+        435.0462341308594,
+        241.1172332763672,
+        506.4548645019531,
+        408.34637451171875
+      ],
+      "court_pos_pct": {
+        "x": 24.51,
+        "y": 25.72
+      },
+      "court_pos_m": {
+        "x": 1.5,
+        "y": 3.45
+      },
+      "zone": "ML",
+      "speed_ms": 0.0,
+      "total_dist_m": 1.37,
+      "is_active": true,
+      "video_bbox_pct": {
+        "x": 33.99,
+        "y": 33.49,
+        "width": 5.58,
+        "height": 23.23
+      },
+      "pose": {
+        "keypoints": [
+          {
+            "x": 37.1953125,
+            "y": 35.708333333333336,
+            "score": 0.99
+          },
+          {
+            "x": 37.5,
+            "y": 35.25,
+            "score": 0.99
+          },
+          {
+            "x": 37.109375,
+            "y": 35.25,
+            "score": 0.9
+          },
+          {
+            "x": 38.203125,
+            "y": 35.56944444444445,
+            "score": 0.95
+          },
+          {
+            "x": 37.1953125,
+            "y": 35.59722222222222,
+            "score": 0.2
+          },
+          {
+            "x": 38.84375,
+            "y": 38.31944444444444,
+            "score": 0.99
+          },
+          {
+            "x": 36.9609375,
+            "y": 38.333333333333336,
+            "score": 0.96
+          },
+          {
+            "x": 38.421875,
+            "y": 41.65277777777777,
+            "score": 0.97
+          },
+          {
+            "x": 36.671875,
+            "y": 41.416666666666664,
+            "score": 0.8
+          },
+          {
+            "x": 36.6640625,
+            "y": 41.75000000000001,
+            "score": 0.93
+          },
+          {
+            "x": 36.234375,
+            "y": 41.23611111111111,
+            "score": 0.73
+          },
+          {
+            "x": 38.34375,
+            "y": 45.27777777777778,
+            "score": 1.0
+          },
+          {
+            "x": 36.890625,
+            "y": 45.083333333333336,
+            "score": 0.99
+          },
+          {
+            "x": 38.87500000000001,
+            "y": 50.15277777777778,
+            "score": 0.99
+          },
+          {
+            "x": 36.3515625,
+            "y": 49.59722222222223,
+            "score": 0.97
+          },
+          {
+            "x": 39.328125,
+            "y": 54.49999999999999,
+            "score": 0.8
+          },
+          {
+            "x": 36.33593750000001,
+            "y": 53.95833333333333,
+            "score": 0.75
+          }
+        ],
+        "metrics": {
+          "right_knee_angle_deg": 168.4,
+          "left_knee_angle_deg": 179.5,
+          "right_elbow_angle_deg": 86.4,
+          "left_elbow_angle_deg": 104.5,
+          "trunk_lean_deg": 4.2,
+          "stance_width_px": 38.3,
+          "lunge_detected": false,
+          "overhead_arm_detected": false,
+          "airborne_candidate": false
+        },
+        "keypointCoordinateSpace": "normalized_percent",
+        "isReused": false,
+        "ageFrames": 0,
+        "ageSec": 0.0,
+        "isStale": false,
+        "staleReason": null
+      }
+    },
+    {
+      "playerId": "P2",
+      "trackId": 7,
+      "teamCode": "team2",
+      "bboxPct": {
+        "x": 35.1,
+        "y": 57.44,
+        "width": 6.28,
+        "height": 30.49
+      },
+      "groundPointPct": {
+        "x": 38.87,
+        "y": 85.17
+      },
+      "groundPointProvenance": "pose_both_ankles",
+      "groundPositionM": {
+        "xM": 1.81,
+        "yM": 11.01
+      },
+      "courtPositionM": {
+        "xM": 1.81,
+        "yM": 11.01
+      },
+      "courtPosition": {
+        "xM": 1.81,
+        "yM": 11.01,
+        "xPct": 30.0,
+        "yPct": 80.78
+      },
+      "absoluteZone": "ML",
+      "playerRelativeZone": "ML",
+      "speedMps": 0.0,
+      "totalDistanceM": 3.37,
+      "rawGroundPoint": {
+        "groundPx": {
+          "x": 497.6,
+          "y": 613.2
+        },
+        "groundPct": {
+          "x": 38.87,
+          "y": 85.17
+        },
+        "provenance": "pose_both_ankles",
+        "validity": "OBSERVED",
+        "metricEligible": true,
+        "metricQuality": "BOTH_ANKLES",
+        "confidence": 0.855,
+        "poseSource": "fresh",
+        "poseAgeFrames": 0,
+        "poseAgeSec": 0.0,
+        "isStale": false,
+        "staleReason": null,
+        "leftFoot": {
+          "positionPx": {
+            "x": 509.0,
+            "y": 612.6
+          },
+          "positionPct": {
+            "x": 39.77,
+            "y": 85.08
+          },
+          "confidence": 0.85,
+          "courtPositionM": {
+            "xM": 1.91,
+            "yM": 10.99
+          },
+          "source": "detected",
+          "ageFrames": 0,
+          "ageSec": 0.0,
+          "isStale": false,
+          "staleReason": null
+        },
+        "rightFoot": {
+          "positionPx": {
+            "x": 486.1,
+            "y": 613.8
+          },
+          "positionPct": {
+            "x": 37.98,
+            "y": 85.25
+          },
+          "confidence": 0.86,
+          "courtPositionM": {
+            "xM": 1.71,
+            "yM": 11.02
+          },
+          "source": "detected",
+          "ageFrames": 0,
+          "ageSec": 0.0,
+          "isStale": false,
+          "staleReason": null
+        },
+        "groundPositionM": {
+          "xM": 1.81,
+          "yM": 11.01
+        }
+      },
+      "filteredGroundPoint": {
+        "xM": 1.8298548408884991,
+        "yM": 10.824747397559193
+      },
+      "distanceMetrics": {
+        "totalTrackedDistanceM": 3.37,
+        "distanceDuringActivePlayM": 3.37,
+        "metricDistanceCoverage": 0.7972972972972973,
+        "groundPointQuality": "pose_both_ankles",
+        "rawMovementM": 10.3,
+        "filteredMovementM": 7.4,
+        "jitterRejectedDistanceM": 4.034,
+        "validMovementSamples": 9,
+        "provenanceDistribution": {
+          "pose_both_ankles": 221,
+          "pose_right_ankle": 11,
+          "bbox_bottom_center": 60,
+          "pose_left_ankle": 5
+        },
+        "measurementUncertaintyM": 0.14035087719298245
+      },
+      "detectionConfidence": 0.837,
+      "confidence": 0.837,
+      "state": "observed",
+      "observationState": "observed",
+      "reviewState": "unreviewed",
+      "athleteId": null,
+      "identityCosts": {
+        "spatialCost": 0.1903,
+        "courtSidePenalty": 0.0,
+        "rawTrackContinuityBonus": -4.0,
+        "hsvAppearanceCost": 1.4453,
+        "reidAppearanceCost": 0.0,
+        "quarantinePenalty": 0.0,
+        "totalCost": -2.3644,
+        "reidSimilarity": null,
+        "isAmbiguous": false,
+        "hsvDistance": 0.18066651775637868
+      },
+      "leftFootPx": {
+        "x": 509.0,
+        "y": 612.6
+      },
+      "rightFootPx": {
+        "x": 486.1,
+        "y": 613.8
+      },
+      "leftFootConfidence": 0.85,
+      "rightFootConfidence": 0.86,
+      "leftFootCourtM": {
+        "xM": 1.91,
+        "yM": 10.99
+      },
+      "rightFootCourtM": {
+        "xM": 1.71,
+        "yM": 11.02
+      },
+      "leftFoot": {
+        "positionPx": {
+          "x": 509.0,
+          "y": 612.6
+        },
+        "positionPct": {
+          "x": 39.77,
+          "y": 85.08
+        },
+        "confidence": 0.85,
+        "courtPositionM": {
+          "xM": 1.91,
+          "yM": 10.99
+        },
+        "source": "detected",
+        "ageFrames": 0,
+        "ageSec": 0.0,
+        "isStale": false,
+        "staleReason": null
+      },
+      "rightFoot": {
+        "positionPx": {
+          "x": 486.1,
+          "y": 613.8
+        },
+        "positionPct": {
+          "x": 37.98,
+          "y": 85.25
+        },
+        "confidence": 0.86,
+        "courtPositionM": {
+          "xM": 1.71,
+          "yM": 11.02
+        },
+        "source": "detected",
+        "ageFrames": 0,
+        "ageSec": 0.0,
+        "isStale": false,
+        "staleReason": null
+      },
+      "envelopeZone": "IN_COURT",
+      "eligibilityStatus": "ELIGIBLE",
+      "poseSource": "fresh",
+      "poseAgeFrames": 0,
+      "poseAgeSec": 0.0,
+      "isPoseStale": false,
+      "staleReason": null,
+      "id": 2,
+      "team": 2,
+      "name": "Player 2",
+      "bbox": [
+        449.29998779296875,
+        413.58819580078125,
+        529.698974609375,
+        633.1229248046875
+      ],
+      "court_pos_pct": {
+        "x": 30.0,
+        "y": 80.78
+      },
+      "court_pos_m": {
+        "x": 1.83,
+        "y": 10.82
+      },
+      "zone": "ML",
+      "speed_ms": 0.0,
+      "total_dist_m": 3.37,
+      "is_active": true,
+      "video_bbox_pct": {
+        "x": 35.1,
+        "y": 57.44,
+        "width": 6.28,
+        "height": 30.49
+      },
+      "pose": {
+        "keypoints": [
+          {
+            "x": 38.453125,
+            "y": 60.16666666666667,
+            "score": 0.99
+          },
+          {
+            "x": 38.765625,
+            "y": 59.65277777777778,
+            "score": 0.96
+          },
+          {
+            "x": 38.234375,
+            "y": 59.59722222222222,
+            "score": 0.95
+          },
+          {
+            "x": 39.234375,
+            "y": 60.083333333333336,
+            "score": 0.75
+          },
+          {
+            "x": 38.015625,
+            "y": 59.94444444444444,
+            "score": 0.58
+          },
+          {
+            "x": 39.953125,
+            "y": 63.68055555555555,
+            "score": 0.99
+          },
+          {
+            "x": 37.59375,
+            "y": 63.51388888888889,
+            "score": 0.99
+          },
+          {
+            "x": 40.859375,
+            "y": 67.375,
+            "score": 0.95
+          },
+          {
+            "x": 37.046875,
+            "y": 68.30555555555556,
+            "score": 0.94
+          },
+          {
+            "x": 39.8984375,
+            "y": 65.47222222222221,
+            "score": 0.93
+          },
+          {
+            "x": 36.4453125,
+            "y": 70.44444444444444,
+            "score": 0.92
+          },
+          {
+            "x": 39.484375,
+            "y": 72.86111111111111,
+            "score": 1.0
+          },
+          {
+            "x": 37.921875,
+            "y": 72.625,
+            "score": 1.0
+          },
+          {
+            "x": 39.5234375,
+            "y": 79.33333333333334,
+            "score": 0.99
+          },
+          {
+            "x": 37.8203125,
+            "y": 78.98611111111111,
+            "score": 0.99
+          },
+          {
+            "x": 39.765625,
+            "y": 85.08333333333333,
+            "score": 0.85
+          },
+          {
+            "x": 37.9765625,
+            "y": 85.24999999999999,
+            "score": 0.86
+          }
+        ],
+        "metrics": {
+          "right_knee_angle_deg": 175.8,
+          "left_knee_angle_deg": 176.3,
+          "right_elbow_angle_deg": 164.9,
+          "left_elbow_angle_deg": 18.4,
+          "trunk_lean_deg": 0.8,
+          "stance_width_px": 22.9,
+          "lunge_detected": false,
+          "overhead_arm_detected": false,
+          "airborne_candidate": false
+        },
+        "keypointCoordinateSpace": "normalized_percent",
+        "isReused": false,
+        "ageFrames": 0,
+        "ageSec": 0.0,
+        "isStale": false,
+        "staleReason": null
+      }
+    }
+  ],
+  "rawPlayerDetections": [
+    {
+      "trackId": 6,
+      "bboxPx": [
+        408.8582458496094,
+        119.8762435913086,
+        451.56878662109375,
+        183.47650146484375
+      ],
+      "confidence": 0.7538173198699951,
+      "pose": null,
+      "eligibility": {
+        "status": "SPECTATOR_OR_OFFICIAL",
+        "envelopeZone": "FAR_OUTSIDE",
+        "envelopeDistanceM": -7.21,
+        "envelopeDistancePx": null,
+        "confidence": 0.754,
+        "reasons": [
+          "detection_far_outside_court_envelope",
+          "no_prior_player_history"
+        ],
+        "isEligibleForProfile": false,
+        "courtEligibilityUnavailable": false,
+        "provenance": {
+          "isKnownPlayer": false,
+          "groundProvenance": "bbox_bottom_center"
+        }
+      }
+    },
+    {
+      "trackId": 7,
+      "bboxPx": [
+        449.29998779296875,
+        413.58819580078125,
+        529.698974609375,
+        633.1229248046875
+      ],
+      "confidence": 0.8372445702552795,
+      "pose": {
+        "keypoints": [
+          {
+            "x": 38.453125,
+            "y": 60.16666666666667,
+            "score": 0.99
+          },
+          {
+            "x": 38.765625,
+            "y": 59.65277777777778,
+            "score": 0.96
+          },
+          {
+            "x": 38.234375,
+            "y": 59.59722222222222,
+            "score": 0.95
+          },
+          {
+            "x": 39.234375,
+            "y": 60.083333333333336,
+            "score": 0.75
+          },
+          {
+            "x": 38.015625,
+            "y": 59.94444444444444,
+            "score": 0.58
+          },
+          {
+            "x": 39.953125,
+            "y": 63.68055555555555,
+            "score": 0.99
+          },
+          {
+            "x": 37.59375,
+            "y": 63.51388888888889,
+            "score": 0.99
+          },
+          {
+            "x": 40.859375,
+            "y": 67.375,
+            "score": 0.95
+          },
+          {
+            "x": 37.046875,
+            "y": 68.30555555555556,
+            "score": 0.94
+          },
+          {
+            "x": 39.8984375,
+            "y": 65.47222222222221,
+            "score": 0.93
+          },
+          {
+            "x": 36.4453125,
+            "y": 70.44444444444444,
+            "score": 0.92
+          },
+          {
+            "x": 39.484375,
+            "y": 72.86111111111111,
+            "score": 1.0
+          },
+          {
+            "x": 37.921875,
+            "y": 72.625,
+            "score": 1.0
+          },
+          {
+            "x": 39.5234375,
+            "y": 79.33333333333334,
+            "score": 0.99
+          },
+          {
+            "x": 37.8203125,
+            "y": 78.98611111111111,
+            "score": 0.99
+          },
+          {
+            "x": 39.765625,
+            "y": 85.08333333333333,
+            "score": 0.85
+          },
+          {
+            "x": 37.9765625,
+            "y": 85.24999999999999,
+            "score": 0.86
+          }
+        ],
+        "metrics": {
+          "right_knee_angle_deg": 175.8,
+          "left_knee_angle_deg": 176.3,
+          "right_elbow_angle_deg": 164.9,
+          "left_elbow_angle_deg": 18.4,
+          "trunk_lean_deg": 0.8,
+          "stance_width_px": 22.9,
+          "lunge_detected": false,
+          "overhead_arm_detected": false,
+          "airborne_candidate": false
+        },
+        "keypointCoordinateSpace": "normalized_percent",
+        "isReused": false,
+        "ageFrames": 0,
+        "ageSec": 0.0,
+        "isStale": false,
+        "staleReason": null
+      },
+      "eligibility": {
+        "status": "ELIGIBLE",
+        "envelopeZone": "IN_COURT",
+        "envelopeDistanceM": 1.81,
+        "envelopeDistancePx": null,
+        "confidence": 0.844,
+        "reasons": [
+          "player_in_court"
+        ],
+        "isEligibleForProfile": true,
+        "courtEligibilityUnavailable": false,
+        "provenance": {
+          "knownPlayerId": 2,
+          "isKnownPlayer": true,
+          "groundProvenance": "pose_both_ankles",
+          "poseSource": "fresh",
+          "isPoseStale": false
+        }
+      }
+    },
+    {
+      "trackId": 8,
+      "bboxPx": [
+        435.0462341308594,
+        241.1172332763672,
+        506.4548645019531,
+        408.34637451171875
+      ],
+      "confidence": 0.8343157768249512,
+      "pose": {
+        "keypoints": [
+          {
+            "x": 37.1953125,
+            "y": 35.708333333333336,
+            "score": 0.99
+          },
+          {
+            "x": 37.5,
+            "y": 35.25,
+            "score": 0.99
+          },
+          {
+            "x": 37.109375,
+            "y": 35.25,
+            "score": 0.9
+          },
+          {
+            "x": 38.203125,
+            "y": 35.56944444444445,
+            "score": 0.95
+          },
+          {
+            "x": 37.1953125,
+            "y": 35.59722222222222,
+            "score": 0.2
+          },
+          {
+            "x": 38.84375,
+            "y": 38.31944444444444,
+            "score": 0.99
+          },
+          {
+            "x": 36.9609375,
+            "y": 38.333333333333336,
+            "score": 0.96
+          },
+          {
+            "x": 38.421875,
+            "y": 41.65277777777777,
+            "score": 0.97
+          },
+          {
+            "x": 36.671875,
+            "y": 41.416666666666664,
+            "score": 0.8
+          },
+          {
+            "x": 36.6640625,
+            "y": 41.75000000000001,
+            "score": 0.93
+          },
+          {
+            "x": 36.234375,
+            "y": 41.23611111111111,
+            "score": 0.73
+          },
+          {
+            "x": 38.34375,
+            "y": 45.27777777777778,
+            "score": 1.0
+          },
+          {
+            "x": 36.890625,
+            "y": 45.083333333333336,
+            "score": 0.99
+          },
+          {
+            "x": 38.87500000000001,
+            "y": 50.15277777777778,
+            "score": 0.99
+          },
+          {
+            "x": 36.3515625,
+            "y": 49.59722222222223,
+            "score": 0.97
+          },
+          {
+            "x": 39.328125,
+            "y": 54.49999999999999,
+            "score": 0.8
+          },
+          {
+            "x": 36.33593750000001,
+            "y": 53.95833333333333,
+            "score": 0.75
+          }
+        ],
+        "metrics": {
+          "right_knee_angle_deg": 168.4,
+          "left_knee_angle_deg": 179.5,
+          "right_elbow_angle_deg": 86.4,
+          "left_elbow_angle_deg": 104.5,
+          "trunk_lean_deg": 4.2,
+          "stance_width_px": 38.3,
+          "lunge_detected": false,
+          "overhead_arm_detected": false,
+          "airborne_candidate": false
+        },
+        "keypointCoordinateSpace": "normalized_percent",
+        "isReused": false,
+        "ageFrames": 0,
+        "ageSec": 0.0,
+        "isStale": false,
+        "staleReason": null
+      },
+      "eligibility": {
+        "status": "ELIGIBLE",
+        "envelopeZone": "IN_COURT",
+        "envelopeDistanceM": 1.41,
+        "envelopeDistancePx": null,
+        "confidence": 0.811,
+        "reasons": [
+          "player_in_court"
+        ],
+        "isEligibleForProfile": true,
+        "courtEligibilityUnavailable": false,
+        "provenance": {
+          "knownPlayerId": 1,
+          "isKnownPlayer": true,
+          "groundProvenance": "pose_both_ankles",
+          "poseSource": "fresh",
+          "isPoseStale": false
+        }
+      }
+    },
+    {
+      "trackId": 10,
+      "bboxPx": [
+        149.55604553222656,
+        106.36627960205078,
+        197.54270935058594,
+        214.7310333251953
+      ],
+      "confidence": 0.5295156240463257,
+      "pose": null,
+      "eligibility": {
+        "status": "SPECTATOR_OR_OFFICIAL",
+        "envelopeZone": "FAR_OUTSIDE",
+        "envelopeDistanceM": -5.99,
+        "envelopeDistancePx": null,
+        "confidence": 0.53,
+        "reasons": [
+          "detection_far_outside_court_envelope",
+          "no_prior_player_history"
+        ],
+        "isEligibleForProfile": false,
+        "courtEligibilityUnavailable": false,
+        "provenance": {
+          "isKnownPlayer": false,
+          "groundProvenance": "bbox_bottom_center"
+        }
+      }
+    },
+    {
+      "trackId": 17,
+      "bboxPx": [
+        229.95059204101562,
+        49.486141204833984,
+        276.9936828613281,
+        100.75654602050781
+      ],
+      "confidence": 0.41908717155456543,
+      "pose": null,
+      "eligibility": {
+        "status": "SPECTATOR_OR_OFFICIAL",
+        "envelopeZone": "FAR_OUTSIDE",
+        "envelopeDistanceM": -13.29,
+        "envelopeDistancePx": null,
+        "confidence": 0.419,
+        "reasons": [
+          "detection_far_outside_court_envelope",
+          "no_prior_player_history"
+        ],
+        "isEligibleForProfile": false,
+        "courtEligibilityUnavailable": false,
+        "provenance": {
+          "isKnownPlayer": false,
+          "groundProvenance": "bbox_bottom_center"
+        }
+      }
+    },
+    {
+      "trackId": 13,
+      "bboxPx": [
+        98.2353286743164,
+        119.04389190673828,
+        149.49365234375,
+        220.88304138183594
+      ],
+      "confidence": 0.42292264103889465,
+      "pose": null,
+      "eligibility": {
+        "status": "SPECTATOR_OR_OFFICIAL",
+        "envelopeZone": "FAR_OUTSIDE",
+        "envelopeDistanceM": -5.99,
+        "envelopeDistancePx": null,
+        "confidence": 0.423,
+        "reasons": [
+          "detection_far_outside_court_envelope",
+          "no_prior_player_history"
+        ],
+        "isEligibleForProfile": false,
+        "courtEligibilityUnavailable": false,
+        "provenance": {
+          "isKnownPlayer": false,
+          "groundProvenance": "bbox_bottom_center"
+        }
+      }
+    }
+  ],
+  "shuttle": {
+    "timestampSec": 4.966666666666667,
+    "frameIndex": 150,
+    "state": "lost",
+    "source": "unknown",
+    "positionPx": null,
+    "confidence": null,
+    "trajectoryId": null,
+    "velocityPxPerSec": null,
+    "speedPxPerSec": null,
+    "cameraSegmentId": "segment-0",
+    "pipelineRunId": "session_e8be13ed9c944e96a0037c3c95156de8",
+    "trackingState": "LOST",
+    "warmupRemainingFrames": 0,
+    "validity": {
+      "positionValid": false,
+      "reason": "no_reliable_position"
+    }
+  }
+}

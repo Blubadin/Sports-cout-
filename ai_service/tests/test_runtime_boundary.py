@@ -33,15 +33,15 @@ class RuntimeBoundaryTests(unittest.TestCase):
 
     def test_cpu_failure_is_terminal_not_successful_fallback(self):
         with patch('device_runtime.resolve_device', return_value='cuda'):
-            runtime = InferenceExecution('cuda')
+            runtime = InferenceExecution('auto')
         with self.assertRaises(InferenceExecutionError):
             runtime.run(lambda device: (_ for _ in ()).throw(ValueError(device)))
         self.assertEqual(runtime.provenance()['executionStatus'], 'ERROR')
 
     def test_unavailable_cuda_has_warning_before_inference(self):
         with patch('device_runtime.resolve_device', return_value='cpu'):
-            runtime = InferenceExecution('cuda')
-        self.assertEqual(runtime.provenance()['requestedDevice'], 'cuda')
+            runtime = InferenceExecution('auto')
+        self.assertEqual(runtime.provenance()['requestedDevice'], 'auto')
         self.assertIn('unavailable', runtime.provenance()['fallbackReason'])
 
     def test_predictor_midrun_failure_keeps_mot_state_and_updates_once(self):

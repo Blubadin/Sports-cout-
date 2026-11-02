@@ -116,6 +116,8 @@ export const MAX_TRACKING_SESSION_PAGE_SIZE = 250;
 export interface TrackingSessionCompatibility {
   projectId: string;
   videoFingerprint: string | null;
+  gameType: BadmintonGameType;
+  trackedPlayerCount: number;
   processingConfig: ProcessingConfig;
   runId?: string | null;
 }
@@ -137,6 +139,15 @@ function sessionConfigMatches(expected: ProcessingConfig, actual: ProcessingConf
   return RESUME_CONFIG_KEYS.every((key) => expected[key] === undefined || expected[key] === actual[key]);
 }
 
+export function isTrackingSessionConfigurationCompatible(
+  candidate: { gameType?: BadmintonGameType; trackedPlayerCount?: number; processingConfig?: ProcessingConfig },
+  expected: Pick<TrackingSessionCompatibility, 'gameType' | 'trackedPlayerCount' | 'processingConfig'>,
+): boolean {
+  return candidate.gameType === expected.gameType &&
+    candidate.trackedPlayerCount === expected.trackedPlayerCount &&
+    sessionConfigMatches(expected.processingConfig, candidate.processingConfig);
+}
+
 export function isCompatibleResumableTrackingSession(
   candidate: TrackingSessionSummary,
   expected: TrackingSessionCompatibility,
@@ -152,7 +163,7 @@ export function isCompatibleResumableTrackingSession(
     !Number.isSafeInteger(candidate.committedCursor) || (candidate.committedCursor ?? -1) < 0 ||
     (candidate.committedCursor ?? 0) < (candidate.checkpointSequence ?? 0) ||
     (candidate.committedCursor ?? 0) > (candidate.checkpointSequence ?? 0) * 256) return false;
-  return sessionConfigMatches(expected.processingConfig, candidate.processingConfig);
+  return isTrackingSessionConfigurationCompatible(candidate, expected);
 }
 
 function asConnectionFailure(code: AIConnectionCode): Exclude<AIConnectionCode, 'CONNECTED'> {
@@ -674,6 +685,8 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     pipelineRunId: frame.pipelineRunId || frame.pipeline_run_id || frame.analysisId || 'tracking_session',
     timestampSec: frame.timestampSec ?? frame.timestamp,
     frameIndex: frame.frameIndex ?? frame.frame_idx,
+    sourceFrame: frame.sourceFrame,
+    shuttleShotEvents: frame.shuttleShotEvents ?? null,
     timebase: frame.timebase ?? null,
     sceneState: frame.sceneState || frame.scene_state || null,
     sceneTransition,
@@ -801,6 +814,16 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         bboxPct: state === 'lost' ? null : (p.bboxPct || p.video_bbox_pct),
         groundPointPct: state === 'lost' ? null : groundPoint,
         groundPointProvenance,
+        rawGroundPoint: state === 'lost' ? null : (p.rawGroundPoint ?? null),
+        filteredGroundPoint: state === 'observed' && metricValid ? (p.filteredGroundPoint ?? null) : null,
+        distanceMetrics: p.distanceMetrics ?? null,
+        poseSource: p.poseSource ?? null,
+        poseAgeFrames: p.poseAgeFrames ?? null,
+        poseAgeSec: p.poseAgeSec ?? null,
+        isPoseStale: p.isPoseStale ?? null,
+        staleReason: p.staleReason ?? null,
+        eligibilityStatus: p.eligibilityStatus ?? null,
+        envelopeZone: p.envelopeZone ?? null,
         groundPositionM,
         courtPositionM: metricValid
           ? (p.courtPositionM !== undefined ? p.courtPositionM : posM ?? null)

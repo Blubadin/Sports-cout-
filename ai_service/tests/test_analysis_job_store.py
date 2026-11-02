@@ -48,6 +48,24 @@ class TestAnalysisJobStore(unittest.TestCase):
 
         self.assertEqual(self.store.get_job("session_test")["checkpoint"]["committedSequence"], 1)
 
+    def test_frame_lookup_is_bounded_and_does_not_confuse_frames_with_cursors(self):
+        for sequence in range(1, 17):
+            self.store.append_result_chunk("session_test", sequence, [
+                {"frameIndex": sequence * 10 + offset * 2} for offset in range(3)
+            ])
+        self.store._write_chunk_file("session_test", 17, 48, [{"frameIndex": 170}])
+        with patch.object(self.store, "_read_chunk", wraps=self.store._read_chunk) as read:
+            self.assertEqual(self.store.find_result_frame("session_test", 72), {"frameIndex": 72})
+            self.assertLessEqual(read.call_count, 5)
+        self.assertIsNone(self.store.find_result_frame("session_test", 73))
+        self.assertIsNone(self.store.find_result_frame("session_test", 170))
+
+    def test_frame_lookup_rejects_corrupt_chunk_evidence(self):
+        self.store.append_result_chunk("session_test", 1, [{"frameIndex": 10}])
+        self.store._chunk_path("session_test", 1).write_text('{}', encoding="utf-8")
+        with self.assertRaises(JobStoreCorruptionError):
+            self.store.find_result_frame("session_test", 10)
+
     def test_orphan_chunk_is_not_visible_until_checkpoint_commit(self):
         self.store.append_result_chunk("session_test", 1, [{"frameIndex": 0}])
         manifest = self.store.get_job("session_test")

@@ -522,7 +522,7 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
             timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
-            telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+            telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec, source_frame=frame_idx)
             telemetry["sourceFrame"] = frame_idx
             telemetry["is_synthetic"] = False
             asyncio.run_coroutine_threadsafe(broadcast_telemetry(telemetry), loop)
@@ -1221,6 +1221,7 @@ def _session_identity(session: TrackingSession, current: dict | None = None) -> 
 def _session_job_metadata(session: TrackingSession, existing: dict | None = None) -> dict:
     metadata = dict(existing or {})
     metadata["session"] = {
+        "sessionId": session.session_id,
         "videoSource": session.video_source,
         "ownedVideo": bool(session.owned_video_path),
         "gameType": session.game_type,
@@ -1235,6 +1236,10 @@ def _session_job_metadata(session: TrackingSession, existing: dict | None = None
         "players": session.player_assignments,
         "mediaHash": session.media_hash,
     }
+    if session.analyzer is not None and hasattr(session.analyzer, "get_provenance"):
+        metadata["engine"] = session.analyzer.get_provenance()
+        if getattr(session, "shuttle_pipeline", None) is not None:
+            metadata["engine"]["shuttle"] = session.shuttle_pipeline.get_provenance()
     return metadata
 
 
@@ -1277,7 +1282,7 @@ def _checkpoint_payload(session: TrackingSession) -> dict:
         "durationSec": session.duration_sec,
         "elapsedSec": session.elapsed_sec,
         "playerSummary": analyzer.get_live_player_statuses(),
-        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None, "needsReacquisition": profile.identity_needs_reacquisition} for pid, profile in analyzer.profiles.items()},
+        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None, "identityEstablished": profile.identity_established, "needsReacquisition": profile.identity_needs_reacquisition} for pid, profile in analyzer.profiles.items()},
         "identityCounters": {"rawTrackerIdSwitches": analyzer.raw_tracker_id_switches, "semanticPlayerIdSwitches": analyzer.semantic_player_id_switches},
         "frameStride": session.frame_stride,
         "segmentCalibrationState": {
@@ -1459,15 +1464,18 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
         profile.name = saved.get("name", profile.name)
         profile.team = saved.get("team", 0)
         # MOT/spatial continuity and pending confirmation counts are not durable.
-        # Older checkpoints in a later segment must also forbid initial seeding.
-        profile.identity_needs_reacquisition = saved.get("needsReacquisition", segment_id not in (None, "segment-0"))
+        # Empty slots can still seed after an intro cut or backend restart.
+        profile.identity_established = saved.get("identityEstablished", bool(
+            saved.get("colorHistogram") is not None or saved.get("reidEmbedding") is not None
+        ))
+        profile.identity_needs_reacquisition = bool(profile.identity_established)
         profile.identity_confirmation_track = None
         profile.identity_confirmation_frames = 0
         histogram = saved.get("colorHistogram")
         embedding = saved.get("reidEmbedding")
         if histogram is not None:
             restored_histogram = np.asarray(histogram, dtype=np.float32)
-            if restored_histogram.shape != (16, 16) or not np.isfinite(restored_histogram).all():
+            if restored_histogram.shape not in ((8, 2), (16, 16)) or not np.isfinite(restored_histogram).all():
                 raise JobStoreError("Invalid saved appearance histogram")
             profile.color_hist = restored_histogram
         if embedding is not None:
@@ -1725,7 +1733,7 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
                     _finish_resume_warmup(session, resume_analyzer_frame)
                 continue
             with session._state_lock:
-                telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+                telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec, source_frame=frame_idx)
                 telemetry["sourceFrame"] = frame_idx
                 if session.is_resuming and frame_idx <= resume_source_frame:
                     if frame_idx >= resume_source_frame:
@@ -1769,6 +1777,8 @@ def create_tracking_session(req: CreateSessionRequest):
     except (ValueError, InvalidEngineConfigError, ModelNotFoundError, PoseArchitectureNotImplementedError) as error:
         logger.error('Tracking session configuration rejected (%s)', type(error).__name__)
         detail = 'Invalid tracking configuration; check device (cuda/mps), model and processing settings'
+        if str(error).startswith('Explicit CUDA requested'):
+            detail = 'Explicit CUDA requested but CUDA is unavailable; select AUTO or CPU to permit CPU execution'
         raise HTTPException(status_code=422, detail=detail) from error
     try:
         session.job_store.create_job(
@@ -2046,6 +2056,11 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
                  if frame.get("frameIndex") == selected_frame_index),
                 None,
             )
+            if selected_frame is None:
+                try:
+                    selected_frame = session.job_store.find_result_frame(session_id, selected_frame_index)
+                except (OSError, JobStoreError, ValueError):
+                    raise HTTPException(status_code=507, detail="Selected calibration frame could not be read from committed results") from None
             timestamp_tolerance = max(0.05, 1.0 / session.source_fps) if session.source_fps > 0 else 0.05
             if (
                 selected_frame is None
@@ -2436,6 +2451,7 @@ def get_session_status(session_id: str):
         "processingConfig": public_metadata(session.processing_config),
         "effectiveProcessingConfig": public_metadata(session.effective_processing_config),
         "runtimeProvenance": runtime_provenance,
+        "gameType": session.game_type,
         "provenance": runtime_provenance,
         "performance": performance_stats,
         "quality": quality_stats,

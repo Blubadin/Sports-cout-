@@ -94,8 +94,8 @@ class TestSceneLifecycleAndSegmentManager(unittest.TestCase):
         self.analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1)
         self.analyzer._detector = "dummy"
         self.analyzer.pose_adapter = MagicMock()
-        self.analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
-            "keypoints": [(100, 150, 0.9)], "metrics": {},
+        self.analyzer.pose_adapter.estimate_pose_in_roi.side_effect = lambda frame, bbox: {
+            "keypoints": [(self.feet_x, 260, .9) for _ in range(17)], "metrics": {},
             "keypointCoordinateSpace": "pixel",
         }
         self.feet_x = 170
@@ -186,11 +186,13 @@ class TestSceneLifecycleAndSegmentManager(unittest.TestCase):
         self.assertFalse(frame["allowCanonicalWrites"])
 
         player = frame["players"][0]
-        # 2D tracking and pose preserved
-        self.assertEqual(player["trackId"], 42)
-        self.assertIsNotNone(player["bboxPct"])
-        self.assertIsNotNone(player["groundPointPct"])
-        self.assertIsNotNone(player["pose"])
+        # Unknown SIDE_PLAY observation remains raw; no semantic identity is seeded.
+        self.assertIsNone(player["trackId"])
+        self.assertIsNone(player["bboxPct"])
+        raw = frame["rawPlayerDetections"][0]
+        self.assertEqual(raw["trackId"], 42)
+        self.assertIsNotNone(raw["pose"])
+        self.assertFalse(raw["eligibility"]["isEligibleForProfile"])
 
         # Court metrics strictly suppressed (no extrapolation)
         self.assertIsNone(player["courtPosition"])

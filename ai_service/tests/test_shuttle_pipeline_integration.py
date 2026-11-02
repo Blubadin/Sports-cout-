@@ -135,6 +135,18 @@ class TestShuttlePipelineIntegration(unittest.TestCase):
     # =========================================================================
     # A. SHUTTLE DISABLED
     # =========================================================================
+    def test_out_of_frame_prediction_stays_internal(self):
+        analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=2)
+        predicted = ShuttleObservation(timestamp_sec=.033, frame_index=1, state="predicted",
+            source="model_assisted", position_px=ShuttlePositionPx(100., -20.))
+        analyzer.shuttle_pipeline = MagicMock()
+        analyzer.shuttle_pipeline.process_frame.return_value = predicted
+        with patch.object(analyzer.shot_tracker, "update", return_value={"visibility": "OUT_OF_FRAME", "measuredPositionPx": None, "continuity": None, "shots": []}):
+            telemetry = analyzer.process_frame(np.zeros((720, 1280, 3), dtype=np.uint8), timestamp_sec=.033)
+        self.assertIsNone(telemetry["shuttle"]["positionPx"])
+        self.assertFalse(telemetry["shuttle"]["validity"]["positionValid"])
+        self.assertIsNotNone(predicted.position_px)
+
     def test_a_shuttle_disabled_by_default(self):
         """When shuttle tracking is disabled, player tracking runs normally with shuttle=None."""
         analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=2)

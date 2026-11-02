@@ -66,7 +66,7 @@ class TestCalibrationCheckpointBoundary(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
-    def test_cut_identity_gate_survives_checkpoint_without_prior_appearance(self):
+    def test_uninitialized_slots_survive_intro_cut_checkpoint_without_deadlock(self):
         session_id = self._create_ready_demo()
         session = server.tracking_sessions[session_id]
         session.status = "PROCESSING"
@@ -80,12 +80,13 @@ class TestCalibrationCheckpointBoundary(unittest.TestCase):
         })
         server._commit_pending_results(session)
         checkpoint = server.analysis_job_store.get_job(session_id)["checkpoint"]
-        self.assertTrue(checkpoint["identityProfiles"]["1"]["needsReacquisition"])
+        self.assertFalse(checkpoint["identityProfiles"]["1"]["needsReacquisition"])
+        self.assertFalse(checkpoint["identityProfiles"]["1"]["identityEstablished"])
         server.analysis_job_store.update_job(session_id, {"status": "PROCESSING"})
         server.analysis_job_store = AnalysisJobStore(Path(self.temp_dir.name))
         server.tracking_sessions.clear()
         restored = server._restore_persisted_session(session_id)
-        self.assertTrue(restored.analyzer.profiles[1].identity_needs_reacquisition)
+        self.assertFalse(restored.analyzer.profiles[1].identity_needs_reacquisition)
         restored.analyzer._detector = "fixture"
         restored.analyzer.detect_and_track = lambda _: [{
             "bbox": [500, 200, 540, 350], "center": (520, 350), "conf": .9, "track_id": 99,
@@ -127,6 +128,52 @@ class TestCalibrationCheckpointBoundary(unittest.TestCase):
         persisted = response.json()["telemetry"][0]
         self.assertEqual(persisted["shuttle"], frame["shuttle"])
         self.assertEqual(TrackingFrame.from_dict(persisted).to_dict()["shuttle"], frame["shuttle"])
+
+    def test_manual_recovery_accepts_same_segment_frame_evicted_from_live_tail(self):
+        session_id = self._create_ready_demo()
+        session = server.tracking_sessions[session_id]
+        session.status = "PROCESSING"
+        session.analyzer.start_camera_segment()
+        segment = session.analyzer.calibration_context.camera_segment_id
+        for index in range(1, server.SESSION_RESULT_WINDOW_SIZE + 40):
+            session.current_frame = session.analyzer.frame_count = index
+            server._append_session_result(session, {
+                "frameIndex": index, "timestampSec": index / 30,
+                "cameraSegmentId": segment, "players": [],
+            })
+        server._commit_pending_results(session)
+        self.assertNotIn(1, [row["frameIndex"] for row in session.results])
+        payload = {"corners": [[100, 100], [700, 100], [700, 500], [100, 500]],
+                   "game_type": "singles", "frame_index": 1,
+                   "timestamp_sec": 1 / 30, "camera_segment_id": segment}
+        wrong_time = self.client.post(f"/api/tracking/sessions/{session_id}/calibration",
+                                      json={**payload, "timestamp_sec": 2.0})
+        self.assertEqual(wrong_time.status_code, 409)
+        recovered = self.client.post(f"/api/tracking/sessions/{session_id}/calibration", json=payload)
+        self.assertEqual(recovered.status_code, 200, recovered.text)
+        session.analyzer.start_camera_segment()
+        stale = self.client.post(f"/api/tracking/sessions/{session_id}/calibration", json=payload)
+        self.assertEqual(stale.status_code, 409)
+
+    def test_current_jersey_histogram_and_established_identity_survive_restart(self):
+        session_id = self._create_ready_demo()
+        session = server.tracking_sessions[session_id]
+        profile = session.analyzer.profiles[1]
+        profile.update_appearance(np.full((200, 200, 3), (20, 20, 210), dtype=np.uint8), [20, 10, 120, 190])
+        self.assertEqual(profile.color_hist.shape, (8, 2))
+        session.analyzer.start_camera_segment()
+        session.current_frame = session.analyzer.frame_count = 1
+        server._append_session_result(session, {
+            "frameIndex": 1, "timestampSec": 1 / 30,
+            "cameraSegmentId": session.analyzer.calibration_context.camera_segment_id, "players": [],
+        })
+        server._commit_pending_results(session)
+        server._persist_session_job(session, status="CANCELLED")
+        server.tracking_sessions.clear()
+        restored = server._restore_persisted_session(session_id)
+        np.testing.assert_array_equal(restored.analyzer.profiles[1].color_hist, profile.color_hist)
+        self.assertTrue(restored.analyzer.profiles[1].identity_needs_reacquisition)
+        self.assertFalse(restored.analyzer.profiles[2].identity_needs_reacquisition)
 
     def test_stride_resume_uses_last_sampled_observation_and_does_not_duplicate_boundary(self):
         session_id = self._create_ready_demo()

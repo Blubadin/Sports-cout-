@@ -23,6 +23,9 @@ export interface TrackingLabInspectorProps {
   videoFingerprint?: string | null;
   localFileName?: string | null;
   benchmarkHistory?: TrackingAnalysis[];
+  onSwapPlayers?: (idA: string, idB: string) => void;
+  onResetPlayerOverrides?: () => void;
+  hasPlayerOverrides?: boolean;
 }
 
 export default function TrackingLabInspector({
@@ -33,6 +36,9 @@ export default function TrackingLabInspector({
   videoFingerprint,
   localFileName,
   benchmarkHistory: externalHistory,
+  onSwapPlayers,
+  onResetPlayerOverrides,
+  hasPlayerOverrides = false,
 }: TrackingLabInspectorProps) {
   const th = language === 'th';
   const [activeTab, setActiveTab] = useState<'analysis' | 'video' | 'performance' | 'research'>('analysis');
@@ -362,9 +368,68 @@ export default function TrackingLabInspector({
               {/* Dynamic Live Player Cards */}
               {status.players && status.players.length > 0 && (
                 <div className="space-y-2">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    {th ? 'สถานะผู้เล่นแบบเรียลไทม์' : 'Live Player Telemetry'}
-                  </h4>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        {th ? 'สถานะผู้เล่นแบบเรียลไทม์' : 'Live Player Telemetry'}
+                      </h4>
+                      {hasPlayerOverrides && (
+                        <span
+                          data-testid="player-override-badge"
+                          className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-amber-950/80 text-amber-300 border border-amber-700/60"
+                        >
+                          {th ? 'สลับตัวตนเอง' : 'MANUAL OVERRIDE'}
+                        </span>
+                      )}
+                    </div>
+                    {onSwapPlayers && status.players.length >= 2 && (
+                      <div className="flex items-center gap-2">
+                        {status.players.length === 2 && (
+                          <button
+                            type="button"
+                            data-testid="swap-p1-p2-button"
+                            onClick={() => onSwapPlayers('P1', 'P2')}
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 active:scale-95 text-sky-400 border border-slate-700 hover:border-sky-600 text-xs font-bold transition flex items-center gap-1 shadow-sm"
+                            title={th ? 'สลับการระบุตัวตนระหว่าง P1 และ P2' : 'Swap player identity assignment between P1 and P2'}
+                          >
+                            <span>⇄</span>
+                            <span>{th ? 'สลับ P1 ↔ P2' : 'Swap P1 ↔ P2'}</span>
+                          </button>
+                        )}
+                        {status.players.length >= 4 && (
+                          <>
+                            <button
+                              type="button"
+                              data-testid="swap-p1-p2-button"
+                              onClick={() => onSwapPlayers('P1', 'P2')}
+                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 active:scale-95 text-sky-400 border border-slate-700 text-xs font-bold transition"
+                            >
+                              ⇄ {th ? 'สลับ P1 ↔ P2' : 'Swap P1 ↔ P2'}
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="swap-p3-p4-button"
+                              onClick={() => onSwapPlayers('P3', 'P4')}
+                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 active:scale-95 text-emerald-400 border border-slate-700 text-xs font-bold transition"
+                            >
+                              ⇄ {th ? 'สลับ P3 ↔ P4' : 'Swap P3 ↔ P4'}
+                            </button>
+                          </>
+                        )}
+                        {hasPlayerOverrides && onResetPlayerOverrides && (
+                          <button
+                            type="button"
+                            data-testid="reset-player-overrides-button"
+                            onClick={onResetPlayerOverrides}
+                            className="px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 text-xs transition"
+                            title={th ? 'คืนค่าการระบุตัวตนเป็นค่าเริ่มต้นจาก AI' : 'Reset player assignments to original AI tracking'}
+                          >
+                            {th ? 'คืนค่า AI' : 'Reset to AI'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                     {status.players.map((player: TrackingLivePlayerStatus) => {
                       const isObserved = player.trackingState === 'observed';
@@ -377,9 +442,19 @@ export default function TrackingLabInspector({
                           className="bg-slate-900 border border-slate-800 rounded p-3 space-y-1.5"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-bold text-sm text-sky-400">
-                              {player.playerId}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-sm text-sky-400">
+                                {player.playerId}
+                              </span>
+                              {hasPlayerOverrides && (
+                                <span
+                                  data-testid={`player-card-manual-tag-${player.playerId}`}
+                                  className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/60 font-semibold"
+                                >
+                                  {th ? 'สลับ' : 'manual'}
+                                </span>
+                              )}
+                            </div>
                             <span
                               className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                                 isObserved

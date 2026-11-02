@@ -184,7 +184,7 @@ class TestReIDSemanticIdentity(unittest.TestCase):
         analyzer.reid_adapter = mock_reid
 
         # Same HSV histogram
-        dummy_hist = np.ones((16, 16), dtype=np.float32)
+        dummy_hist = np.ones((8, 2), dtype=np.float32)
         dummy_hist /= np.sum(dummy_hist)
 
         emb_a = np.zeros(128, dtype=np.float32)
@@ -424,7 +424,7 @@ class TestReIDSemanticIdentity(unittest.TestCase):
         analyzer.reid_adapter = mock_reid
 
         # Identical appearance (same jersey color hist and same ReID embedding)
-        shared_hist = np.ones((16, 16), dtype=np.float32)
+        shared_hist = np.ones((8, 2), dtype=np.float32)
         shared_hist /= np.sum(shared_hist)
         shared_emb = make_embedding(999)
 
