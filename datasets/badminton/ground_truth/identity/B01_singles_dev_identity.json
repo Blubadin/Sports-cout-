@@ -1,0 +1,296 @@
+{
+  "clipId": "B01_singles_dev",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "tracks": [
+    {
+      "frameIndex": 100,
+      "timestampSec": 3.333,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        550.0,
+        386.0,
+        640.0,
+        536.0
+      ]
+    },
+    {
+      "frameIndex": 100,
+      "timestampSec": 3.333,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        621.0,
+        182.0,
+        691.0,
+        292.0
+      ]
+    },
+    {
+      "frameIndex": 105,
+      "timestampSec": 3.5,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        557.5,
+        390.0,
+        647.5,
+        540.0
+      ]
+    },
+    {
+      "frameIndex": 105,
+      "timestampSec": 3.5,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        615.0,
+        180.0,
+        685.0,
+        290.0
+      ]
+    },
+    {
+      "frameIndex": 110,
+      "timestampSec": 3.667,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        565.0,
+        394.0,
+        655.0,
+        544.0
+      ]
+    },
+    {
+      "frameIndex": 110,
+      "timestampSec": 3.667,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        609.0,
+        178.0,
+        679.0,
+        288.0
+      ]
+    },
+    {
+      "frameIndex": 115,
+      "timestampSec": 3.833,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        572.5,
+        398.0,
+        662.5,
+        548.0
+      ]
+    },
+    {
+      "frameIndex": 115,
+      "timestampSec": 3.833,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        603.0,
+        176.0,
+        673.0,
+        286.0
+      ]
+    },
+    {
+      "frameIndex": 120,
+      "timestampSec": 4.0,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        580.0,
+        402.0,
+        670.0,
+        552.0
+      ]
+    },
+    {
+      "frameIndex": 120,
+      "timestampSec": 4.0,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        597.0,
+        174.0,
+        667.0,
+        284.0
+      ]
+    },
+    {
+      "frameIndex": 125,
+      "timestampSec": 4.167,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        587.5,
+        406.0,
+        677.5,
+        556.0
+      ]
+    },
+    {
+      "frameIndex": 125,
+      "timestampSec": 4.167,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        591.0,
+        172.0,
+        661.0,
+        282.0
+      ]
+    },
+    {
+      "frameIndex": 130,
+      "timestampSec": 4.333,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        595.0,
+        410.0,
+        685.0,
+        560.0
+      ]
+    },
+    {
+      "frameIndex": 130,
+      "timestampSec": 4.333,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        585.0,
+        170.0,
+        655.0,
+        280.0
+      ]
+    },
+    {
+      "frameIndex": 135,
+      "timestampSec": 4.5,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        602.5,
+        414.0,
+        692.5,
+        564.0
+      ]
+    },
+    {
+      "frameIndex": 135,
+      "timestampSec": 4.5,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        579.0,
+        168.0,
+        649.0,
+        278.0
+      ]
+    },
+    {
+      "frameIndex": 140,
+      "timestampSec": 4.667,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        610.0,
+        418.0,
+        700.0,
+        568.0
+      ]
+    },
+    {
+      "frameIndex": 140,
+      "timestampSec": 4.667,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        573.0,
+        166.0,
+        643.0,
+        276.0
+      ]
+    },
+    {
+      "frameIndex": 145,
+      "timestampSec": 4.833,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        617.5,
+        422.0,
+        707.5,
+        572.0
+      ]
+    },
+    {
+      "frameIndex": 145,
+      "timestampSec": 4.833,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        567.0,
+        164.0,
+        637.0,
+        274.0
+      ]
+    },
+    {
+      "frameIndex": 150,
+      "timestampSec": 5.0,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        625.0,
+        426.0,
+        715.0,
+        576.0
+      ]
+    },
+    {
+      "frameIndex": 150,
+      "timestampSec": 5.0,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        561.0,
+        162.0,
+        631.0,
+        272.0
+      ]
+    },
+    {
+      "frameIndex": 155,
+      "timestampSec": 5.167,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        632.5,
+        430.0,
+        722.5,
+        580.0
+      ]
+    },
+    {
+      "frameIndex": 155,
+      "timestampSec": 5.167,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        555.0,
+        160.0,
+        625.0,
+        270.0
+      ]
+    }
+  ]
+}

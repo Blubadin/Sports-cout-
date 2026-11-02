@@ -1,0 +1,344 @@
+{
+  "clipId": "B01_singles_dev",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "positions": [
+    {
+      "frameIndex": 100,
+      "timestampSec": 3.333,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 595.0,
+        "y": 536.0
+      },
+      "courtPositionM": {
+        "xM": 2.82,
+        "yM": 10.26
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 100,
+      "timestampSec": 3.333,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 656.0,
+        "y": 292.0
+      },
+      "courtPositionM": {
+        "xM": 3.27,
+        "yM": 2.94
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 105,
+      "timestampSec": 3.5,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 602.5,
+        "y": 540.0
+      },
+      "courtPositionM": {
+        "xM": 2.86,
+        "yM": 10.3
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 105,
+      "timestampSec": 3.5,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 650.0,
+        "y": 290.0
+      },
+      "courtPositionM": {
+        "xM": 3.23,
+        "yM": 2.92
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 110,
+      "timestampSec": 3.667,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 610.0,
+        "y": 544.0
+      },
+      "courtPositionM": {
+        "xM": 2.9,
+        "yM": 10.34
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 110,
+      "timestampSec": 3.667,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 644.0,
+        "y": 288.0
+      },
+      "courtPositionM": {
+        "xM": 3.19,
+        "yM": 2.9
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 115,
+      "timestampSec": 3.833,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 617.5,
+        "y": 548.0
+      },
+      "courtPositionM": {
+        "xM": 2.94,
+        "yM": 10.38
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 115,
+      "timestampSec": 3.833,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 638.0,
+        "y": 286.0
+      },
+      "courtPositionM": {
+        "xM": 3.16,
+        "yM": 2.87
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 120,
+      "timestampSec": 4.0,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 625.0,
+        "y": 552.0
+      },
+      "courtPositionM": {
+        "xM": 2.97,
+        "yM": 10.42
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 120,
+      "timestampSec": 4.0,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 632.0,
+        "y": 284.0
+      },
+      "courtPositionM": {
+        "xM": 3.12,
+        "yM": 2.85
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 125,
+      "timestampSec": 4.167,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 632.5,
+        "y": 556.0
+      },
+      "courtPositionM": {
+        "xM": 3.01,
+        "yM": 10.46
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 125,
+      "timestampSec": 4.167,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 626.0,
+        "y": 282.0
+      },
+      "courtPositionM": {
+        "xM": 3.09,
+        "yM": 2.82
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 130,
+      "timestampSec": 4.333,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 640.0,
+        "y": 560.0
+      },
+      "courtPositionM": {
+        "xM": 3.05,
+        "yM": 10.5
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 130,
+      "timestampSec": 4.333,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 620.0,
+        "y": 280.0
+      },
+      "courtPositionM": {
+        "xM": 3.05,
+        "yM": 2.8
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 135,
+      "timestampSec": 4.5,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 647.5,
+        "y": 564.0
+      },
+      "courtPositionM": {
+        "xM": 3.09,
+        "yM": 10.54
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 135,
+      "timestampSec": 4.5,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 614.0,
+        "y": 278.0
+      },
+      "courtPositionM": {
+        "xM": 3.01,
+        "yM": 2.78
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 140,
+      "timestampSec": 4.667,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 655.0,
+        "y": 568.0
+      },
+      "courtPositionM": {
+        "xM": 3.12,
+        "yM": 10.58
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 140,
+      "timestampSec": 4.667,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 608.0,
+        "y": 276.0
+      },
+      "courtPositionM": {
+        "xM": 2.98,
+        "yM": 2.75
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 145,
+      "timestampSec": 4.833,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 662.5,
+        "y": 572.0
+      },
+      "courtPositionM": {
+        "xM": 3.16,
+        "yM": 10.62
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 145,
+      "timestampSec": 4.833,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 602.0,
+        "y": 274.0
+      },
+      "courtPositionM": {
+        "xM": 2.94,
+        "yM": 2.73
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 150,
+      "timestampSec": 5.0,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 670.0,
+        "y": 576.0
+      },
+      "courtPositionM": {
+        "xM": 3.2,
+        "yM": 10.66
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 150,
+      "timestampSec": 5.0,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 596.0,
+        "y": 272.0
+      },
+      "courtPositionM": {
+        "xM": 2.91,
+        "yM": 2.7
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 155,
+      "timestampSec": 5.167,
+      "playerId": "P1",
+      "groundPx": {
+        "x": 677.5,
+        "y": 580.0
+      },
+      "courtPositionM": {
+        "xM": 3.24,
+        "yM": 10.7
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    },
+    {
+      "frameIndex": 155,
+      "timestampSec": 5.167,
+      "playerId": "P2",
+      "groundPx": {
+        "x": 590.0,
+        "y": 270.0
+      },
+      "courtPositionM": {
+        "xM": 2.87,
+        "yM": 2.68
+      },
+      "groundPointProvenance": "pose_both_ankles"
+    }
+  ]
+}

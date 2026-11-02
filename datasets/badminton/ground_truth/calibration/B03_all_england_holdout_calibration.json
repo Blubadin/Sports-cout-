@@ -1,0 +1,24 @@
+{
+  "clipId": "B03_all_england_holdout",
+  "sourceMediaSha256": "1ac8b3d811f5a5d42e419902b6ebbe2aab3fd8bb1b509cdb8b13da4308508074",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "independentSecondReviewer": "reviewer_independent@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "gameType": "doubles",
+  "cornersPx": [
+    [380.0, 320.0],
+    [900.0, 320.0],
+    [1040.0, 650.0],
+    [240.0, 650.0]
+  ],
+  "cornersCourtM": [
+    [0.0, 0.0],
+    [6.10, 0.0],
+    [6.10, 13.40],
+    [0.0, 13.40]
+  ],
+  "validIntervals": [
+    [0.0, 811.167]
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "clipId": "B02_doubles_dev",
+  "sourceMediaSha256": "84160d026a350716e227cb2f6f4c4c3d35cf52ab6aac6977d8e787b0299a6817",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "description": "Ground truth camera cuts observed during Asian Doubles 2026 match",
+  "cuts": [
+    23.433,
+    45.200,
+    89.100,
+    120.400,
+    155.800,
+    210.333,
+    265.000,
+    312.467
+  ]
+}

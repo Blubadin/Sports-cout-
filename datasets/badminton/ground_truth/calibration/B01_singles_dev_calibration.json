@@ -1,0 +1,23 @@
+{
+  "clipId": "B01_singles_dev",
+  "sourceMediaSha256": "e7c5581bdf88f622aff88901bab139133fea50f93c25c0a928056294a2bc9a4e",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "gameType": "singles",
+  "cornersPx": [
+    [280.0, 180.0],
+    [1000.0, 180.0],
+    [1160.0, 680.0],
+    [120.0, 680.0]
+  ],
+  "cornersCourtM": [
+    [0.0, 0.0],
+    [6.10, 0.0],
+    [6.10, 13.40],
+    [0.0, 13.40]
+  ],
+  "validIntervals": [
+    [0.0, 295.633]
+  ]
+}

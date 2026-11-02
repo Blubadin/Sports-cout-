@@ -1,0 +1,25 @@
+{
+  "clipId": "B04_bad_duo_holdout",
+  "sourceMediaSha256": "df26cac506d27671b294742a9c81204254f9079edbd92245642577e275442b16",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "independentSecondReviewer": "reviewer_independent@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "gameType": "doubles",
+  "cornersPx": [
+    [538.0, 534.0],
+    [1362.0, 541.0],
+    [1592.0, 1036.0],
+    [309.0, 1034.0]
+  ],
+  "cornersCourtM": [
+    [0.0, 0.0],
+    [6.10, 0.0],
+    [6.10, 13.40],
+    [0.0, 13.40]
+  ],
+  "validIntervals": [
+    [15.467, 28.567],
+    [48.967, 54.767]
+  ]
+}

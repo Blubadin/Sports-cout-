@@ -1,0 +1,16 @@
+{
+  "clipId": "B05_testshort_holdout",
+  "sourceMediaSha256": "3cc570297184e465ac5a85795be97dcee81df36ae6ec8f58d41333cba45f5f30",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "independentSecondReviewer": "reviewer_independent@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "description": "Ground truth camera cuts for Badminton testshort dynamic clip",
+  "cuts": [
+    14.200,
+    32.500,
+    56.800,
+    80.100,
+    104.333
+  ]
+}

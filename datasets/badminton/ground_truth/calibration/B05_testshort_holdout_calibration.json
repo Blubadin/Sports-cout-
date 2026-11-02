@@ -1,0 +1,24 @@
+{
+  "clipId": "B05_testshort_holdout",
+  "sourceMediaSha256": "3cc570297184e465ac5a85795be97dcee81df36ae6ec8f58d41333cba45f5f30",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "independentSecondReviewer": "reviewer_independent@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "gameType": "singles",
+  "cornersPx": [
+    [520.0, 510.0],
+    [1400.0, 510.0],
+    [1620.0, 1020.0],
+    [300.0, 1020.0]
+  ],
+  "cornersCourtM": [
+    [0.0, 0.0],
+    [6.10, 0.0],
+    [6.10, 13.40],
+    [0.0, 13.40]
+  ],
+  "validIntervals": [
+    [0.0, 131.533]
+  ]
+}

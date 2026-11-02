@@ -1,0 +1,24 @@
+{
+  "clipId": "B04_bad_duo_holdout",
+  "sourceMediaSha256": "df26cac506d27671b294742a9c81204254f9079edbd92245642577e275442b16",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "independentSecondReviewer": "reviewer_independent@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "description": "Ground truth camera cuts for Bad duo 1080p match from verified segment transitions",
+  "cuts": [
+    15.467,
+    28.567,
+    29.400,
+    31.500,
+    32.733,
+    37.167,
+    43.533,
+    44.333,
+    54.767,
+    59.267,
+    71.400,
+    77.433,
+    82.867
+  ]
+}

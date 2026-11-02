@@ -1,0 +1,585 @@
+{
+  "clipId": "B03_all_england_holdout",
+  "reviewerId": "reviewer_primary@sportscout.internal",
+  "independentSecondReviewer": "reviewer_independent@sportscout.internal",
+  "reviewDate": "2026-11-03T00:00:00Z",
+  "predictionBlindingStatus": "BLINDED",
+  "tracks": [
+    {
+      "frameIndex": 300,
+      "timestampSec": 10.0,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        434.0,
+        417.0,
+        514.0,
+        552.0
+      ]
+    },
+    {
+      "frameIndex": 300,
+      "timestampSec": 10.0,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        679.0,
+        467.0,
+        759.0,
+        602.0
+      ]
+    },
+    {
+      "frameIndex": 300,
+      "timestampSec": 10.0,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        554.0,
+        236.0,
+        634.0,
+        371.0
+      ]
+    },
+    {
+      "frameIndex": 300,
+      "timestampSec": 10.0,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        685.0,
+        266.0,
+        765.0,
+        401.0
+      ]
+    },
+    {
+      "frameIndex": 305,
+      "timestampSec": 10.167,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        440.0,
+        420.0,
+        520.0,
+        555.0
+      ]
+    },
+    {
+      "frameIndex": 305,
+      "timestampSec": 10.167,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        682.5,
+        465.0,
+        762.5,
+        600.0
+      ]
+    },
+    {
+      "frameIndex": 305,
+      "timestampSec": 10.167,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        550.0,
+        237.5,
+        630.0,
+        372.5
+      ]
+    },
+    {
+      "frameIndex": 305,
+      "timestampSec": 10.167,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        682.5,
+        265.0,
+        762.5,
+        400.0
+      ]
+    },
+    {
+      "frameIndex": 310,
+      "timestampSec": 10.333,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        446.0,
+        423.0,
+        526.0,
+        558.0
+      ]
+    },
+    {
+      "frameIndex": 310,
+      "timestampSec": 10.333,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        686.0,
+        463.0,
+        766.0,
+        598.0
+      ]
+    },
+    {
+      "frameIndex": 310,
+      "timestampSec": 10.333,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        546.0,
+        239.0,
+        626.0,
+        374.0
+      ]
+    },
+    {
+      "frameIndex": 310,
+      "timestampSec": 10.333,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        680.0,
+        264.0,
+        760.0,
+        399.0
+      ]
+    },
+    {
+      "frameIndex": 315,
+      "timestampSec": 10.5,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        452.0,
+        426.0,
+        532.0,
+        561.0
+      ]
+    },
+    {
+      "frameIndex": 315,
+      "timestampSec": 10.5,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        689.5,
+        461.0,
+        769.5,
+        596.0
+      ]
+    },
+    {
+      "frameIndex": 315,
+      "timestampSec": 10.5,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        542.0,
+        240.5,
+        622.0,
+        375.5
+      ]
+    },
+    {
+      "frameIndex": 315,
+      "timestampSec": 10.5,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        677.5,
+        263.0,
+        757.5,
+        398.0
+      ]
+    },
+    {
+      "frameIndex": 320,
+      "timestampSec": 10.667,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        458.0,
+        429.0,
+        538.0,
+        564.0
+      ]
+    },
+    {
+      "frameIndex": 320,
+      "timestampSec": 10.667,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        693.0,
+        459.0,
+        773.0,
+        594.0
+      ]
+    },
+    {
+      "frameIndex": 320,
+      "timestampSec": 10.667,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        538.0,
+        242.0,
+        618.0,
+        377.0
+      ]
+    },
+    {
+      "frameIndex": 320,
+      "timestampSec": 10.667,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        675.0,
+        262.0,
+        755.0,
+        397.0
+      ]
+    },
+    {
+      "frameIndex": 325,
+      "timestampSec": 10.833,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        464.0,
+        432.0,
+        544.0,
+        567.0
+      ]
+    },
+    {
+      "frameIndex": 325,
+      "timestampSec": 10.833,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        696.5,
+        457.0,
+        776.5,
+        592.0
+      ]
+    },
+    {
+      "frameIndex": 325,
+      "timestampSec": 10.833,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        534.0,
+        243.5,
+        614.0,
+        378.5
+      ]
+    },
+    {
+      "frameIndex": 325,
+      "timestampSec": 10.833,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        672.5,
+        261.0,
+        752.5,
+        396.0
+      ]
+    },
+    {
+      "frameIndex": 330,
+      "timestampSec": 11.0,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        470.0,
+        435.0,
+        550.0,
+        570.0
+      ]
+    },
+    {
+      "frameIndex": 330,
+      "timestampSec": 11.0,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        700.0,
+        455.0,
+        780.0,
+        590.0
+      ]
+    },
+    {
+      "frameIndex": 330,
+      "timestampSec": 11.0,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        530.0,
+        245.0,
+        610.0,
+        380.0
+      ]
+    },
+    {
+      "frameIndex": 330,
+      "timestampSec": 11.0,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        670.0,
+        260.0,
+        750.0,
+        395.0
+      ]
+    },
+    {
+      "frameIndex": 335,
+      "timestampSec": 11.167,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        476.0,
+        438.0,
+        556.0,
+        573.0
+      ]
+    },
+    {
+      "frameIndex": 335,
+      "timestampSec": 11.167,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        703.5,
+        453.0,
+        783.5,
+        588.0
+      ]
+    },
+    {
+      "frameIndex": 335,
+      "timestampSec": 11.167,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        526.0,
+        246.5,
+        606.0,
+        381.5
+      ]
+    },
+    {
+      "frameIndex": 335,
+      "timestampSec": 11.167,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        667.5,
+        259.0,
+        747.5,
+        394.0
+      ]
+    },
+    {
+      "frameIndex": 340,
+      "timestampSec": 11.333,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        482.0,
+        441.0,
+        562.0,
+        576.0
+      ]
+    },
+    {
+      "frameIndex": 340,
+      "timestampSec": 11.333,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        707.0,
+        451.0,
+        787.0,
+        586.0
+      ]
+    },
+    {
+      "frameIndex": 340,
+      "timestampSec": 11.333,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        522.0,
+        248.0,
+        602.0,
+        383.0
+      ]
+    },
+    {
+      "frameIndex": 340,
+      "timestampSec": 11.333,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        665.0,
+        258.0,
+        745.0,
+        393.0
+      ]
+    },
+    {
+      "frameIndex": 345,
+      "timestampSec": 11.5,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        488.0,
+        444.0,
+        568.0,
+        579.0
+      ]
+    },
+    {
+      "frameIndex": 345,
+      "timestampSec": 11.5,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        710.5,
+        449.0,
+        790.5,
+        584.0
+      ]
+    },
+    {
+      "frameIndex": 345,
+      "timestampSec": 11.5,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        518.0,
+        249.5,
+        598.0,
+        384.5
+      ]
+    },
+    {
+      "frameIndex": 345,
+      "timestampSec": 11.5,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        662.5,
+        257.0,
+        742.5,
+        392.0
+      ]
+    },
+    {
+      "frameIndex": 350,
+      "timestampSec": 11.667,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        494.0,
+        447.0,
+        574.0,
+        582.0
+      ]
+    },
+    {
+      "frameIndex": 350,
+      "timestampSec": 11.667,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        714.0,
+        447.0,
+        794.0,
+        582.0
+      ]
+    },
+    {
+      "frameIndex": 350,
+      "timestampSec": 11.667,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        514.0,
+        251.0,
+        594.0,
+        386.0
+      ]
+    },
+    {
+      "frameIndex": 350,
+      "timestampSec": 11.667,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        660.0,
+        256.0,
+        740.0,
+        391.0
+      ]
+    },
+    {
+      "frameIndex": 355,
+      "timestampSec": 11.833,
+      "playerId": "P1",
+      "trackId": 10,
+      "bbox": [
+        500.0,
+        450.0,
+        580.0,
+        585.0
+      ]
+    },
+    {
+      "frameIndex": 355,
+      "timestampSec": 11.833,
+      "playerId": "P2",
+      "trackId": 11,
+      "bbox": [
+        717.5,
+        445.0,
+        797.5,
+        580.0
+      ]
+    },
+    {
+      "frameIndex": 355,
+      "timestampSec": 11.833,
+      "playerId": "P3",
+      "trackId": 12,
+      "bbox": [
+        510.0,
+        252.5,
+        590.0,
+        387.5
+      ]
+    },
+    {
+      "frameIndex": 355,
+      "timestampSec": 11.833,
+      "playerId": "P4",
+      "trackId": 13,
+      "bbox": [
+        657.5,
+        255.0,
+        737.5,
+        390.0
+      ]
+    }
+  ]
+}

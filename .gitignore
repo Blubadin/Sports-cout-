@@ -19,3 +19,7 @@ __pycache__/
 *.bin
 .local-models/
 .local-services/
+*.mp4
+*.mov
+*.avi
+datasets/**/videos/
