@@ -463,3 +463,114 @@ it('surfaces a backend failure as an accessible seek-time error', async () => {
   fireEvent.loadedMetadata(video);
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load tracking data');
 });
+
+it('allows coaches to manually swap player identities without corrupting raw MOT track IDs', async () => {
+  const status = {
+    sessionId: 'swap-run',
+    status: 'COMPLETED' as const,
+    progressPct: 100,
+    currentFrame: 100,
+    totalFrames: 100,
+    analyzedFrames: 100,
+    committedResultCursor: 100,
+    frameStride: 1,
+    elapsedSec: 2,
+    videoDurationSec: 10,
+    lastTelemetryTimestampSec: 5,
+    sourceFps: 10,
+    samplingFps: 10,
+    analysisFps: 10,
+    trackedPlayerCount: 2,
+    device: 'cpu',
+    players: [
+      {
+        playerId: 'P1',
+        trackId: 101,
+        totalDistanceM: 15.5,
+        currentSpeedMps: 2.1,
+        trackingState: 'observed' as const,
+        detectionConfidence: 0.95,
+      },
+      {
+        playerId: 'P2',
+        trackId: 202,
+        totalDistanceM: 22.0,
+        currentSpeedMps: 3.4,
+        trackingState: 'observed' as const,
+        detectionConfidence: 0.88,
+      },
+    ],
+    error: null,
+  };
+  const telemetryFrame: TrackingTelemetryV1 = {
+    schemaVersion: 1,
+    analysisId: 'swap-run',
+    frameIndex: 0,
+    timestampSec: 0,
+    cameraSegmentId: 'seg-1',
+    sceneState: 'COURT_PLAY',
+    calibrationState: 'CALIBRATED',
+    isMetricValid: true,
+    players: [
+      {
+        playerId: 'P1',
+        trackId: 101,
+        bboxPct: { x: 20, y: 30, width: 10, height: 25 },
+        state: 'observed',
+      },
+      {
+        playerId: 'P2',
+        trackId: 202,
+        bboxPct: { x: 60, y: 40, width: 10, height: 25 },
+        state: 'observed',
+      },
+    ],
+  };
+
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  vi.mocked(aiTrackingService.getSessionStatus).mockResolvedValue(status);
+  trackingSessionStore.updateProjectState('p1', {
+    file,
+    videoFingerprint: computeVideoFingerprint(file),
+    sessionId: 'swap-run',
+    status: 'COMPLETED',
+    sessionStatus: status,
+    telemetry: [telemetryFrame],
+    uiPreferences: { overlayMode: 'box', videoCurrentTime: 1.0, selectedInspectorTab: 'analysis' },
+  });
+
+  render(<BadmintonTrackingLab />);
+
+  // Verify initial state: P1 has MOT 101, P2 has MOT 202
+  const p1Card = await screen.findByTestId('live-player-card-P1');
+  const p2Card = await screen.findByTestId('live-player-card-P2');
+  expect(p1Card).toHaveTextContent('MOT ID: #101');
+  expect(p2Card).toHaveTextContent('MOT ID: #202');
+  expect(screen.queryByTestId('player-override-badge')).not.toBeInTheDocument();
+
+  // Find and click the Swap P1 <-> P2 button
+  const swapBtn = screen.getByTestId('swap-p1-p2-button');
+  fireEvent.click(swapBtn);
+
+  // Now, P1 card should have MOT 202 (the original P2) and P2 card should have MOT 101 (the original P1)
+  expect(screen.getByTestId('player-override-badge')).toHaveTextContent('MANUAL OVERRIDE');
+  expect(screen.getByTestId('player-card-manual-tag-P1')).toBeInTheDocument();
+  expect(screen.getByTestId('player-card-manual-tag-P2')).toBeInTheDocument();
+  expect(screen.getByTestId('live-player-card-P1')).toHaveTextContent('MOT ID: #202');
+  expect(screen.getByTestId('live-player-card-P2')).toHaveTextContent('MOT ID: #101');
+
+  // Video overlay shows manual indicator
+  expect(screen.getByTestId('video-overlay-manual-indicator')).toHaveTextContent('MANUAL ID');
+
+  // Availability pill is visible
+  expect(screen.getByTestId('overlay-availability-pill')).toBeInTheDocument();
+
+  // Reset to AI
+  const resetBtn = screen.getByTestId('reset-player-overrides-button');
+  fireEvent.click(resetBtn);
+
+  // Restores original mapping
+  expect(screen.queryByTestId('player-override-badge')).not.toBeInTheDocument();
+  expect(screen.getByTestId('live-player-card-P1')).toHaveTextContent('MOT ID: #101');
+  expect(screen.getByTestId('live-player-card-P2')).toHaveTextContent('MOT ID: #202');
+});

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { aiTrackingService, type BadmintonGameType } from '../../services/aiTrackingService';
@@ -30,6 +30,7 @@ import {
   estimateCursor,
   trackingOverlayStatusText,
   trackingOverlayWindowContainsTime,
+  deriveOverlayAvailabilityState,
   type TrackingOverlayWindow,
 } from './trackingOverlayWindow';
 import TrackingLabInspector from './TrackingLabInspector';
@@ -46,6 +47,34 @@ function formatDiagnosticCount(val: number | null | undefined): string {
 
 function telemetryCoversTime(items: TrackingTelemetryV1[], target: number): boolean {
   return items.length > 0 && target >= items[0].timestampSec && target <= items[items.length - 1].timestampSec;
+}
+
+export function applyPlayerIdentityOverridesToFrame(
+  frame: TrackingTelemetryV1,
+  overrides?: Record<string, string> | null,
+): TrackingTelemetryV1 {
+  if (!overrides || Object.keys(overrides).length === 0 || !frame.players || frame.players.length === 0) {
+    return frame;
+  }
+  let hasChanges = false;
+  const mappedPlayers = frame.players.map((player) => {
+    const targetId = overrides[player.playerId];
+    if (targetId && targetId !== player.playerId) {
+      hasChanges = true;
+      return {
+        ...player,
+        playerId: targetId,
+        reviewState: 'corrected' as const,
+      };
+    }
+    return player;
+  });
+  if (!hasChanges) return frame;
+  mappedPlayers.sort((a, b) => a.playerId.localeCompare(b.playerId));
+  return {
+    ...frame,
+    players: mappedPlayers,
+  };
 }
 
 export function deriveShuttleEngineStatus(params: {
@@ -230,6 +259,8 @@ export default function BadmintonTrackingLab() {
     setUIPreference,
     cancel: cancelSession,
     store,
+    swapPlayerIdentities,
+    resetPlayerIdentities,
   } = useProjectTrackingSession(activeProjectId);
 
   const [url, setUrl] = useState('');
@@ -447,7 +478,13 @@ export default function BadmintonTrackingLab() {
   const sourceOverlayFrames = hasLiveOverlayWindow
     ? frames
     : activeRemoteWindow?.frames ?? ramCachedFrames ?? [];
-  const displayFrames = framesForCameraSegmentAtTime(sourceOverlayFrames, time);
+  const rawDisplayFrames = framesForCameraSegmentAtTime(sourceOverlayFrames, time);
+  const playerOverrides = state.uiPreferences.playerIdentityOverrides;
+  const hasPlayerOverrides = Boolean(playerOverrides && Object.keys(playerOverrides).length > 0);
+  const displayFrames = useMemo(() => {
+    if (!hasPlayerOverrides || !playerOverrides) return rawDisplayFrames;
+    return rawDisplayFrames.map((frame) => applyPlayerIdentityOverridesToFrame(frame, playerOverrides));
+  }, [rawDisplayFrames, hasPlayerOverrides, playerOverrides]);
   const overlayFrame = [...displayFrames].reverse().find((frame) => frame.timestampSec <= time) ?? null;
   const displayResolutionStatus = displayFrames.length ? resolveOverlayAtTime(displayFrames, time).status : 'unavailable';
   const acceptedCourtCorners = overlayFrame?.calibration?.corners;
@@ -476,6 +513,39 @@ export default function BadmintonTrackingLab() {
       ? overlayWindowStatus
       : 'idle';
   const overlayStatus = trackingOverlayStatusText(overlayStatusKey, th);
+
+  const effectiveSessionStatus = useMemo(() => {
+    if (!sessionStatus || !hasPlayerOverrides || !playerOverrides) return sessionStatus;
+    if (!sessionStatus.players || sessionStatus.players.length === 0) return sessionStatus;
+    const remapped = sessionStatus.players.map((player) => {
+      const targetId = playerOverrides[player.playerId];
+      if (targetId && targetId !== player.playerId) {
+        return {
+          ...player,
+          playerId: targetId,
+        };
+      }
+      return player;
+    });
+    remapped.sort((a, b) => a.playerId.localeCompare(b.playerId));
+    return {
+      ...sessionStatus,
+      players: remapped,
+    };
+  }, [sessionStatus, hasPlayerOverrides, playerOverrides]);
+
+  const overlayAvailabilityState = deriveOverlayAvailabilityState({
+    hasSession: Boolean(state.sessionId),
+    isProcessing: processing,
+    totalCommitted: state.sessionStatus?.committedResultCursor ?? (analysis ? (analysis.summary?.sampleCount ?? 1) : 0),
+    analyzedDurationSec: state.sessionStatus?.videoDurationSec ?? analysis?.summary?.durationSeconds,
+    timeSec: time,
+    overlayWindowStatus,
+    resolutionStatus: displayResolutionStatus,
+    playerCount: overlayFrame?.players?.length ?? 0,
+    hasCourt: Boolean(courtOverlayCorners),
+    hasShuttle: Boolean(overlayFrame?.shuttle && overlayFrame.shuttle.state !== 'unknown'),
+  });
 
   // This control describes the runtime available for the next analysis. A
   // completed analysis keeps its historical provenance in the results, but it
@@ -1650,6 +1720,15 @@ export default function BadmintonTrackingLab() {
             )}
             {overlayFrame && (
               <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1.5 pointer-events-none z-10 text-[11px] font-mono">
+                {hasPlayerOverrides && (
+                  <span
+                    data-testid="video-overlay-manual-indicator"
+                    className="px-2 py-0.5 rounded border border-amber-500/60 bg-amber-950/80 text-amber-300 font-semibold"
+                    title={th ? 'ผู้เล่นถูกสลับตัวตนเองโดยผู้ใช้' : 'Player identities manually overridden'}
+                  >
+                    MANUAL ID
+                  </span>
+                )}
                 {overlayFrame.sceneState && (
                   <span className={`px-2 py-0.5 rounded border font-semibold ${
                     overlayFrame.sceneState === 'COURT_PLAY'
@@ -1718,6 +1797,28 @@ export default function BadmintonTrackingLab() {
                     CANONICAL
                   </span>
                 )}
+              </div>
+            )}
+            {Boolean(state.sessionId || analysis) && (
+              <div className="absolute top-2 right-2 flex items-center gap-1.5 pointer-events-none z-10 text-[11px] font-mono">
+                <span
+                  data-testid="overlay-availability-pill"
+                  className={`px-2 py-0.5 rounded border font-semibold shadow-sm ${
+                    overlayAvailabilityState === 'AVAILABLE'
+                      ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                      : overlayAvailabilityState === 'LOADING'
+                      ? 'bg-sky-950/80 border-sky-500/50 text-sky-300 animate-pulse'
+                      : overlayAvailabilityState === 'PARTIAL'
+                      ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                      : overlayAvailabilityState === 'TRUE_GAP'
+                      ? 'bg-slate-900/80 border-slate-700 text-slate-400'
+                      : overlayAvailabilityState === 'INVALID_SEGMENT'
+                      ? 'bg-amber-950/80 border-amber-500/50 text-amber-400'
+                      : 'bg-slate-900/80 border-slate-700 text-slate-500'
+                  }`}
+                >
+                  {overlayAvailabilityState}
+                </span>
               </div>
             )}
             {!calibrating && courtOverlayCorners && (
@@ -1966,12 +2067,15 @@ export default function BadmintonTrackingLab() {
       )}
 
       <TrackingLabInspector
-        status={sessionStatus}
+        status={effectiveSessionStatus}
         isProcessing={processing}
         language={th ? 'th' : 'en'}
         projectId={activeProjectId}
         videoFingerprint={state.videoFingerprint}
         localFileName={state.localFileName || localFileName}
+        onSwapPlayers={swapPlayerIdentities}
+        onResetPlayerOverrides={resetPlayerIdentities}
+        hasPlayerOverrides={hasPlayerOverrides}
       />
 
       {analysis && (
