@@ -102,11 +102,44 @@ class PlayerProfile:
         self.identity_established = False
         self.identity_confirmation_track = None
         self.identity_confirmation_frames = 0
+        self.reid_gallery: list[np.ndarray] = []
+        self.appearance_grace_frames: int = 1800  # 60s @ 30fps
+        self.appearance_grace_sec: float = 60.0
+        self.last_seen_frame: int = 0
+        self.last_seen_timestamp_sec: float = 0.0
+        self.appearance_cut_timestamp_sec: float | None = None
 
-    def update_reid_embedding(self, embedding: np.ndarray | None, alpha: float = 0.2):
-        """Update ReID appearance embedding using exponential moving average."""
+    def is_appearance_valid(
+        self, frame_index: int | None = None, timestamp_sec: float | None = None
+    ) -> bool:
+        """Check whether appearance features are established and within grace period."""
+        if not self.identity_established:
+            return False
+        if self.color_hist is None and self.reid_embedding is None:
+            return False
+        if frame_index is not None and self.last_seen_frame > 0:
+            if (frame_index - self.last_seen_frame) > self.appearance_grace_frames:
+                return False
+        if timestamp_sec is not None and self.last_seen_timestamp_sec > 0.0:
+            if (timestamp_sec - self.last_seen_timestamp_sec) > self.appearance_grace_sec:
+                return False
+        return True
+
+    def update_reid_embedding(
+        self,
+        embedding: np.ndarray | None,
+        alpha: float = 0.2,
+        frame_index: int | None = None,
+        timestamp_sec: float | None = None,
+    ):
+        """Update ReID appearance embedding using exponential moving average and gallery."""
         if embedding is None:
             return
+        if frame_index is not None:
+            self.last_seen_frame = frame_index
+        if timestamp_sec is not None:
+            self.last_seen_timestamp_sec = timestamp_sec
+
         if self.reid_embedding is None:
             self.reid_embedding = embedding
         else:
@@ -115,9 +148,28 @@ class PlayerProfile:
             if norm > 1e-6:
                 self.reid_embedding = updated / norm
 
-    def update_appearance(self, frame: np.ndarray, bbox: list[int]):
+        if not hasattr(self, "reid_gallery") or self.reid_gallery is None:
+            self.reid_gallery = []
+        if len(self.reid_gallery) < 5:
+            self.reid_gallery.append(embedding.copy())
+        else:
+            self.reid_gallery.pop(0)
+            self.reid_gallery.append(embedding.copy())
+
+    def update_appearance(
+        self,
+        frame: np.ndarray,
+        bbox: list[int],
+        frame_index: int | None = None,
+        timestamp_sec: float | None = None,
+    ):
         """Adapt visual appearance without overwriting initial identity evidence."""
         self.identity_established = True
+        if frame_index is not None:
+            self.last_seen_frame = frame_index
+        if timestamp_sec is not None:
+            self.last_seen_timestamp_sec = timestamp_sec
+
         hist = jersey_histogram(frame, bbox)
         if hist is None:
             return
@@ -248,6 +300,11 @@ class BadmintonAnalyzerV2:
         self._last_cost_breakdowns: dict[int, SemanticIdentityCosts] = {}
         self.track_in_court_counts: dict[int, int] = {}
         self.track_far_outside_counts: dict[int, int] = {}
+        from topology_tracker import CourtSideTopologyTracker
+        self.topology_tracker = CourtSideTopologyTracker(
+            game_type=self.game_type,
+            max_players=self.max_players,
+        )
         self._detector = None
         self._pose_detector = None
         self.shuttle_pipeline = shuttle_pipeline
@@ -493,6 +550,7 @@ class BadmintonAnalyzerV2:
             profile.last_envelope_zone = None
             profile.last_eligibility_status = None
             profile.last_ground_pt = None
+            profile.appearance_cut_timestamp_sec = self.frame_count / self.fps if self.fps > 0 else 0.0
 
         if self.shuttle_pipeline is not None and hasattr(self.shuttle_pipeline, "reset_for_camera_segment"):
             self.shuttle_pipeline.reset_for_camera_segment(
@@ -942,6 +1000,21 @@ class BadmintonAnalyzerV2:
             frame, eligible_candidates, timestamp_sec=t_sec
         )
 
+        # Check and update Court-Side Topology (Change-of-ends detection)
+        change_event = self.topology_tracker.observe_and_update(
+            profiles=self.profiles,
+            matched_detections=matched_players,
+            frame_index=self.frame_count,
+            timestamp_sec=t_sec,
+            is_camera_cut=camera_cut_boundary,
+        )
+        if change_event is not None:
+            self.last_known_track_owners.clear()
+            for pid, d in matched_players.items():
+                tid = d.get("track_id")
+                if tid is not None:
+                    self.last_known_track_owners[tid] = pid
+
         # 6. Update distance tracker and profile state
         for pid, p in self.profiles.items():
             if pid in matched_players:
@@ -1283,6 +1356,9 @@ class BadmintonAnalyzerV2:
             "source": "real_tracking",
             "rawTrackerIdSwitches": getattr(self, "raw_tracker_id_switches", 0),
             "semanticPlayerIdSwitches": getattr(self, "semantic_player_id_switches", 0),
+            "changeOfEnds": change_event is not None,
+            "changeOfEndsCount": self.topology_tracker.change_count if hasattr(self, "topology_tracker") else 0,
+            "courtSideTopology": dict(self.topology_tracker.player_sides) if hasattr(self, "topology_tracker") else {pid: p.team for pid, p in self.profiles.items()},
             "reidEnabled": self.reid_adapter.is_enabled if getattr(self, "reid_adapter", None) is not None else False,
             "reidModel": self.reid_adapter.model_name if getattr(self, "reid_adapter", None) is not None else None,
             "actualModel": getattr(self.detector_adapter, "actual_model", None) or self.engine_config.model_artifact_reference or getattr(self, "model_path", "yolov8n.pt"),
@@ -1378,6 +1454,14 @@ class BadmintonAnalyzerV2:
             pa.last_envelope_zone, pb.last_envelope_zone = pb.last_envelope_zone, pa.last_envelope_zone
             pa.last_eligibility_status, pb.last_eligibility_status = pb.last_eligibility_status, pa.last_eligibility_status
             pa.last_ground_pt, pb.last_ground_pt = pb.last_ground_pt, pa.last_ground_pt
+            pa.team, pb.team = pb.team, pa.team
+            pa.reid_gallery, pb.reid_gallery = pb.reid_gallery, pa.reid_gallery
+            if hasattr(self, "topology_tracker"):
+                if pid_a in self.topology_tracker.player_sides and pid_b in self.topology_tracker.player_sides:
+                    self.topology_tracker.player_sides[pid_a], self.topology_tracker.player_sides[pid_b] = (
+                        self.topology_tracker.player_sides[pid_b],
+                        self.topology_tracker.player_sides[pid_a],
+                    )
             if pa.track_id is not None:
                 self.last_known_track_owners[pa.track_id] = pid_a
             if pb.track_id is not None:

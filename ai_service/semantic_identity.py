@@ -177,6 +177,14 @@ def compute_identity_association_cost(
         and det_reid_emb is not None
     ):
         reid_sim = reid_adapter.compute_similarity(prof_reid_emb, det_reid_emb)
+        # Check gallery exemplars if available for best view/pose match
+        gallery = getattr(profile, "reid_gallery", None)
+        if gallery:
+            for g_emb in gallery:
+                g_sim = reid_adapter.compute_similarity(g_emb, det_reid_emb)
+                if g_sim is not None and (reid_sim is None or g_sim > reid_sim):
+                    reid_sim = g_sim
+
         if reid_sim is not None:
             # Ambiguity guard: If similarity is uncertain (e.g. around 0.35..0.55),
             # mark ambiguous and do not let ReID overpower spatial continuity
@@ -307,6 +315,8 @@ def match_tracks_to_profiles_with_reid(
                     if emb is not None:
                         p.reid_embedding = emb
                         d["reid_embedding"] = emb
+                        if hasattr(p, "update_reid_embedding"):
+                            p.update_reid_embedding(emb, timestamp_sec=timestamp_sec)
 
                 cx, cy = d["center"]
                 if dist_tracker is not None and d["real_pos"] is not None:
@@ -335,12 +345,18 @@ def match_tracks_to_profiles_with_reid(
 
         return matched, cost_breakdowns, 0, 0
 
-    # Pre-extract ReID embeddings for all candidate detections once per frame
+    # Pre-extract ReID embeddings for all candidate detections in batch if supported
     if reid_adapter is not None and reid_adapter.is_enabled:
-        for d in detections:
-            if "reid_embedding" not in d:
-                bbox = d.get("bbox")
-                if bbox is not None:
+        unembedded = [(idx, d) for idx, d in enumerate(detections) if "reid_embedding" not in d and d.get("bbox") is not None]
+        if unembedded:
+            bboxes = [d.get("bbox") for _, d in unembedded]
+            if hasattr(reid_adapter, "extract_batch"):
+                batch_embs = reid_adapter.extract_batch(frame, bboxes)
+                for (orig_idx, d), emb in zip(unembedded, batch_embs):
+                    d["reid_embedding"] = emb
+            else:
+                for _, d in unembedded:
+                    bbox = d.get("bbox")
                     d["reid_embedding"] = reid_adapter.extract(frame, bbox)
 
     n_profiles = len(active_pids)
@@ -390,6 +406,7 @@ def match_tracks_to_profiles_with_reid(
                        and (profiles[pid].color_hist is not None
                             or getattr(profiles[pid], "reid_embedding", None) is not None))
                    for pid in active_pids]
+
     # A court-side prior or recycled MOT id cannot override a distinctive
     # appearance belonging to the other established athlete (change of ends).
     appearance_reassociation_pairs = set()
@@ -403,16 +420,20 @@ def match_tracks_to_profiles_with_reid(
                 # track merely because only one athlete was visible at seeding.
                 cost_matrix[i, j] = 1e6
             other = [grid[j] for k, grid in enumerate(costs_grid) if k != i]
-            distinctive = (evidence.hsv_distance is not None and evidence.hsv_distance <= .2
+            distinctive_hsv = (evidence.hsv_distance is not None and evidence.hsv_distance <= .2
                            and all(c.hsv_distance is None or c.hsv_distance >= evidence.hsv_distance + .1 for c in other))
-            if distinctive and profiles[active_pids[i]].track_id != detections[j].get("track_id"):
+            distinctive_reid = (evidence.reid_similarity is not None and evidence.reid_similarity >= .65
+                            and all(c.reid_similarity is None or c.reid_similarity <= evidence.reid_similarity - .1 for c in other))
+            fused_distinctive = (evidence.hsv_distance is not None and evidence.hsv_distance <= .35
+                            and evidence.reid_similarity is not None and evidence.reid_similarity >= .55
+                            and all((c.hsv_distance is None or c.hsv_distance >= evidence.hsv_distance + .05) or
+                                    (c.reid_similarity is None or c.reid_similarity <= evidence.reid_similarity - .05) for c in other))
+            if (distinctive_hsv or distinctive_reid or fused_distinctive) and profiles[active_pids[i]].track_id != detections[j].get("track_id"):
                 appearance_reassociation_pairs.add((i, j))
+
     for i, row in enumerate(costs_grid):
         p = profiles[active_pids[i]]
         for j, evidence in enumerate(row):
-            # A jersey crop can change with folds, lighting or court background.
-            # Recent MOT + image continuity is retained unless a different
-            # established athlete has distinctive contrary appearance evidence.
             continuous = _has_observed_track_continuity(p, detections[j]) and not any(
                 k != i and (k, j) in appearance_reassociation_pairs for k in range(n_profiles)
             )
@@ -422,11 +443,16 @@ def match_tracks_to_profiles_with_reid(
                           and other_profile.track_id is not None
                           and other_profile.track_id == detections[j].get("track_id")), None)
             if owner is not None and owner != active_pids[i] and (i, j) not in appearance_reassociation_pairs:
-                # Missing detections never release an athlete's observed MOT
-                # identity to another player or an empty semantic slot.
                 cost_matrix[i, j] = 1e6
+            if any(k != i and (k, j) in appearance_reassociation_pairs for k in range(n_profiles)):
+                cost_matrix[i, j] = 1e6
+            if (i, j) in appearance_reassociation_pairs:
+                cost_matrix[i, j] = max(0.0, cost_matrix[i, j] - evidence.court_side_penalty)
             if continuous:
                 continue
+            if evidence.reid_similarity is not None and evidence.reid_similarity < .40 and any(
+                    c.reid_similarity is not None and c.reid_similarity >= .65 for c in other):
+                cost_matrix[i, j] = 1e6
             if getattr(profiles[active_pids[i]], "identity_color_hist", None) is not None and evidence.hsv_distance is not None and evidence.hsv_distance >= .5:
                 cost_matrix[i, j] = 1e6
             if evidence.hsv_distance is not None and evidence.hsv_distance >= .5 and any(
@@ -440,14 +466,18 @@ def match_tracks_to_profiles_with_reid(
             if not needs_evidence and not uncalibrated_new_track and (i, j) not in appearance_reassociation_pairs:
                 continue
             other = [row[j] for k, row in enumerate(costs_grid) if k != i]
-            hsv_supported = (evidence.hsv_distance is not None and evidence.hsv_distance <= .2
+            hsv_supported = (evidence.hsv_distance is not None and evidence.hsv_distance <= .25
                              and all(c.hsv_distance is None or
-                                     c.hsv_distance >= evidence.hsv_distance + .1 for c in other))
-            reid_supported = (evidence.reid_similarity is not None and evidence.reid_similarity >= .75
+                                     c.hsv_distance >= evidence.hsv_distance + .08 for c in other))
+            reid_supported = (evidence.reid_similarity is not None and evidence.reid_similarity >= .65
                               and all(c.reid_similarity is None or
-                                      c.reid_similarity <= evidence.reid_similarity - .1 for c in other))
-            conflicting_reid = evidence.reid_similarity is not None and evidence.reid_similarity < .55
-            if evidence.is_ambiguous or conflicting_reid or not (hsv_supported or reid_supported):
+                                      c.reid_similarity <= evidence.reid_similarity - .08 for c in other))
+            fused_supported = (evidence.hsv_distance is not None and evidence.hsv_distance <= .35
+                               and evidence.reid_similarity is not None and evidence.reid_similarity >= .55
+                               and all((c.hsv_distance is None or c.hsv_distance >= evidence.hsv_distance + .05) or
+                                       (c.reid_similarity is None or c.reid_similarity <= evidence.reid_similarity - .05) for c in other))
+            conflicting_reid = evidence.reid_similarity is not None and evidence.reid_similarity < .40
+            if evidence.is_ambiguous or conflicting_reid or not (hsv_supported or reid_supported or fused_supported):
                 cost_matrix[i, j] = 1e6
 
     row_ind, col_ind = linear_sum_assignment(cost_matrix)
@@ -467,9 +497,15 @@ def match_tracks_to_profiles_with_reid(
             new_track_id = d.get("track_id")
             eligibility = d.get("eligibility")
             uncalibrated_new_track = bool(eligibility and eligibility.provenance.get("courtEligibilityUnavailable") and p.track_id != new_track_id)
-            if reacquiring[r] or uncalibrated_new_track or (r, c) in appearance_reassociation_pairs:
-                # Require three consecutive eligible frames on the same raw MOT
-                # track, each with independently checked, distinctive appearance.
+            other_active_owner = next(
+                (other_pid for other_pid, other_profile in profiles.items()
+                 if other_pid != pid and other_profile.track_id is not None
+                 and other_profile.track_id == new_track_id and other_profile.last_bbox is not None),
+                None
+            )
+            stealing_active_track = bool(other_active_owner is not None and (r, c) in appearance_reassociation_pairs)
+
+            if reacquiring[r] or uncalibrated_new_track or stealing_active_track:
                 if new_track_id is None:
                     p.identity_confirmation_track = None
                     p.identity_confirmation_frames = 0
@@ -481,6 +517,10 @@ def match_tracks_to_profiles_with_reid(
                     p.identity_confirmation_frames = 1
                 if p.identity_confirmation_frames < 3:
                     continue
+                p.identity_needs_reacquisition = False
+                p.identity_confirmation_frames = 0
+                p.identity_confirmation_track = None
+            else:
                 p.identity_needs_reacquisition = False
                 p.identity_confirmation_frames = 0
                 p.identity_confirmation_track = None
@@ -520,21 +560,28 @@ def match_tracks_to_profiles_with_reid(
             if "pose_obj" in d and d["pose_obj"] is not None:
                 p.last_pose = d["pose_obj"]
                 p.last_pose_age = 0
-            if (p.team == 0 or p.color_hist is None) and d["real_pos"] is not None:
+            if (p.team == 0 or p.color_hist is None or (r, c) in appearance_reassociation_pairs) and d["real_pos"] is not None:
                 p.team = 1 if d["real_pos"][1] < net_y else 2
             p.update_appearance(frame, d["bbox"])
 
-            # Update ReID appearance embedding using exponential moving average
+            # Update ReID appearance embedding using exponential moving average and gallery
             new_emb = d.get("reid_embedding")
             if new_emb is not None:
                 if getattr(p, "reid_embedding", None) is None:
                     p.reid_embedding = new_emb
                 else:
-                    # 80% prior momentum + 20% fresh observation
                     updated = 0.8 * p.reid_embedding + 0.2 * new_emb
                     norm = float(np.linalg.norm(updated))
                     if norm > 1e-6:
                         p.reid_embedding = updated / norm
+
+                if not hasattr(p, "reid_gallery") or p.reid_gallery is None:
+                    p.reid_gallery = []
+                if len(p.reid_gallery) < 5:
+                    p.reid_gallery.append(new_emb.copy())
+                else:
+                    p.reid_gallery.pop(0)
+                    p.reid_gallery.append(new_emb.copy())
 
             cx, cy = d["center"]
             if dist_tracker is not None and d["real_pos"] is not None:
@@ -549,8 +596,6 @@ def match_tracks_to_profiles_with_reid(
     for pid, p in profiles.items():
         if pid not in matched_pids:
             if p.track_id is not None and any(d.get("track_id") == p.track_id for d in matched.values()):
-                # A proven reassociation must also retire the old owner's
-                # prediction. One observed person cannot carry two labels.
                 p.track_id = None
                 p.last_bbox = None
                 p.last_real_pos = None
@@ -559,8 +604,6 @@ def match_tracks_to_profiles_with_reid(
                 p.missed_frames = 30
                 p.identity_needs_reacquisition = True
             p.missed_frames += 1
-            # A failed evidence frame breaks confirmation (a pending accepted
-            # assignment above deliberately keeps its counter).
             row = active_pids.index(pid)
             assigned = next((c for r, c in zip(row_ind, col_ind) if r == row), None)
             if assigned is None or cost_matrix[row, assigned] >= 100:
