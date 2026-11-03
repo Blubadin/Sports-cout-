@@ -2681,6 +2681,47 @@ def download_export_archive(export_id: str):
     )
 
 
+# --------------------------------------------------------------------------
+# Standalone Web Workstation Static Assets & SPA Routing
+# --------------------------------------------------------------------------
+def _get_web_dist_dir() -> Optional[Path]:
+    env_dist = os.getenv("SPORTSCOUT_WEB_DIST")
+    if env_dist:
+        custom_path = Path(env_dist).resolve()
+        if custom_path.is_dir() and (custom_path / "index.html").is_file():
+            return custom_path
+    default_dist = _REPO_ROOT / "dist"
+    if default_dist.is_dir() and (default_dist / "index.html").is_file():
+        return default_dist
+    return None
+
+
+_web_dist_dir = _get_web_dist_dir()
+
+if _web_dist_dir:
+    from fastapi.staticfiles import StaticFiles
+
+    _assets_dir = _web_dist_dir / "assets"
+    if _assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="web_assets")
+
+    @app.get("/")
+    def serve_index():
+        return FileResponse(str(_web_dist_dir / "index.html"))
+
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("ws/") or full_path == "ws":
+            raise HTTPException(status_code=404, detail="Not found")
+        file_candidate = _web_dist_dir / full_path
+        if file_candidate.is_file():
+            return FileResponse(str(file_candidate))
+        index_file = _web_dist_dir / "index.html"
+        if index_file.is_file():
+            return FileResponse(str(index_file))
+        raise HTTPException(status_code=404, detail="Frontend assets not found")
+
+
 def configure_server_event_loop() -> str:
     """Avoid Windows IOCP accept failures closing the local listening socket."""
     import sys
