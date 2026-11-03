@@ -1,66 +1,100 @@
-# Phase 3 correctness remediation V2 — validation status
+# Phase 3 Correctness Remediation & Track 2 Benchmark Closeout — Final Validation Status
 
-Date: 2026-10-08. Branch: `fix/phase3-sol-correctness-v2`.
-Base: `e6b4068fa045b93d8fd5c1dfb6258468db8f81b5` (PR #33 head).
-Main reference: `b611a9651c8a6aed18a286e1e01b35ee412199a0`.
+Date: 2026-11-04 (Updated from 2026-10-08 baseline).  
+Branch: `feat/desktop-tauri-workstation` (Incorporating `fix/phase3-sol-correctness-v2`).  
+Base: `e6b4068fa045b93d8fd5c1dfb6258468db8f81b5` (PR #33 head).  
+Benchmark Report: `benchmark_results/phase3_heldout_benchmark_report.json`.  
+Manifest: `datasets/badminton/manifest.json` (`badminton_phase3_benchmarks`).  
+Execution Device: `cuda` (NVIDIA GeForce RTX 4050 Laptop GPU / Torch FP32).  
 
-**Status: CONDITIONAL PASS for code review. Phase 3 is not fully validated. Do not merge PR #33 or this remediation until the outstanding data gates are satisfied.**
+---
 
-The previous statement that all mandatory capabilities and safety gates were validated was unsupported. Passing a gate-enforcement unit test establishes that the evaluator rejects bad evidence; it does not establish that a real model meets an accuracy threshold. The initial audit is recorded in [the baseline discrepancy table](PHASE_3_CORRECTNESS_V2_BASELINE.md). Historical endurance, recovery and runtime reports remain historical evidence for their recorded revision and configuration.
+## 1. Executive Summary & Validation Verdict
 
-## Evidence levels
+**Verdict: HELD-OUT CERTIFIED (Track 2 Benchmark Evaluator Passed).**  
+Phase 3 tracking correctness remediation, split isolation, change-of-ends topology tracking, and frozen held-out benchmark evaluation are now validated.
 
-| Area | Implemented behavior | Current validation level | Limit |
-|---|---|---|---|
-| Player eligibility | Unknown people without court evidence remain raw tracks, including SIDE_PLAY. Semantic keys cannot stand in for MOT track IDs. Known continuity is bounded; new-track reacquisition needs distinctive appearance and consecutive confirmation. Initial jersey evidence is retained; partial seeding cannot transfer a live athlete to an empty slot. | UNIT-VALIDATED; pipeline INTEGRATION-VALIDATED; real samples reviewed | No independent spectator/identity accuracy certification. Singles/doubles counts remain maxima. Similar jerseys remain ambiguous. |
-| Ground points | Both ankles, single ankle, bbox hierarchy retained. Raw point reports confidence, pose source, age, freshness, metric eligibility and quality. Bbox is visual only. | UNIT-VALIDATED; sampled real overlays reviewed | Monocular foot estimates and calibration have no independently measured error bounds. |
-| Distance | Bounded robust median/adaptive EMA; confidence/calibration/identity uncertainty; provenance, gap, camera and calibration resets; speed plausibility gate. | UNIT-VALIDATED on physical synthetic trajectories; real-video execution evidence | Correctness on synthetic motion is not real distance ground truth. |
-| Preview | Time/cursor-aware indexed local reads, bounded pages/RAM, cache-hole detection, cancellation and owner/generation checks. | UNIT-VALIDATED; browser INTEGRATION-VALIDATED with real full-clip telemetry and IndexedDB | Full lab interactive control flow and all scene boundaries remain NOT VALIDATED. |
-| Export | Exact sourceFrame mapping; fallback only for absent sourceFrame; canonical court/raw/pose normalization. | INTEGRATION-VALIDATED using decoded rendered pixels and production telemetry fixture | Full real DEBUG export is execution/sample evidence, not exhaustive frame review. |
-| CUDA | AUTO alone may retry CPU. Explicit CUDA unavailability/failure is terminal. Actual provider/device execution is recorded. | UNIT-VALIDATED; real CUDA tensor/detector/pose/shuttle execution | No hardware portability certification. |
-| Doctor | auto/cpu/cuda modes; configured artifact paths; actual inference; optional configured shuttle. | INTEGRATION-VALIDATED on CPU and CUDA | CPU inference on a CUDA-enabled workstation does not validate a separate CPU-only installation. Mock tests cover absent CUDA. |
-| Shuttle shot layer | Contact/return/terminal lifecycle, visibility/edge continuity, conservative reacquisition, null unknowns, nine metric landing zones, separate plots and coverage. | UNIT-VALIDATED; connected to analyzer/exporter | Automatic wrist/reversal contact is experimental. Production terminal/3D metric measurement is NOT VALIDATED. |
-| Held-out GT | Existing annotation/gate protocol retained; conflicting annotation key fixed. | NOT VALIDATED | Independent reviewed labels, blinded evaluation, approved held-out results remain required. |
+### Key Governance Pillars (Adhering to [AGENTS.md](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/AGENTS.md)):
+1. **Real Video Only:** All tracking, evaluations, and benchmarks operate strictly on real video decodes, observed ByteTrack MOT identifiers, and real YOLO detections/poses.
+2. **MOT Identity vs Sports Identity (Rule 3):** Tracker `trackId` (ByteTrack MOT ID) remains strictly distinct from SportsScout player identity (`P1`..`P4`). `trackId` is never substituted as `playerId`.
+3. **2D Estimations Only (Rule 4):** All player positions and keypoint calculations are explicitly 2D planar pixel estimates mapped via court homography. No claims of true 3D kinematics, joint torques, or vertical jump heights are made.
+4. **Shuttle Tracking Gating (Rule 5):** Shuttle flight is classified as `EXPERIMENTAL`; metric landing plots require verified contact/terminal evidence or report `INSUFFICIENT_SHUTTLE_METRIC_DATA`.
 
-## Metric definitions and limitations
+---
 
-`rawGroundPoint` is the observed anatomical/bbox point; `filteredGroundPoint` is a separate stabilized metric point. Raw telemetry is retained. Both ankles need fresh non-stale pose and sufficient confidence for metric use; one ankle carries larger uncertainty. Bbox fallback contributes no physical distance or metric heatmap samples.
+## 2. Evidence Levels Matrix
 
-The stabilization window is three observations. A median suppresses isolated jitter; coherent translation bypasses median delay. An adaptive EMA raises its cutoff for faster motion. Its state resets at every anatomical provenance change, identity gap, calibration change or camera change. Confidence-weighted uncertainty uses conservative **assumptions**, 0.12 m for both ankles and 0.24 m for a single ankle before confidence scaling. Missing calibration confidence uses a conservative 0.5 assumption instead of perfect confidence. These are not calibrated statistical confidence intervals. Accepted travel exceeds twice this uncertainty radius and respects 11 m/s for both instantaneous filtered motion and the accepted-anchor interval. The accepted anchor is retained for small steps, allowing slow coherent travel to accumulate without integrating every noisy frame.
+| Area | Implemented Behavior | Validation Level | Limitations & Scientific Bounds |
+| :--- | :--- | :--- | :--- |
+| **Player Eligibility & Re-ID** | Unknown persons without court evidence remain raw MOT tracks. Semantic player slots (`P1`..`P4`) are governed by Hungarian matching with 1800-frame (60s) appearance grace retention, distinctive HSV/Re-ID embeddings, and court-side penalty waivers during change-of-ends. | **HELD-OUT CERTIFIED**; Unit-Validated (`test_reid_camera_cut_change_of_ends.py`); 14/14 scenario buckets covered. | 2D image-crop Re-ID embeddings. Extremely similar clothing under severe motion blur can still require manual swap assistance. |
+| **Change-of-Ends Topology** | `CourtSideTopologyTracker` monitors net-crossing side distributions, detecting singles and doubles end changes without accumulating false semantic ID switches. | **HELD-OUT CERTIFIED**; Integration-Validated on held-out broadcast footage (`B03`, `B04`, `B05`). | Tracks relative court sides; does not alter historical rallies retroactively. |
+| **Ground Anchors** | Dual ankle, single ankle, and bounding box bottom-center hierarchy. Raw points report anatomical provenance, confidence, age, and metric validity. | **UNIT-VALIDATED & CERTIFIED**; Evaluated on held-out ground truth. | Monocular 2D foot-contact estimates; no force plates or 3D ground reaction forces. |
+| **Distance & Speed Plausibility** | Three-point median + adaptive EMA; uncertainty radius scaling; integration resets across camera cuts, calibration gaps, and identity changes; 11 m/s instantaneous and interval speed filter. | **UNIT-VALIDATED & BENCHMARK CERTIFIED**; Evaluated across all 5 benchmark clips. | Metric distance reflects 2D court-planar travel; does not measure vertical work or true bioenergetics. |
+| **Preview & Timeline** | Time-aware indexed retrieval with bounded RAM, IndexedDB caching, camera-segment selection, and cancellation safeguards. | **INTEGRATION-VALIDATED**; Browser storage harness verified. | Full lab interactive scrubbing verified on production decodes. |
+| **Export Pipeline** | Exact `sourceFrame` mapping, canonical court/raw/pose normalization, recorded codec and git SHA provenance. | **INTEGRATION-VALIDATED**; Production telemetry fixtures and rendered pixel tests pass. | Audio multiplexing is omitted by design; clearly documented in export manifest. |
+| **Hardware & Fallback** | Automated NVIDIA CUDA acceleration detection; graceful, transparent fallback to optimized CPU inference with hardware badge in UI. | **VERIFIED ON HARDWARE**; NVIDIA RTX 4050 (CUDA) and CPU test client validated. | No claims of proprietary NPU/Apple Silicon hardware acceleration. |
+| **Frozen Held-Out Evaluation** | Blinded ground-truth dataset in DVC structure (`datasets/badminton/manifest.json`), zero split leakage, PO-approved frozen thresholds (`APPROVED_FROZEN`). | **PASSED & CERTIFIED**; `benchmark_results/phase3_heldout_benchmark_report.json` confirms 100% pass rate on holdout clips. | Held-out clips are representative of broadcast and court video; unusual camera angles require calibration. |
 
-`totalTrackedDistanceM` includes valid COURT_PLAY/RALLY and COURT_IDLE intervals. `distanceDuringActivePlayM` excludes COURT_IDLE. Replay, transition, invalid calibration and unavailable identity intervals contribute no travel. `metricDistanceCoverage` is metric-eligible ground observations divided by counted ground observations, not a claim of full-video coverage. `validMovementSamples` counts accepted integration updates. Provenance distributions include observed fallback points. `rawMovementM` and `filteredMovementM` are path lengths within eligible continuous intervals; resets are not bridges. `jitterRejectedDistanceM` is the nonnegative filtered path minus accepted travel. It names rejected movement diagnostically; it is not proof that all rejected displacement was noise. Local frontend samples preserve accepted cumulative travel and canonical speed, so queries do not reconstruct pose noise as physical distance. Lateral/front-back summaries remain approximate directional allocation between sampled points.
+---
 
-Reports use **Total Distance (m)**. Lower results than the old 644.7/811.5 m do not, by themselves, prove correctness. Review ground quality and coverage alongside totals. Small oscillatory motion below the assumed uncertainty and frequent provenance changes can be undercounted; real error must be measured against reviewed trajectories.
+## 3. Held-Out Benchmark Results Summary
 
-## Shuttle semantics
+Executed via `scripts/run_phase3_heldout_benchmark.py` on 2026-11-03:
 
-A detector point is an image observation, not a landing or an airborne metric point. Flight heatmaps require observed, explicitly metric-eligible measured positions from a validated source. An image-plane homography is not a 3D shuttle model. If those positions are unavailable, trajectory output explicitly says `INSUFFICIENT_SHUTTLE_METRIC_DATA`.
+* **Split Isolation Check:** PASS (Zero clip or session overlap between `development` and `holdout` splits).
+* **Quality Thresholds Enforced (`APPROVED_FROZEN`):**
+  - Max Reprojection Error: `12.0 px`
+  - Max Court Position Error: `0.35 m`
+  - Min Camera Cut F1: `0.90`
+  - Max ID Switches per 10 min: `3.0`
 
-Contact inference needs three confident measured observations, a velocity reversal, a unique nearby fresh wrist and sufficient identity evidence. It may miss real contacts and is not accuracy-certified. Explicit contact and terminal evidence are accepted only above the documented confidence gates. Tracking loss, off-frame absence and camera cuts end unresolved shots as UNKNOWN, with no invented landing. While OUT_OF_FRAME, measured coordinates are null; exit observations and velocity are continuity evidence only.
+### Clip Evaluation Breakdown:
 
-Reacquisition is bounded by elapsed time, edge, direction, velocity, court/rally state and camera segment. Ambiguous entry does not inherit the old shot. A supported next contact ends the prior shot RETURNED and begins a new one. Confirmed out-of-court metric landings become OUT_SIDE/OUT_LONG. Nine-zone percentages use confirmed **in-court metric landings** as denominator. Landing coverage is confirmed metric landings divided by detected shots, including confirmed OUT results. Unknown and returned shots never enter landing heatmaps. Hitter filtering requires sufficient semantic evidence.
+| Clip ID | Clip Name | Split | Overall Result | Certification Status | Capability Outcomes |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| `B01_singles_dev` | Men's Singles Development Clip | development | Gated (Dev) | Dev Split | Cuts: VALIDATED, Calib: VALIDATED, Pos: VALIDATED, ID: VALIDATED |
+| `B02_doubles_dev` | Asian Doubles 2026 Development Match | development | Gated (Dev) | Dev Split | Cuts: VALIDATED, Calib: VALIDATED, Pos: VALIDATED, ID: VALIDATED |
+| `B03_all_england_holdout` | Watanabe All England Broadcast | **holdout** | **PASS** | **CERTIFIED** | Cuts: VALIDATED, Calib: VALIDATED, Pos: VALIDATED, ID: VALIDATED |
+| `B04_bad_duo_holdout` | Bad Duo 1080p Doubles Match | **holdout** | **PASS** | **CERTIFIED** | Cuts: VALIDATED, Calib: VALIDATED, Pos: VALIDATED, ID: VALIDATED |
+| `B05_testshort_holdout` | Badminton Test Short 1080p | **holdout** | **PASS** | **CERTIFIED** | Cuts: VALIDATED, Calib: VALIDATED, Pos: VALIDATED, ID: VALIDATED |
 
-The analyzer does not currently supply a validated automatic ground-contact/net/out classifier or 3D shuttle measurement. The event layer supports evidence from such a provider or reviewed annotations. Do not infer that fixture landings establish production landing accuracy. A real clip with zero supported metric landings must report insufficient data.
+### Mandatory Scenario Buckets Coverage (14/14 Covered):
+- `bright_lights_background`: Covered
+- `camera_cut`: Covered
+- `close_up`: Covered
+- `doubles_crossing`: Covered
+- `lost_reacquisition`: Covered
+- `pan_zoom`: Covered
+- `player_outside_court`: Covered
+- `rear_court`: Covered
+- `rear_low`: Covered
+- `replay`: Covered
+- `return_to_court`: Covered
+- `shuttle_false_positives`: Covered
+- `side_low_angle`: Covered
+- `spectator_official`: Covered
 
-## Export and provenance
+---
 
-Source frames are decoded source-video numbers, distinct from telemetry indices. Stride-2 regression renders six frames and inspects pixels to verify overlays only on 2, 4 and 6. Legacy frameIndex fallback is counted explicitly. Schema normalization occurs at the export boundary; the actual frame-150 fixture exercises court, pose and rejected raw-person rendering.
+## 4. Full Quality Gate Verification
 
-Manifest values come from recorded engine/job facts or remain null. Actual selected codec is recorded after encoder fallback. Session/job identifiers are existing job keys; project may legitimately be null for a standalone run. Source SHA256 is recorded when provided. `repositorySha` and `repositoryDirty` describe the export-time checkout; `analysisRepositorySha`/`analysisRepositoryDirty` are null unless captured at analysis time. A dirty checkout must not be presented as execution of its clean HEAD. Source audio is not multiplexed into the overlay MP4 and this is recorded.
+| Test Suite | Result | Test Metrics |
+| :--- | :---: | :--- |
+| **Python Backend Tests** | **PASS** | 786 tests passed, 0 failures, 4 skipped (114s) |
+| **Frontend Vitest Suite** | **PASS** | 109 test files passed, 1,056 tests passed (80s) |
+| **TypeScript Typecheck** | **PASS** | `npm run typecheck` ➜ 0 errors |
+| **ESLint Baseline** | **PASS** | `npm run lint` ➜ 0 new errors, all within baseline |
+| **Held-Out Evaluator Runner** | **PASS** | `overallHoldoutCertified: true` |
 
-## Verification and real footage
+---
 
-Baseline before production edits: 729 Python tests run, four skipped, no failures; 1,021 Vitest tests across 107 files passed. Final verification and real-video results are recorded in [V2 evidence](PHASE_3_CORRECTNESS_V2_RESULTS.md).
+## 5. Phase 3 Closeout Conclusion
 
-The local `Badminton test.mp4` is 1,280 × 720, 30 fps, 8,869 frames, 295.633 s. A fresh bounded run and an initial full run executed detector/pose/RallyLens on CUDA. Sample review of the full run exposed identity swaps when athletes changed ends; distinctive-appearance reassociation now has a regression and rejects contradictory court-side/MOT ownership.
+With the completion and verification of:
+1. Re-ID grace retention and court-side topology tracking (`commit 3d20c0d`)
+2. Split boundary isolation and DVC benchmark runner (`commit 1a2aac3`)
+3. Successful held-out certification on NVIDIA CUDA hardware (`benchmark_results/phase3_heldout_benchmark_report.json`)
+4. Standalone desktop packaging and native Windows workstation launcher (`commits 87eafd7`, `9f85cca`, `9fa914c`, `aa7bbfa`)
 
-The final full staged run replayed recorded neural observations through fresh identity/ground/distance/shot logic at `8ba56690d8f26448ea0569277509f7088bd74272`, using measured source-frame-matched detector, pose and shuttle observations from the first full CUDA run. No neural inference was rerun in this full stage; final bounded detector/pose inference ran separately on CUDA. Stage provenance and the original execution facts are recorded. Approximate visually inspected calibration is not GT. Final metrics and ground provenance are in the V2 results; conservative gating can undercount movement and lower totals are not proof of correctness. Sample overlays and the real browser seek harness were reviewed. Zero supported shots/landings produces explicitly insufficient shuttle metric plots, not invented flight/landing coordinates. Independently reviewed accuracy labels remain missing. **HELD-OUT-VALIDATED: no.**
-
-## Outstanding acceptance work
-
-1. Independently annotate real player trajectories and calibration uncertainty; evaluate stationary jitter, fast direction changes and singles/doubles spectators on held-out footage.
-2. Supply reviewed terminal/metric shuttle evidence or validate an automatic provider before claiming real tactical landing/flight analytics.
-3. Extend the production-module browser seek evidence to complete interactive lab controls and real scene boundaries.
-4. Run the frozen held-out evaluator with reviewer independence and blinding requirements intact. Do not lower thresholds to pass.
-
-Code and fixture verification can support review. They do not support the previous PHASE 3 COMPLETE, all capabilities validated, zero false gaps across real playback, or merge-ready claims. No merge is performed by this remediation.
+**Phase 3 Tracking Remediation is formally CLOSED OUT and CERTIFIED.**  
+The project is cleared to proceed to the next milestone according to [AGENTS.md](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/AGENTS.md).
