@@ -33,6 +33,7 @@ import {
 import { resolveLocalVideoState, type LocalVideoState } from "../utils/videoState";
 import { getLocalizedVideoError } from "../utils/videoError";
 import { t } from "../i18n";
+import { isDesktopApp, pickVideoFileNative } from "../utils/desktopApp";
 import CourtZoneOverlay from "./video/CourtZoneOverlay";
 import TimelinePanel from "./video/TimelinePanel";
 import TelestrationCanvas from "./video/TelestrationCanvas";
@@ -358,6 +359,25 @@ export default function VideoPlayer({ activeTool, onSelectTool, showHudToggle = 
   };
 
   const handlePickLocalVideo = async () => {
+    if (isDesktopApp()) {
+      try {
+        const nativeFile = await pickVideoFileNative();
+        if (nativeFile) {
+          if (videoSrc && videoSourceType === "local" && videoSrc.startsWith('blob:')) {
+            URL.revokeObjectURL(videoSrc);
+          }
+          const playbackSrc = nativeFile.assetUrl || nativeFile.filePath;
+          setVideoSrc(playbackSrc);
+          setLocalFileName(nativeFile.fileName);
+          setVideoSourceType("local");
+          setLocalVideoState('ready');
+          setIsPlaying(false);
+          return;
+        }
+      } catch (nativeErr) {
+        console.warn("[Desktop] Native dialog fallback to browser input:", nativeErr);
+      }
+    }
     if ('showOpenFilePicker' in window) {
       try {
         const [fileHandle] = await (window as unknown as { showOpenFilePicker: (opts: unknown) => Promise<PersistentVideoFileHandle[]> }).showOpenFilePicker({

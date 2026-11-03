@@ -24,6 +24,9 @@
     "test:e2e": "playwright test",
     "pilot:template": "tsx scripts/generate-pilot-evidence.ts",
     "pilot:readiness": "tsx scripts/check-pilot-readiness.ts",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "check-icons": "node scripts/check-pwa-icons.js"
@@ -32,6 +35,9 @@
     "@fontsource-variable/noto-sans": "^5.2.10",
     "@fontsource-variable/noto-sans-thai": "^5.2.8",
     "@tailwindcss/vite": "^4.1.14",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-shell": "^2.6.0",
     "@vitejs/plugin-react": "^5.0.4",
     "idb-keyval": "^6.2.6",
     "lucide-react": "^0.546.0",
@@ -44,6 +50,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "@tauri-apps/cli": "^2.12.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

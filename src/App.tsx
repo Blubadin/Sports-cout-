@@ -31,6 +31,7 @@ import { REVIEW_DRILLDOWN_EVENT } from './utils/reviewDrilldown';
 import { SPORT_TEMPLATES } from './sports';
 import type { SportType } from './types';
 import CustomSelect from './components/ui/CustomSelect';
+import DesktopTitlebar from './components/workstation/DesktopTitlebar';
 
 const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const BookmarksPanel = React.lazy(() => import('./components/BookmarksPanel'));
@@ -379,6 +380,7 @@ function AppContent() {
 
   return (
     <div className={`${isWorkstation ? 'workstation-shell' : 'coach-shell'} min-h-screen text-gray-900 dark:text-gray-100 font-sans selection:bg-sky-500 selection:text-white overflow-x-hidden`}>
+      <DesktopTitlebar />
       <PwaIndicator />
       {isWorkstation && (
         <>
