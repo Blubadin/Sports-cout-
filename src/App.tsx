@@ -45,7 +45,7 @@ const MatchInfoModal = React.lazy(() => import('./components/MatchInfoModal'));
 const EditEventModal = React.lazy(() => import('./components/EditEventModal'));
 
 type AnalysisTab = 'input' | 'dashboard' | 'table' | 'bookmarks' | 'report' | 'labs';
-const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks', 'labs'];
+const ANALYSIS_TABS: AnalysisTab[] = ['input', 'dashboard', 'table', 'bookmarks', 'report', 'labs'];
 
 function Toast() {
   const { toastMessage } = useScoutContext();
@@ -714,6 +714,22 @@ function AppContent() {
                   >
                     <Star size={18} />
                     <span>{t('keyMoments.title', settings.uiLanguage)}</span>
+                  </button>
+                  <button
+                    id="analysis-tab-report"
+                    role="tab"
+                    aria-selected={activeTab === 'report'}
+                    aria-controls="analysis-panel-report"
+                    onClick={() => setActiveTab('report')}
+                    onPointerDown={() => setActiveTab('report')}
+                    className={`coach-tab flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-black transition-all cursor-pointer ${
+                      activeTab === 'report'
+                        ? 'coach-tab-active'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <FileText size={18} />
+                    <span>{settings.uiLanguage === 'th' ? 'รายงานโค้ช' : 'Report'}</span>
                   </button>
                   <button
                     id="analysis-tab-labs"
