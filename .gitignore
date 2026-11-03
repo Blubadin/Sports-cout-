@@ -22,5 +22,6 @@ __pycache__/
 *.mp4
 *.mov
 *.avi
+.vscode/
 release/
 datasets/**/videos/
