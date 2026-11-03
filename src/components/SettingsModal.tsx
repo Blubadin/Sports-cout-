@@ -37,6 +37,15 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [confirmConfig, setConfirmConfig] = React.useState<{ message: string, onConfirm: () => void } | null>(null);
   const [activeTab, setActiveTab] = React.useState<SettingsCategory>('general');
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
+
   const handleSaveTeamAsDefault = () => {
     localStorage.setItem('sportscout_default_teams', JSON.stringify(teams));
     showToast(isThai ? 'บันทึกรายชื่อทีมปัจจุบันเป็นค่าเริ่มต้นของระบบแล้ว' : 'Saved current teams as default');

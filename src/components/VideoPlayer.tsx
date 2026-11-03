@@ -1188,7 +1188,7 @@ export default function VideoPlayer({ activeTool, onSelectTool, showHudToggle = 
           </div>
         </div>
       ) : (
-        <div className="bg-gray-100 dark:bg-gray-900 aspect-video rounded-lg flex flex-col items-center justify-center border border-dashed border-gray-300 dark:border-gray-700 p-6 gap-3">
+        <div className="bg-gray-100 dark:bg-gray-900 rounded-2xl flex flex-col items-center justify-center border border-dashed border-gray-300 dark:border-gray-700 p-6 sm:p-8 min-h-[160px] gap-3">
           <p className="text-gray-400 dark:text-gray-500 text-sm text-center px-4">
             {videoSourceType === "local"
               ? t('video.noLocalSelected', settings.uiLanguage)
