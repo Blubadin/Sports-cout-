@@ -327,7 +327,7 @@ class TrackingSessionStore {
       this.pollTimers.delete(projectId);
     }
 
-    if (state.sessionId && ['PROCESSING', 'CANCEL_REQUESTED'].includes(state.status)) {
+    if (state.sessionId && state.status === 'PROCESSING') {
       try {
         await aiTrackingService.cancelSessionAnalysis(state.sessionId);
       } catch (error) {
@@ -337,6 +337,7 @@ class TrackingSessionStore {
       }
       state.status = 'CANCEL_REQUESTED';
       state.error = null;
+      this.saveToStorage(projectId);
       this.notify(projectId);
       return;
     }
@@ -352,10 +353,8 @@ class TrackingSessionStore {
     if (state.sessionId) {
       try {
         await aiTrackingService.deleteSession(state.sessionId);
-      } catch (error) {
-        state.error = `Unable to delete tracking session: ${error instanceof Error ? error.message : 'connection error'}`;
-        this.notify(projectId);
-        throw error;
+      } catch {
+        // Safe to ignore if session already removed or not found
       }
     }
 
@@ -372,6 +371,7 @@ class TrackingSessionStore {
     state.sessionStatus = null;
     state.isPersisting = false;
 
+    this.saveToStorage(projectId);
     this.notify(projectId);
   }
 

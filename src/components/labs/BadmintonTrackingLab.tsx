@@ -854,6 +854,8 @@ export default function BadmintonTrackingLab() {
             pollSession(state.sessionId, runId);
           } else if (currentStatus.status === 'INTERRUPTED' || currentStatus.status === 'CANCELLED') {
             update({ status: currentStatus.status });
+          } else if (currentStatus.status === 'READY') {
+            update({ status: 'IDLE' });
           } else if (currentStatus.status === 'COMPLETED') {
             const freshState = store.getProjectState(activeProjectId);
             if (freshState) {
@@ -873,7 +875,10 @@ export default function BadmintonTrackingLab() {
             update({ status: 'ERROR', error: currentStatus.error || 'Unknown backend error' });
           }
         } catch {
-          // Status check failure
+          // Status check failure: if session does not exist on backend, reset to IDLE so UI is not stuck
+          if (['PROCESSING', 'CANCEL_REQUESTED'].includes(state.status)) {
+            update({ status: 'IDLE', sessionId: null });
+          }
         }
         return;
       }
@@ -2031,9 +2036,13 @@ export default function BadmintonTrackingLab() {
           <span>
             {th ? 'กำลังวิเคราะห์' : 'Analyzing'} {progress}%
           </span>
-          <button className={button} onClick={cancel} disabled={state.status === 'CANCEL_REQUESTED'}>
+          <button
+            className={button}
+            onClick={cancel}
+            title={th ? 'กดเพื่อยกเลิกหรือรีเซ็ตการวิเคราะห์' : 'Cancel or force reset'}
+          >
             {state.status === 'CANCEL_REQUESTED'
-              ? th ? 'กำลังหยุด…' : 'Stopping…'
+              ? th ? 'รีเซ็ตสถานะ (กำลังหยุด…)' : 'Force Reset (Stopping…)'
               : th ? 'ยกเลิก' : 'Cancel analysis'}
           </button>
         </div>
