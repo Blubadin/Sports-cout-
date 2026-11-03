@@ -22,4 +22,5 @@ __pycache__/
 *.mp4
 *.mov
 *.avi
+release/
 datasets/**/videos/
