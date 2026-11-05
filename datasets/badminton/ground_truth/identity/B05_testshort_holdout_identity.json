@@ -1,9 +1,11 @@
 {
   "clipId": "B05_testshort_holdout",
-  "reviewerId": "reviewer_primary@sportscout.internal",
-  "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-  "reviewDate": "2026-11-03T00:00:00Z",
-  "predictionBlindingStatus": "BLINDED",
+  "provenance": "SYNTHETIC_GENERATED_BY_SCRIPT",
+  "generator": "scripts/generate_initial_gt_streams.py",
+  "reviewerId": null,
+  "independentSecondReviewer": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "NOT_APPLICABLE",
   "tracks": [
     {
       "frameIndex": 120,

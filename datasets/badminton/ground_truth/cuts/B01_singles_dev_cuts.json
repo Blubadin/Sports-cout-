@@ -1,9 +1,11 @@
 {
   "clipId": "B01_singles_dev",
+  "provenance": "UNVERIFIED",
+  "provenanceNote": "Committed in 1a2aac3 (2026-11-03) together with script-generated streams and placeholder reviewer identities that named no real person. No record of a person annotating this video exists. Treat as unverified until re-annotated and reviewed by named humans.",
   "sourceMediaSha256": "e7c5581bdf88f622aff88901bab139133fea50f93c25c0a928056294a2bc9a4e",
-  "reviewerId": "reviewer_primary@sportscout.internal",
-  "reviewDate": "2026-11-03T00:00:00Z",
-  "predictionBlindingStatus": "BLINDED",
+  "reviewerId": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "UNVERIFIED",
   "description": "Continuous static camera rear court view without cuts",
   "cuts": []
 }

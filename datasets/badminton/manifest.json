@@ -4,6 +4,8 @@
   "datasetId": "badminton_phase3_benchmarks",
   "updatedAt": "2026-11-03T00:00:00Z",
   "description": "SportsScout Phase 3 Badminton Benchmark Dataset Manifest (Development and Holdout Splits)",
+  "evidenceStatus": "PLACEHOLDER_GROUND_TRUTH_NOT_CERTIFIABLE",
+  "evidenceStatusNote": "Positions/identity streams are script-generated (scripts/generate_initial_gt_streams.py); cuts/calibration are unverified; reviewer identities were placeholders and have been removed; source videos are not stored in this repository. No clip may certify until its streams are re-annotated with provenance HUMAN_REVIEWED by named reviewers.",
   "splits": {
     "development": [
       "B01_singles_dev",
@@ -38,16 +40,21 @@
       "fps": 30.0,
       "durationSec": 295.633,
       "totalFrames": 8869,
-      "difficultyTags": ["static_view", "clear_court_lines"],
-      "scenarioBuckets": ["rear_court"],
-      "primaryReviewerId": "reviewer_primary@sportscout.internal",
-      "predictionBlindingStatus": "BLINDED",
-      "annotationIntervalComplete": true,
-      "groundTruthAvailable": true,
-      "calibrationGroundTruthAvailable": true,
-      "playerIdentityGroundTruthAvailable": true,
-      "groundPositionGroundTruthAvailable": true,
-      "cameraCutGroundTruthAvailable": true,
+      "difficultyTags": [
+        "static_view",
+        "clear_court_lines"
+      ],
+      "scenarioBuckets": [
+        "rear_court"
+      ],
+      "primaryReviewerId": null,
+      "predictionBlindingStatus": "NOT_APPLICABLE",
+      "annotationIntervalComplete": false,
+      "groundTruthAvailable": false,
+      "calibrationGroundTruthAvailable": false,
+      "playerIdentityGroundTruthAvailable": false,
+      "groundPositionGroundTruthAvailable": false,
+      "cameraCutGroundTruthAvailable": false,
       "shuttleGroundTruthAvailable": false,
       "courtCalibrationReference": "ground_truth/calibration/B01_singles_dev_calibration.json",
       "groundTruth": {
@@ -55,7 +62,15 @@
         "calibration": "ground_truth/calibration/B01_singles_dev_calibration.json",
         "positions": "ground_truth/positions/B01_singles_dev_positions.json",
         "identity": "ground_truth/identity/B01_singles_dev_identity.json"
-      }
+      },
+      "independentSecondReviewer": null,
+      "groundTruthProvenance": {
+        "cuts": "UNVERIFIED",
+        "calibration": "UNVERIFIED",
+        "positions": "SYNTHETIC_GENERATED_BY_SCRIPT",
+        "identity": "SYNTHETIC_GENERATED_BY_SCRIPT"
+      },
+      "scenarioBucketsReviewed": false
     },
     {
       "id": "B02_doubles_dev",
@@ -79,16 +94,23 @@
       "fps": 30.0,
       "durationSec": 978.633,
       "totalFrames": 29359,
-      "difficultyTags": ["doubles_crossing", "rallies_and_breaks"],
-      "scenarioBuckets": ["rear_court", "doubles_crossing", "camera_cut"],
-      "primaryReviewerId": "reviewer_primary@sportscout.internal",
-      "predictionBlindingStatus": "BLINDED",
-      "annotationIntervalComplete": true,
-      "groundTruthAvailable": true,
-      "calibrationGroundTruthAvailable": true,
-      "playerIdentityGroundTruthAvailable": true,
-      "groundPositionGroundTruthAvailable": true,
-      "cameraCutGroundTruthAvailable": true,
+      "difficultyTags": [
+        "doubles_crossing",
+        "rallies_and_breaks"
+      ],
+      "scenarioBuckets": [
+        "rear_court",
+        "doubles_crossing",
+        "camera_cut"
+      ],
+      "primaryReviewerId": null,
+      "predictionBlindingStatus": "NOT_APPLICABLE",
+      "annotationIntervalComplete": false,
+      "groundTruthAvailable": false,
+      "calibrationGroundTruthAvailable": false,
+      "playerIdentityGroundTruthAvailable": false,
+      "groundPositionGroundTruthAvailable": false,
+      "cameraCutGroundTruthAvailable": false,
       "shuttleGroundTruthAvailable": false,
       "courtCalibrationReference": "ground_truth/calibration/B02_doubles_dev_calibration.json",
       "groundTruth": {
@@ -96,7 +118,15 @@
         "calibration": "ground_truth/calibration/B02_doubles_dev_calibration.json",
         "positions": "ground_truth/positions/B02_doubles_dev_positions.json",
         "identity": "ground_truth/identity/B02_doubles_dev_identity.json"
-      }
+      },
+      "independentSecondReviewer": null,
+      "groundTruthProvenance": {
+        "cuts": "UNVERIFIED",
+        "calibration": "UNVERIFIED",
+        "positions": "SYNTHETIC_GENERATED_BY_SCRIPT",
+        "identity": "SYNTHETIC_GENERATED_BY_SCRIPT"
+      },
+      "scenarioBucketsReviewed": false
     },
     {
       "id": "B03_all_england_holdout",
@@ -120,17 +150,27 @@
       "fps": 30.0,
       "durationSec": 811.167,
       "totalFrames": 24335,
-      "difficultyTags": ["broadcast", "pan_zoom", "replay"],
-      "scenarioBuckets": ["rear_court", "rear_low", "pan_zoom", "replay", "shuttle_false_positives"],
-      "primaryReviewerId": "reviewer_primary@sportscout.internal",
-      "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-      "predictionBlindingStatus": "BLINDED",
-      "annotationIntervalComplete": true,
-      "groundTruthAvailable": true,
-      "calibrationGroundTruthAvailable": true,
-      "playerIdentityGroundTruthAvailable": true,
-      "groundPositionGroundTruthAvailable": true,
-      "cameraCutGroundTruthAvailable": true,
+      "difficultyTags": [
+        "broadcast",
+        "pan_zoom",
+        "replay"
+      ],
+      "scenarioBuckets": [
+        "rear_court",
+        "rear_low",
+        "pan_zoom",
+        "replay",
+        "shuttle_false_positives"
+      ],
+      "primaryReviewerId": null,
+      "independentSecondReviewer": null,
+      "predictionBlindingStatus": "NOT_APPLICABLE",
+      "annotationIntervalComplete": false,
+      "groundTruthAvailable": false,
+      "calibrationGroundTruthAvailable": false,
+      "playerIdentityGroundTruthAvailable": false,
+      "groundPositionGroundTruthAvailable": false,
+      "cameraCutGroundTruthAvailable": false,
       "shuttleGroundTruthAvailable": false,
       "courtCalibrationReference": "ground_truth/calibration/B03_all_england_holdout_calibration.json",
       "groundTruth": {
@@ -138,7 +178,14 @@
         "calibration": "ground_truth/calibration/B03_all_england_holdout_calibration.json",
         "positions": "ground_truth/positions/B03_all_england_holdout_positions.json",
         "identity": "ground_truth/identity/B03_all_england_holdout_identity.json"
-      }
+      },
+      "groundTruthProvenance": {
+        "cuts": "UNVERIFIED",
+        "calibration": "UNVERIFIED",
+        "positions": "SYNTHETIC_GENERATED_BY_SCRIPT",
+        "identity": "SYNTHETIC_GENERATED_BY_SCRIPT"
+      },
+      "scenarioBucketsReviewed": false
     },
     {
       "id": "B04_bad_duo_holdout",
@@ -162,7 +209,12 @@
       "fps": 30.0,
       "durationSec": 142.833,
       "totalFrames": 4285,
-      "difficultyTags": ["doubles_crossing", "camera_cuts", "spectators", "bright_background"],
+      "difficultyTags": [
+        "doubles_crossing",
+        "camera_cuts",
+        "spectators",
+        "bright_background"
+      ],
       "scenarioBuckets": [
         "doubles_crossing",
         "camera_cut",
@@ -173,15 +225,15 @@
         "lost_reacquisition",
         "bright_lights_background"
       ],
-      "primaryReviewerId": "reviewer_primary@sportscout.internal",
-      "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-      "predictionBlindingStatus": "BLINDED",
-      "annotationIntervalComplete": true,
-      "groundTruthAvailable": true,
-      "calibrationGroundTruthAvailable": true,
-      "playerIdentityGroundTruthAvailable": true,
-      "groundPositionGroundTruthAvailable": true,
-      "cameraCutGroundTruthAvailable": true,
+      "primaryReviewerId": null,
+      "independentSecondReviewer": null,
+      "predictionBlindingStatus": "NOT_APPLICABLE",
+      "annotationIntervalComplete": false,
+      "groundTruthAvailable": false,
+      "calibrationGroundTruthAvailable": false,
+      "playerIdentityGroundTruthAvailable": false,
+      "groundPositionGroundTruthAvailable": false,
+      "cameraCutGroundTruthAvailable": false,
       "shuttleGroundTruthAvailable": false,
       "courtCalibrationReference": "ground_truth/calibration/B04_bad_duo_holdout_calibration.json",
       "groundTruth": {
@@ -189,7 +241,14 @@
         "calibration": "ground_truth/calibration/B04_bad_duo_holdout_calibration.json",
         "positions": "ground_truth/positions/B04_bad_duo_holdout_positions.json",
         "identity": "ground_truth/identity/B04_bad_duo_holdout_identity.json"
-      }
+      },
+      "groundTruthProvenance": {
+        "cuts": "UNVERIFIED",
+        "calibration": "UNVERIFIED",
+        "positions": "SYNTHETIC_GENERATED_BY_SCRIPT",
+        "identity": "SYNTHETIC_GENERATED_BY_SCRIPT"
+      },
+      "scenarioBucketsReviewed": false
     },
     {
       "id": "B05_testshort_holdout",
@@ -203,7 +262,7 @@
       "sourceMediaSha256": "3cc570297184e465ac5a85795be97dcee81df36ae6ec8f58d41333cba45f5f30",
       "gtMediaSha256": "3cc570297184e465ac5a85795be97dcee81df36ae6ec8f58d41333cba45f5f30",
       "videoReference": "videos/B05_testshort_holdout.mp4",
-      "sourceFilename": "ฺBadminyon testshort vedio.mp4",
+      "sourceFilename": "\u0e3aBadminyon testshort vedio.mp4",
       "cameraType": "dynamic_1080p",
       "cameraMotion": "pan_tilt",
       "sourceWidth": 1920,
@@ -213,17 +272,24 @@
       "fps": 30.0,
       "durationSec": 131.533,
       "totalFrames": 3946,
-      "difficultyTags": ["dynamic_camera", "side_low_angle"],
-      "scenarioBuckets": ["side_low_angle", "pan_zoom", "return_to_court"],
-      "primaryReviewerId": "reviewer_primary@sportscout.internal",
-      "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-      "predictionBlindingStatus": "BLINDED",
-      "annotationIntervalComplete": true,
-      "groundTruthAvailable": true,
-      "calibrationGroundTruthAvailable": true,
-      "playerIdentityGroundTruthAvailable": true,
-      "groundPositionGroundTruthAvailable": true,
-      "cameraCutGroundTruthAvailable": true,
+      "difficultyTags": [
+        "dynamic_camera",
+        "side_low_angle"
+      ],
+      "scenarioBuckets": [
+        "side_low_angle",
+        "pan_zoom",
+        "return_to_court"
+      ],
+      "primaryReviewerId": null,
+      "independentSecondReviewer": null,
+      "predictionBlindingStatus": "NOT_APPLICABLE",
+      "annotationIntervalComplete": false,
+      "groundTruthAvailable": false,
+      "calibrationGroundTruthAvailable": false,
+      "playerIdentityGroundTruthAvailable": false,
+      "groundPositionGroundTruthAvailable": false,
+      "cameraCutGroundTruthAvailable": false,
       "shuttleGroundTruthAvailable": false,
       "courtCalibrationReference": "ground_truth/calibration/B05_testshort_holdout_calibration.json",
       "groundTruth": {
@@ -231,7 +297,14 @@
         "calibration": "ground_truth/calibration/B05_testshort_holdout_calibration.json",
         "positions": "ground_truth/positions/B05_testshort_holdout_positions.json",
         "identity": "ground_truth/identity/B05_testshort_holdout_identity.json"
-      }
+      },
+      "groundTruthProvenance": {
+        "cuts": "UNVERIFIED",
+        "calibration": "UNVERIFIED",
+        "positions": "SYNTHETIC_GENERATED_BY_SCRIPT",
+        "identity": "SYNTHETIC_GENERATED_BY_SCRIPT"
+      },
+      "scenarioBucketsReviewed": false
     }
   ]
 }

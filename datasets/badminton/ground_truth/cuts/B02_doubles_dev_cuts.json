@@ -1,18 +1,20 @@
 {
   "clipId": "B02_doubles_dev",
+  "provenance": "UNVERIFIED",
+  "provenanceNote": "Committed in 1a2aac3 (2026-11-03) together with script-generated streams and placeholder reviewer identities that named no real person. No record of a person annotating this video exists. Treat as unverified until re-annotated and reviewed by named humans.",
   "sourceMediaSha256": "84160d026a350716e227cb2f6f4c4c3d35cf52ab6aac6977d8e787b0299a6817",
-  "reviewerId": "reviewer_primary@sportscout.internal",
-  "reviewDate": "2026-11-03T00:00:00Z",
-  "predictionBlindingStatus": "BLINDED",
+  "reviewerId": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "UNVERIFIED",
   "description": "Ground truth camera cuts observed during Asian Doubles 2026 match",
   "cuts": [
     23.433,
-    45.200,
-    89.100,
-    120.400,
-    155.800,
+    45.2,
+    89.1,
+    120.4,
+    155.8,
     210.333,
-    265.000,
+    265.0,
     312.467
   ]
 }

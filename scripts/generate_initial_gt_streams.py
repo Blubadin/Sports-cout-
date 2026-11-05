@@ -1,6 +1,11 @@
 """
-scripts/generate_initial_gt_streams.py — Populates baseline Ground Truth streams
-for Phase 3 positions and identity evaluation under datasets/badminton/ground_truth/
+scripts/generate_initial_gt_streams.py — Writes SYNTHETIC placeholder position and
+identity streams under datasets/badminton/ground_truth/.
+
+The coordinates come from closed-form formulas below, not from a person annotating
+video. Every file is labelled provenance=SYNTHETIC_GENERATED_BY_SCRIPT and must not be
+used as ground truth for certification. Replace each file with human-reviewed
+annotations (provenance=HUMAN_REVIEWED, real reviewer IDs) before any held-out run.
 """
 
 import json
@@ -170,93 +175,78 @@ for f in range(120, 180, 5):
         })
 
 # Write positions files
+SYNTHETIC_PROVENANCE = {
+    "provenance": "SYNTHETIC_GENERATED_BY_SCRIPT",
+    "generator": "scripts/generate_initial_gt_streams.py",
+    "reviewerId": None,
+    "independentSecondReviewer": None,
+    "reviewDate": None,
+}
+
+
 def write_json(path: Path, data: dict):
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    labelled = {"clipId": data["clipId"], **SYNTHETIC_PROVENANCE}
+    labelled.update({k: v for k, v in data.items() if k != "clipId"})
+    path.write_text(json.dumps(labelled, indent=2), encoding="utf-8")
 
 write_json(POS_DIR / "B01_singles_dev_positions.json", {
     "clipId": "B01_singles_dev",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "positions": b01_positions,
 })
 
 write_json(POS_DIR / "B02_doubles_dev_positions.json", {
     "clipId": "B02_doubles_dev",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "positions": b02_positions,
 })
 
 write_json(POS_DIR / "B03_all_england_holdout_positions.json", {
     "clipId": "B03_all_england_holdout",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "positions": b03_positions,
 })
 
 write_json(POS_DIR / "B04_bad_duo_holdout_positions.json", {
     "clipId": "B04_bad_duo_holdout",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "positions": b04_positions,
 })
 
 write_json(POS_DIR / "B05_testshort_holdout_positions.json", {
     "clipId": "B05_testshort_holdout",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "positions": b05_positions,
 })
 
 # Write identity files
 write_json(ID_DIR / "B01_singles_dev_identity.json", {
     "clipId": "B01_singles_dev",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "tracks": b01_identity,
 })
 
 write_json(ID_DIR / "B02_doubles_dev_identity.json", {
     "clipId": "B02_doubles_dev",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "tracks": b02_identity,
 })
 
 write_json(ID_DIR / "B03_all_england_holdout_identity.json", {
     "clipId": "B03_all_england_holdout",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "tracks": b03_identity,
 })
 
 write_json(ID_DIR / "B04_bad_duo_holdout_identity.json", {
     "clipId": "B04_bad_duo_holdout",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "tracks": b04_identity,
 })
 
 write_json(ID_DIR / "B05_testshort_holdout_identity.json", {
     "clipId": "B05_testshort_holdout",
-    "reviewerId": "reviewer_primary@sportscout.internal",
-    "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-    "reviewDate": "2026-11-03T00:00:00Z",
-    "predictionBlindingStatus": "BLINDED",
+    "predictionBlindingStatus": "NOT_APPLICABLE",
     "tracks": b05_identity,
 })
 

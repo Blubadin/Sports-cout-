@@ -1,16 +1,18 @@
 {
   "clipId": "B05_testshort_holdout",
+  "provenance": "UNVERIFIED",
+  "provenanceNote": "Committed in 1a2aac3 (2026-11-03) together with script-generated streams and placeholder reviewer identities that named no real person. No record of a person annotating this video exists. Treat as unverified until re-annotated and reviewed by named humans.",
   "sourceMediaSha256": "3cc570297184e465ac5a85795be97dcee81df36ae6ec8f58d41333cba45f5f30",
-  "reviewerId": "reviewer_primary@sportscout.internal",
-  "independentSecondReviewer": "reviewer_independent@sportscout.internal",
-  "reviewDate": "2026-11-03T00:00:00Z",
-  "predictionBlindingStatus": "BLINDED",
+  "reviewerId": null,
+  "independentSecondReviewer": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "UNVERIFIED",
   "description": "Ground truth camera cuts for Badminton testshort dynamic clip",
   "cuts": [
-    14.200,
-    32.500,
-    56.800,
-    80.100,
+    14.2,
+    32.5,
+    56.8,
+    80.1,
     104.333
   ]
 }

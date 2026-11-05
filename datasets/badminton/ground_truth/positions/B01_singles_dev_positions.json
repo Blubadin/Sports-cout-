@@ -1,8 +1,11 @@
 {
   "clipId": "B01_singles_dev",
-  "reviewerId": "reviewer_primary@sportscout.internal",
-  "reviewDate": "2026-11-03T00:00:00Z",
-  "predictionBlindingStatus": "BLINDED",
+  "provenance": "SYNTHETIC_GENERATED_BY_SCRIPT",
+  "generator": "scripts/generate_initial_gt_streams.py",
+  "reviewerId": null,
+  "independentSecondReviewer": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "NOT_APPLICABLE",
   "positions": [
     {
       "frameIndex": 100,
