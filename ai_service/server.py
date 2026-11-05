@@ -2690,36 +2690,79 @@ def _get_web_dist_dir() -> Optional[Path]:
         custom_path = Path(env_dist).resolve()
         if custom_path.is_dir() and (custom_path / "index.html").is_file():
             return custom_path
-    default_dist = _REPO_ROOT / "dist"
+    default_dist = (_REPO_ROOT / "dist").resolve()
     if default_dist.is_dir() and (default_dist / "index.html").is_file():
         return default_dist
     return None
 
 
-_web_dist_dir = _get_web_dist_dir()
+class UnsafeWebPathError(ValueError):
+    """Raised when a requested web asset path could escape the web dist directory."""
 
-if _web_dist_dir:
+
+# Backslashes and drive separators would let a Windows path step outside the
+# URL namespace; NUL bytes are never valid in a file name.
+_UNSAFE_WEB_PATH_CHARS = ("\\", ":", "\x00")
+
+
+def resolve_web_asset(dist_dir: Path, request_path: str) -> Optional[Path]:
+    """Return the regular file under ``dist_dir`` that ``request_path`` names.
+
+    Returns ``None`` when the path is safe but names no file, so the caller can
+    fall back to the SPA index. Raises ``UnsafeWebPathError`` when the path
+    contains traversal segments or resolves (including via symlinks) outside
+    ``dist_dir``; such requests must not fall back to the index.
+    """
+    if not request_path:
+        return None
+    if any(ch in request_path for ch in _UNSAFE_WEB_PATH_CHARS):
+        raise UnsafeWebPathError(request_path)
+    if any(segment == ".." for segment in request_path.split("/")):
+        raise UnsafeWebPathError(request_path)
+
+    root = dist_dir.resolve()
+    candidate = (root / request_path).resolve()
+    if not candidate.is_relative_to(root):
+        raise UnsafeWebPathError(request_path)
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+def register_web_spa_routes(target_app: FastAPI, dist_dir: Path) -> None:
+    """Serve the built web UI from ``dist_dir`` with client-side route fallback."""
     from fastapi.staticfiles import StaticFiles
 
-    _assets_dir = _web_dist_dir / "assets"
-    if _assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="web_assets")
+    root = dist_dir.resolve()
+    index_file = root / "index.html"
 
-    @app.get("/")
+    assets_dir = root / "assets"
+    if assets_dir.is_dir():
+        target_app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="web_assets")
+
+    @target_app.get("/")
     def serve_index():
-        return FileResponse(str(_web_dist_dir / "index.html"))
+        return FileResponse(str(index_file))
 
-    @app.get("/{full_path:path}")
+    @target_app.get("/{full_path:path}")
     def serve_spa(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("ws/") or full_path == "ws":
             raise HTTPException(status_code=404, detail="Not found")
-        file_candidate = _web_dist_dir / full_path
-        if file_candidate.is_file():
-            return FileResponse(str(file_candidate))
-        index_file = _web_dist_dir / "index.html"
+        try:
+            asset = resolve_web_asset(root, full_path)
+        except UnsafeWebPathError:
+            raise HTTPException(status_code=404, detail="Not found")
+        if asset is not None:
+            return FileResponse(str(asset))
         if index_file.is_file():
             return FileResponse(str(index_file))
         raise HTTPException(status_code=404, detail="Frontend assets not found")
+
+
+_web_dist_dir = _get_web_dist_dir()
+
+if _web_dist_dir:
+    register_web_spa_routes(app, _web_dist_dir)
 
 
 def configure_server_event_loop() -> str:
