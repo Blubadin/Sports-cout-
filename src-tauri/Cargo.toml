@@ -1,6 +1,6 @@
 [package]
 name = "sportscout"
-version = "0.11.0"
+version = "0.11.0-pilot.1"
 description = "SportsScout Match Scouting & Video Analysis Workstation"
 authors = ["SportsScout Team"]
 edition = "2024"
@@ -20,5 +20,3 @@ log = "0.4"
 tauri = { version = "2.12.5", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-process = "2"

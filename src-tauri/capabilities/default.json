@@ -7,8 +7,10 @@
   ],
   "permissions": [
     "core:default",
-    "dialog:default",
-    "shell:default",
-    "process:default"
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "dialog:allow-open"
   ]
 }
