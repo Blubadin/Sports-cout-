@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Packages SportsScout into a standalone Windows distribution ZIP archive.
 .PARAMETER IncludePython
@@ -82,6 +82,8 @@ foreach ($g in $guideFiles) {
 
 $stagingScriptsDir = Join-Path $stagingDir "scripts"
 New-Item -Path $stagingScriptsDir -ItemType Directory -Force | Out-Null
+Copy-Item -Path (Join-Path $projectRoot "scripts\launch-workstation.ps1") -Destination $stagingScriptsDir -Force
+Copy-Item -Path (Join-Path $projectRoot "scripts\stop-workstation.ps1") -Destination $stagingScriptsDir -Force
 Copy-Item -Path (Join-Path $projectRoot "scripts\create-desktop-shortcut.ps1") -Destination $stagingScriptsDir -Force
 
 # Create data directories
