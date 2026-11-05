@@ -1,12 +1,18 @@
 # SPORTSCOUT Overall Readiness Audit
 
-วันที่ตรวจ: 16 กรกฎาคม 2026
+วันที่ตรวจ: 16 กรกฎาคม 2026 (ทบทวนสถานะธรรมาภิบาล: 6 พฤศจิกายน 2026)
 เวอร์ชัน: `0.11.0-pilot.1`
 Export schema: `1.1`
 
 ## Verdict
 
 SPORTSCOUT พร้อมสำหรับ internal/teacher demo และพร้อมเข้าสู่ Hardware QA แต่ยังห้ามประกาศ Pilot RC จนหลักฐานจอยจริงและ Coach Pilot ผ่าน Gate
+
+> [!IMPORTANT]
+> **หมายเหตุสถานะการตรวจประเมิน (Audit Update — 6 พฤศจิกายน 2026):**
+> - **สถานะ Pilot Gate:** ยังคง **BLOCKED** อย่างสมบูรณ์ (`npm run pilot:readiness` รายงาน 42 รายการ pending, จำนวนผู้เข้าร่วมทดสอบจริงยังคงเป็น 0 คน)
+> - **ข้อจำกัดของ Automated Tests:** การทดสอบ automated test ระดับ unit/integration (เช่น `multiSportPilotWorkflow` ใน Vitest) เป็นการตรวจเฉพาะ logic การทำงานของโค้ดเท่านั้น **ไม่นับเป็นหลักฐาน (evidence)** ของ 24 workflow cases หรือ controller cases ที่เกณฑ์กำหนดว่าต้องทดสอบกับผู้ใช้และฮาร์ดแวร์จริง
+> - **ข้อกำหนดด้านความซื่อสัตย์ของข้อมูล (Evidence Integrity):** ห้ามทำเครื่องหมายหรือสรุปว่า Pilot Gate หรือกรณีทดสอบ workflow เป็น PASS หรือ CERTIFIED จนกว่าจะมีการรันเซสชันร่วมกับโค้ช/ผู้ใช้จริงตาม Coach Pilot Protocol ครบถ้วนและบันทึกผลการทดสอบจริงเท่านั้น
 
 ## คะแนนปัจจุบัน
 

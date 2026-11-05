@@ -4,7 +4,7 @@
 > **Target OS:** Windows 10 & Windows 11 (64-bit x64)  
 > **Distribution:** Standalone `.zip` archive (Flash Drive / Offline Distribution)  
 > **Execution Model:** Two-stage deployment (`Setup-SportsScout.cmd` -> Auto-provisioning -> Auto-launch web app -> Desktop Shortcut)  
-> **Engineering Governance:** Strictly adheres to [AGENTS.md](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/AGENTS.md) (One phase at a time, verification gates, zero regressions)
+> **Engineering Governance:** Strictly adheres to [AGENTS.md](../../../AGENTS.md) (One phase at a time, verification gates, zero regressions)
 
 ---
 
@@ -33,11 +33,21 @@ flowchart TD
     end
 ```
 
+### Implementation Status Matrix (Updated 2026-11-06)
+
+| Phase | Description | Status | Evidence / Notes |
+|---|---|---|---|
+| **ZIP-1** | Web SPA Serving in FastAPI | **DONE** | Path traversal vulnerability remediated (`is_relative_to`, dot-segment blocking, static 404 handler) in TASK 2. |
+| **ZIP-2** | Prerequisite Probe & Isolated Python Installer | **NOT STARTED** | Requires architecture approval and requirement audit before creating installer scripts. |
+| **ZIP-3** | Launch Orchestration & Desktop Shortcuts | **PARTIAL / FIXED LAUNCHER** | `.cmd` multi-line parse bug fixed by delegating to `scripts/launch-workstation.ps1` and `scripts/stop-workstation.ps1` in TASK 3. Shortcut generation and clean-machine launch pending ZIP-5. |
+| **ZIP-4** | Automated ZIP Package Generator | **HARDENED** | Automated verification gates (typecheck, lint, vitest, unittest), model SHA-256 validation via `scripts/models.sha256`, and venv bundling prevention added in TASK 5. Portable ZIP verified. |
+| **ZIP-5** | Clean-System Validation & Quality Audit | **NOT STARTED** | Pending clean Windows Sandbox verification once isolated installer (ZIP-2) is ready. |
+
 ### Key Architectural Pillars
 
 1. **Eliminate Node.js Runtime Requirement:**
    - The web frontend is pre-built into production static files (`dist/`) using `npm run build` during package generation.
-   - FastAPI in [server.py](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/ai_service/server.py) serves the compiled web assets directly using `StaticFiles` with SPA fallback routing.
+   - FastAPI in [server.py](../../../ai_service/server.py) serves the compiled web assets directly using `StaticFiles` with SPA fallback routing.
    - Target machines need **zero Node.js/npm installations**.
 
 2. **Isolated, Zero-Admin Python Runtime:**
@@ -47,7 +57,7 @@ flowchart TD
 
 3. **Intelligent Hardware Acceleration & Fallback:**
    - Detects NVIDIA GeForce / RTX GPUs and configures CUDA 12.4 acceleration.
-   - If running on Intel / AMD graphics or non-CUDA machines, seamlessly defaults to CPU inference with transparent logging per [PYTHON_RUNTIME.md](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/docs/PYTHON_RUNTIME.md).
+   - If running on Intel / AMD graphics or non-CUDA machines, seamlessly defaults to CPU inference with transparent logging per [PYTHON_RUNTIME.md](../../../docs/PYTHON_RUNTIME.md).
 
 4. **Self-Contained Data Management:**
    - User projects, analysis jobs, and exports are organized under `data/` within the folder or portable path, ensuring user data is preserved across app updates.
@@ -88,44 +98,45 @@ SportsScout-v0.11-Windows/
 
 ## 3. Phased Implementation Roadmap
 
-### Phase ZIP-1: Web SPA Serving in FastAPI (Eliminating Node.js Dependency)
+### Phase ZIP-1: Web SPA Serving in FastAPI (Eliminating Node.js Dependency) — [DONE]
 - **Target Files:**
-  - [ai_service/server.py](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/ai_service/server.py): Add static web asset mounting and SPA fallback handler for non-API routes when `SPORTSCOUT_WEB_DIST` is configured.
-  - [src/services/aiConnection.ts](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/src/services/aiConnection.ts): Enable same-origin connection detection when hosted on the unified port.
+  - [ai_service/server.py](../../../ai_service/server.py): Add static web asset mounting and SPA fallback handler for non-API routes when `SPORTSCOUT_WEB_DIST` is configured.
+  - [src/services/aiConnection.ts](../../../src/services/aiConnection.ts): Enable same-origin connection detection when hosted on the unified port.
 - **Verification Gates:**
   - Unit tests verifying FastAPI serves `index.html` on client-side routes without interfering with `/api` or `/ws`.
   - Frontend TypeScript check (`npm run typecheck`), linting (`npm run lint`), and Vitest (`npm test`).
+  - Path traversal vulnerability audit and remediation via strict path boundary enforcement.
 
-### Phase ZIP-2: Prerequisite Probe & Isolated Environment Installer
+### Phase ZIP-2: Prerequisite Probe & Isolated Environment Installer — [NOT STARTED]
 - **Target Files:**
   - `installer/check-prerequisites.ps1`: Automated checks for Windows 10/11 (Build 19041+), disk space (>= 10 GB), RAM (>= 8 GB), and GPU.
-  - `installer/setup-isolated-env.ps1`: Script to unpack isolated Python, install offline wheels, verify model SHA-256 hashes, and invoke [runtime_doctor.py](file:///c:/Users/sport/OneDrive/Documents/GitHub/Sports-cout-/ai_service/runtime_doctor.py).
+  - `installer/setup-isolated-env.ps1`: Script to unpack isolated Python, install offline wheels, verify model SHA-256 hashes, and invoke [runtime_doctor.py](../../../ai_service/runtime_doctor.py).
   - `Setup-SportsScout.cmd`: Double-click CMD entrypoint with clear user progress messaging.
 - **Verification Gates:**
   - Automated PowerShell test verifying zero-admin execution in non-elevated user contexts.
   - Python runtime doctor exit code 0 under both CUDA and CPU emulation.
 
-### Phase ZIP-3: Launch Orchestration & Desktop Shortcuts
+### Phase ZIP-3: Launch Orchestration & Desktop Shortcuts — [PARTIAL / FIXED LAUNCHER]
 - **Target Files:**
   - `installer/create-shortcuts.vbs`: Non-admin VBScript generating Desktop and Start Menu `.lnk` shortcuts.
   - `Run-SportsScout.cmd`: Checks environment readiness, launches background AI service, polls `/api/status`, and opens Microsoft Edge in App Mode (`msedge.exe --app=http://127.0.0.1:8000`).
   - `Stop-SportsScout.cmd`: Graceful shutdown of the background Python process.
 - **Verification Gates:**
-  - Verify process lifecycle (clean launch, healthy port detection, clean termination).
+  - Verify process lifecycle (clean launch, healthy port detection, clean termination). Multi-line parse bug fixed by moving orchestration to dedicated PowerShell scripts (`launch-workstation.ps1`, `stop-workstation.ps1`).
 
-### Phase ZIP-4: Automated ZIP Package Generator
+### Phase ZIP-4: Automated ZIP Package Generator — [HARDENED]
 - **Target Files:**
   - `scripts/package-zip.ps1`: Automated developer build script that:
-    1. Executes verification suite (`typecheck`, `lint`, `test`).
+    1. Executes verification suite (`typecheck`, `lint`, `vitest`, `unittest`).
     2. Builds production frontend (`npm run build`).
-    3. Stages isolated Python runtime and audited offline wheels.
-    4. Copies verified model weights.
-    5. Compresses the release payload into `SportsScout-v0.11-Windows.zip`.
+    3. Stages isolated Python runtime and audited offline wheels (guards against venv copying).
+    4. Copies and cryptographically validates model weights using `scripts/models.sha256`.
+    5. Compresses the release payload into `SportsScout-v0.11.0-pilot.1-Windows-Portable.zip`.
     6. Emits `SHA256SUMS.txt` for release integrity validation.
 - **Verification Gates:**
-  - Complete end-to-end packaging dry run producing a valid `.zip` artifact.
+  - Complete end-to-end packaging dry run producing a valid `.zip` artifact with pre-packaging test gates.
 
-### Phase ZIP-5: Clean-System Validation & Quality Audit
+### Phase ZIP-5: Clean-System Validation & Quality Audit — [NOT STARTED]
 - **Validation Scope:**
   - Test deployment inside an isolated Windows Sandbox instance (completely clean Windows 10/11 with zero dev tools installed).
   - Verify `Setup-SportsScout.cmd` unpacks and launches cleanly.
@@ -136,6 +147,6 @@ SportsScout-v0.11-Windows/
 
 ## 4. Governance & Rules Compliance
 
-- **No Direct Changes to `main`**: Implemented on designated feature branch (`feat/windows-zip-installer`).
+- **No Direct Changes to `main`**: Implemented on designated milestone branch (`feat/desktop-tauri-workstation`).
 - **One Phase at a Time**: Each phase (ZIP-1 through ZIP-5) will run full verification, produce clean test logs, commit with clear semantic messages, and report status before proceeding.
 - **Integrity First**: No synthetic tracking data in production stores, no unvalidated biomechanics claims, and strict preservation of real-video tracking accuracy standards.
