@@ -2047,9 +2047,88 @@ export default function BadmintonTrackingLab() {
           </button>
         </div>
       ) : (
-        <button className={`${button} bg-sky-700`} disabled={!canRun} onClick={() => void run()}>
-          {th ? 'เริ่มตรวจจับร่างกายและการเคลื่อนที่' : 'Run Movement Analysis'}
-        </button>
+        <div className="space-y-3">
+          {!canRun && (
+            <div data-testid="ai-analysis-guidance" className="p-3.5 rounded-lg border border-sky-800/60 bg-sky-950/40 text-xs space-y-2">
+              <div className="font-bold text-sky-300 flex items-center gap-1.5">
+                <span>ℹ️</span>
+                <span>{th ? 'ขั้นตอนก่อนเริ่มการวิเคราะห์ AI' : 'Requirements to start AI analysis'}</span>
+              </div>
+              <ul className="space-y-1.5 text-slate-300">
+                {matchInfo.sportType !== 'badminton' && (
+                  <li className="flex items-center gap-2 text-rose-300">
+                    <span>❌</span>
+                    <span>{th ? 'โปรเจกต์ปัจจุบันไม่ใช่กีฬาแบดมินตัน (AI Tracking รองรับเฉพาะแบดมินตัน)' : 'Current project is not Badminton (AI Tracking supports Badminton only)'}</span>
+                  </li>
+                )}
+                {online !== true && (
+                  <li className="flex items-center gap-2 text-amber-300">
+                    <span>⚠️</span>
+                    <span>{th ? 'กำลังเชื่อมต่อกับ AI Service ในเครื่อง (127.0.0.1:8000)... หากยังไม่เชื่อมต่อ กรุณารัน Run-SportsScout.cmd' : 'Connecting to local AI Service (127.0.0.1:8000)... Please start Run-SportsScout.cmd'}</span>
+                  </li>
+                )}
+                {!file && (
+                  <li className="flex items-center gap-2 text-amber-300">
+                    <span>📁</span>
+                    <span>{th ? 'กรุณาเลือกไฟล์วิดีโอการแข่งขันจริง (.mp4, .mov) ด้านบน' : 'Please select a local match video file (.mp4, .mov) above'}</span>
+                  </li>
+                )}
+                {file && !calibrationReadyToStart && (
+                  <li className="flex flex-col gap-1.5 p-2 rounded bg-slate-900/80 border border-slate-700">
+                    <span className="text-amber-300 font-semibold">
+                      {th ? 'เลือกวิธีระบุขอบเขตสนาม (Court Calibration):' : 'Choose court calibration method:'}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => update({
+                          processingConfig: { ...state.processingConfig, autoCourtCalibrationEnabled: true }
+                        })}
+                        className="px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <span>⚡ {th ? 'เปิดตรวจจับสนามอัตโนมัติ (แนะนำ)' : 'Enable Auto-Calibrate (Recommended)'}</span>
+                      </button>
+                      <span className="text-slate-400 text-[11px]">{th ? 'หรือ' : 'or'}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          videoRef.current?.pause();
+                          update({ corners: [] });
+                          setCalibrating(true);
+                        }}
+                        className="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 text-xs transition cursor-pointer"
+                      >
+                        <span>🎯 {th ? 'คลิกเลือก 4 มุมสนามด้วยตนเอง' : 'Manually click 4 corners'}</span>
+                      </button>
+                    </div>
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              className={`${button} ${canRun ? 'bg-sky-600 hover:bg-sky-500 text-white font-bold shadow-lg shadow-sky-950/50 cursor-pointer' : 'bg-slate-800 text-slate-500 border-slate-700'}`}
+              disabled={!canRun}
+              onClick={() => void run()}
+            >
+              {th ? 'เริ่มตรวจจับร่างกายและการเคลื่อนที่' : 'Run Movement Analysis'}
+            </button>
+            {canRun && autoCourtCalibrationEnabled && (
+              <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-1.5 rounded-lg flex items-center gap-1">
+                <span>⚡</span>
+                <span>{th ? 'โหมดตรวจจับสนามอัตโนมัติ' : 'Auto Court Calibration'}</span>
+              </span>
+            )}
+            {canRun && !autoCourtCalibrationEnabled && corners.length === 4 && (
+              <span className="text-xs font-semibold text-sky-400 bg-sky-950/60 border border-sky-800 px-2.5 py-1.5 rounded-lg flex items-center gap-1">
+                <span>🎯</span>
+                <span>{th ? 'กำหนด 4 มุมสนามแล้ว' : 'Court Calibrated (4 corners)'}</span>
+              </span>
+            )}
+          </div>
+        </div>
       )}
 
       {exportSessionId && (

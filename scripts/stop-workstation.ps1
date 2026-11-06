@@ -15,56 +15,64 @@ Write-Host "====================================================================
 Write-Host ""
 
 $pidFile = Join-Path $projectRoot "data\logs\ai-service.pid"
-if (-not (Test-Path -LiteralPath $pidFile)) {
-    Write-Host "[SportsScout] No active PID file detected at $pidFile. AI service is not running or managed externally." -ForegroundColor Gray
-    exit 0
-}
+$stoppedAny = $false
 
-$rawPid = (Get-Content -Path $pidFile -Raw).Trim()
-if (-not $rawPid -or -not ($rawPid -match '^\d+$')) {
-    Write-Host "[SportsScout] Warning: Invalid PID found in $pidFile. Removing invalid file." -ForegroundColor Yellow
-    Remove-Item -Path $pidFile -Force -ErrorAction SilentlyContinue
-    exit 0
-}
+# 1. Stop via PID file if present
+if (Test-Path -LiteralPath $pidFile) {
+    $rawPid = (Get-Content -Path $pidFile -Raw).Trim()
+    if ($rawPid -match '^\d+$') {
+        $targetPid = [int]$rawPid
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $targetPid" -ErrorAction SilentlyContinue
+        if ($proc) {
+            $cmdLine = $proc.CommandLine
+            $isSportsScoutAi = $false
+            if ($cmdLine -and ($cmdLine -like "*ai_service/server.py*" -or $cmdLine -like "*ai_service\server.py*")) {
+                $isSportsScoutAi = $true
+            } else {
+                $children = Get-CimInstance Win32_Process -Filter "ParentProcessId = $targetPid" -ErrorAction SilentlyContinue
+                foreach ($child in $children) {
+                    if ($child.CommandLine -and ($child.CommandLine -like "*ai_service/server.py*" -or $child.CommandLine -like "*ai_service\server.py*")) {
+                        $isSportsScoutAi = $true
+                        break
+                    }
+                }
+            }
 
-$targetPid = [int]$rawPid
-
-# Verify process existence and command line identity
-$proc = Get-CimInstance Win32_Process -Filter "ProcessId = $targetPid" -ErrorAction SilentlyContinue
-if (-not $proc) {
-    Write-Host "[SportsScout] Process with PID $targetPid is no longer active." -ForegroundColor Gray
-    Remove-Item -Path $pidFile -Force -ErrorAction SilentlyContinue
-    exit 0
-}
-
-$isSportsScoutAi = $false
-$cmdLine = $proc.CommandLine
-if ($cmdLine -and ($cmdLine -like "*ai_service/server.py*" -or $cmdLine -like "*ai_service\server.py*")) {
-    $isSportsScoutAi = $true
-} else {
-    # Check if targetPid is a launcher stub whose child is running ai_service/server.py
-    $children = Get-CimInstance Win32_Process -Filter "ParentProcessId = $targetPid" -ErrorAction SilentlyContinue
-    foreach ($child in $children) {
-        if ($child.CommandLine -and ($child.CommandLine -like "*ai_service/server.py*" -or $child.CommandLine -like "*ai_service\server.py*")) {
-            $isSportsScoutAi = $true
-            break
+            if ($isSportsScoutAi) {
+                Write-Host "[SportsScout] Stopping AI Backend Service (PID $targetPid and child processes)..." -ForegroundColor Yellow
+                & taskkill.exe /PID $targetPid /T /F | Out-Null
+                $stoppedAny = $true
+            }
         }
+    }
+    Remove-Item -Path $pidFile -Force -ErrorAction SilentlyContinue
+}
+
+# 2. Check if port 8000 is still held by a SportsScout server process
+$conn = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
+if ($conn) {
+    $owningPid = $conn.OwningProcess
+    $portProc = Get-CimInstance Win32_Process -Filter "ProcessId = $owningPid" -ErrorAction SilentlyContinue
+    if ($portProc -and ($portProc.CommandLine -like "*ai_service/server.py*" -or $portProc.CommandLine -like "*ai_service\server.py*")) {
+        Write-Host "[SportsScout] Terminating server on port 8000 (PID $owningPid)..." -ForegroundColor Yellow
+        & taskkill.exe /PID $owningPid /T /F | Out-Null
+        $stoppedAny = $true
     }
 }
 
-if (-not $isSportsScoutAi) {
-    Write-Host "[SportsScout] ERROR: Process with PID $targetPid does not match SportsScout server.py." -ForegroundColor Red
-    Write-Host "Command line was: $cmdLine" -ForegroundColor Yellow
-    Write-Host "Aborting shutdown to protect unrelated processes." -ForegroundColor Red
-    exit 1
+# 3. Clean up any remaining orphaned python processes running server.py from this workspace
+$orphanProcs = Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -and ($_.CommandLine -like "*ai_service/server.py*" -or $_.CommandLine -like "*ai_service\server.py*")
+}
+if ($orphanProcs) {
+    foreach ($p in $orphanProcs) {
+        Write-Host "[SportsScout] Releasing stale AI process (PID $($p.ProcessId))..." -ForegroundColor Yellow
+        & taskkill.exe /PID $p.ProcessId /T /F | Out-Null
+        $stoppedAny = $true
+    }
 }
 
-Write-Host "[SportsScout] Stopping AI Backend Service (PID $targetPid and child processes)..." -ForegroundColor Yellow
-& taskkill.exe /PID $targetPid /T /F | Out-Null
-
-Remove-Item -Path $pidFile -Force -ErrorAction SilentlyContinue
-
-# Verify port 8000 is released
+# 4. Verify port 8000 is released
 $waited = 0
 while ($waited -lt 10) {
     $conn = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
@@ -73,4 +81,8 @@ while ($waited -lt 10) {
     $waited++
 }
 
-Write-Host "[SportsScout] Service stopped cleanly. Port 8000 is free." -ForegroundColor Green
+if ($stoppedAny) {
+    Write-Host "[SportsScout] Service stopped cleanly. Port 8000 is free." -ForegroundColor Green
+} else {
+    Write-Host "[SportsScout] No active SportsScout service was running on port 8000." -ForegroundColor Gray
+}

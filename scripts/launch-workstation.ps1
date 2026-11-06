@@ -75,6 +75,20 @@ if ($initialStatus.Running) {
     }
     Write-Host "[SportsScout] AI Backend Service is already running." -ForegroundColor Green
 } else {
+    # Clean up any orphaned python processes from this workspace running server.py
+    $orphanProcs = Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue | Where-Object {
+        $_.CommandLine -and ($_.CommandLine -like "*ai_service/server.py*" -or $_.CommandLine -like "*ai_service\server.py*")
+    }
+    if ($orphanProcs) {
+        Write-Host "[SportsScout] Releasing stale AI backend process..." -ForegroundColor Yellow
+        foreach ($p in $orphanProcs) {
+            try {
+                Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            } catch {}
+        }
+        Start-Sleep -Milliseconds 500
+    }
+
     Write-Host "[SportsScout] Starting AI Backend Service..." -ForegroundColor Cyan
 
     $logsDir = Join-Path $projectRoot "data\logs"

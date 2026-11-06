@@ -5,7 +5,7 @@ import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { t } from './i18n';
 import WorkspaceMenu from './components/WorkspaceMenu';
 import SettingsModal from './components/SettingsModal';
-import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star, FileText, MonitorPlay, SlidersHorizontal } from 'lucide-react';
+import { Settings, WifiOff, RefreshCw, Download, Keyboard, Sun, Moon, Contrast, Folder, Plus, Upload, Edit2, Gamepad2, BarChart3, Table2, Star, FileText, MonitorPlay, SlidersHorizontal, Activity } from 'lucide-react';
 import DiagnosticLogs from './components/DiagnosticLogs';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { MAX_IMPORT_FILE_BYTES, validateImportFileSize } from './utils/importSafety';
@@ -179,9 +179,35 @@ function EmptyProjectState() {
             onChange={(v) => setSelectedSport(v as SportType)}
             options={sportOptions}
           />
+          {selectedSport === 'badminton' ? (
+            <p className="text-xs text-sky-500 dark:text-sky-400 font-semibold mt-2 flex items-center gap-1.5">
+              <span>🏸</span>
+              <span>{settings.uiLanguage === 'th' ? 'พร้อมใช้งานฟีเจอร์ AI Computer Vision & Tracking Lab ในโหมดนี้' : 'AI Computer Vision & Tracking Lab available for this sport'}</span>
+            </p>
+          ) : (
+            <p className="text-xs text-slate-400 mt-2">
+              {settings.uiLanguage === 'th' ? 'โหมดสเกาต์ บันทึกคะแนน สถิติแท็กติก และออกรายงานโค้ช' : 'Scouting, event tagging, tactical stats, and coach reporting'}
+            </p>
+          )}
         </div>
         
         <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setSettings(current => ({ ...current, workbenchPreset: 'lab' }));
+              createNewProject(`Badminton AI Match ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, 'badminton');
+            }}
+            disabled={!repositoryReady}
+            className="w-full py-3.5 bg-gradient-to-r from-sky-600 via-sky-500 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white rounded-xl font-bold shadow-lg shadow-sky-900/30 transition-all active:scale-95 flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-40"
+          >
+            <Activity size={18} className="text-sky-200" />
+            <span>{settings.uiLanguage === 'th' ? 'ทดลองระบบ AI Tracking แบดมินตัน' : 'Try Badminton AI Tracking Lab'}</span>
+            <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-sky-300 text-slate-950 ml-1">
+              AI Lab
+            </span>
+          </button>
+
           <button 
             onClick={() => createNewProject(`Match ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, selectedSport)}
             className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -258,7 +284,15 @@ function AppContent() {
   const [isKeyboardShortcutsOpen, setIsKeyboardShortcutsOpen] = useState(false);
   const [isMatchInfoOpen, setIsMatchInfoOpen] = useState(false);
   const { isInstallable, promptInstall } = usePWAInstall();
-  const [activeTab, setActiveTab] = useState<AnalysisTab>('input');
+  const [activeTab, setActiveTab] = useState<AnalysisTab>(() => {
+    return settings.workbenchPreset ? getAnalysisTabForPreset(settings.workbenchPreset) : 'input';
+  });
+
+  useEffect(() => {
+    if (settings.workbenchPreset) {
+      setActiveTab(getAnalysisTabForPreset(settings.workbenchPreset));
+    }
+  }, [settings.workbenchPreset]);
   const [activeLeftTool, setActiveLeftTool] = useState<WorkstationLeftTool>('scout');
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const workspaceExperience = resolveWorkspaceExperience({
