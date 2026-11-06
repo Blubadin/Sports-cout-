@@ -146,11 +146,28 @@ if (-not $NoBrowser) {
     )
     $edgeExe = $edgePaths | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 
+    $launched = $false
     if ($edgeExe) {
-        Write-Host "[SportsScout] Launching Workstation Standalone Window..." -ForegroundColor Green
-        Start-Process -FilePath $edgeExe -ArgumentList "--app=http://127.0.0.1:8000", "--window-size=1440,900"
-    } else {
-        Write-Host "[SportsScout] Opening default browser..." -ForegroundColor Green
+        try {
+            Write-Host "[SportsScout] Launching Workstation Standalone Window (Edge App Mode)..." -ForegroundColor Green
+            Start-Process -FilePath $edgeExe -ArgumentList "--app=http://127.0.0.1:8000", "--new-window", "--window-size=1440,900"
+            $launched = $true
+        } catch {
+            Write-Host "[SportsScout] Note: Edge app mode launch failed, opening default browser..." -ForegroundColor Yellow
+        }
+    }
+
+    if (-not $launched) {
+        Write-Host "[SportsScout] Opening default browser at http://127.0.0.1:8000 ..." -ForegroundColor Green
         Start-Process "http://127.0.0.1:8000"
     }
 }
+
+Write-Host ""
+Write-Host "=====================================================================" -ForegroundColor Green
+Write-Host " SportsScout Workstation is now running!" -ForegroundColor Green
+Write-Host " URL: http://127.0.0.1:8000" -ForegroundColor Cyan
+Write-Host " To stop the service, double-click Stop-SportsScout.cmd" -ForegroundColor Gray
+Write-Host "=====================================================================" -ForegroundColor Green
+Write-Host ""
+Start-Sleep -Seconds 2

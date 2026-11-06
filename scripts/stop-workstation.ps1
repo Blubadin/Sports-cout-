@@ -85,4 +85,6 @@ if ($stoppedAny) {
     Write-Host "[SportsScout] Service stopped cleanly. Port 8000 is free." -ForegroundColor Green
 } else {
     Write-Host "[SportsScout] No active SportsScout service was running on port 8000." -ForegroundColor Gray
-}
+}
+
+Start-Sleep -Seconds 2
