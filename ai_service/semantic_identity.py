@@ -592,6 +592,28 @@ def match_tracks_to_profiles_with_reid(
                     c.hsv_distance is not None and c.hsv_distance <= evidence.hsv_distance - .1 for c in other):
                 cost_matrix[i, j] = 1e6
 
+    # Side-of-net elimination: if exactly one established athlete of a side is
+    # lost and exactly one unowned eligible detection exists on that side, the
+    # pairing is unique by elimination (no appearance guess between teammates).
+    def _det_side(det: dict[str, Any]) -> int | None:
+        rp = det.get("real_pos")
+        return None if rp is None else (1 if rp[1] < net_y else 2)
+
+    live_tracks = {
+        pr.track_id for pr in profiles.values()
+        if pr.last_bbox is not None and pr.track_id is not None
+    }
+    free_dets_by_side: dict[int, set[int]] = {1: set(), 2: set()}
+    for j, det in enumerate(detections):
+        side = _det_side(det)
+        if side is not None and det.get("track_id") not in live_tracks:
+            free_dets_by_side[side].add(j)
+    lost_by_team: dict[int, list[int]] = {1: [], 2: []}
+    for i, pid in enumerate(active_pids):
+        team = getattr(profiles[pid], "team", 0)
+        if reacquiring[i] and team in (1, 2) and _has_identity_appearance(profiles[pid]):
+            lost_by_team[team].append(i)
+
     for i, needs_evidence in enumerate(reacquiring):
         for j, evidence in enumerate(costs_grid[i]):
             eligibility = detections[j].get("eligibility")
@@ -613,7 +635,44 @@ def match_tracks_to_profiles_with_reid(
                 profiles, active_pids[i], detections[j], detections[j].get("_shoe_color_cue")
             )
             conflicting_reid = evidence.reid_similarity is not None and evidence.reid_similarity < .40
-            if evidence.is_ambiguous or conflicting_reid or not (hsv_supported or reid_supported or fused_supported or shoe_supported):
+            team_i = getattr(profiles[active_pids[i]], "team", 0)
+            side_unique = bool(
+                needs_evidence and team_i in (1, 2)
+                and lost_by_team[team_i] == [i]
+                and free_dets_by_side[team_i] == {j}
+                and not any(
+                    c.shoe_color_cost > 0 for c in [evidence]
+                )
+            )
+            if ((evidence.is_ambiguous and not side_unique) or conflicting_reid
+                    or not (hsv_supported or reid_supported or fused_supported or shoe_supported or side_unique)):
+                cost_matrix[i, j] = 1e6
+
+    # A player cannot be relabelled onto the opposite side of the net while a
+    # live teammate is still observed on the home side: that excludes a real
+    # change of ends (where the whole team swaps) and blocks one-player hijacks.
+    for i, pid in enumerate(active_pids):
+        prof = profiles[pid]
+        team = getattr(prof, "team", 0)
+        if team not in (1, 2) or not (
+            getattr(prof, "identity_established", False) or _has_identity_appearance(prof)
+        ):
+            continue
+        home_peer_live = any(
+            other_pid != pid and getattr(other, "team", 0) == team
+            and other.last_bbox is not None and other.missed_frames <= 5
+            and other.last_real_pos is not None
+            and (1 if other.last_real_pos[1] < net_y else 2) == team
+            for other_pid, other in profiles.items()
+        )
+        if not home_peer_live:
+            continue
+        for j, det in enumerate(detections):
+            rp = det.get("real_pos")
+            if rp is None:
+                continue
+            crossed = (team == 1 and rp[1] > net_y + 0.5) or (team == 2 and rp[1] < net_y - 0.5)
+            if crossed:
                 cost_matrix[i, j] = 1e6
 
     row_ind, col_ind = linear_sum_assignment(cost_matrix)

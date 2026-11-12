@@ -251,6 +251,71 @@ class TestIdentityQuarantine(unittest.TestCase):
             self.assertNotIn(2, matched)
             self.assertEqual(semantic_switches, 0)
 
+    def _lost_profile(self, pid, team, track):
+        p = PlayerProfile(player_id=pid, team=team)
+        p.track_id = track
+        p.missed_frames = 35
+        p.identity_established = True
+        p.identity_needs_reacquisition = True
+        p.shoe_color = "DARK"
+        return p
+
+    def test_unique_lost_teammate_is_reacquired_by_side_elimination(self):
+        lost = self._lost_profile(1, 1, 99)
+        live = PlayerProfile(player_id=2, team=1)
+        live.track_id = 20
+        live.last_real_pos = (2.5, 3.0)
+        live.last_bbox = [50, 30, 100, 160]
+        owners = {99: 1, 20: 2}
+        img = np.random.default_rng(0).integers(0, 256, (200, 200, 3), dtype=np.uint8)
+        dets = [
+            {"track_id": 20, "conf": .9, "bbox": [50, 30, 100, 160], "center": (75, 160), "real_pos": (2.5, 3.0)},
+            {"track_id": 55, "conf": .9, "bbox": [120, 30, 170, 160], "center": (145, 160), "real_pos": (4.5, 3.5)},
+        ]
+        matched = {}
+        for _ in range(3):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                {1: lost, 2: live}, [dict(d) for d in dets], img, None, last_known_track_owners=owners)
+        self.assertEqual(matched[1]["track_id"], 55)
+        self.assertEqual(matched[2]["track_id"], 20)
+
+    def test_two_free_detections_for_one_lost_teammate_stay_ambiguous(self):
+        lost = self._lost_profile(1, 1, 99)
+        img = np.random.default_rng(0).integers(0, 256, (200, 200, 3), dtype=np.uint8)
+        dets = [
+            {"track_id": 55, "conf": .9, "bbox": [50, 30, 100, 160], "center": (75, 160), "real_pos": (2.5, 3.0)},
+            {"track_id": 56, "conf": .9, "bbox": [120, 30, 170, 160], "center": (145, 160), "real_pos": (4.5, 3.5)},
+        ]
+        for _ in range(4):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                {1: lost}, [dict(d) for d in dets], img, None, last_known_track_owners={99: 1})
+            self.assertNotIn(1, matched)
+
+    def test_opposite_side_detection_is_not_reacquired(self):
+        lost = self._lost_profile(1, 1, 99)
+        img = np.random.default_rng(0).integers(0, 256, (200, 200, 3), dtype=np.uint8)
+        det = {"track_id": 55, "conf": .9, "bbox": [50, 30, 100, 160], "center": (75, 160), "real_pos": (2.5, 10.0)}
+        for _ in range(4):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                {1: lost}, [dict(det)], img, None, last_known_track_owners={99: 1})
+            self.assertNotIn(1, matched)
+
+    def test_lost_player_cannot_cross_net_while_live_teammate_on_home_side(self):
+        lost = self._lost_profile(4, 2, 99)
+        mate = PlayerProfile(player_id=3, team=2)
+        mate.track_id = 20
+        mate.last_real_pos = (2.5, 10.0)
+        mate.last_bbox = [50, 30, 100, 160]
+        img = np.random.default_rng(1).integers(0, 256, (200, 200, 3), dtype=np.uint8)
+        dets = [
+            {"track_id": 20, "conf": .9, "bbox": [50, 30, 100, 160], "center": (75, 160), "real_pos": (2.5, 10.0)},
+            {"track_id": 55, "conf": .9, "bbox": [120, 30, 170, 160], "center": (145, 160), "real_pos": (4.5, 3.0)},
+        ]
+        for _ in range(5):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                {4: lost, 3: mate}, [dict(d) for d in dets], img, None, last_known_track_owners={99: 4, 20: 3})
+            self.assertNotIn(4, matched)
+
     def test_unlinked_filtered_candidate_is_not_attributed_to_every_player(self):
         analyzer = __import__("analyzer_v2").BadmintonAnalyzerV2(game_type="singles", max_players=2)
         analyzer._last_court_filter_counts = {
