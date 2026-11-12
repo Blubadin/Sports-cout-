@@ -1,12 +1,13 @@
 """
 semantic_identity.py — Explicit, testable semantic identity association with ReID support.
 
-Implements the explicit 5-component cost model:
-totalCost = spatialCost + courtSidePenalty + rawTrackContinuityBonus + hsvAppearanceCost + reidAppearanceCost
+Implements a gated identity association cost model with a weak shoe-tone cue:
+totalCost = spatialCost + courtSidePenalty + rawTrackContinuityBonus + hsvAppearanceCost + reidAppearanceCost + shoeColorCost
 
 Invariants:
 - Preserves spatial, court-side, raw track ID, and HSV signals.
 - ReID is an evidence source, never unquestioned identity truth.
+- Shoe tone is a secondary cue from repeated fresh ankle observations, not jersey evidence.
 - Ambiguous ReID signals never force a semantic identity switch.
 - Distinguishes rawTrackerIdSwitch (raw MOT recovery) from semanticPlayerIdSwitch (true player swap).
 """
@@ -21,6 +22,7 @@ from scipy.optimize import linear_sum_assignment
 from court_mapper import CourtMapper, COURT_LENGTH_M
 from reid_adapter import BaseReIDAdapter, DisabledReIDAdapter
 from player_eligibility import CourtEnvelopeZone
+from pose_coordinate_space import POSE_COORDINATE_SPACE_NORMALIZED_PERCENT
 
 
 def jersey_histogram(frame, bbox):
@@ -52,6 +54,66 @@ def jersey_histogram(frame, bbox):
     return hist
 
 
+def shoe_color_cue(frame, bbox, pose_obj):
+    """Return DARK/LIGHT only when fresh ankle-local pixels clearly support it."""
+    if frame is None or not frame.size or bbox is None or not isinstance(pose_obj, dict):
+        return None
+    if (pose_obj.get("keypointCoordinateSpace") != POSE_COORDINATE_SPACE_NORMALIZED_PERCENT
+            or pose_obj.get("isReused", False)
+            or pose_obj.get("isStale", False)
+            or int(pose_obj.get("ageFrames", 0) or 0) != 0):
+        return None
+    keypoints = pose_obj.get("keypoints")
+    if not isinstance(keypoints, (list, tuple)) or len(keypoints) <= 16:
+        return None
+    h, w = frame.shape[:2]
+    try:
+        x1, y1, x2, y2 = [float(v) for v in bbox]
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite((x1, y1, x2, y2)).all():
+        return None
+    box_w, box_h = x2 - x1, y2 - y1
+    if box_w < 20 or box_h < 40:
+        return None
+    detected = []
+    for index in (15, 16):  # COCO left/right ankle keypoints.
+        point = keypoints[index]
+        if not isinstance(point, dict):
+            continue
+        try:
+            score = float(point.get("score", 0.0) or 0.0)
+            ankle_x = float(point.get("x", 0.0)) * w / 100.0
+            ankle_y = float(point.get("y", 0.0)) * h / 100.0
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite((score, ankle_x, ankle_y)).all() or score < 0.5:
+            continue
+        # Full player boxes include a lot of court at this camera distance;
+        # keep the sample tight around each ankle so footwear remains visible.
+        half_width = max(2, int(round(box_w * 0.07)))
+        crop_x1 = max(0, int(round(ankle_x - half_width)))
+        crop_x2 = min(w, int(round(ankle_x + half_width + 1)))
+        crop_y1 = max(0, int(round(ankle_y - box_h * 0.02)))
+        crop_y2 = min(h, int(round(ankle_y + box_h * 0.12)))
+        # Keep the sample around the ankle inside this detection's own box.
+        crop_x1, crop_x2 = max(crop_x1, int(x1)), min(crop_x2, int(x2))
+        crop_y1, crop_y2 = max(crop_y1, int(y1)), min(crop_y2, int(y2))
+        crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+        if crop.size == 0 or crop.shape[0] * crop.shape[1] < 24:
+            continue
+        # BGR luminance; mid-tone court pixels are deliberately neither cue.
+        luminance = (0.114 * crop[:, :, 0] + 0.587 * crop[:, :, 1] + 0.299 * crop[:, :, 2])
+        dark_fraction = float(np.mean(luminance < 75.0))
+        light_fraction = float(np.mean(luminance > 205.0))
+        if dark_fraction >= 0.35 and dark_fraction >= light_fraction + 0.15:
+            detected.append("DARK")
+        elif light_fraction >= 0.35 and light_fraction >= dark_fraction + 0.15:
+            detected.append("LIGHT")
+    # Conflicting feet or no sufficiently visible shoe remain unknown.
+    return detected[0] if detected and all(color == detected[0] for color in detected) else None
+
+
 def _has_observed_track_continuity(profile: Any, detection: dict[str, Any]) -> bool:
     """Recent overlapping boxes on the same real MOT track, within one segment."""
     if (profile.track_id is None or profile.track_id != detection.get("track_id")
@@ -68,6 +130,14 @@ def _has_observed_track_continuity(profile: Any, detection: dict[str, Any]) -> b
     return union > 0 and overlap / union >= .3
 
 
+def _has_identity_appearance(profile: Any) -> bool:
+    return bool(
+        profile.color_hist is not None
+        or getattr(profile, "reid_embedding", None) is not None
+        or getattr(profile, "shoe_color", None) in ("DARK", "LIGHT")
+    )
+
+
 @dataclass(frozen=True)
 class SemanticIdentityCosts:
     """Explicit decomposition of identity association cost components."""
@@ -82,6 +152,7 @@ class SemanticIdentityCosts:
     is_ambiguous: bool = False
     hsv_distance: float | None = None
     quarantine_penalty: float = 0.0
+    shoe_color_cost: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -91,6 +162,7 @@ class SemanticIdentityCosts:
             "hsvAppearanceCost": round(self.hsv_appearance_cost, 4),
             "reidAppearanceCost": round(self.reid_appearance_cost, 4),
             "quarantinePenalty": round(self.quarantine_penalty, 4),
+            "shoeColorCost": round(self.shoe_color_cost, 4),
             "totalCost": round(self.total_cost, 4),
             "reidSimilarity": round(self.reid_similarity, 4) if self.reid_similarity is not None else None,
             "isAmbiguous": self.is_ambiguous,
@@ -208,6 +280,18 @@ def compute_identity_association_cost(
         if zone_val in ("FAR_OUTSIDE", "NEAR_COURT"):
             quarantine_penalty = 50.0
 
+    # Shoe tone is a weak, separate cue from the jersey histogram. It is only
+    # scored from current, clear ankle evidence; identity gating stays elsewhere.
+    if "_shoe_color_cue" not in detection:
+        detection["_shoe_color_cue"] = shoe_color_cue(
+            frame, detection.get("bbox"), detection.get("pose_obj")
+        )
+    observed_shoe = detection.get("_shoe_color_cue")
+    profile_shoe = getattr(profile, "shoe_color", None)
+    shoe_color_cost = 0.0
+    if observed_shoe in ("DARK", "LIGHT") and profile_shoe in ("DARK", "LIGHT"):
+        shoe_color_cost = -2.0 if observed_shoe == profile_shoe else 4.0
+
     total_cost = (
         spatial_cost
         + court_side_penalty
@@ -215,6 +299,7 @@ def compute_identity_association_cost(
         + hsv_appearance_cost
         + reid_appearance_cost
         + quarantine_penalty
+        + shoe_color_cost
     )
 
     return SemanticIdentityCosts(
@@ -224,10 +309,36 @@ def compute_identity_association_cost(
         hsv_appearance_cost=hsv_appearance_cost,
         reid_appearance_cost=reid_appearance_cost,
         quarantine_penalty=quarantine_penalty,
+        shoe_color_cost=shoe_color_cost,
         total_cost=total_cost,
         reid_similarity=reid_sim,
         is_ambiguous=is_ambiguous,
         hsv_distance=hsv_distance,
+    )
+
+
+def _shoe_cue_supports_identity(
+    profiles: dict[int, Any], player_id: int, detection: dict[str, Any], observed_shoe: str | None
+) -> bool:
+    """Use shoe tone only to distinguish a player from a known same-side peer."""
+    if observed_shoe not in ("DARK", "LIGHT"):
+        return False
+    profile = profiles[player_id]
+    real_pos = detection.get("real_pos")
+    if real_pos is None:
+        return False
+    side = 1 if real_pos[1] < COURT_LENGTH_M / 2.0 else 2
+    if profile.team != side or getattr(profile, "shoe_color", None) != observed_shoe:
+        return False
+    peers = [
+        peer for peer_id, peer in profiles.items()
+        if peer_id != player_id and getattr(peer, "team", 0) == side
+    ]
+    return bool(peers) and all(
+        getattr(peer, "identity_established", False)
+        and getattr(peer, "shoe_color", None) in ("DARK", "LIGHT")
+        and peer.shoe_color != observed_shoe
+        for peer in peers
     )
 
 
@@ -255,7 +366,7 @@ def match_tracks_to_profiles_with_reid(
     """
     # Defense at the identity boundary: an unavailable court cannot seed a profile,
     # even if an upstream caller incorrectly passes an otherwise eligible person.
-    any_established = any(p.color_hist is not None or getattr(p, "reid_embedding", None) is not None for p in profiles.values())
+    any_established = any(_has_identity_appearance(p) for p in profiles.values())
     if not any_established:
         detections = [d for d in detections if not (d.get("eligibility") and d["eligibility"].provenance.get("courtEligibilityUnavailable"))]
     if not detections:
@@ -274,7 +385,7 @@ def match_tracks_to_profiles_with_reid(
     # Auto-seeding on first observation if all profiles are unassigned
     if all(p.last_real_pos is None and p.last_bbox is None
            and not getattr(p, "identity_needs_reacquisition", False)
-           and p.color_hist is None and getattr(p, "reid_embedding", None) is None
+           and not _has_identity_appearance(p)
            for p in profiles.values()):
         sorted_detections = sorted(
             detections,
@@ -307,7 +418,9 @@ def match_tracks_to_profiles_with_reid(
                     p.last_pose_age = 0
                 if d["real_pos"] is not None:
                     p.team = 1 if d["real_pos"][1] < net_y else 2
-                p.update_appearance(frame, d["bbox"])
+                p.update_appearance(
+                    frame, d["bbox"], timestamp_sec=timestamp_sec, pose_obj=d.get("pose_obj")
+                )
 
                 # Extract initial ReID embedding if available
                 if reid_adapter is not None and reid_adapter.is_enabled:
@@ -380,7 +493,7 @@ def match_tracks_to_profiles_with_reid(
             cost_matrix[i, j] = c.total_cost
             eligibility = d.get("eligibility")
             if eligibility is not None and eligibility.provenance.get("courtEligibilityUnavailable"):
-                established = (p.color_hist is not None or getattr(p, "reid_embedding", None) is not None)
+                established = _has_identity_appearance(p)
                 if not established:
                     cost_matrix[i, j] = 1e6
             row_costs.append(c)
@@ -390,7 +503,7 @@ def match_tracks_to_profiles_with_reid(
     # athlete whose appearance belongs to an established (possibly cut) profile.
     for i, pid in enumerate(active_pids):
         p = profiles[pid]
-        if getattr(p, "identity_established", False) or p.last_bbox is not None or p.color_hist is not None or p.reid_embedding is not None:
+        if getattr(p, "identity_established", False) or p.last_bbox is not None or _has_identity_appearance(p):
             continue
         for j in range(n_detections):
             if any(k != i and profiles[active_pids[k]].last_bbox is None and (
@@ -403,8 +516,7 @@ def match_tracks_to_profiles_with_reid(
     # never a license to seed identities again or to fill unseen player slots.
     reacquiring = [getattr(profiles[pid], "identity_needs_reacquisition", False)
                    or (profiles[pid].last_bbox is None and profiles[pid].last_real_pos is None
-                       and (profiles[pid].color_hist is not None
-                            or getattr(profiles[pid], "reid_embedding", None) is not None))
+                       and _has_identity_appearance(profiles[pid]))
                    for pid in active_pids]
 
     # A court-side prior or recycled MOT id cannot override a distinctive
@@ -428,7 +540,10 @@ def match_tracks_to_profiles_with_reid(
                             and evidence.reid_similarity is not None and evidence.reid_similarity >= .55
                             and all((c.hsv_distance is None or c.hsv_distance >= evidence.hsv_distance + .05) or
                                     (c.reid_similarity is None or c.reid_similarity <= evidence.reid_similarity - .05) for c in other))
-            if (distinctive_hsv or distinctive_reid or fused_distinctive) and profiles[active_pids[i]].track_id != detections[j].get("track_id"):
+            shoe_supported = _shoe_cue_supports_identity(
+                profiles, active_pids[i], detections[j], detections[j].get("_shoe_color_cue")
+            )
+            if (distinctive_hsv or distinctive_reid or fused_distinctive or shoe_supported) and profiles[active_pids[i]].track_id != detections[j].get("track_id"):
                 appearance_reassociation_pairs.add((i, j))
 
     for i, row in enumerate(costs_grid):
@@ -442,7 +557,25 @@ def match_tracks_to_profiles_with_reid(
                           if other_profile.last_bbox is not None
                           and other_profile.track_id is not None
                           and other_profile.track_id == detections[j].get("track_id")), None)
+            changed_mot_track = profiles[active_pids[i]].track_id != detections[j].get("track_id")
+            if (changed_mot_track and evidence.shoe_color_cost > 0 and not continuous
+                    and (i, j) not in appearance_reassociation_pairs):
+                # A clear footwear contradiction cannot relabel a new MOT
+                # track by proximity alone. Continuity or independent jersey/
+                # ReID evidence may still override this secondary cue.
+                cost_matrix[i, j] = 1e6
             if owner is not None and owner != active_pids[i] and (i, j) not in appearance_reassociation_pairs:
+                cost_matrix[i, j] = 1e6
+            prior_owner_id = (
+                last_known_track_owners.get(detections[j].get("track_id"))
+                if last_known_track_owners is not None else None
+            )
+            prior_owner = profiles.get(prior_owner_id) if prior_owner_id is not None else None
+            if (prior_owner is not None and prior_owner_id != active_pids[i]
+                    and (i, j) not in appearance_reassociation_pairs):
+                # A MOT ID cannot change semantic owners by proximity alone.
+                # Another profile needs independent appearance evidence before
+                # inheriting a track that was previously assigned elsewhere.
                 cost_matrix[i, j] = 1e6
             if any(k != i and (k, j) in appearance_reassociation_pairs for k in range(n_profiles)):
                 cost_matrix[i, j] = 1e6
@@ -476,8 +609,11 @@ def match_tracks_to_profiles_with_reid(
                                and evidence.reid_similarity is not None and evidence.reid_similarity >= .55
                                and all((c.hsv_distance is None or c.hsv_distance >= evidence.hsv_distance + .05) or
                                        (c.reid_similarity is None or c.reid_similarity <= evidence.reid_similarity - .05) for c in other))
+            shoe_supported = _shoe_cue_supports_identity(
+                profiles, active_pids[i], detections[j], detections[j].get("_shoe_color_cue")
+            )
             conflicting_reid = evidence.reid_similarity is not None and evidence.reid_similarity < .40
-            if evidence.is_ambiguous or conflicting_reid or not (hsv_supported or reid_supported or fused_supported):
+            if evidence.is_ambiguous or conflicting_reid or not (hsv_supported or reid_supported or fused_supported or shoe_supported):
                 cost_matrix[i, j] = 1e6
 
     row_ind, col_ind = linear_sum_assignment(cost_matrix)
@@ -567,7 +703,9 @@ def match_tracks_to_profiles_with_reid(
                 p.last_pose_age = 0
             if (p.team == 0 or p.color_hist is None or (r, c) in appearance_reassociation_pairs) and d["real_pos"] is not None:
                 p.team = 1 if d["real_pos"][1] < net_y else 2
-            p.update_appearance(frame, d["bbox"])
+            p.update_appearance(
+                frame, d["bbox"], timestamp_sec=timestamp_sec, pose_obj=d.get("pose_obj")
+            )
 
             # Update ReID appearance embedding using exponential moving average and gallery
             new_emb = d.get("reid_embedding")
@@ -600,6 +738,11 @@ def match_tracks_to_profiles_with_reid(
 
     for pid, p in profiles.items():
         if pid not in matched_pids:
+            row = active_pids.index(pid)
+            assigned = next((c for r, c in zip(row_ind, col_ind) if r == row), None)
+            gate = 100.0 if p.last_real_pos is None or (
+                assigned is not None and (row, assigned) in appearance_reassociation_pairs
+            ) else 25.0
             if p.track_id is not None and any(d.get("track_id") == p.track_id for d in matched.values()):
                 p.track_id = None
                 p.last_bbox = None
@@ -609,9 +752,7 @@ def match_tracks_to_profiles_with_reid(
                 p.missed_frames = 30
                 p.identity_needs_reacquisition = True
             p.missed_frames += 1
-            row = active_pids.index(pid)
-            assigned = next((c for r, c in zip(row_ind, col_ind) if r == row), None)
-            if assigned is None or cost_matrix[row, assigned] >= 100:
+            if assigned is None or cost_matrix[row, assigned] >= gate:
                 p.identity_confirmation_frames = 0
                 p.identity_confirmation_track = None
 

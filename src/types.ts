@@ -477,6 +477,8 @@ export interface TrackingPlayerV1 {
   athleteId?: string | null;
   trackId?: number | null;
   teamCode?: string;
+  /** Stable shoe-tone cue, learned only from repeated clear, confirmed observations. */
+  shoeColor?: 'DARK' | 'LIGHT' | null;
   bboxPct?: {
     x: number;
     y: number;
@@ -556,6 +558,7 @@ export interface TrackingPlayerV1 {
 export type TrackingReason =
   | 'NO_PERSON_DETECTION'
   | 'OUTSIDE_COURT'
+  | 'COURT_FILTER_REJECTED_ALL'
   | 'CALIBRATION_UNAVAILABLE'
   | 'IDENTITY_AMBIGUOUS'
   | 'REACQUISITION_PENDING'

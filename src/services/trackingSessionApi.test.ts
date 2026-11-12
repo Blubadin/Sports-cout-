@@ -129,4 +129,19 @@ describe('canonical metric and shot telemetry transport', () => {
       players: [{ playerId: 'P1', trackingReason: 'IDENTITY_AMBIGUOUS' }],
     });
   });
+
+  it('preserves only recognized stable shoe color evidence', () => {
+    const actual = toTrackingTelemetryV1({
+      schemaVersion: 1,
+      analysisId: 'a',
+      timestampSec: 1,
+      frameIndex: 2,
+      players: [
+        { playerId: 'P1', state: 'observed', shoeColor: 'DARK' },
+        { playerId: 'P2', state: 'observed', shoeColor: 'unknown' },
+      ],
+    });
+    expect(actual.players[0].shoeColor).toBe('DARK');
+    expect(actual.players[1]).not.toHaveProperty('shoeColor');
+  });
 });

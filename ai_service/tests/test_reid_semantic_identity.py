@@ -37,6 +37,7 @@ from semantic_identity import (
     compute_identity_association_cost,
     match_tracks_to_profiles_with_reid,
     SemanticIdentityCosts,
+    shoe_color_cue,
 )
 from court_mapper import CourtMapper, DistanceTracker, COURT_LENGTH_M, COURT_WIDTH_DOUBLES_M
 
@@ -82,6 +83,147 @@ class TestReIDSemanticIdentity(unittest.TestCase):
         matched = analyzer._match_tracks_to_profiles(self.frame, dets)
         self.assertEqual(matched[1]["track_id"], 1)
         self.assertEqual(matched[2]["track_id"], 2)
+
+    def test_shoe_color_requires_fresh_clear_ankle_evidence(self):
+        frame = np.full((200, 200, 3), 120, dtype=np.uint8)
+        frame[140:160, 54:67] = (10, 10, 10)
+        frame[140:160, 78:91] = (10, 10, 10)
+        pose = {"keypointCoordinateSpace": "normalized_percent", "isReused": False,
+                "ageFrames": 0, "keypoints": [{"x": 0, "y": 0, "score": 0} for _ in range(17)]}
+        pose["keypoints"][15] = {"x": 30, "y": 72.5, "score": .9}
+        pose["keypoints"][16] = {"x": 42, "y": 72.5, "score": .9}
+        bbox = [50, 30, 100, 160]
+        self.assertEqual(shoe_color_cue(frame, bbox, pose), "DARK")
+        self.assertIsNone(shoe_color_cue(frame, bbox, {**pose, "isReused": True}))
+        self.assertIsNone(shoe_color_cue(frame, bbox, {**pose, "isStale": True}))
+        self.assertIsNone(shoe_color_cue(frame, bbox, {**pose, "ageFrames": 1}))
+        self.assertIsNone(shoe_color_cue(frame, bbox, None))
+
+    def test_shoe_color_stays_unknown_for_low_resolution_or_conflicting_feet(self):
+        frame = np.full((200, 200, 3), 120, dtype=np.uint8)
+        frame[140:160, 54:67] = (10, 10, 10)
+        frame[140:160, 78:91] = (245, 245, 245)
+        pose = {"keypointCoordinateSpace": "normalized_percent", "isReused": False,
+                "ageFrames": 0, "keypoints": [{"x": 0, "y": 0, "score": 0} for _ in range(17)]}
+        pose["keypoints"][15] = {"x": 30, "y": 72.5, "score": .9}
+        pose["keypoints"][16] = {"x": 42, "y": 72.5, "score": .9}
+        self.assertIsNone(shoe_color_cue(frame, [50, 30, 100, 160], pose))
+        self.assertIsNone(shoe_color_cue(frame, [50, 30, 60, 70], pose))
+        low_confidence = {**pose, "keypoints": list(pose["keypoints"])}
+        low_confidence["keypoints"][15] = {"x": 30, "y": 72.5, "score": .2}
+        low_confidence["keypoints"][16] = {"x": 42, "y": 72.5, "score": .2}
+        self.assertIsNone(shoe_color_cue(frame, [50, 30, 100, 160], low_confidence))
+
+    def test_shoe_profile_locks_only_after_three_clear_observations(self):
+        frame = np.full((200, 200, 3), 120, dtype=np.uint8)
+        frame[140:160, 54:67] = (10, 10, 10)
+        frame[140:160, 78:91] = (10, 10, 10)
+        pose = {"keypointCoordinateSpace": "normalized_percent", "isReused": False,
+                "ageFrames": 0, "keypoints": [{"x": 0, "y": 0, "score": 0} for _ in range(17)]}
+        pose["keypoints"][15] = {"x": 30, "y": 72.5, "score": .9}
+        pose["keypoints"][16] = {"x": 42, "y": 72.5, "score": .9}
+        profile = PlayerProfile(player_id=1, team=1)
+        for _ in range(2):
+            profile.update_appearance(frame, [50, 30, 100, 160], timestamp_sec=_ / 30, pose_obj=pose)
+            self.assertIsNone(profile.shoe_color)
+        # Pose stride may produce an unknown/reused frame between clear sightings.
+        profile.update_appearance(frame, [50, 30, 100, 160], timestamp_sec=2 / 30,
+                                  pose_obj={**pose, "isReused": True, "ageFrames": 1})
+        self.assertEqual(profile.shoe_candidate_frames, 2)
+        profile.update_appearance(frame, [50, 30, 100, 160], timestamp_sec=3 / 30, pose_obj=pose)
+        self.assertEqual(profile.shoe_color, "DARK")
+        profile.update_appearance(frame, [50, 30, 100, 160], pose_obj={**pose, "isReused": True})
+        self.assertEqual(profile.shoe_color, "DARK")
+        white_frame = np.full((200, 200, 3), 120, dtype=np.uint8)
+        white_frame[140:160, 54:67] = (245, 245, 245)
+        white_frame[140:160, 78:91] = (245, 245, 245)
+        for _ in range(5):
+            profile.update_appearance(white_frame, [50, 30, 100, 160], pose_obj=pose)
+        self.assertEqual(profile.shoe_color, "DARK")
+
+    def test_distinctive_shoe_color_supports_reacquisition_with_confirmation(self):
+        frame = np.full((200, 200, 3), 120, dtype=np.uint8)
+        frame[140:160, 54:67] = (10, 10, 10)
+        frame[140:160, 78:91] = (10, 10, 10)
+        pose = {"keypointCoordinateSpace": "normalized_percent", "isReused": False,
+                "ageFrames": 0, "keypoints": [{"x": 0, "y": 0, "score": 0} for _ in range(17)]}
+        pose["keypoints"][15] = {"x": 30, "y": 72.5, "score": .9}
+        pose["keypoints"][16] = {"x": 42, "y": 72.5, "score": .9}
+        p1 = PlayerProfile(player_id=1, team=1)
+        p1.shoe_color = "DARK"
+        p1.identity_established = True
+        p1.identity_needs_reacquisition = True
+        p2 = PlayerProfile(player_id=2, team=1)
+        p2.shoe_color = "LIGHT"
+        p2.identity_established = True
+        p2.track_id = 20
+        p2.last_bbox = [100, 30, 150, 160]
+        p2.last_real_pos = (4.0, 4.0)
+        profiles = {1: p1, 2: p2}
+        detection = {"track_id": 11, "conf": .9, "bbox": [50, 30, 100, 160],
+                     "center": (75, 160), "real_pos": (2.5, 3.0), "pose_obj": pose}
+        for _ in range(2):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                profiles, [dict(detection)], frame, None,
+            )
+            self.assertNotIn(1, matched)
+        matched, costs, _, _ = match_tracks_to_profiles_with_reid(
+            profiles, [dict(detection)], frame, None,
+        )
+        self.assertEqual(matched[1]["track_id"], 11)
+        self.assertLess(costs[1].shoe_color_cost, 0)
+
+    def test_shoe_mismatch_is_a_small_separate_cost_component(self):
+        frame = np.full((200, 200, 3), 120, dtype=np.uint8)
+        frame[140:160, 54:67] = (245, 245, 245)
+        frame[140:160, 78:91] = (245, 245, 245)
+        pose = {"keypointCoordinateSpace": "normalized_percent", "isReused": False,
+                "ageFrames": 0, "keypoints": [{"x": 0, "y": 0, "score": 0} for _ in range(17)]}
+        pose["keypoints"][15] = {"x": 30, "y": 72.5, "score": .9}
+        pose["keypoints"][16] = {"x": 42, "y": 72.5, "score": .9}
+        profile = PlayerProfile(player_id=1, team=1)
+        profile.shoe_color = "DARK"
+        detection = {"track_id": 1, "bbox": [50, 30, 100, 160], "real_pos": (2.5, 3.0), "pose_obj": pose}
+        costs = compute_identity_association_cost(profile, detection, frame)
+        self.assertGreater(costs.shoe_color_cost, 0)
+        self.assertIn("shoeColorCost", costs.to_dict())
+
+    def test_shoe_mismatch_abstains_on_changed_track_but_not_continuous_track(self):
+        frame = np.full((200, 200, 3), 120, dtype=np.uint8)
+        frame[140:160, 54:67] = (245, 245, 245)
+        frame[140:160, 78:91] = (245, 245, 245)
+        pose = {"keypointCoordinateSpace": "normalized_percent", "isReused": False,
+                "ageFrames": 0, "keypoints": [{"x": 0, "y": 0, "score": 0} for _ in range(17)]}
+        pose["keypoints"][15] = {"x": 30, "y": 72.5, "score": .9}
+        pose["keypoints"][16] = {"x": 42, "y": 72.5, "score": .9}
+        profile = PlayerProfile(player_id=1, team=1)
+        profile.track_id = 10
+        profile.last_real_pos = (2.5, 3.0)
+        profile.last_bbox = [50, 30, 100, 160]
+        profile.shoe_color = "DARK"
+        profile.identity_established = True
+        changed_track = {"track_id": 11, "conf": .9, "bbox": [50, 30, 100, 160],
+                         "center": (75, 160), "real_pos": (2.5, 3.0), "pose_obj": pose}
+        for _ in range(3):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                {1: profile}, [dict(changed_track)], frame, None,
+            )
+            self.assertNotIn(1, matched)
+        self.assertEqual(profile.identity_confirmation_frames, 0)
+
+        continuous_track = dict(changed_track, track_id=10)
+        matched, _, _, _ = match_tracks_to_profiles_with_reid(
+            {1: profile}, [continuous_track], frame, None,
+        )
+        self.assertEqual(matched[1]["track_id"], 10)
+
+        # A low-overlap frame on the existing MOT ID is still continuity; shoe
+        # contradiction only blocks a changed or previously missing MOT ID.
+        profile.last_bbox = [0, 0, 20, 20]
+        matched, _, _, _ = match_tracks_to_profiles_with_reid(
+            {1: profile}, [continuous_track], frame, None,
+        )
+        self.assertEqual(matched[1]["track_id"], 10)
 
     def test_02_raw_ids_swap_semantic_preserved(self):
         """Scenario 2: Raw tracker IDs swap, but spatial + ReID cues preserve semantic identity."""
@@ -384,6 +526,10 @@ class TestReIDSemanticIdentity(unittest.TestCase):
         analyzer.profiles[2].track_id = 20
         analyzer.profiles[2].last_real_pos = (2.0, 11.0)
         analyzer.profiles[2].reid_embedding = emb_p2
+        analyzer.profiles[1].identity_confirmation_track = 77
+        analyzer.profiles[1].identity_confirmation_frames = 2
+        analyzer.profiles[2].identity_confirmation_track = 88
+        analyzer.profiles[2].identity_confirmation_frames = 1
 
         initial_semantic_switches = analyzer.semantic_player_id_switches
         analyzer.swap_players(1, 2)
@@ -391,8 +537,29 @@ class TestReIDSemanticIdentity(unittest.TestCase):
         self.assertEqual(analyzer.semantic_player_id_switches, initial_semantic_switches + 1)
         self.assertEqual(analyzer.profiles[1].track_id, 20)
         self.assertEqual(analyzer.profiles[2].track_id, 10)
+        self.assertIsNone(analyzer.profiles[1].identity_confirmation_track)
+        self.assertEqual(analyzer.profiles[1].identity_confirmation_frames, 0)
+        self.assertIsNone(analyzer.profiles[2].identity_confirmation_track)
+        self.assertEqual(analyzer.profiles[2].identity_confirmation_frames, 0)
         np.testing.assert_array_equal(analyzer.profiles[1].reid_embedding, emb_p2)
         np.testing.assert_array_equal(analyzer.profiles[2].reid_embedding, emb_p1)
+
+    def test_manual_swap_rebuilds_raw_track_owner_history(self):
+        analyzer = BadmintonAnalyzerV2(game_type="doubles", max_players=4)
+        for pid in range(1, 5):
+            analyzer.profiles[pid].track_id = pid * 10
+        analyzer.last_known_track_owners.update({
+            10: 1,
+            20: 2,
+            30: 3,
+            40: 4,
+            90: 1,
+            91: 2,
+        })
+
+        analyzer.swap_players(1, 2)
+
+        self.assertEqual(analyzer.last_known_track_owners, {10: 2, 20: 1, 30: 3, 40: 4})
 
     def test_12_fewer_detections_than_players_no_double_assignment(self):
         """Scenario 12: Hungarian matching never maps one detection to multiple players."""

@@ -1334,7 +1334,7 @@ def _checkpoint_payload(session: TrackingSession) -> dict:
         "durationSec": session.duration_sec,
         "elapsedSec": session.elapsed_sec,
         "playerSummary": analyzer.get_live_player_statuses(),
-        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None, "identityEstablished": profile.identity_established, "needsReacquisition": profile.identity_needs_reacquisition} for pid, profile in analyzer.profiles.items()},
+        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None, "shoeColor": profile.shoe_color, "identityEstablished": profile.identity_established, "needsReacquisition": profile.identity_needs_reacquisition} for pid, profile in analyzer.profiles.items()},
         "identityCounters": {"rawTrackerIdSwitches": analyzer.raw_tracker_id_switches, "semanticPlayerIdSwitches": analyzer.semantic_player_id_switches},
         "frameStride": session.frame_stride,
         "segmentCalibrationState": {
@@ -1475,17 +1475,13 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
     checkpoint = job.get("checkpoint", {})
     segment_state = checkpoint.get("segmentCalibrationState") or {}
     segment_id = segment_state.get("cameraSegmentId")
+    # A checkpoint is not proof of metric calibration by itself. Keep new and
+    # legacy sessions fail-closed until their saved calibration is revalidated.
+    session.analyzer._identity_requires_metric_calibration = True
     if segment_id:
         session.analyzer.calibration_context.camera_segment_id = segment_id
         session.analyzer.calibration_context.camera_segment_index = int(segment_id.removeprefix("segment-"))
         session.analyzer.scene_lifecycle.current_segment_id = segment_id
-        session.analyzer._identity_requires_metric_calibration = bool(
-            segment_state.get(
-                "identityRequiresCalibration",
-                session.analyzer.calibration_context.camera_segment_index > 0
-                and segment_state.get("calibrationState") != "CALIBRATED",
-            )
-        )
     calibration = metadata.get("calibration")
     session.calibration_request = calibration
     if checkpoint.get("committedCursor", 0) > 0:
@@ -1531,6 +1527,13 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
         profile.identity_needs_reacquisition = bool(profile.identity_established)
         profile.identity_confirmation_track = None
         profile.identity_confirmation_frames = 0
+        shoe_color = saved.get("shoeColor")
+        if shoe_color not in (None, "DARK", "LIGHT"):
+            raise JobStoreError("Invalid saved shoe color evidence")
+        profile.shoe_color = shoe_color
+        profile.shoe_candidate_color = None
+        profile.shoe_candidate_frames = 0
+        profile.shoe_candidate_last_seen_sec = None
         histogram = saved.get("colorHistogram")
         embedding = saved.get("reidEmbedding")
         if histogram is not None:

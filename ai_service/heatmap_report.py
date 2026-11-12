@@ -177,6 +177,9 @@ def render_zone_heatmap(
     sufficient = len(inside) >= MIN_POINTS
     counts = zone_counts(inside) if sufficient else np.zeros((N_ROWS, N_COLS))
     summary = summarise(counts, outside)
+    # Keep the count of valid observations even when the display suppresses
+    # zone percentages for an insufficient sample.
+    summary["validFrames"] = len(inside)
     summary["sufficientData"] = sufficient
     pct = zone_percent(counts)
     shared_vmax = vmax if vmax is not None else max(float(pct.max()), 1.0)

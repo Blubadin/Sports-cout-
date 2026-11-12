@@ -79,8 +79,11 @@ class RenderTests(unittest.TestCase):
 
     def test_too_few_points_is_marked_insufficient_not_blank_zones(self):
         out = self.dir / "few.png"
-        summary = hr.render_zone_heatmap([(1.0, 1.0)], "Shuttle", out, self.tr)
+        points = [(1.0, 1.0), (1.2, 1.1), (1.4, 1.2), (1.6, 1.3)]
+        summary = hr.render_zone_heatmap(points, "Shuttle", out, self.tr)
         self.assertFalse(summary["sufficientData"])
+        self.assertEqual(summary["validFrames"], len(points))
+        self.assertEqual(sum(sum(row) for row in summary["zoneCounts"]), 0)
         self.assertTrue(out.exists())
 
     def test_landings_mode_draws_dots_and_still_writes_png(self):

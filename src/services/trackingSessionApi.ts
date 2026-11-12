@@ -826,6 +826,7 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         athleteId: p.athleteId || p.athlete_id || null,
         trackId: p.trackId,
         teamCode: p.teamCode || (p.team ? `team${p.team}` : undefined),
+        ...(p.shoeColor === 'DARK' || p.shoeColor === 'LIGHT' ? { shoeColor: p.shoeColor } : {}),
         bboxPct: state === 'lost' ? null : (p.bboxPct || p.video_bbox_pct),
         groundPointPct: state === 'lost' ? null : groundPoint,
         groundPointProvenance,

@@ -340,10 +340,19 @@ class DistanceTracker:
         calibration_confidence: float = 1.0,
         identity_confidence: float = 1.0,
         scene_state: str = "COURT_PLAY",
+        hold_trajectory: bool = False,
     ) -> dict:
         d = self._get_or_create(player_id)
         if not self.mapper.is_calibrated:
             self.break_metric_segment()
+            return d
+
+        if hold_trajectory:
+            # Intermediate frame whose ankle anchor is only a carried-over pose
+            # (pose runs on alternating frames). It carries no new foot evidence,
+            # so skip it without bridging or resetting the metric trajectory;
+            # distance is later integrated between genuinely fresh observations
+            # using their real elapsed time.
             return d
 
         if center_px is None or not (np.isfinite(center_px[0]) and np.isfinite(center_px[1])):

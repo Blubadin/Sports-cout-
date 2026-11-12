@@ -55,7 +55,7 @@ from pose_coordinate_space import (
 )
 from pose_association import associate_poses_to_athletes
 from reid_adapter import BaseReIDAdapter, create_reid_provider
-from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts, jersey_histogram
+from semantic_identity import match_tracks_to_profiles_with_reid, SemanticIdentityCosts, jersey_histogram, shoe_color_cue
 from ground_position import (
     resolve_canonical_ground_point,
     CANONICAL_PROVENANCE_BOTH_ANKLES,
@@ -79,6 +79,9 @@ except ImportError:
         from shuttle_pipeline import ProductionShuttlePipeline
     except ImportError:
         ProductionShuttlePipeline = None
+
+
+COURT_IDENTITY_MARGIN_M = 0.5
 
 
 class PlayerProfile:
@@ -109,6 +112,10 @@ class PlayerProfile:
         self.last_seen_frame: int = 0
         self.last_seen_timestamp_sec: float = 0.0
         self.appearance_cut_timestamp_sec: float | None = None
+        self.shoe_color: str | None = None
+        self.shoe_candidate_color: str | None = None
+        self.shoe_candidate_frames: int = 0
+        self.shoe_candidate_last_seen_sec: float | None = None
 
     def is_appearance_valid(
         self, frame_index: int | None = None, timestamp_sec: float | None = None
@@ -163,6 +170,7 @@ class PlayerProfile:
         bbox: list[int],
         frame_index: int | None = None,
         timestamp_sec: float | None = None,
+        pose_obj: dict | None = None,
     ):
         """Adapt visual appearance without overwriting initial identity evidence."""
         self.identity_established = True
@@ -170,6 +178,26 @@ class PlayerProfile:
             self.last_seen_frame = frame_index
         if timestamp_sec is not None:
             self.last_seen_timestamp_sec = timestamp_sec
+
+        shoe_cue = shoe_color_cue(frame, bbox, pose_obj)
+        if self.shoe_color is None and shoe_cue is not None:
+            last_seen = self.shoe_candidate_last_seen_sec
+            expired = (
+                timestamp_sec is not None and last_seen is not None
+                and (timestamp_sec < last_seen or timestamp_sec - last_seen > 1.0)
+            )
+            if shoe_cue != self.shoe_candidate_color or expired:
+                self.shoe_candidate_color = shoe_cue
+                self.shoe_candidate_frames = 1
+            else:
+                self.shoe_candidate_frames += 1
+            self.shoe_candidate_last_seen_sec = timestamp_sec
+            if self.shoe_candidate_frames >= 3:
+                self.shoe_color = self.shoe_candidate_color
+                self.shoe_candidate_color = None
+                self.shoe_candidate_frames = 0
+                self.shoe_candidate_last_seen_sec = None
+        # Unknown/reused frames do not count and do not erase pending evidence.
 
         hist = jersey_histogram(frame, bbox)
         if hist is None:
@@ -252,7 +280,7 @@ class BadmintonAnalyzerV2:
         self.calibration_context = CalibrationContext()
         self.camera_cut_detector = CameraCutDetector()
         self._camera_cut_pending_semantic_reset = False
-        self._identity_requires_metric_calibration = False
+        self._identity_requires_metric_calibration = True
         self.court_corners_px: np.ndarray | None = None
         self._last_court_filter_counts = {
             "active": False,
@@ -515,6 +543,9 @@ class BadmintonAnalyzerV2:
         self.dist_tracker.pause_metric_tracking()
         for profile in self.profiles.values():
             profile.last_real_pos = None
+            profile.shoe_candidate_color = None
+            profile.shoe_candidate_frames = 0
+            profile.shoe_candidate_last_seen_sec = None
 
     def begin_recalibration(self) -> None:
         self.temporal_stability_validator.invalidate()
@@ -525,6 +556,9 @@ class BadmintonAnalyzerV2:
         self.dist_tracker.pause_metric_tracking()
         for profile in self.profiles.values():
             profile.last_real_pos = None
+            profile.shoe_candidate_color = None
+            profile.shoe_candidate_frames = 0
+            profile.shoe_candidate_last_seen_sec = None
 
     def start_camera_segment(self) -> None:
         """Invalidate calibration for an externally confirmed camera cut."""
@@ -554,6 +588,9 @@ class BadmintonAnalyzerV2:
             profile.identity_needs_reacquisition = profile.identity_established
             profile.identity_confirmation_track = None
             profile.identity_confirmation_frames = 0
+            profile.shoe_candidate_color = None
+            profile.shoe_candidate_frames = 0
+            profile.shoe_candidate_last_seen_sec = None
             profile.last_real_pos = None
             profile.last_bbox = None
             profile.missed_frames = 30
@@ -689,7 +726,7 @@ class BadmintonAnalyzerV2:
                 image_to_court=self.mapper.H if calibration_available else None,
                 court_width_m=self.mapper.court_w,
                 court_length_m=self.mapper.court_l,
-                court_margin_m=self.court_roi_margin_m,
+                court_margin_m=COURT_IDENTITY_MARGIN_M,
             )
             if hasattr(self.detector_adapter, "last_court_filter_counts"):
                 self._last_court_filter_counts = {
@@ -1088,6 +1125,11 @@ class BadmintonAnalyzerV2:
                         calibration_confidence=(self.calibration_context.provenance.confidence if self.calibration_context.provenance.confidence is not None else .5) if metric_valid else 0.0,
                         identity_confidence=0.0 if p.identity_needs_reacquisition else 1.0,
                         scene_state=transition.to_state.value,
+                        hold_trajectory=(
+                            ground_pt.pose_source == "reused"
+                            and p.missed_frames == 0
+                            and not p.identity_needs_reacquisition
+                        ),
                     )
             else:
                 self.dist_tracker.pause_player(pid)
@@ -1225,6 +1267,7 @@ class BadmintonAnalyzerV2:
                 "playerId": f"P{pid}",
                 "trackId": p.track_id if tracking_state != "lost" else None,
                 "teamCode": f"team{p.team}" if p.team in (1, 2) else "unknown",
+                "shoeColor": p.shoe_color,
                 "bboxPct": bbox_pct,
                 "groundPointPct": ground_pt_pct,
                 "groundPointProvenance": ground_provenance,
@@ -1519,8 +1562,10 @@ class BadmintonAnalyzerV2:
         if getattr(profile, "identity_needs_reacquisition", False) and raw_detections:
             return "IDENTITY_AMBIGUOUS"
         filter_counts = getattr(self, "_last_court_filter_counts", {}) or {}
-        if filter_counts.get("active") and filter_counts.get("rejectedOutsideCourtCount", 0) > 0:
-            return "OUTSIDE_COURT"
+        if (filter_counts.get("active")
+                and filter_counts.get("candidateCount", 0) > 0
+                and filter_counts.get("acceptedCount", 0) == 0):
+            return "COURT_FILTER_REJECTED_ALL"
         if not raw_detections:
             return "NO_PERSON_DETECTION"
         return "ASSOCIATION_REJECTED"
@@ -1563,16 +1608,24 @@ class BadmintonAnalyzerV2:
             pa.last_ground_pt, pb.last_ground_pt = pb.last_ground_pt, pa.last_ground_pt
             pa.team, pb.team = pb.team, pa.team
             pa.reid_gallery, pb.reid_gallery = pb.reid_gallery, pa.reid_gallery
+            pa.shoe_color, pb.shoe_color = pb.shoe_color, pa.shoe_color
+            pa.shoe_candidate_color, pb.shoe_candidate_color = pb.shoe_candidate_color, pa.shoe_candidate_color
+            pa.shoe_candidate_frames, pb.shoe_candidate_frames = pb.shoe_candidate_frames, pa.shoe_candidate_frames
+            pa.shoe_candidate_last_seen_sec, pb.shoe_candidate_last_seen_sec = pb.shoe_candidate_last_seen_sec, pa.shoe_candidate_last_seen_sec
+            pa.identity_confirmation_track = None
+            pa.identity_confirmation_frames = 0
+            pb.identity_confirmation_track = None
+            pb.identity_confirmation_frames = 0
             if hasattr(self, "topology_tracker"):
                 if pid_a in self.topology_tracker.player_sides and pid_b in self.topology_tracker.player_sides:
                     self.topology_tracker.player_sides[pid_a], self.topology_tracker.player_sides[pid_b] = (
                         self.topology_tracker.player_sides[pid_b],
                         self.topology_tracker.player_sides[pid_a],
                     )
-            if pa.track_id is not None:
-                self.last_known_track_owners[pa.track_id] = pid_a
-            if pb.track_id is not None:
-                self.last_known_track_owners[pb.track_id] = pid_b
+            self.last_known_track_owners.clear()
+            for pid, profile in self.profiles.items():
+                if profile.track_id is not None:
+                    self.last_known_track_owners[profile.track_id] = pid
             self.semantic_player_id_switches += 1
             print(f"[BadmintonAnalyzerV2] Swapped player identities {pid_a} <-> {pid_b}")
 

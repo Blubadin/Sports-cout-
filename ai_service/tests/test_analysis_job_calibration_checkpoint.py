@@ -160,6 +160,7 @@ class TestCalibrationCheckpointBoundary(unittest.TestCase):
         session = server.tracking_sessions[session_id]
         profile = session.analyzer.profiles[1]
         profile.update_appearance(np.full((200, 200, 3), (20, 20, 210), dtype=np.uint8), [20, 10, 120, 190])
+        profile.shoe_color = "DARK"
         self.assertEqual(profile.color_hist.shape, (8, 2))
         session.analyzer.start_camera_segment()
         session.current_frame = session.analyzer.frame_count = 1
@@ -172,6 +173,7 @@ class TestCalibrationCheckpointBoundary(unittest.TestCase):
         server.tracking_sessions.clear()
         restored = server._restore_persisted_session(session_id)
         np.testing.assert_array_equal(restored.analyzer.profiles[1].color_hist, profile.color_hist)
+        self.assertEqual(restored.analyzer.profiles[1].shoe_color, "DARK")
         self.assertTrue(restored.analyzer.profiles[1].identity_needs_reacquisition)
         self.assertFalse(restored.analyzer.profiles[2].identity_needs_reacquisition)
 

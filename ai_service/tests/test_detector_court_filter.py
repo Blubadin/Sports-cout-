@@ -55,6 +55,7 @@ class TestDetectorCourtFilter(unittest.TestCase):
         analyzer = BadmintonAnalyzerV2(
             game_type="doubles",
             use_court_roi=False,
+            court_roi_margin_m=2.0,
             detector_adapter=adapter,
         )
         analyzer._detector = object()
@@ -67,6 +68,22 @@ class TestDetectorCourtFilter(unittest.TestCase):
         self.assertTrue(kwargs["court_filter_active"])
         np.testing.assert_allclose(kwargs["image_to_court"], analyzer.mapper.H)
         self.assertEqual(kwargs["court_margin_m"], 0.5)
+
+    def test_uncalibrated_startup_fails_closed_before_tracker(self):
+        adapter = MagicMock()
+        adapter.detect_and_track.return_value = []
+        analyzer = BadmintonAnalyzerV2(
+            game_type="doubles",
+            use_court_roi=False,
+            detector_adapter=adapter,
+        )
+        analyzer._detector = object()
+
+        analyzer.detect_and_track(np.zeros((1000, 800, 3), dtype=np.uint8))
+
+        kwargs = adapter.detect_and_track.call_args.kwargs
+        self.assertTrue(kwargs["court_filter_active"])
+        self.assertIsNone(kwargs["image_to_court"])
 
     def test_excludes_outside_people_before_results_reach_tracker_callback(self):
         state = {
