@@ -933,6 +933,17 @@ class SessionQualityAccumulator:
         self.player_samples = 0
         self.previous_timestamp: float | None = None
         self.previous_states: dict[str, str] | None = None
+        self.court_filter_counts = {
+            "candidateCount": 0,
+            "acceptedCount": 0,
+            "rejectedOutsideCourtCount": 0,
+            "filteredFrames": 0,
+        }
+        self.tracking_reason_counts = {pid: {} for pid in self.player_ids}
+        self.identity_counters = {
+            "rawTrackerIdSwitches": 0,
+            "semanticPlayerIdSwitches": 0,
+        }
         if snapshot:
             self.restore(snapshot)
 
@@ -984,6 +995,23 @@ class SessionQualityAccumulator:
                 self.lost[pid] += 1
         self.player_samples += len(self.player_ids)
         self.pose_observed += poses
+        court_filter = frame.get("courtFilter") or {}
+        if court_filter.get("active"):
+            for key in ("candidateCount", "acceptedCount", "rejectedOutsideCourtCount"):
+                self.court_filter_counts[key] += max(0, int(court_filter.get(key, 0) or 0))
+            self.court_filter_counts["filteredFrames"] += 1
+        for player in frame.get("players", []):
+            pid = player.get("playerId")
+            if not pid and "id" in player:
+                pid = f"P{player['id']}"
+            reason = player.get("trackingReason")
+            if pid in self.tracking_reason_counts and reason and reason not in {"OBSERVED", "PREDICTED"}:
+                reasons = self.tracking_reason_counts[pid]
+                reasons[reason] = reasons.get(reason, 0) + 1
+        for key in self.identity_counters:
+            value = frame.get(key)
+            if value is not None:
+                self.identity_counters[key] = max(self.identity_counters[key], max(0, int(value)))
         self.frames += 1
         self.previous_timestamp = timestamp
         self.previous_states = states
@@ -1000,6 +1028,9 @@ class SessionQualityAccumulator:
             "playerSamples": self.player_samples,
             "previousTimestamp": self.previous_timestamp,
             "previousStates": self.previous_states,
+            "courtFilterCounts": self.court_filter_counts,
+            "trackingReasonCounts": self.tracking_reason_counts,
+            "identityCounters": self.identity_counters,
         }
 
     def restore(self, snapshot: dict) -> None:
@@ -1012,6 +1043,19 @@ class SessionQualityAccumulator:
         self.player_samples = int(snapshot.get("playerSamples", 0))
         self.previous_timestamp = snapshot.get("previousTimestamp")
         self.previous_states = snapshot.get("previousStates")
+        for key, target in (
+            ("courtFilterCounts", self.court_filter_counts),
+            ("identityCounters", self.identity_counters),
+        ):
+            source = snapshot.get(key, {})
+            for field in target:
+                target[field] = max(0, int(source.get(field, target[field]) or 0))
+        source_reasons = snapshot.get("trackingReasonCounts", {})
+        for pid in self.player_ids:
+            self.tracking_reason_counts[pid] = {
+                str(reason): max(0, int(count))
+                for reason, count in (source_reasons.get(pid, {}) or {}).items()
+            }
 
     def to_dict(self) -> dict:
         if self.frames == 0:
@@ -1021,6 +1065,9 @@ class SessionQualityAccumulator:
                 "predictedFramesPct": None,
                 "poseCoveragePct": None,
                 "playerCoverage": {},
+                "courtFilterCounts": dict(self.court_filter_counts),
+                "trackingReasonCounts": self.tracking_reason_counts,
+                "identityCounters": dict(self.identity_counters),
             }
         player_coverage = {}
         for pid in self.player_ids:
@@ -1044,6 +1091,11 @@ class SessionQualityAccumulator:
             "predictedFramesPct": round(sum(row["predictedFramesPct"] for row in player_coverage.values()) / len(player_coverage), 1),
             "poseCoveragePct": round(self.pose_observed / self.player_samples * 100.0, 1) if self.player_samples else 0.0,
             "playerCoverage": player_coverage,
+            "courtFilterCounts": dict(self.court_filter_counts),
+            "trackingReasonCounts": {
+                pid: dict(reasons) for pid, reasons in self.tracking_reason_counts.items()
+            },
+            "identityCounters": dict(self.identity_counters),
         }
 
 
@@ -1292,6 +1344,7 @@ def _checkpoint_payload(session: TrackingSession) -> dict:
             "calibrationVersion": calibration.get("calibrationVersion"),
             "cornersPx": analyzer.court_corners_px.tolist() if analyzer.court_corners_px is not None else None,
             "provenance": calibration.get("calibration"),
+            "identityRequiresCalibration": analyzer._identity_requires_metric_calibration,
         },
         "backendProvenance": _build_session_metrics(session)[2],
         "distanceAggregates": analyzer.dist_tracker.aggregate_snapshot(),
@@ -1426,6 +1479,13 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
         session.analyzer.calibration_context.camera_segment_id = segment_id
         session.analyzer.calibration_context.camera_segment_index = int(segment_id.removeprefix("segment-"))
         session.analyzer.scene_lifecycle.current_segment_id = segment_id
+        session.analyzer._identity_requires_metric_calibration = bool(
+            segment_state.get(
+                "identityRequiresCalibration",
+                session.analyzer.calibration_context.camera_segment_index > 0
+                and segment_state.get("calibrationState") != "CALIBRATED",
+            )
+        )
     calibration = metadata.get("calibration")
     session.calibration_request = calibration
     if checkpoint.get("committedCursor", 0) > 0:

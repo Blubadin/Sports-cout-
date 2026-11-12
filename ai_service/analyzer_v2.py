@@ -10,6 +10,7 @@ Supports Doubles (4 players) & Singles (2 players) with:
 from __future__ import annotations
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 import cv2
 import numpy as np
@@ -251,7 +252,15 @@ class BadmintonAnalyzerV2:
         self.calibration_context = CalibrationContext()
         self.camera_cut_detector = CameraCutDetector()
         self._camera_cut_pending_semantic_reset = False
+        self._identity_requires_metric_calibration = False
         self.court_corners_px: np.ndarray | None = None
+        self._last_court_filter_counts = {
+            "active": False,
+            "calibrationAvailable": False,
+            "candidateCount": 0,
+            "acceptedCount": 0,
+            "rejectedOutsideCourtCount": 0,
+        }
         self.manual_calibration_provider = ManualCourtCalibrationProvider()
         self.auto_calibration_provider = (
             calibration_provider
@@ -467,6 +476,7 @@ class BadmintonAnalyzerV2:
             h_inv_matrix=tuple(tuple(float(v) for v in row) for row in candidate_mapper.H_inv),
         )
         self.temporal_stability_validator.current_segment_id = self.calibration_context.camera_segment_id
+        self._identity_requires_metric_calibration = False
         for profile in self.profiles.values():
             profile.last_real_pos = None
 
@@ -492,6 +502,7 @@ class BadmintonAnalyzerV2:
         self.court_corners_px = candidate_arr
         self.dist_tracker.pause_metric_tracking()
         self.camera_cut_detector.rearm_after_calibration()
+        self._identity_requires_metric_calibration = False
         for profile in self.profiles.values():
             profile.last_real_pos = None
 
@@ -500,6 +511,7 @@ class BadmintonAnalyzerV2:
         self.calibration_context.lose()
         self.mapper.invalidate()
         self.court_corners_px = None
+        self._identity_requires_metric_calibration = True
         self.dist_tracker.pause_metric_tracking()
         for profile in self.profiles.values():
             profile.last_real_pos = None
@@ -509,6 +521,7 @@ class BadmintonAnalyzerV2:
         self.calibration_context.begin_recalibration()
         self.mapper.invalidate()
         self.court_corners_px = None
+        self._identity_requires_metric_calibration = True
         self.dist_tracker.pause_metric_tracking()
         for profile in self.profiles.values():
             profile.last_real_pos = None
@@ -526,6 +539,7 @@ class BadmintonAnalyzerV2:
         self.calibration_context.start_camera_segment()
         self.mapper.invalidate()
         self.court_corners_px = None
+        self._identity_requires_metric_calibration = True
         self.dist_tracker.break_metric_segment()
         self.last_known_track_owners.clear()
         self.track_in_court_counts.clear()
@@ -620,6 +634,22 @@ class BadmintonAnalyzerV2:
         h, w = frame.shape[:2]
         inference_frame = frame
         offset_x, offset_y = 0, 0
+        calibration_available = bool(
+            self.calibration_context.is_metric_valid and self.mapper.is_calibrated
+        )
+        # Court crop is optional for speed, but calibrated detections always
+        # pass the true court-boundary gate before ByteTrack sees them. After a
+        # cut/drift, the same gate fails closed until this segment is calibrated.
+        court_filter_active = bool(
+            calibration_available or self._identity_requires_metric_calibration
+        )
+        self._last_court_filter_counts = {
+            "active": court_filter_active,
+            "calibrationAvailable": calibration_available,
+            "candidateCount": 0,
+            "acceptedCount": 0,
+            "rejectedOutsideCourtCount": 0,
+        }
 
         if self.use_court_roi and self.court_corners_px is not None:
             roi_x1, roi_y1, roi_x2, roi_y2 = calculate_court_roi(
@@ -655,7 +685,17 @@ class BadmintonAnalyzerV2:
                 classes=[0],
                 offset_x=offset_x,
                 offset_y=offset_y,
+                court_filter_active=court_filter_active,
+                image_to_court=self.mapper.H if calibration_available else None,
+                court_width_m=self.mapper.court_w,
+                court_length_m=self.mapper.court_l,
+                court_margin_m=self.court_roi_margin_m,
             )
+            if hasattr(self.detector_adapter, "last_court_filter_counts"):
+                self._last_court_filter_counts = {
+                    **self._last_court_filter_counts,
+                    **self.detector_adapter.last_court_filter_counts,
+                }
             execution = getattr(self.detector_adapter, 'execution', None)
             if execution is not None:
                 self.device = execution.device
@@ -684,6 +724,15 @@ class BadmintonAnalyzerV2:
         if cut_detected:
             self._invalidate_for_camera_cut()
 
+        self._last_court_filter_counts = {
+            "active": False,
+            "calibrationAvailable": bool(
+                self.calibration_context.is_metric_valid and self.mapper.is_calibrated
+            ),
+            "candidateCount": 0,
+            "acceptedCount": 0,
+            "rejectedOutsideCourtCount": 0,
+        }
         raw_detections = self.detect_and_track(frame)
         player_bboxes = [d["bbox"] for d in raw_detections if "bbox" in d]
 
@@ -706,6 +755,7 @@ class BadmintonAnalyzerV2:
             self.calibration_context.lose()
             self.mapper.invalidate()
             self.court_corners_px = None
+            self._identity_requires_metric_calibration = True
             self.dist_tracker.break_metric_segment()
 
         # Attempt auto-calibration only when court is stable (not in cut, transition, close-up, side play, replay)
@@ -985,7 +1035,11 @@ class BadmintonAnalyzerV2:
             d["eligibility"] = elig
 
         # 4. Select Player Candidates
-        if camera_cut_boundary or transition.to_state is SceneState.CLOSE_UP:
+        if (
+            camera_cut_boundary
+            or transition.to_state is SceneState.CLOSE_UP
+            or self._identity_requires_metric_calibration
+        ):
             eligible_candidates = []
         else:
             eligible_candidates = select_eligible_player_candidates(
@@ -1070,6 +1124,13 @@ class BadmintonAnalyzerV2:
                     bbox_confidence=p.detection_confidence,
                     court_mapper=self.mapper,
                     is_metric_valid=metric_valid,
+                )
+            if ground_pt is not None and not metric_valid:
+                ground_pt = replace(
+                    ground_pt,
+                    ground_position_m=None,
+                    left_foot=replace(ground_pt.left_foot, court_position_m=None),
+                    right_foot=replace(ground_pt.right_foot, court_position_m=None),
                 )
 
             stats = self.dist_tracker.get_stats(pid)
@@ -1180,6 +1241,9 @@ class BadmintonAnalyzerV2:
                 "detectionConfidence": confidence,
                 "confidence": confidence,
                 "state": tracking_state,
+                "trackingReason": self._tracking_reason_for_profile(
+                    p, tracking_state, raw_detections, metric_valid
+                ),
                 "observationState": obs_state,
                 "reviewState": getattr(p, "review_state", "unreviewed"),
                 "athleteId": getattr(p, "athlete_id", None),
@@ -1356,6 +1420,7 @@ class BadmintonAnalyzerV2:
             "source": "real_tracking",
             "rawTrackerIdSwitches": getattr(self, "raw_tracker_id_switches", 0),
             "semanticPlayerIdSwitches": getattr(self, "semantic_player_id_switches", 0),
+            "courtFilter": self._court_filter_frame_diagnostics(raw_detections),
             "changeOfEnds": change_event is not None,
             "changeOfEndsCount": self.topology_tracker.change_count if hasattr(self, "topology_tracker") else 0,
             "courtSideTopology": dict(self.topology_tracker.player_sides) if hasattr(self, "topology_tracker") else {pid: p.team for pid, p in self.profiles.items()},
@@ -1417,6 +1482,48 @@ class BadmintonAnalyzerV2:
                 "eligibilityStatus": getattr(p, "last_eligibility_status", None),
             })
         return statuses
+
+    def _court_filter_frame_diagnostics(self, raw_detections: list[dict]) -> dict:
+        counts = dict(getattr(self, "_last_court_filter_counts", {}) or {})
+        if not counts.get("candidateCount") and raw_detections and not counts.get("active"):
+            # Mocked/custom detector paths cannot report pre-tracker candidates;
+            # expose their returned candidates without claiming polygon filtering.
+            counts.update({
+                "candidateCount": len(raw_detections),
+                "acceptedCount": len(raw_detections),
+                "rejectedOutsideCourtCount": 0,
+            })
+        return {
+            "active": bool(counts.get("active", False)),
+            "calibrationAvailable": bool(counts.get("calibrationAvailable", False)),
+            "candidateCount": int(counts.get("candidateCount", 0)),
+            "acceptedCount": int(counts.get("acceptedCount", 0)),
+            "rejectedOutsideCourtCount": int(counts.get("rejectedOutsideCourtCount", 0)),
+        }
+
+    def _tracking_reason_for_profile(
+        self, profile: PlayerProfile, state: str, raw_detections: list[dict], metric_valid: bool
+    ) -> str:
+        if state == "observed":
+            return "OBSERVED"
+        if self._identity_requires_metric_calibration and not metric_valid:
+            return "CALIBRATION_UNAVAILABLE"
+        if getattr(profile, "identity_confirmation_frames", 0) > 0:
+            return "REACQUISITION_PENDING"
+        if state == "predicted":
+            if profile.track_id is not None and any(
+                detection.get("track_id") == profile.track_id for detection in raw_detections
+            ):
+                return "IDENTITY_AMBIGUOUS"
+            return "PREDICTED"
+        if getattr(profile, "identity_needs_reacquisition", False) and raw_detections:
+            return "IDENTITY_AMBIGUOUS"
+        filter_counts = getattr(self, "_last_court_filter_counts", {}) or {}
+        if filter_counts.get("active") and filter_counts.get("rejectedOutsideCourtCount", 0) > 0:
+            return "OUTSIDE_COURT"
+        if not raw_detections:
+            return "NO_PERSON_DETECTION"
+        return "ASSOCIATION_REJECTED"
 
     def _match_tracks_to_profiles(self, frame: np.ndarray, detections: list[dict], timestamp_sec: float | None = None) -> dict:
         """

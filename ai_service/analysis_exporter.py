@@ -50,6 +50,11 @@ try:
 except ImportError:
     from report_i18n import STRINGS, Translator, format_report_date, normalize_language, report_font_context
 
+try:
+    from ai_service.heatmap_report import build_zones_payload, render_comparison, render_zone_heatmap
+except ImportError:
+    from heatmap_report import build_zones_payload, render_comparison, render_zone_heatmap
+
 
 # --- Error Model ---
 
@@ -1065,85 +1070,81 @@ class AnalysisExporter:
                         if pid in player_court_pts:
                             player_court_pts[pid].append((xm, ym))
 
-        # 1. Combined Player Movement Heatmap
+        # 1. Overall player movement (all players combined)
         combined_path = output_dir / "player_movement_heatmap.png"
-        self._plot_court_heatmap(all_court_pts, tr("hm_overall"), combined_path, tr)
+        overall_zones = self._plot_court_heatmap(
+            all_court_pts, tr("hm_overall"), combined_path, tr, caption_key="hm_cap_overall"
+        )
         generated.append(combined_path)
 
-        # 2. Individual Player Heatmaps
-        p1_path = output_dir / "player_1_heatmap.png"
-        self._plot_court_heatmap(player_court_pts["P1"], tr("hm_player", n=1), p1_path, tr)
-        generated.append(p1_path)
+        # 2. Individual players P1-P4, each with the same zone grid
+        player_zones: Dict[str, Dict[str, Any]] = {}
+        for number, pid in enumerate(("P1", "P2", "P3", "P4"), start=1):
+            path = output_dir / f"player_{number}_heatmap.png"
+            player_zones[pid] = self._plot_court_heatmap(
+                player_court_pts[pid], tr("hm_player", n=number), path, tr, caption_key="hm_cap_player"
+            )
+            generated.append(path)
 
-        p2_path = output_dir / "player_2_heatmap.png"
-        self._plot_court_heatmap(player_court_pts["P2"], tr("hm_player", n=2), p2_path, tr)
-        generated.append(p2_path)
+        # 3. Four courts side by side on one colour scale (direct comparison)
+        comparison_path = output_dir / "player_comparison_heatmap.png"
+        render_comparison({pid: player_court_pts[pid] for pid in ("P1", "P2", "P3", "P4")}, comparison_path, tr)
+        generated.append(comparison_path)
 
-        # 3. Shuttle Heatmap (rendered only if valid shuttle observations exist)
+        # 4. Shuttle trajectory and confirmed landings (measured metric data only)
         shuttle_path = output_dir / "shuttle_trajectory_heatmap.png"
-        self._plot_court_heatmap(shuttle_pts, tr("hm_shuttle") if shuttle_pts else tr("hm_insufficient_shuttle"), shuttle_path, tr)
+        shuttle_zones = self._plot_court_heatmap(
+            shuttle_pts,
+            tr("hm_shuttle") if shuttle_pts else tr("hm_insufficient_shuttle"),
+            shuttle_path,
+            tr,
+            caption_key="hm_cap_shuttle",
+            legend_key="hm_legend_shuttle",
+        )
         generated.append(shuttle_path)
-        landing_pts = [point(s["landingPositionM"]) for s in collect_shots(analysis_frames) if s.get("outcome") == "CONFIRMED_LANDING" and point(s.get("landingPositionM"))]
+
+        landing_pts = [
+            point(s["landingPositionM"])
+            for s in collect_shots(analysis_frames)
+            if s.get("outcome") == "CONFIRMED_LANDING" and point(s.get("landingPositionM"))
+        ]
         landing_path = output_dir / "shuttle_landing_heatmap.png"
-        self._plot_court_heatmap(landing_pts, tr("hm_landing") if landing_pts else tr("hm_insufficient_shuttle"), landing_path, tr)
+        landing_zones = self._plot_court_heatmap(
+            landing_pts,
+            tr("hm_landing") if landing_pts else tr("hm_insufficient_shuttle"),
+            landing_path,
+            tr,
+            caption_key="hm_cap_landing",
+            legend_key="hm_legend_landing",
+            dots=True,
+        )
         generated.append(landing_path)
+
+        # 5. The same zone numbers as data, so analysts can reuse them
+        zones_payload = build_zones_payload(player_zones, landing_zones, shuttle_zones, tr.language)
+        zones_payload["allPlayers"] = overall_zones
+        zones_path = output_dir / "heatmap_zones.json"
+        zones_path.write_text(json.dumps(zones_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        generated.append(zones_path)
 
         return generated
 
-    def _plot_court_heatmap(self, points: List[Tuple[float, float]], title: str, output_path: Path, tr: Optional[Translator] = None) -> None:
+    def _plot_court_heatmap(
+        self,
+        points: List[Tuple[float, float]],
+        title: str,
+        output_path: Path,
+        tr: Optional[Translator] = None,
+        *,
+        caption_key: str = "hm_cap_player",
+        legend_key: str = "hm_legend_pct",
+        dots: bool = False,
+    ) -> Dict[str, Any]:
+        """Render one zone heatmap PNG; returns the zone summary used for heatmap_zones.json."""
         tr = tr or Translator("en")
-        fig, ax = plt.subplots(figsize=(6, 10), facecolor="#0b1219")
-        ax.set_facecolor("#0d281a")
-
-        # Court Lines in Meters
-        # Outer boundary: 6.1m wide, 13.4m long
-        ax.plot([0, 6.1, 6.1, 0, 0], [0, 0, 13.4, 13.4, 0], color="white", lw=2)
-        # Net at Y = 6.7m
-        ax.plot([0, 6.1], [6.7, 6.7], color="white", lw=2, ls="--")
-        # Short service lines (1.98m from net)
-        ax.plot([0, 6.1], [4.72, 4.72], color="white", lw=1.5)
-        ax.plot([0, 6.1], [8.68, 8.68], color="white", lw=1.5)
-        # Singles sidelines (0.46m inside)
-        ax.plot([0.46, 0.46], [0, 13.4], color="white", lw=1.5)
-        ax.plot([5.64, 5.64], [0, 13.4], color="white", lw=1.5)
-        # Center line
-        ax.plot([3.05, 3.05], [0, 4.72], color="white", lw=1.5)
-        ax.plot([3.05, 3.05], [8.68, 13.4], color="white", lw=1.5)
-        # Doubles long service line (0.76m inside baselines)
-        ax.plot([0, 6.1], [0.76, 0.76], color="white", lw=1.2, ls=":")
-        ax.plot([0, 6.1], [12.64, 12.64], color="white", lw=1.2, ls=":")
-
-        ax.set_xlim(-0.5, 6.6)
-        ax.set_ylim(-0.5, 13.9)
-        ax.set_aspect("equal")
-
-        if len(points) >= 5:
-            xs = [p[0] for p in points]
-            ys = [p[1] for p in points]
-            h, _, _ = np.histogram2d(xs, ys, bins=[48, 96], range=[[0, 6.1], [0, 13.4]])
-            h_smooth = gaussian_filter(h, sigma=2.0)
-            if h_smooth.max() > 0:
-                h_smooth /= h_smooth.max()
-            ax.imshow(h_smooth.T, origin="lower", extent=[0, 6.1, 0, 13.4], cmap="plasma", alpha=0.65)
-        else:
-            # Clean badge for insufficient data (prevents misleading blank heatmaps)
-            ax.text(
-                3.05, 6.7,
-                tr("hm_insufficient"),
-                ha="center", va="center",
-                color="#f87171", fontsize=11, fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.6", facecolor="#1e293b", edgecolor="#475569", alpha=0.9),
-            )
-
-        ax.set_title(title, color="#e2e8f0", fontsize=12, pad=12, fontweight="bold")
-        ax.tick_params(colors="#94a3b8", labelsize=8)
-        ax.set_xlabel(tr("hm_xlabel"), color="#94a3b8", fontsize=9)
-        ax.set_ylabel(tr("hm_ylabel"), color="#94a3b8", fontsize=9)
-        for spine in ax.spines.values():
-            spine.set_color("#334155")
-
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
+        return render_zone_heatmap(
+            points, title, output_path, tr, caption_key=caption_key, legend_key=legend_key, dots=dots
+        )
 
     def _generate_pdf_report(
         self,
@@ -1365,8 +1366,12 @@ class AnalysisExporter:
         ax.add_patch(plt.Rectangle((0.08, 0.08), 0.84, 0.51, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
         ax.text(0.10, 0.55, tr("sec4"), color="#38bdf8", fontsize=12, fontweight="bold")
 
-        # Embed first two available heatmaps if present
-        if heatmap_paths:
+        comparison = next((hp for hp in heatmap_paths if hp.name == "player_comparison_heatmap.png" and hp.exists()), None)
+        if comparison is not None:
+            im_ax = fig.add_axes([0.10, 0.10, 0.80, 0.42])
+            im_ax.imshow(plt.imread(str(comparison)))
+            im_ax.axis("off")
+        elif heatmap_paths:
             try:
                 for idx, hp in enumerate(heatmap_paths[:2]):
                     if hp.exists():
@@ -1584,11 +1589,12 @@ video/
 report/
   SportsScout_Report.pdf        - Comprehensive match summary, player metrics, and quality review
 heatmaps/
-  player_movement_heatmap.png   - Tactical court movement distribution
-  player_1_heatmap.png          - Player 1 movement distribution
-  player_2_heatmap.png          - Player 2 movement distribution
-  shuttle_trajectory_heatmap.png - Measured metric trajectory, or explicit insufficient data
-  shuttle_landing_heatmap.png    - Confirmed metric landings, or explicit insufficient data
+  player_movement_heatmap.png   - All players combined: % of valid frames per court zone
+  player_1_heatmap.png ... player_4_heatmap.png - Per-player zone heatmaps (% per zone)
+  player_comparison_heatmap.png - P1-P4 side by side on one colour scale
+  shuttle_trajectory_heatmap.png - Shuttle positions per zone, or explicit insufficient data
+  shuttle_landing_heatmap.png    - Confirmed landings per zone, or explicit insufficient data
+  heatmap_zones.json            - The zone percentages behind every heatmap (for analysis)
 data/
   shuttle_shots.json            - Evidence-gated shot events with null unknowns
   analysis_summary.json         - Machine-readable high-level metrics

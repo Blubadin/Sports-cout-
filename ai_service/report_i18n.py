@@ -271,6 +271,21 @@ STRINGS: Dict[str, Dict[str, str]] = {
         "en": "INSUFFICIENT VALID DATA\n(Calibration or tracking unconfirmed)",
         "th": "ข้อมูลที่ใช้ได้ไม่เพียงพอ\n(ยังไม่ยืนยันการปรับเทียบสนามหรือการติดตาม)",
     },
+    "hm_cap_player": {"en": "Numbers = % of valid frames the player was in each zone. Darker = more time. Net at 6.7 m.", "th": "ตัวเลข = % ของเฟรมที่ใช้ได้ซึ่งผู้เล่นอยู่ในช่องนั้น ช่องสีเข้ม = อยู่บ่อยกว่า เน็ตอยู่ที่ 6.7 ม."},
+    "hm_cap_overall": {"en": "Numbers = % of valid player-frames in each zone (all players combined).", "th": "ตัวเลข = % ของเฟรมที่ใช้ได้ (ผู้เล่นทั้งหมดรวมกัน) ในแต่ละช่อง"},
+    "hm_cap_landing": {"en": "Numbers = % of confirmed landings per zone. Red dots = individual landings.", "th": "ตัวเลข = % ของจุดตกที่ยืนยันแล้วในแต่ละช่อง จุดสีแดง = จุดตกแต่ละครั้ง"},
+    "hm_cap_shuttle": {"en": "Numbers = % of observed shuttle positions per zone.", "th": "ตัวเลข = % ของตำแหน่งลูกขนไก่ที่พบในแต่ละช่อง"},
+    "hm_legend_pct": {"en": "% of frames", "th": "% ของเฟรม"},
+    "hm_legend_landing": {"en": "% of landings", "th": "% ของจุดตก"},
+    "hm_legend_shuttle": {"en": "% of positions", "th": "% ของตำแหน่งลูก"},
+    "hm_stat_basis": {"en": "Basis: {n} valid frames ({p:.1f}% of all frames)", "th": "อ้างอิง: {n} เฟรมที่ใช้ได้ ({p:.1f}% ของเฟรมทั้งหมด)"},
+    "hm_stat_basis_short": {"en": "n = {n} valid frames", "th": "{n} เฟรมที่ใช้ได้"},
+    "hm_stat_top": {"en": "Most time in: {zone} ({p:.1f}%)", "th": "อยู่บ่อยที่สุด: {zone} ({p:.1f}%)"},
+    "hm_stat_halves": {"en": "Half 0-6.7 m: {a:.1f}%   |   Half 6.7-13.4 m: {b:.1f}%", "th": "ครึ่ง 0-6.7 ม.: {a:.1f}%   |   ครึ่ง 6.7-13.4 ม.: {b:.1f}%"},
+    "hm_stat_outside": {"en": "Outside court (not counted): {n} frames", "th": "อยู่นอกสนาม (ไม่นับ): {n} เฟรม"},
+    "hm_player_short": {"en": "Player {n} (P{n})", "th": "ผู้เล่น {n} (P{n})"},
+    "hm_compare_title": {"en": "Player comparison - same colour scale", "th": "เปรียบเทียบผู้เล่น P1-P4 (สเกลสีเดียวกัน)"},
+    "hm_compare_sub": {"en": "Compare where each player spends time on court.", "th": "ดูว่าผู้เล่นแต่ละคนอยู่ตำแหน่งใดบนสนามบ่อยแค่ไหน"},
     "hm_xlabel": {"en": "Court Width (m)", "th": "ความกว้างสนาม (ม.)"},
     "hm_ylabel": {"en": "Court Length (m)", "th": "ความยาวสนาม (ม.)"},
     # --- readme ---
@@ -290,11 +305,12 @@ STRINGS: Dict[str, Dict[str, str]] = {
             "report/\n"
             "  SportsScout_Report.pdf         - รายงานสรุปภาษาไทย: ข้อมูลการแข่งขัน ตัวชี้วัดผู้เล่น และคุณภาพการติดตาม\n"
             "heatmaps/\n"
-            "  player_movement_heatmap.png    - การกระจายการเคลื่อนที่ของผู้เล่นบนสนาม\n"
-            "  player_1_heatmap.png           - การเคลื่อนที่ของผู้เล่น 1\n"
-            "  player_2_heatmap.png           - การเคลื่อนที่ของผู้เล่น 2\n"
-            "  shuttle_trajectory_heatmap.png - วิถีลูกขนไก่ที่วัดได้ หรือระบุว่าข้อมูลไม่เพียงพอ\n"
-            "  shuttle_landing_heatmap.png    - จุดตกที่ยืนยันแล้ว หรือระบุว่าข้อมูลไม่เพียงพอ\n"
+            "  player_movement_heatmap.png    - การกระจายการเคลื่อนที่ของผู้เล่นทั้งหมด (% ต่อช่อง)\n"
+            "  player_1_heatmap.png ... player_4_heatmap.png - Heatmap รายผู้เล่น (% ต่อช่อง)\n"
+            "  player_comparison_heatmap.png  - เปรียบเทียบผู้เล่น P1-P4 ในสเกลสีเดียวกัน\n"
+            "  shuttle_trajectory_heatmap.png - ตำแหน่งลูกขนไก่ต่อช่อง หรือระบุว่าข้อมูลไม่เพียงพอ\n"
+            "  shuttle_landing_heatmap.png    - จุดตกที่ยืนยันแล้วต่อช่อง หรือระบุว่าข้อมูลไม่เพียงพอ\n"
+            "  heatmap_zones.json             - ตัวเลข % ต่อช่องทั้งหมด สำหรับนำไปวิเคราะห์ต่อ\n"
             "data/\n"
             "  shuttle_shots.json             - เหตุการณ์ตีลูกที่ผ่านเกณฑ์หลักฐาน (ค่าที่ไม่ทราบเป็น null)\n"
             "  analysis_summary.json          - ตัวชี้วัดสรุปในรูปแบบที่เครื่องอ่านได้\n"

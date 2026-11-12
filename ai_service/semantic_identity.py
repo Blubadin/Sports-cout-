@@ -505,7 +505,12 @@ def match_tracks_to_profiles_with_reid(
             )
             stealing_active_track = bool(other_active_owner is not None and (r, c) in appearance_reassociation_pairs)
 
-            if reacquiring[r] or uncalibrated_new_track or stealing_active_track:
+            changed_mot_track = (
+                p.track_id is not None
+                and new_track_id is not None
+                and p.track_id != new_track_id
+            )
+            if reacquiring[r] or uncalibrated_new_track or stealing_active_track or changed_mot_track:
                 if new_track_id is None:
                     p.identity_confirmation_track = None
                     p.identity_confirmation_frames = 0

@@ -146,6 +146,8 @@ class TestCutCalibrationSafety(unittest.TestCase):
         for _ in range(5):
             later = self.analyzer.process_frame(replay_frame(), timestamp_sec=0.2)
             self.assertEqual(later["cameraSegmentId"], "segment-1")
+            self.assertEqual(later["players"][0]["state"], "lost")
+            self.assertEqual(later["players"][0]["trackingReason"], "CALIBRATION_UNAVAILABLE")
 
     def test_manual_recalibration_creates_new_identity_without_distance_bridge(self):
         # Calibration recovery is independent of sports identity recovery.
@@ -180,6 +182,9 @@ class TestCutCalibrationSafety(unittest.TestCase):
         # Recovery may already be complete; calibration must still not bridge.
         self.assertEqual(pending["players"][0]["totalDistanceM"], previous_distance)
         restored = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=5.0)
+        self.assertIsNone(restored["players"][0]["courtPosition"])
+        self.assertEqual(restored["players"][0]["trackingReason"], "REACQUISITION_PENDING")
+        restored = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=5.5)
         self.assertEqual(restored["calibrationState"], "CALIBRATED")
         self.assertEqual(restored["cameraSegmentId"], lost["cameraSegmentId"])
         self.assertNotEqual(restored["calibrationId"], first["calibrationId"])

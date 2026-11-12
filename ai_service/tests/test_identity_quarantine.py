@@ -124,6 +124,73 @@ class TestIdentityQuarantine(unittest.TestCase):
         # Invariant: P1 is NOT hijacked by outsider track 99!
         self.assertNotIn(1, matched)
 
+    def test_changed_mot_id_requires_three_confirmed_frames_before_updating_profile(self):
+        profile = self.profile
+        image = np.full((480, 640, 3), 120, dtype=np.uint8)
+        replacement_track = {
+            "track_id": 11,
+            "conf": 0.95,
+            "bbox": [200, 200, 240, 300],
+            "center": (220, 300),
+            "real_pos": (2.5, 3.0),
+        }
+        owners = {10: 1}
+
+        for _ in range(2):
+            matched, _, _, semantic_switches = match_tracks_to_profiles_with_reid(
+                {1: profile}, [dict(replacement_track)], image, None,
+                last_known_track_owners=owners,
+            )
+            self.assertEqual(matched, {})
+            self.assertEqual(profile.track_id, 10)
+            self.assertIsNone(profile.color_hist)
+            self.assertEqual(semantic_switches, 0)
+            self.assertNotIn(11, owners)
+
+        matched, _, raw_switches, semantic_switches = match_tracks_to_profiles_with_reid(
+            {1: profile}, [dict(replacement_track)], image, None,
+            last_known_track_owners=owners,
+        )
+        self.assertEqual(matched[1]["track_id"], 11)
+        self.assertEqual(profile.track_id, 11)
+        self.assertIsNotNone(profile.color_hist)
+        self.assertEqual(raw_switches, 1)
+        self.assertEqual(semantic_switches, 0)
+
+    def test_missing_frame_resets_changed_mot_id_confirmation(self):
+        profile = self.profile
+        image = np.full((480, 640, 3), 120, dtype=np.uint8)
+        replacement_track = {
+            "track_id": 11,
+            "conf": 0.95,
+            "bbox": [200, 200, 240, 300],
+            "center": (220, 300),
+            "real_pos": (2.5, 3.0),
+        }
+
+        for _ in range(2):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                {1: profile}, [dict(replacement_track)], image, None,
+            )
+            self.assertEqual(matched, {})
+        self.assertEqual(profile.identity_confirmation_frames, 2)
+
+        matched, _, _, _ = match_tracks_to_profiles_with_reid({1: profile}, [], image, None)
+        self.assertEqual(matched, {})
+        self.assertEqual(profile.identity_confirmation_frames, 0)
+
+        for _ in range(2):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                {1: profile}, [dict(replacement_track)], image, None,
+            )
+            self.assertEqual(matched, {})
+            self.assertEqual(profile.track_id, 10)
+        matched, _, raw_switches, _ = match_tracks_to_profiles_with_reid(
+            {1: profile}, [dict(replacement_track)], image, None,
+        )
+        self.assertEqual(matched[1]["track_id"], 11)
+        self.assertEqual(raw_switches, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

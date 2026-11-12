@@ -204,6 +204,14 @@ class TestCalibrationContract(unittest.TestCase):
             {"bbox": [500, 100, 550, 200], "center": (525, 200), "real_pos": (4.0, 2.0), "conf": 0.9, "track_id": 40},
             {"bbox": [100, 100, 150, 200], "center": (125, 200), "real_pos": (1.0, 2.0), "conf": 0.9, "track_id": 30},
         ]
+        # A changed raw MOT id needs three consecutive observations before it
+        # can be attached to the existing sports identity.
+        matched = {}
+        for _ in range(2):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                {1: left, 2: right}, detections, self.frame, dist_tracker=None,
+            )
+            self.assertEqual(matched, {})
         matched, _, _, _ = match_tracks_to_profiles_with_reid(
             {1: left, 2: right}, detections, self.frame, dist_tracker=None,
         )

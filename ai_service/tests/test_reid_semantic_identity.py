@@ -110,6 +110,11 @@ class TestReIDSemanticIdentity(unittest.TestCase):
             {"track_id": 10, "real_pos": (4.1, 3.6), "bbox": [200, 100, 250, 250], "center": (225, 250), "conf": 0.9, "reid_embedding": emb_p2},
         ]
 
+        for _ in range(2):
+            matched = analyzer._match_tracks_to_profiles(self.frame, dets)
+            self.assertEqual(matched, {})
+            self.assertEqual(analyzer.profiles[1].track_id, 10)
+            self.assertEqual(analyzer.profiles[2].track_id, 20)
         matched = analyzer._match_tracks_to_profiles(self.frame, dets)
         # P1 receives the detection at (2.1, 3.1) despite its track_id being 20
         self.assertEqual(matched[1]["real_pos"], (2.1, 3.1))
@@ -169,6 +174,9 @@ class TestReIDSemanticIdentity(unittest.TestCase):
         dets = [
             {"track_id": 99, "real_pos": (3.2, 2.7), "bbox": [100, 100, 150, 250], "center": (125, 250), "conf": 0.88, "reid_embedding": emb_p1}
         ]
+        for _ in range(2):
+            matched = analyzer._match_tracks_to_profiles(self.frame, dets)
+            self.assertNotIn(1, matched)
         matched = analyzer._match_tracks_to_profiles(self.frame, dets)
         self.assertIn(1, matched)
         self.assertEqual(analyzer.profiles[1].track_id, 99)
@@ -353,6 +361,9 @@ class TestReIDSemanticIdentity(unittest.TestCase):
         dets = [
             {"track_id": 19, "real_pos": (3.05, 3.05), "bbox": [100, 100, 150, 250], "center": (125, 250), "conf": 0.92, "reid_embedding": emb_p1}
         ]
+        for _ in range(2):
+            matched = analyzer._match_tracks_to_profiles(self.frame, dets)
+            self.assertNotIn(1, matched)
         matched = analyzer._match_tracks_to_profiles(self.frame, dets)
         self.assertIn(1, matched)
         self.assertEqual(analyzer.profiles[1].track_id, 19)

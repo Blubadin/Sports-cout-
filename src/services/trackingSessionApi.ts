@@ -736,6 +736,21 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
     isSynthetic,
     source: frame.source || (isSynthetic ? 'synthetic_demo' : 'real_tracking'),
     trackedPlayerCount: frame.trackedPlayerCount ?? frame.tracked_player_count,
+    ...(typeof frame.rawTrackerIdSwitches === 'number'
+      ? { rawTrackerIdSwitches: frame.rawTrackerIdSwitches }
+      : {}),
+    ...(typeof frame.semanticPlayerIdSwitches === 'number'
+      ? { semanticPlayerIdSwitches: frame.semanticPlayerIdSwitches }
+      : {}),
+    ...(frame.courtFilter && typeof frame.courtFilter === 'object'
+      ? { courtFilter: {
+          active: Boolean(frame.courtFilter.active),
+          calibrationAvailable: Boolean(frame.courtFilter.calibrationAvailable),
+          candidateCount: Math.max(0, Number(frame.courtFilter.candidateCount) || 0),
+          acceptedCount: Math.max(0, Number(frame.courtFilter.acceptedCount) || 0),
+          rejectedOutsideCourtCount: Math.max(0, Number(frame.courtFilter.rejectedOutsideCourtCount) || 0),
+        } }
+      : {}),
     rawPlayerDetections: (frame.rawPlayerDetections || frame.raw_player_detections || []).map((d: any) => {
       const bbox = d.bboxPx || d.bbox;
       return {
@@ -844,6 +859,7 @@ export function toTrackingTelemetryV1(frame: any): TrackingTelemetryV1 {
         detectionConfidence: typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null,
         confidence: typeof p.confidence === 'number' ? p.confidence : (typeof p.detectionConfidence === 'number' ? p.detectionConfidence : null),
         state,
+        trackingReason: p.trackingReason ?? null,
         observationState,
         reviewState: p.reviewState || p.review_state || 'unreviewed',
         pose: state === 'lost' ? null : pose,

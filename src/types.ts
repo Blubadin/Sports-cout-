@@ -546,9 +546,30 @@ export interface TrackingPlayerV1 {
   detectionConfidence?: number | null;
   confidence?: number | null;
   state: 'observed' | 'predicted' | 'lost';
+  /** Why a player is lost or has not been assigned a semantic identity yet. */
+  trackingReason?: TrackingReason | null;
   observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual' | null;
   reviewState?: 'unreviewed' | 'reviewed' | 'corrected';
   pose?: TrackingPoseV1 | null;
+}
+
+export type TrackingReason =
+  | 'NO_PERSON_DETECTION'
+  | 'OUTSIDE_COURT'
+  | 'CALIBRATION_UNAVAILABLE'
+  | 'IDENTITY_AMBIGUOUS'
+  | 'REACQUISITION_PENDING'
+  | 'ASSOCIATION_REJECTED'
+  | 'OBSERVED'
+  | 'PREDICTED'
+  | 'UNKNOWN';
+
+export interface CourtFilterDiagnosticsV1 {
+  active: boolean;
+  calibrationAvailable: boolean;
+  candidateCount: number;
+  acceptedCount: number;
+  rejectedOutsideCourtCount: number;
 }
 
 /** Fresh detector output retained independently from semantic P1–P4 profiles. */
@@ -609,6 +630,9 @@ export interface TrackingTelemetryV1 {
   isSynthetic?: boolean;
   source?: 'real_tracking' | 'synthetic_demo' | string;
   trackedPlayerCount?: number;
+  rawTrackerIdSwitches?: number;
+  semanticPlayerIdSwitches?: number;
+  courtFilter?: CourtFilterDiagnosticsV1 | null;
   players: TrackingPlayerV1[];
   /** Raw MOT detections/poses are separate from semantic player profiles. */
   rawPlayerDetections?: RawPlayerDetectionV1[];
@@ -838,6 +862,17 @@ export interface TrackingQualityStats {
   meanTargetCoveragePct?: number | null;
   simultaneousCoveragePct?: number | null;
   playerCoverage?: Record<string, PlayerTrackingCoverage>;
+  courtFilterCounts?: {
+    candidateCount: number;
+    acceptedCount: number;
+    rejectedOutsideCourtCount: number;
+    filteredFrames: number;
+  };
+  trackingReasonCounts?: Record<string, Record<string, number>>;
+  identityCounters?: {
+    rawTrackerIdSwitches: number;
+    semanticPlayerIdSwitches: number;
+  };
 }
 
 export type ShuttleTrackingStatus =

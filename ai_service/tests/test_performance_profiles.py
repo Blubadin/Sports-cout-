@@ -480,6 +480,39 @@ class TestPhase4PerformanceAndQualityHardening(unittest.TestCase):
         self.assertEqual(metrics["lostFramesPct"], 50.0)
         self.assertEqual(metrics["predictedFramesPct"], 12.5)
 
+    def test_quality_accumulator_exposes_court_filter_and_identity_diagnostics(self):
+        from server import SessionQualityAccumulator
+
+        accumulator = SessionQualityAccumulator(2)
+        accumulator.update({
+            "timestampSec": 0.0,
+            "rawTrackerIdSwitches": 3,
+            "semanticPlayerIdSwitches": 1,
+            "courtFilter": {
+                "candidateCount": 8,
+                "acceptedCount": 4,
+                "rejectedOutsideCourtCount": 4,
+                "active": True,
+            },
+            "players": [
+                {"playerId": "P1", "state": "lost", "trackingReason": "IDENTITY_AMBIGUOUS"},
+                {"playerId": "P2", "state": "observed"},
+            ],
+        })
+
+        quality = accumulator.to_dict()
+        self.assertEqual(quality["identityCounters"], {"rawTrackerIdSwitches": 3, "semanticPlayerIdSwitches": 1})
+        self.assertEqual(quality["courtFilterCounts"], {
+            "candidateCount": 8,
+            "acceptedCount": 4,
+            "rejectedOutsideCourtCount": 4,
+            "filteredFrames": 1,
+        })
+        self.assertEqual(quality["trackingReasonCounts"]["P1"]["IDENTITY_AMBIGUOUS"], 1)
+
+        restored = SessionQualityAccumulator(2, accumulator.snapshot())
+        self.assertEqual(restored.to_dict(), quality)
+
     def test_physical_court_margin_filtering(self):
         """Detections must be filtered using physical margin in meters in calibrated court space."""
         analyzer = BadmintonAnalyzerV2(

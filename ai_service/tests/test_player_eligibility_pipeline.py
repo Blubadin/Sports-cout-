@@ -690,15 +690,17 @@ class TestAnalyzerFullPipeline(unittest.TestCase):
             {"bbox": [450, 480, 510, 600], "center": (480, 540), "conf": 0.90, "track_id": 3},
             {"bbox": [750, 480, 810, 600], "center": (780, 540), "conf": 0.90, "track_id": 4},
         ]
-        # Lost synthetic court geometry requires distinctive appearance over three frames.
+        # An ID swap with insufficient association evidence stays quarantined.
         for t in (.033, .066, .099):
             res2 = analyzer.process_frame(frame2, timestamp_sec=t)
 
-        # Appearance + spatial continuity preserves semantic identity (P1 stays P1, P2 stays P2)
-        self.assertEqual(analyzer.profiles[1].track_id, 2)
-        self.assertEqual(analyzer.profiles[2].track_id, 1)
-        # Raw MOT switches are distinctly tracked
-        self.assertGreater(analyzer.raw_tracker_id_switches, 0)
+        # Neither semantic slot accepts an ambiguous replacement MOT ID.
+        self.assertEqual(analyzer.profiles[1].track_id, 1)
+        self.assertEqual(analyzer.profiles[2].track_id, 2)
+        self.assertEqual(res2["players"][0]["trackingReason"], "CALIBRATION_UNAVAILABLE")
+        self.assertEqual(res2["players"][1]["trackingReason"], "CALIBRATION_UNAVAILABLE")
+        self.assertEqual(analyzer.raw_tracker_id_switches, 0)
+        self.assertEqual(analyzer.semantic_player_id_switches, 0)
 
 
 if __name__ == "__main__":

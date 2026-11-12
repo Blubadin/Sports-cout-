@@ -22,7 +22,12 @@ import {
 } from '../../services/storage/trackingStorage';
 import BadmintonMovementDashboard from '../analytics/BadmintonMovementDashboard';
 import TrackingVideoOverlay, { resolveOverlayAtTime } from './TrackingVideoOverlay';
-import { projectCourtMarkings } from './courtMarkingOverlay';
+import {
+  projectCourtMarkings,
+  projectCourtMarkingsFromCorners,
+  projectCourtNetGuide,
+  projectCourtNetGuideFromCorners,
+} from './courtMarkingOverlay';
 import { ShuttleOverlay, ShuttleControls, ShuttleDiagnostics, type ShuttleMode } from './ShuttleOverlay';
 import {
   framesForCameraSegmentAtTime,
@@ -497,6 +502,17 @@ export default function BadmintonTrackingLab() {
   const courtOverlayLines = courtOverlayCorners
     ? projectCourtMarkings(overlayFrame?.calibration?.hInvMatrix, dimensions.width, dimensions.height)
     : [];
+  const courtNetGuide = courtOverlayCorners
+    ? projectCourtNetGuide(overlayFrame?.calibration?.hInvMatrix, dimensions.width, dimensions.height)
+    : [];
+  const calibrationPreviewLines = !courtOverlayCorners && corners.length === 4
+    ? projectCourtMarkingsFromCorners(corners, dimensions.width, dimensions.height)
+    : [];
+  const calibrationNetGuide = !courtOverlayCorners && corners.length === 4
+    ? projectCourtNetGuideFromCorners(corners, dimensions.width, dimensions.height)
+    : [];
+  const showCalibrationSvg = calibrating || (corners.length === 4 &&
+    (!state.sessionId || frames.length === 0 || Boolean(lostSegmentKey && recoverySelectionKey === lostSegmentKey)));
   const playbackSegmentId = overlayFrame?.cameraSegmentId ?? displayFrames[0]?.cameraSegmentId;
   const upcomingCourtFrame = displayFrames.find(frame => frame.timestampSec > time + 0.05 &&
     frame.cameraSegmentId === playbackSegmentId && isMetricCalibrationValid(frame) &&
@@ -1839,10 +1855,15 @@ export default function BadmintonTrackingLab() {
                     x1={line.from[0]} y1={line.from[1]} x2={line.to[0]} y2={line.to[1]}
                     stroke="#38bdf8" strokeOpacity="0.8" strokeWidth={dimensions.width / 800} />
                 ))}
+                {courtNetGuide.map(line => (
+                  <line key={line.id} data-testid="court-net-guide"
+                    x1={line.from[0]} y1={line.from[1]} x2={line.to[0]} y2={line.to[1]}
+                    stroke="#f472b6" strokeOpacity="0.95" strokeWidth={dimensions.width / 500}
+                    strokeDasharray={`${dimensions.width / 60} ${dimensions.width / 90}`} />
+                ))}
               </svg>
             )}
-            {(calibrating || (corners.length > 0 && !state.sessionId && frames.length === 0) ||
-              (corners.length > 0 && lostSegmentKey && recoverySelectionKey === lostSegmentKey)) && (
+            {showCalibrationSvg && (
               <svg
                 aria-label="Court calibration"
                 viewBox={`0 0 ${dimensions.width || 1} ${dimensions.height || 1}`}
@@ -1864,6 +1885,18 @@ export default function BadmintonTrackingLab() {
                   if (next.length === 4) setCalibrating(false);
                 }}
               >
+                {calibrationPreviewLines.map(line => (
+                  <line key={`preview-${line.id}`} data-testid={`court-preview-marking-${line.id}`}
+                    x1={line.from[0]} y1={line.from[1]} x2={line.to[0]} y2={line.to[1]}
+                    stroke="#fbbf24" strokeOpacity="0.9" strokeWidth={dimensions.width / 700}
+                    strokeDasharray={`${dimensions.width / 80} ${dimensions.width / 120}`} />
+                ))}
+                {calibrationNetGuide.map(line => (
+                  <line key={line.id} data-testid="court-preview-net-guide"
+                    x1={line.from[0]} y1={line.from[1]} x2={line.to[0]} y2={line.to[1]}
+                    stroke="#f472b6" strokeOpacity="0.98" strokeWidth={dimensions.width / 500}
+                    strokeDasharray={`${dimensions.width / 45} ${dimensions.width / 70}`} />
+                ))}
                 {corners.length > 1 && (
                   <polyline
                     points={[...corners, ...(corners.length === 4 ? [corners[0]] : [])]

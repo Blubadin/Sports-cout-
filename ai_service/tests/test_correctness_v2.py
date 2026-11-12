@@ -368,6 +368,7 @@ class RenderedExportTests(unittest.TestCase):
                 "shuttle": {"state": "observed", "positionM": {"xM": 3, "yM": 5}, "metricEligible": True},
                 "shuttleShotEvents": {"shots": [{"shotId": "one", "outcome": "UNKNOWN", "landingPositionM": None}]}}]
             with patch.object(exporter, "_plot_court_heatmap") as plot:
+                plot.return_value = {"validFrames": 0, "outsideCourtFrames": 0}
                 exporter._generate_heatmaps(rows, Path(folder), ExportOptions(), ExportProgressState("exp", "session"))
             trajectory = next(call for call in plot.call_args_list if call.args[2].name == "shuttle_trajectory_heatmap.png")
             landing = next(call for call in plot.call_args_list if call.args[2].name == "shuttle_landing_heatmap.png")
@@ -406,6 +407,7 @@ class RenderedExportTests(unittest.TestCase):
                 {"playerId": "P1", "state": "predicted", "courtPosition": {"xM": 4, "yM": 4}},
             ]}]
             with patch.object(exporter, "_plot_court_heatmap") as plot:
+                plot.return_value = {"validFrames": 0, "outsideCourtFrames": 0}
                 exporter._generate_heatmaps(rows, Path(folder), ExportOptions(), ExportProgressState("exp", "session"))
             overall = next(call for call in plot.call_args_list if call.args[2].name == "player_movement_heatmap.png")
             self.assertEqual(overall.args[0], [(3, 5)])

@@ -179,6 +179,7 @@ class TestAnalysisJobAPI(unittest.TestCase):
         restored = server._restore_persisted_session(session_id)
         self.assertIsNone(restored.analyzer.mapper.H)
         self.assertEqual(restored.analyzer.calibration_context.camera_segment_id, "segment-2")
+        self.assertTrue(restored.analyzer._identity_requires_metric_calibration)
         restored.analyzer.start_camera_segment()
         self.assertEqual(restored.analyzer.calibration_context.camera_segment_id, "segment-3")
 

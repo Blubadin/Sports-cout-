@@ -103,4 +103,30 @@ describe('canonical metric and shot telemetry transport', () => {
     expect(actual.shuttleShotEvents).toEqual(shuttleShotEvents);
     expect(actual.players[0]).toMatchObject({ rawGroundPoint, filteredGroundPoint, distanceMetrics, poseSource: 'fresh', isPoseStale: false });
   });
+
+  it('preserves court filtering and identity quarantine diagnostics', () => {
+    const actual = toTrackingTelemetryV1({
+      schemaVersion: 1,
+      analysisId: 'a',
+      timestampSec: 1,
+      frameIndex: 2,
+      rawTrackerIdSwitches: 3,
+      semanticPlayerIdSwitches: 1,
+      courtFilter: {
+        active: true,
+        calibrationAvailable: true,
+        candidateCount: 8,
+        acceptedCount: 4,
+        rejectedOutsideCourtCount: 4,
+      },
+      players: [{ playerId: 'P1', state: 'lost', trackingReason: 'IDENTITY_AMBIGUOUS' }],
+    });
+
+    expect(actual).toMatchObject({
+      rawTrackerIdSwitches: 3,
+      semanticPlayerIdSwitches: 1,
+      courtFilter: { active: true, calibrationAvailable: true, candidateCount: 8, acceptedCount: 4, rejectedOutsideCourtCount: 4 },
+      players: [{ playerId: 'P1', trackingReason: 'IDENTITY_AMBIGUOUS' }],
+    });
+  });
 });
