@@ -2573,6 +2573,7 @@ class ExportSessionRequest(BaseModel):
     debugInfo: Optional[bool] = Field(default=None, alias="debug_info")
     confidences: Optional[bool] = None
     format: str = "MP4"
+    language: Optional[str] = None  # report language: "th" or "en" (default "en")
 
 
 @app.post("/api/tracking/sessions/{session_id}/export")
@@ -2628,6 +2629,8 @@ def start_session_export(session_id: str, req: ExportSessionRequest | None = Non
         options.confidences = req.confidences
     if req.format:
         options.format = req.format
+    if req.language is not None:
+        options.language = req.language.strip().lower() if req.language.strip().lower() in ("th", "en") else "en"
 
     try:
         export_id = export_job_manager.start_export(session_id, options=options)

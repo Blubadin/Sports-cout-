@@ -106,6 +106,8 @@ export interface StartExportRequest {
   debugInfo?: boolean;
   confidences?: boolean;
   format?: ExportFormat;
+  /** Language of the PDF report, heatmap images and README. */
+  language?: 'th' | 'en';
 }
 
 export interface StartExportResponse {

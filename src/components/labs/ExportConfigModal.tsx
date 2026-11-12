@@ -88,6 +88,7 @@ export default function ExportConfigModal({
         debugInfo: config.debugInfo,
         confidences: config.confidences,
         format: config.format,
+        language: th ? 'th' : 'en',
       });
 
       const exportId = response.exportId;

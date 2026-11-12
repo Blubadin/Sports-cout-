@@ -120,6 +120,62 @@ describe('ExportConfigModal', () => {
     );
   });
 
+  it('requests a Thai report when the UI language is Thai', async () => {
+    vi.mocked(trackingSessionApi.startSessionExport).mockResolvedValueOnce({
+      exportId: 'exp_th123',
+      sessionId: 'sess_test_123',
+      status: 'QUEUED',
+      preset: 'ANALYSIS',
+      options: {},
+    });
+    vi.mocked(trackingSessionApi.getExportStatus).mockResolvedValue({
+      exportId: 'exp_th123',
+      sessionId: 'sess_test_123',
+      status: 'PROCESSING',
+      stage: 'RENDERING_VIDEO',
+      progress: 10,
+      detail: '',
+    });
+
+    render(<ExportConfigModal isOpen={true} onClose={vi.fn()} sessionId="sess_test_123" language="th" />);
+    fireEvent.click(screen.getByText(/เริ่มการส่งออก/));
+
+    await waitFor(() => {
+      expect(trackingSessionApi.startSessionExport).toHaveBeenCalledWith(
+        'sess_test_123',
+        expect.objectContaining({ language: 'th' })
+      );
+    });
+  });
+
+  it('requests an English report when the UI language is English', async () => {
+    vi.mocked(trackingSessionApi.startSessionExport).mockResolvedValueOnce({
+      exportId: 'exp_en123',
+      sessionId: 'sess_test_123',
+      status: 'QUEUED',
+      preset: 'ANALYSIS',
+      options: {},
+    });
+    vi.mocked(trackingSessionApi.getExportStatus).mockResolvedValue({
+      exportId: 'exp_en123',
+      sessionId: 'sess_test_123',
+      status: 'PROCESSING',
+      stage: 'RENDERING_VIDEO',
+      progress: 10,
+      detail: '',
+    });
+
+    render(<ExportConfigModal isOpen={true} onClose={vi.fn()} sessionId="sess_test_123" language="en" />);
+    fireEvent.click(screen.getByText(/Start Export/i));
+
+    await waitFor(() => {
+      expect(trackingSessionApi.startSessionExport).toHaveBeenCalledWith(
+        'sess_test_123',
+        expect.objectContaining({ language: 'en' })
+      );
+    });
+  });
+
   it('handles cancellation properly', async () => {
     vi.mocked(trackingSessionApi.startSessionExport).mockResolvedValueOnce({
       exportId: 'exp_cancel123',
