@@ -398,9 +398,21 @@ def match_tracks_to_profiles_with_reid(
         cost_breakdowns: dict[int, SemanticIdentityCosts] = {}
         matched_pids = set()
 
+        # Doubles: slots P1/P2 belong to the far side and P3/P4 to the near side
+        # (same convention as the court-side topology tracker). Never seed an
+        # athlete into a slot of the opposite side when a side shows fewer than two.
+        slot_det: dict[int, dict[str, Any]] = {}
+        if len(active_pids) == 4 and all(det.get("real_pos") is not None for det in sorted_detections):
+            far = [det for det in sorted_detections if det["real_pos"][1] < net_y]
+            near = [det for det in sorted_detections if det["real_pos"][1] >= net_y]
+            slot_det.update(dict(zip(active_pids[:2], far[:2])))
+            slot_det.update(dict(zip(active_pids[2:], near[:2])))
+        else:
+            slot_det.update({pid_: sorted_detections[i_] for i_, pid_ in enumerate(active_pids) if i_ < len(sorted_detections)})
+
         for idx, pid in enumerate(active_pids):
-            if idx < len(sorted_detections):
-                d = sorted_detections[idx]
+            if pid in slot_det:
+                d = slot_det[pid]
                 p = profiles[pid]
                 p.track_id = d.get("track_id")
                 p.detection_confidence = d.get("conf")
@@ -611,7 +623,7 @@ def match_tracks_to_profiles_with_reid(
     lost_by_team: dict[int, list[int]] = {1: [], 2: []}
     for i, pid in enumerate(active_pids):
         team = getattr(profiles[pid], "team", 0)
-        if reacquiring[i] and team in (1, 2) and _has_identity_appearance(profiles[pid]):
+        if reacquiring[i] and team in (1, 2):
             lost_by_team[team].append(i)
 
     for i, needs_evidence in enumerate(reacquiring):

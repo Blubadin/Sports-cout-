@@ -316,6 +316,41 @@ class TestIdentityQuarantine(unittest.TestCase):
                 {4: lost, 3: mate}, [dict(d) for d in dets], img, None, last_known_track_owners={99: 4, 20: 3})
             self.assertNotIn(4, matched)
 
+    def test_doubles_auto_seed_never_puts_near_athlete_into_far_slot(self):
+        profiles = {i: PlayerProfile(player_id=i, team=0) for i in (1, 2, 3, 4)}
+        img = np.random.default_rng(2).integers(0, 256, (200, 200, 3), dtype=np.uint8)
+        dets = [  # one far athlete, two near athletes
+            {"track_id": 1, "conf": .9, "bbox": [10, 10, 50, 90], "center": (30, 90), "real_pos": (2.0, 3.0)},
+            {"track_id": 2, "conf": .9, "bbox": [60, 100, 100, 190], "center": (80, 190), "real_pos": (2.0, 10.0)},
+            {"track_id": 3, "conf": .9, "bbox": [120, 100, 160, 190], "center": (140, 190), "real_pos": (4.0, 10.5)},
+        ]
+        matched, _, _, _ = match_tracks_to_profiles_with_reid(
+            profiles, [dict(d) for d in dets], img, None)
+        self.assertEqual(matched[1]["track_id"], 1)
+        self.assertNotIn(2, matched)
+        self.assertEqual({matched[3]["track_id"], matched[4]["track_id"]}, {2, 3})
+
+    def test_lost_teammate_without_appearance_evidence_is_still_reacquired_by_side(self):
+        lost = PlayerProfile(player_id=2, team=1)
+        lost.track_id = 99
+        lost.missed_frames = 35
+        lost.identity_established = True
+        lost.identity_needs_reacquisition = True
+        live = PlayerProfile(player_id=1, team=1)
+        live.track_id = 20
+        live.last_real_pos = (2.5, 3.0)
+        live.last_bbox = [50, 30, 100, 160]
+        img = np.random.default_rng(3).integers(0, 256, (200, 200, 3), dtype=np.uint8)
+        dets = [
+            {"track_id": 20, "conf": .9, "bbox": [50, 30, 100, 160], "center": (75, 160), "real_pos": (2.5, 3.0)},
+            {"track_id": 55, "conf": .9, "bbox": [120, 30, 170, 160], "center": (145, 160), "real_pos": (4.5, 3.5)},
+        ]
+        matched = {}
+        for _ in range(3):
+            matched, _, _, _ = match_tracks_to_profiles_with_reid(
+                {1: live, 2: lost}, [dict(d) for d in dets], img, None, last_known_track_owners={99: 2, 20: 1})
+        self.assertEqual(matched[2]["track_id"], 55)
+
     def test_unlinked_filtered_candidate_is_not_attributed_to_every_player(self):
         analyzer = __import__("analyzer_v2").BadmintonAnalyzerV2(game_type="singles", max_players=2)
         analyzer._last_court_filter_counts = {
