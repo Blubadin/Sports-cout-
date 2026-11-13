@@ -144,7 +144,7 @@ class TestProcessingConfigAndPresets(unittest.TestCase):
     def test_quality_preset(self):
         cfg = resolve_processing_config({"profile": "quality"})
         self.assertEqual(cfg["profile"], "quality")
-        self.assertEqual(cfg["detectorInputSize"], 640)
+        self.assertEqual(cfg["detectorInputSize"], 1280)
         self.assertFalse(cfg["useCourtRoi"])
         self.assertEqual(cfg["frameStride"], 1)
         self.assertEqual(cfg["poseStride"], 1)
@@ -223,7 +223,7 @@ class TestProcessingConfigAndPresets(unittest.TestCase):
 
         # Quality profile
         quality = resolve_processing_config({"profile": "quality"})
-        self.assertEqual(quality["detectorInputSize"], 640)
+        self.assertEqual(quality["detectorInputSize"], 1280)
         self.assertEqual(quality["frameStride"], 1)
         self.assertEqual(quality["poseStride"], 1)
         self.assertFalse(quality["useCourtRoi"])

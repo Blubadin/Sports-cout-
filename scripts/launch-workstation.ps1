@@ -52,6 +52,20 @@ if (Test-Path -LiteralPath (Join-Path $distDir "index.html")) {
 }
 $env:SPORTSCOUT_AI_HOST = "127.0.0.1"
 
+# Optional shuttle model: only use a file that actually exists (never invent a path).
+if (-not $env:SHUTTLE_MODEL_PATH) {
+    foreach ($m in @(
+        (Join-Path $projectRoot "payload\models\rallylens-shuttle-tracknet.pth"),
+        (Join-Path $projectRoot ".local-models\rallylens-shuttle-tracknet.pth")
+    )) {
+        if (Test-Path -LiteralPath $m) {
+            $env:SHUTTLE_MODEL_PATH = $m
+            if (-not $env:SHUTTLE_PROVIDER) { $env:SHUTTLE_PROVIDER = "rallylens_tracknet" }
+            break
+        }
+    }
+}
+
 # 3. Helper to verify SportsScout status on port 8000
 function Test-SportsScoutStatus {
     try {

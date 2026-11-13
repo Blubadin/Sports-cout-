@@ -676,7 +676,7 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     effective_profile = requested_profile
 
     if requested_profile == "quality":
-        detector_input_size = 640
+        detector_input_size = 1280
         use_court_roi = False
         court_roi_margin_px = 60
         court_roi_margin_m = 0.5

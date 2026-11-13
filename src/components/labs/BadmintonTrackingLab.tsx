@@ -669,7 +669,7 @@ export default function BadmintonTrackingLab() {
       setFrameStride(2);
       setPoseStride(1);
     } else if (nextProfile === 'quality') {
-      setDetectorInputSize(640);
+      setDetectorInputSize(1280);
       setUseCourtRoi(false);
       setCourtRoiMarginPx(60);
       setFrameStride(1);
@@ -1328,6 +1328,7 @@ export default function BadmintonTrackingLab() {
                 <option value={416}>416 px</option>
                 <option value={512}>512 px</option>
                 <option value={640}>640 px</option>
+                <option value={1280}>1280 px</option>
               </select>
             </label>
 
