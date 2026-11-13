@@ -524,3 +524,29 @@ class TestAnalysisExporter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnidentifiedPersonBoxTests(unittest.TestCase):
+    def _frame(self, scene="COURT_PLAY"):
+        elig = {"status": "ELIGIBLE"}
+        return {
+            "sceneState": scene,
+            "players": [
+                {"playerId": "P1", "state": "observed", "trackId": 1, "bboxPx": [0, 0, 100, 200]},
+                {"playerId": "P2", "state": "lost", "trackId": None},
+            ],
+            "rawPlayerDetections": [
+                {"trackId": 1, "bboxPx": [0, 0, 100, 200], "eligibility": elig},
+                {"trackId": 2, "bboxPx": [300, 0, 400, 200], "eligibility": elig},
+                {"trackId": 3, "bboxPx": [600, 0, 700, 200], "eligibility": {"status": "SPECTATOR_OR_OFFICIAL"}},
+                {"trackId": 4, "bboxPx": [5, 5, 105, 205], "eligibility": elig},
+            ],
+        }
+
+    def test_only_eligible_unassigned_non_overlapping_people_are_returned(self):
+        from analysis_exporter import unidentified_person_boxes
+        self.assertEqual(unidentified_person_boxes(self._frame()), [[300.0, 0.0, 400.0, 200.0]])
+
+    def test_nothing_outside_court_play(self):
+        from analysis_exporter import unidentified_person_boxes
+        self.assertEqual(unidentified_person_boxes(self._frame("CAMERA_TRANSITION")), [])

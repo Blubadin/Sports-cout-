@@ -478,6 +478,46 @@ def _get_repository_dirty() -> Optional[bool]:
         return None
 
 
+
+def unidentified_person_boxes(data: Dict[str, Any]) -> List[List[float]]:
+    """Boxes of eligible on-court people detected this frame but not assigned to any P1-P4.
+
+    Display-only: these come straight from the real detector and carry no player
+    identity, so they never enter distance, heatmaps or per-player statistics.
+    """
+    if data.get("sceneState") != "COURT_PLAY":
+        return []
+    players = data.get("players") or []
+    owned_tracks = {p.get("trackId") for p in players if p.get("state") in ("observed", "predicted") and p.get("trackId") is not None}
+    drawn: List[List[float]] = []
+    for p in players:
+        if p.get("state") in ("observed", "predicted"):
+            b = p.get("bboxPx") or p.get("bbox")
+            if b and len(b) == 4:
+                drawn.append([float(v) for v in b])
+
+    def iou(a: List[float], b: List[float]) -> float:
+        iw = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+        ih = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+        inter = iw * ih
+        union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+        return inter / union if union > 0 else 0.0
+
+    out: List[List[float]] = []
+    for rd in data.get("rawPlayerDetections") or []:
+        elig = rd.get("eligibility") or {}
+        box = rd.get("bboxPx") or rd.get("bbox")
+        if elig.get("status") != "ELIGIBLE" or not box or len(box) != 4:
+            continue
+        track = rd.get("trackId", rd.get("track_id"))
+        if track is not None and track in owned_tracks:
+            continue
+        box = [float(v) for v in box]
+        if any(iou(box, d) > 0.4 for d in drawn):
+            continue
+        out.append(box)
+    return out
+
 class AnalysisExporter:
     """Production export engine that generates a complete SportsScout analysis bundle."""
 
@@ -945,6 +985,15 @@ class AnalysisExporter:
                             img, prov_tag, (gx + 7, gy + 4),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.35, COLOR_YELLOW, 1, cv2.LINE_AA
                         )
+
+        # 2b. Eligible on-court people without an assigned identity (display only)
+        if options.player_detection:
+            for ub in unidentified_person_boxes(data):
+                ux1, uy1, ux2, uy2 = [int(round(c)) for c in ub]
+                cv2.rectangle(img, (ux1, uy1), (ux2, uy2), (170, 170, 170), 1, cv2.LINE_AA)
+                if options.player_labels:
+                    cv2.putText(img, "?", (ux1 + 3, max(12, uy1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                (200, 200, 200), 1, cv2.LINE_AA)
 
         # 3. Shuttle Overlay & Trail
         shuttle = data.get("shuttle")
