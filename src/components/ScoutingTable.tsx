@@ -97,7 +97,7 @@ interface ScoutingTableRowProps {
   index: number;
   settings: any;
   copiedId: string | null;
-  handleNoteChange: (id: string, field: 'point' | 'resultText' | 'note', value: any) => void;
+  handleNoteChange: (id: string, field: 'point' | 'note', value: number | string) => void;
   handleResultTextChange: (id: string, newResultText: '+1' | '-1' | '0') => void;
   setEditingEvent: (row: EventRow) => void;
   replaySegment: (row: EventRow) => void;
@@ -427,11 +427,15 @@ export default function ScoutingTable() {
     });
   };
 
-  const handleNoteChange = (id: string, value: string) => {
+  const handleNoteChange = (id: string, field: 'point' | 'note', value: number | string) => {
     const row = events.find(e => e.id === id);
-    if (row) {
-      updateEventRow(id, { ...row, note: value });
+    if (!row) return;
+    if (field === 'point') {
+      const parsedPoint = typeof value === 'number' ? value : parseInt(String(value), 10) || 0;
+      updateEventRow(id, { ...row, point: parsedPoint });
+      return;
     }
+    updateEventRow(id, { ...row, note: String(value) });
   };
 
   const copyToClipboard = async (text: string, id: string) => {

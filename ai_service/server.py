@@ -522,6 +522,7 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
             timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
+            last_timestamp_sec = timestamp_sec
             telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
             telemetry["sourceFrame"] = frame_idx
             telemetry["is_synthetic"] = False
@@ -611,19 +612,19 @@ async def websocket_telemetry(websocket: WebSocket):
     connected_websockets.add(websocket)
     print("[AI Service] Client connected to AI Telemetry WebSocket")
 
-    # Send initial status & latest telemetry if available
-    await websocket.send_text(json.dumps({
-        "type": "connection_ack",
-        "is_tracking": is_tracking,
-        "game_type": analyzer.game_type,
-    }))
-    if latest_telemetry:
-        await websocket.send_text(json.dumps({
-            "type": "telemetry",
-            "data": latest_telemetry,
-        }))
-
     try:
+        # Send initial status & latest telemetry if available
+        await websocket.send_text(json.dumps({
+            "type": "connection_ack",
+            "is_tracking": is_tracking,
+            "game_type": analyzer.game_type,
+        }))
+        if latest_telemetry:
+            await websocket.send_text(json.dumps({
+                "type": "telemetry",
+                "data": latest_telemetry,
+            }))
+
         while True:
             raw_text = await websocket.receive_text()
             data = json.loads(raw_text)
@@ -646,8 +647,9 @@ async def websocket_telemetry(websocket: WebSocket):
             elif action == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
     except WebSocketDisconnect:
-        connected_websockets.remove(websocket)
         print("[AI Service] Client disconnected from AI Telemetry WebSocket")
+    finally:
+        connected_websockets.discard(websocket)
 
 
 # ==========================================

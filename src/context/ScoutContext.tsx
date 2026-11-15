@@ -170,7 +170,22 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     controllerV1Enabled: false
   });
 
-  const [events, setEvents] = useLocalStorage<EventRow[]>('scout_events', []);
+  const [events, setEventsState] = useLocalStorage<EventRow[]>('scout_events', []);
+  const eventsRef = useRef<EventRow[]>(events);
+  useEffect(() => {
+    eventsRef.current = events;
+  }, [events]);
+
+  const setEvents: React.Dispatch<React.SetStateAction<EventRow[]>> = useCallback((updaterOrValue) => {
+    if (typeof updaterOrValue === 'function') {
+      const next = updaterOrValue(eventsRef.current);
+      eventsRef.current = next;
+      setEventsState(next);
+      return;
+    }
+    eventsRef.current = updaterOrValue;
+    setEventsState(updaterOrValue);
+  }, [setEventsState]);
 
   useEffect(() => {
     setEvents(prevEvents => {
@@ -248,7 +263,22 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   }, [setEvents]);
 
   const [currentActions, setCurrentActions] = useState<Action[]>([]);
-  const [currentAction, setCurrentAction] = useState<Action>({});
+  const [currentAction, setCurrentActionState] = useState<Action>({});
+  const currentActionRef = useRef<Action>(currentAction);
+  useEffect(() => {
+    currentActionRef.current = currentAction;
+  }, [currentAction]);
+
+  const setCurrentAction: React.Dispatch<React.SetStateAction<Action>> = useCallback((actionOrUpdater) => {
+    if (typeof actionOrUpdater === 'function') {
+      const next = actionOrUpdater(currentActionRef.current);
+      currentActionRef.current = next;
+      setCurrentActionState(next);
+      return;
+    }
+    currentActionRef.current = actionOrUpdater;
+    setCurrentActionState(actionOrUpdater);
+  }, []);
   const [volleyballPathStage, setVolleyballPathStageState] = useState<VolleyballPathCaptureStage>('start');
   const volleyballPathStageRef = useRef<VolleyballPathCaptureStage>('start');
   const setVolleyballPathStage = useCallback((stage: VolleyballPathCaptureStage) => {
@@ -287,7 +317,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     setPastEvents(prev => prev.slice(0, -1));
     setFutureEvents(prev => [events, ...prev]);
     setEvents(previous);
-  }, [pastEvents, events]);
+  }, [pastEvents, events, setEvents]);
 
   const redoEventAction = useCallback(() => {
     if (futureEvents.length === 0) return;
@@ -295,7 +325,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     setFutureEvents(prev => prev.slice(1));
     setPastEvents(prev => [...prev, events]);
     setEvents(next);
-  }, [futureEvents, events]);
+  }, [futureEvents, events, setEvents]);
 
   const clearEventHistory = useCallback(() => {
     setPastEvents([]);
@@ -303,14 +333,13 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const saveEventsWithHistory = useCallback((newEventsUpdater: React.SetStateAction<EventRow[]>) => {
-    setEvents(prev => {
-      const next = typeof newEventsUpdater === 'function' ? newEventsUpdater(prev) : newEventsUpdater;
-      const renumbered = next.map((e: EventRow, index: number) => ({ ...e, no: index + 1 }));
-      setPastEvents(p => [...p, prev].slice(-20));
-      setFutureEvents([]);
-      return renumbered;
-    });
-  }, []);
+    const prev = eventsRef.current;
+    const next = typeof newEventsUpdater === 'function' ? newEventsUpdater(prev) : newEventsUpdater;
+    const renumbered = next.map((e: EventRow, index: number) => ({ ...e, no: index + 1 }));
+    setPastEvents(p => [...p, prev].slice(-20));
+    setFutureEvents([]);
+    setEvents(renumbered);
+  }, [setEvents]);
 
   const [hudLastSavedText, setHudLastSavedText] = useState<string | null>(null);
   const [hudLastSavedAt, setHudLastSavedAt] = useState<number>(0);
@@ -341,133 +370,125 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
 
   const updateActionPatch = useCallback((patch: Partial<Action>) => {
     setCurrentAction(prev => ({ ...prev, ...patch }));
-  }, []);
+  }, [setCurrentAction]);
 
   const selectFoul = useCallback((foul?: import('../types').FoulOption) => {
-    setCurrentAction(prev => {
-      const isSame = prev.foulCode === foul?.code;
-      const nextFoulCode = isSame ? undefined : foul?.code;
-      const nextFoulRole = isSame ? undefined : foul?.role;
-      const nextFoulSeverity = isSame ? undefined : foul?.severity;
+    const prev = currentActionRef.current;
+    const isSame = prev.foulCode === foul?.code;
+    const nextFoulCode = isSame ? undefined : foul?.code;
+    const nextFoulRole = isSame ? undefined : foul?.role;
+    const nextFoulSeverity = isSame ? undefined : foul?.severity;
 
-      setCurrentInputHistory(hist => [...hist, {
-        type: 'field',
-        category: 'foulCode',
-        previousValue: prev.foulCode,
-        value: nextFoulCode
-      } as InputHistoryItem]);
-
-      return {
-        ...prev,
-        foulCode: nextFoulCode,
-        foulRole: nextFoulRole,
-        foulSeverity: nextFoulSeverity
-      };
+    setCurrentAction({
+      ...prev,
+      foulCode: nextFoulCode,
+      foulRole: nextFoulRole,
+      foulSeverity: nextFoulSeverity
     });
-  }, []);
+    setCurrentInputHistory(hist => [...hist, {
+      type: 'field',
+      category: 'foulCode',
+      previousValue: prev.foulCode,
+      value: nextFoulCode
+    } as InputHistoryItem]);
+  }, [setCurrentAction]);
 
   const clearFoul = useCallback(() => {
-    setCurrentAction(prev => {
-      setCurrentInputHistory(hist => [...hist, {
-        type: 'field',
-        category: 'foulCode',
-        previousValue: prev.foulCode,
-        value: undefined
-      } as InputHistoryItem]);
-
-      return {
-        ...prev,
-        foulCode: undefined,
-        foulRole: undefined,
-        foulSeverity: undefined
-      };
+    const prev = currentActionRef.current;
+    setCurrentAction({
+      ...prev,
+      foulCode: undefined,
+      foulRole: undefined,
+      foulSeverity: undefined
     });
-  }, []);
+    setCurrentInputHistory(hist => [...hist, {
+      type: 'field',
+      category: 'foulCode',
+      previousValue: prev.foulCode,
+      value: undefined
+    } as InputHistoryItem]);
+  }, [setCurrentAction]);
 
   const commitSkillSelection = useCallback((payload: { skillCode: string; descriptorGroupId?: string; descriptorCode?: string }) => {
-    setCurrentAction(prev => {
-      const isNewSkill = prev.skillCode !== payload.skillCode;
-      const next: Action = matchInfo.sportType === 'volleyball'
-        ? resetVolleyballActionForSkill(prev, payload.skillCode)
-        : { ...prev, skillCode: payload.skillCode };
+    const prev = currentActionRef.current;
+    const isNewSkill = prev.skillCode !== payload.skillCode;
+    const next: Action = matchInfo.sportType === 'volleyball'
+      ? resetVolleyballActionForSkill(prev, payload.skillCode)
+      : { ...prev, skillCode: payload.skillCode };
 
+    if (isNewSkill) {
+      next.descriptors = {};
+      next.resultDetailCode = undefined;
+    } else {
+      next.descriptors = prev.descriptors ? { ...prev.descriptors } : {};
+    }
+
+    if (payload.descriptorGroupId && payload.descriptorCode) {
+      next.descriptors[payload.descriptorGroupId] = payload.descriptorCode;
+    }
+
+    setCurrentAction(next);
+    setCurrentInputHistory(hist => {
+      const newHist = [...hist];
       if (isNewSkill) {
-        next.descriptors = {};
-        next.resultDetailCode = undefined;
-      } else {
-        next.descriptors = prev.descriptors ? { ...prev.descriptors } : {};
+        newHist.push({
+          type: 'field',
+          category: 'skillCode',
+          previousValue: prev.skillCode,
+          value: payload.skillCode
+        } as InputHistoryItem);
       }
-
       if (payload.descriptorGroupId && payload.descriptorCode) {
-        next.descriptors[payload.descriptorGroupId] = payload.descriptorCode;
+        newHist.push({
+          type: 'descriptor',
+          groupId: payload.descriptorGroupId,
+          previousValue: prev.descriptors?.[payload.descriptorGroupId],
+          value: payload.descriptorCode
+        } as InputHistoryItem);
       }
-
-      setCurrentInputHistory(hist => {
-        const newHist = [...hist];
-        if (isNewSkill) {
-          newHist.push({
-            type: 'field',
-            category: 'skillCode',
-            previousValue: prev.skillCode,
-            value: payload.skillCode
-          } as InputHistoryItem);
-        }
-        if (payload.descriptorGroupId && payload.descriptorCode) {
-          newHist.push({
-            type: 'descriptor',
-            groupId: payload.descriptorGroupId,
-            previousValue: prev.descriptors?.[payload.descriptorGroupId],
-            value: payload.descriptorCode
-          } as InputHistoryItem);
-        }
-        return newHist;
-      });
-
-      return next;
+      return newHist;
     });
-  }, [matchInfo.sportType]);
+  }, [matchInfo.sportType, setCurrentAction]);
 
   const updateActionField = useCallback((field: keyof Action, value: unknown, descriptorGroupId?: string) => {
-    setCurrentAction(prevAction => {
-      const isSame = descriptorGroupId 
-        ? prevAction.descriptors?.[descriptorGroupId] === value 
-        : prevAction[field] === value;
-        
-      const nextValue = isSame ? undefined : value;
-      const previousValue = descriptorGroupId ? prevAction.descriptors?.[descriptorGroupId] : prevAction[field];
+    const prevAction = currentActionRef.current;
+    const isSame = descriptorGroupId 
+      ? prevAction.descriptors?.[descriptorGroupId] === value 
+      : prevAction[field] === value;
       
-      const next = field === 'skillCode' && nextValue && matchInfo.sportType === 'volleyball'
-        ? resetVolleyballActionForSkill(prevAction, String(nextValue))
-        : {
-            ...prevAction,
-            descriptors: prevAction.descriptors ? { ...prevAction.descriptors } : {}
-          };
-      
-      if (descriptorGroupId) {
-        if (isSame) {
-          delete next.descriptors[descriptorGroupId];
-        } else {
-          next.descriptors[descriptorGroupId] = String(value);
-        }
+    const nextValue = isSame ? undefined : value;
+    const previousValue = descriptorGroupId ? prevAction.descriptors?.[descriptorGroupId] : prevAction[field];
+    
+    const next = field === 'skillCode' && nextValue && matchInfo.sportType === 'volleyball'
+      ? resetVolleyballActionForSkill(prevAction, String(nextValue))
+      : {
+          ...prevAction,
+          descriptors: prevAction.descriptors ? { ...prevAction.descriptors } : {}
+        };
+    
+    if (descriptorGroupId) {
+      if (isSame) {
+        delete next.descriptors[descriptorGroupId];
       } else {
-        (next as Record<string, unknown>)[field] = nextValue;
-        if (field === 'skillCode') {
-          next.descriptors = {};
-          next.resultDetailCode = undefined;
-        }
+        next.descriptors[descriptorGroupId] = String(value);
       }
+    } else {
+      (next as Record<string, unknown>)[field] = nextValue;
+      if (field === 'skillCode') {
+        next.descriptors = {};
+        next.resultDetailCode = undefined;
+      }
+    }
 
-      setCurrentInputHistory(hist => [...hist, {
-        type: descriptorGroupId ? 'descriptor' : 'field',
-        category: !descriptorGroupId ? field : undefined,
-        groupId: descriptorGroupId,
-        previousValue,
-        value: nextValue
-      } as InputHistoryItem]);
-
-      return next;
-    });
-  }, [matchInfo.sportType]);
+    setCurrentAction(next);
+    setCurrentInputHistory(hist => [...hist, {
+      type: descriptorGroupId ? 'descriptor' : 'field',
+      category: !descriptorGroupId ? field : undefined,
+      groupId: descriptorGroupId,
+      previousValue,
+      value: nextValue
+    } as InputHistoryItem]);
+  }, [matchInfo.sportType, setCurrentAction]);
 
   useEffect(() => {
     setVolleyballPathStage('start');
@@ -489,7 +510,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       else nextPayload.systemContext = context;
       return { ...prev, domainPayload: nextPayload };
     });
-  }, [matchInfo.sportType]);
+  }, [matchInfo.sportType, setCurrentAction]);
 
   const selectArea = useCallback((rawPayload: AreaSelectionPayload) => {
     // Keep normalization and the path transition outside the React state updater.
@@ -537,17 +558,18 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       payload.areaLabel = areaObj ? (isThai ? areaObj.thaiName : areaObj.code) : payload.areaCode;
     }
 
-    const capabilities = getVolleyballSkillCapabilities(currentAction.skillCode);
+    const prevAction = currentActionRef.current;
+    const capabilities = getVolleyballSkillCapabilities(prevAction.skillCode);
     const isVolleyballDetailPath = matchInfo.sportType === 'volleyball'
       && settings.advancedDetailMode
       && Boolean(capabilities);
     if (isVolleyballDetailPath && volleyballPathStageRef.current !== 'complete') {
       const stage = volleyballPathStageRef.current === 'target' ? 'target' : 'start';
-      const captured = captureVolleyballPathArea(currentAction, stage, payload);
+      const captured = captureVolleyballPathArea(prevAction, stage, payload);
       setCurrentInputHistory(hist => [...hist, {
         type: 'field',
         category: 'domainPayload',
-        previousValue: currentAction.domainPayload,
+        previousValue: prevAction.domainPayload,
         value: captured.action.domainPayload,
       }]);
       setCurrentAction(captured.action);
@@ -555,68 +577,64 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (isVolleyballDetailPath) return;
+    const isSame = prevAction.areaCode === payload.areaCode && 
+                   prevAction.outZone === payload.outZone && 
+                   prevAction.courtSide === payload.courtSide &&
+                   prevAction.gridX === payload.gridX &&
+                   prevAction.gridY === payload.gridY &&
+                   prevAction.courtViewMode === payload.courtViewMode;
+    
+    const nextValueCode = isSame ? undefined : payload.areaCode;
+    
+    const next: Action = {
+      ...prevAction,
+      areaCode: nextValueCode,
+      areaLabel: isSame ? undefined : payload.areaLabel,
+      areaMode: isSame ? undefined : payload.areaMode,
+      courtSide: isSame ? undefined : payload.courtSide,
+      gridX: isSame ? undefined : payload.gridX,
+      gridY: isSame ? undefined : payload.gridY,
+      pointX: isSame ? undefined : payload.pointX,
+      pointY: isSame ? undefined : payload.pointY,
+      outZone: isSame ? undefined : payload.outZone,
+      areaResolution: isSame ? undefined : payload.areaResolution,
+      courtViewMode: isSame ? undefined : payload.courtViewMode,
+    };
 
-    setCurrentAction(prevAction => {
-      const isSame = prevAction.areaCode === payload.areaCode && 
-                     prevAction.outZone === payload.outZone && 
-                     prevAction.courtSide === payload.courtSide &&
-                     prevAction.gridX === payload.gridX &&
-                     prevAction.gridY === payload.gridY &&
-                     prevAction.courtViewMode === payload.courtViewMode;
-      
-      const nextValueCode = isSame ? undefined : payload.areaCode;
-      
-      const next: Action = {
-        ...prevAction,
-        areaCode: nextValueCode,
-        areaLabel: isSame ? undefined : payload.areaLabel,
-        areaMode: isSame ? undefined : payload.areaMode,
-        courtSide: isSame ? undefined : payload.courtSide,
-        gridX: isSame ? undefined : payload.gridX,
-        gridY: isSame ? undefined : payload.gridY,
-        pointX: isSame ? undefined : payload.pointX,
-        pointY: isSame ? undefined : payload.pointY,
-        outZone: isSame ? undefined : payload.outZone,
-        areaResolution: isSame ? undefined : payload.areaResolution,
-        courtViewMode: isSame ? undefined : payload.courtViewMode,
-      };
-      
-      setCurrentInputHistory(hist => [...hist, {
-        type: 'field',
-        category: 'areaCode',
-        previousValue: prevAction.areaCode,
-        value: nextValueCode,
-        previousCourtSide: prevAction.courtSide,
-        courtSide: next.courtSide,
-        previousAreaPayload: {
-          areaCode: prevAction.areaCode,
-          areaLabel: prevAction.areaLabel,
-          areaMode: prevAction.areaMode,
-          courtSide: prevAction.courtSide,
-          gridX: prevAction.gridX,
-          gridY: prevAction.gridY,
-          pointX: prevAction.pointX,
-          pointY: prevAction.pointY,
-          outZone: prevAction.outZone,
-          areaResolution: prevAction.areaResolution,
-          courtViewMode: prevAction.courtViewMode,
-        }
-      }]);
-
-      return next;
-    });
-  }, [settings.uiLanguage, settings.areaCourtViewMode, settings.advancedDetailMode, areas, matchInfo.sportType, currentAction, setVolleyballPathStage]);
+    setCurrentAction(next);
+    setCurrentInputHistory(hist => [...hist, {
+      type: 'field',
+      category: 'areaCode',
+      previousValue: prevAction.areaCode,
+      value: nextValueCode,
+      previousCourtSide: prevAction.courtSide,
+      courtSide: next.courtSide,
+      previousAreaPayload: {
+        areaCode: prevAction.areaCode,
+        areaLabel: prevAction.areaLabel,
+        areaMode: prevAction.areaMode,
+        courtSide: prevAction.courtSide,
+        gridX: prevAction.gridX,
+        gridY: prevAction.gridY,
+        pointX: prevAction.pointX,
+        pointY: prevAction.pointY,
+        outZone: prevAction.outZone,
+        areaResolution: prevAction.areaResolution,
+        courtViewMode: prevAction.courtViewMode,
+      }
+    }]);
+  }, [settings.uiLanguage, settings.areaCourtViewMode, settings.advancedDetailMode, areas, matchInfo.sportType, setVolleyballPathStage, setCurrentAction]);
 
   const clearCurrentEvent = useCallback(() => {
     setCurrentActions([]);
     setCurrentAction({});
     setCurrentInputHistory([]);
-  }, []);
+  }, [setCurrentAction]);
 
   const resetCurrentAction = useCallback(() => {
     setCurrentAction({});
     setCurrentInputHistory([]);
-  }, []);
+  }, [setCurrentAction]);
 
   const getSkillByCode = useCallback((skillCode?: string) => {
     return skills.find(s => s.code === skillCode);
@@ -795,7 +813,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
       setCurrentAction({});
       setCurrentInputHistory([]);
     }
-  }, [currentAction, isActionComplete, settings.uiLanguage, normalizeActionBeforeCommit, getCurrentTimeRef]);
+  }, [currentAction, isActionComplete, settings.uiLanguage, normalizeActionBeforeCommit, getCurrentTimeRef, setCurrentAction, showToast]);
 
   const undoLastAction = useCallback(() => {
     if (currentInputHistory.length > 0) {
@@ -871,7 +889,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     if (currentActions.length > 0) {
       setCurrentActions(prev => prev.slice(0, -1));
     }
-  }, [currentInputHistory, currentAction, currentActions]);
+  }, [currentInputHistory, currentAction, currentActions, setCurrentAction]);
 
   const saveEvent = useCallback((actionToSave: Action = currentAction) => {
     let finalActions = [...currentActions];
@@ -1041,7 +1059,7 @@ export function ScoutProvider({ children }: { children: ReactNode }) {
     } else {
       saveEvent(nextAction);
     }
-  }, [currentAction, getMissingActionMessage, isActionComplete, saveEvent, addAction, showToast]);
+  }, [currentAction, getMissingActionMessage, isActionComplete, saveEvent, addAction, showToast, setCurrentAction]);
 
   const deleteEventRow = useCallback((id: string) => {
     saveEventsWithHistory(prev => prev.filter(e => e.id !== id));

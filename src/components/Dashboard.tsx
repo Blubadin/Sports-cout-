@@ -43,19 +43,35 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
   const [trackingChunksHaveMore, setTrackingChunksHaveMore] = useState(false);
 
   React.useEffect(() => {
-    if (!activeProjectId) return;
+    if (!activeProjectId) {
+      setTrackingAnalysis(null);
+      setTrackingChunks([]);
+      setTrackingChunksHaveMore(false);
+      return;
+    }
+
+    let cancelled = false;
+    setTrackingAnalysis(null);
+    setTrackingChunks([]);
+    setTrackingChunksHaveMore(false);
+
     getLatestTrackingAnalysisForProject(activeProjectId).then(async (latest) => {
-      if (latest) {
-        setTrackingAnalysis(latest);
-        const page = await getTrackingSampleChunkPage(latest.id);
-        setTrackingChunks(page.chunks);
-        setTrackingChunksHaveMore(page.hasMore);
-      }
+      if (cancelled || !latest) return;
+      const page = await getTrackingSampleChunkPage(latest.id);
+      if (cancelled) return;
+      setTrackingAnalysis(latest);
+      setTrackingChunks(page.chunks);
+      setTrackingChunksHaveMore(page.hasMore);
     }).catch(() => {
+      if (cancelled) return;
       setTrackingAnalysis(null);
       setTrackingChunks([]);
       setTrackingChunksHaveMore(false);
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeProjectId]);
 
   const [filterSport, setFilterSport] = useState<SportType | 'ALL'>('ALL');
@@ -1031,63 +1047,6 @@ function MapTimeInput({
   invalid?: boolean;
   onChange: (value?: number) => void;
 }) {
-  /* Report layout is rendered inside Dashboard above this shared utility. */
-  /*
-  if (variant === 'report') {
-    const topSkills = Object.entries(analyticsSummary.skillCounts).sort((left, right) => right[1] - left[1]).slice(0, 5);
-    const topAreas = Object.entries(analyticsSummary.areaCounts).sort((left, right) => right[1] - left[1]).slice(0, 5);
-    const summaryKpis = [
-      { label: settings.uiLanguage === 'th' ? 'เหตุการณ์' : 'Events', value: stats.total },
-      { label: settings.uiLanguage === 'th' ? 'สำเร็จ' : 'Success', value: stats.yes },
-      { label: settings.uiLanguage === 'th' ? 'เสียแต้ม' : 'Errors', value: stats.out },
-      { label: settings.uiLanguage === 'th' ? 'อัตราสำเร็จ' : 'Success rate', value: `${successRate}%` },
-    ];
-
-    return (
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mt-4">
-        <CoachPrintSummary
-          language={settings.uiLanguage}
-          sportLabel={matchInfo.sportType ? SPORT_TEMPLATES[matchInfo.sportType].name : 'ALL'}
-          teams={teams}
-          analytics={analyticsSummary}
-          dataQuality={dataQuality}
-        />
-        <header className="print:hidden flex flex-col gap-3 border-b border-gray-100 pb-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-black text-gray-800 dark:text-gray-100">{settings.uiLanguage === 'th' ? 'รายงานสรุปสำหรับโค้ช' : 'Coach summary report'}</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{matchInfo.sportType ? SPORT_TEMPLATES[matchInfo.sportType].name : 'All sports'} · {matchInfo.setOrGame ? `Set ${matchInfo.setOrGame}` : '-'}</p>
-          </div>
-          <button type="button" onClick={() => window.print()} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-600 hover:border-sky-400 hover:text-sky-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
-            <Printer size={14} /> {t('dashboard.printCoachSummary', settings.uiLanguage)}
-          </button>
-        </header>
-
-        {teams.length >= 2 && (
-          <div className="my-5 flex items-center justify-center gap-4 rounded-xl bg-sky-50 p-4 text-center dark:bg-sky-950/30">
-            <span className="font-black text-gray-800 dark:text-gray-100">{teams[0]?.code}</span>
-            <strong className="text-3xl text-sky-700 dark:text-sky-300">{stats.teamAScore} - {stats.teamBScore}</strong>
-            <span className="font-black text-gray-800 dark:text-gray-100">{teams[1]?.code}</span>
-          </div>
-        )}
-
-        <section className="my-5 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label={settings.uiLanguage === 'th' ? 'KPI หลัก' : 'Key performance indicators'}>
-          {summaryKpis.map(kpi => <StatCard key={kpi.label} title={kpi.label} value={kpi.value} color="bg-gray-50 text-gray-700 dark:bg-gray-900/50 dark:text-gray-200" />)}
-        </section>
-
-        <section className="my-5 grid gap-4 md:grid-cols-2">
-          <ReportRanking title={settings.uiLanguage === 'th' ? 'ทักษะเด่น' : 'Top skills'} entries={topSkills} emptyLabel={settings.uiLanguage === 'th' ? 'ยังไม่มีข้อมูลทักษะ' : 'No skill data yet'} />
-          <ReportRanking title={settings.uiLanguage === 'th' ? 'พื้นที่เด่น' : 'Top areas'} entries={topAreas} emptyLabel={settings.uiLanguage === 'th' ? 'ยังไม่มีข้อมูลพื้นที่' : 'No area data yet'} />
-        </section>
-
-        <section>
-          <h3 className="mb-2 text-sm font-black text-gray-700 dark:text-gray-200">{settings.uiLanguage === 'th' ? 'คุณภาพข้อมูล' : 'Data quality'}</h3>
-          {renderDataQuality()}
-        </section>
-      </div>
-    );
-  }
-  */
-
   return (
     <label className="flex min-w-0 flex-col gap-1 text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400">
       {label}

@@ -406,12 +406,6 @@
         "warning": 0
       }
     },
-    "src/components/hud/ProAreaCommandPad.tsx": {
-      "react-hooks/rules-of-hooks": {
-        "error": 1,
-        "warning": 0
-      }
-    },
     "src/components/hud/ProDonutCommandWheel.tsx": {
       "@typescript-eslint/no-unused-vars": {
         "error": 1,
@@ -516,7 +510,7 @@
     },
     "src/components/ScoutingTable.tsx": {
       "@typescript-eslint/no-explicit-any": {
-        "error": 2,
+        "error": 1,
         "warning": 0
       },
       "@typescript-eslint/no-unused-vars": {
@@ -601,7 +595,7 @@
       },
       "react-hooks/exhaustive-deps": {
         "error": 0,
-        "warning": 6
+        "warning": 2
       }
     },
     "src/context/WorkspaceContext.tsx": {

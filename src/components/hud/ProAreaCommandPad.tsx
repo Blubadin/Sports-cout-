@@ -164,6 +164,17 @@ export default function ProAreaCommandPad({
     setHoveredPayload(null);
   }, [active]);
 
+  const previewGrid = useMemo(
+    () => buildAreaPreviewGrid(
+      sportType,
+      settings?.areaPrecisionMode || "normal",
+      flipCourtSide,
+      settings?.areaCourtViewMode || "auto",
+      settings?.uiLanguage,
+    ),
+    [flipCourtSide, settings?.areaCourtViewMode, settings?.areaPrecisionMode, settings?.uiLanguage, sportType],
+  );
+
   if (!active) return null;
 
   if (sportType === "badminton") {
@@ -316,17 +327,6 @@ export default function ProAreaCommandPad({
       </div>
     );
   };
-
-  const previewGrid = useMemo(
-    () => buildAreaPreviewGrid(
-      sportType,
-      settings?.areaPrecisionMode || "normal",
-      flipCourtSide,
-      settings?.areaCourtViewMode || "auto",
-      settings?.uiLanguage,
-    ),
-    [flipCourtSide, settings?.areaCourtViewMode, settings?.areaPrecisionMode, settings?.uiLanguage, sportType],
-  );
 
   return (
     <div
