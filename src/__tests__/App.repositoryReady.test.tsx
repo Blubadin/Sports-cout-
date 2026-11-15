@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WorkspaceMenu from '../components/WorkspaceMenu';
 
@@ -35,13 +35,14 @@ vi.mock('../context/ScoutContext', () => ({
     },
     settings: {
       uiLanguage: testState.language,
-      workspaceExperience: 'classic',
+      workspaceExperience: 'workstation',
       theme: 'light',
       darkMode: false,
     },
     setSettings: vi.fn(),
     teams: [],
     events: [],
+    currentAction: {},
     videoTime: 0,
     canUndoEventAction: false,
     canRedoEventAction: false,
@@ -59,9 +60,6 @@ vi.mock('../context/WorkspaceContext', () => ({
 vi.mock('../components/DiagnosticLogs', () => ({ default: () => null }));
 vi.mock('../components/PWAUpdatePrompt', () => ({ default: () => null }));
 vi.mock('../components/ui/CustomSelect', () => ({ default: () => <div /> }));
-vi.mock('../hooks/usePWAInstall', () => ({
-  usePWAInstall: () => ({ isInstallable: false, promptInstall: vi.fn() }),
-}));
 
 import App from '../App';
 
@@ -93,26 +91,35 @@ describe('App repository initialization boundary', () => {
     testState.workspace.repositoryReady = true;
     rerender(<App />);
 
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
     if (language === 'en') {
+      expect(screen.getByRole('heading', { name: 'No Project Yet' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Create New Project/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Load four-sport pilot samples/i })).toBeInTheDocument();
+    } else {
+      expect(screen.getByRole('heading', { name: 'ยังไม่มีโครงการ' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /สร้างโครงการใหม่/i })).toBeInTheDocument();
     }
   });
 
-  it('blocks a legacy active project until the repository is ready', () => {
+  it('blocks a legacy active project until the repository is ready and opens Workstation shell when ready', () => {
     testState.workspace.activeProjectId = 'active-project';
     testState.workspace.projects = [{ id: 'active-project', title: 'Active project' }];
 
     const { rerender } = render(<App />);
 
     expect(screen.getByRole('status')).toHaveTextContent('Preparing workspace');
-    expect(screen.queryByRole('tablist', { name: 'Analysis views' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Workstation modes' })).not.toBeInTheDocument();
 
     testState.workspace.repositoryReady = true;
     rerender(<App />);
 
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
-    expect(screen.getByRole('tablist', { name: 'Analysis views' })).toBeInTheDocument();
+    expect(screen.queryByText('Preparing workspace')).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Workstation modes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Labs' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    expect(screen.getByRole('tablist', { name: 'Review views' })).toBeInTheDocument();
   });
 
   it('Test 7: header workspace controls are disabled while repositoryReady is false', () => {

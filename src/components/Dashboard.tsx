@@ -1,8 +1,8 @@
-import React, { useMemo, useState, lazy, Suspense } from 'react';
+import React, { useMemo, useState, Suspense } from 'react';
 import { AlertTriangle, ChevronDown, FilterX, Printer, X } from 'lucide-react';
 import { useScoutContext } from '../context/ScoutContext';
-import type { SportType, Team } from '../types';
-import { SPORT_TEMPLATES, OUT_ZONE_LABELS, DETAILED_ZONE_LABELS } from '../sports';
+import type { Action, EventRow, SportType, Team } from '../types';
+import { SPORT_TEMPLATES } from '../sports';
 import { formatPreciseTime } from '../utils';
 import CustomSelect from './ui/CustomSelect';
 import { t } from '../i18n';
@@ -31,10 +31,10 @@ import BadmintonMovementDashboard from './analytics/BadmintonMovementDashboard';
 import { useWorkspace } from '../context/WorkspaceContext';
 
 interface DashboardProps {
-  variant?: 'classic' | 'workstation' | 'report';
+  variant?: 'workstation' | 'report';
 }
 
-export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) {
+export default function Dashboard({ variant = 'workstation' }: DashboardProps = {}) {
   const { events, matchInfo, changeSportType, teams, setSeekRequest, setPreviewState, settings, sportTemplate } = useScoutContext();
   const { activeProjectId } = useWorkspace();
   const [analyticsView, setAnalyticsView] = useState<'events' | 'movement'>('events');
@@ -88,7 +88,7 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
   const [mapTimeTo, setMapTimeTo] = useState<number | undefined>();
 
 
-  const [selectedMapAction, setSelectedMapAction] = useState<{event: any, action: any} | null>(null);
+  const [selectedMapAction, setSelectedMapAction] = useState<{ event: EventRow; action: Action } | null>(null);
   const filteredSportEvents = useMemo(
     () => filterSport === 'ALL' ? events : events.filter(event => event.sportType === filterSport),
     [events, filterSport],
@@ -510,7 +510,7 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
                 {mapMode === 'sequence' && (() => {
                   const eventOptions = events
                     .filter(e => filterSport === 'ALL' || e.sportType === filterSport)
-                    .map((e, idx) => ({
+                    .map((e) => ({
                       value: e.id,
                       label: `Event #${e.no}`,
                       subLabel: e.actions.length > 0 ? (e.actions[0].teamCode || 'No Team') : undefined,
@@ -625,11 +625,11 @@ export default function Dashboard({ variant = 'classic' }: DashboardProps = {}) 
                   <div className="text-gray-500">{t('input.area', settings.uiLanguage)}:</div>
                   <div className="font-semibold">{selectedMapAction.action.areaLabel || selectedMapAction.action.outZone || selectedMapAction.action.areaCode || '-'}</div>
                   <div className="text-gray-500">{t('dashboard.precision', settings.uiLanguage)}:</div>
-                  <div className="font-semibold">{selectedMapAction.action.precision || selectedMapAction.action.areaResolution || selectedMapAction.action.areaMode || '-'}</div>
+                  <div className="font-semibold">{selectedMapAction.action.areaResolution || selectedMapAction.action.areaMode || '-'}</div>
                   {selectedMapAction.action.foulCode && (
                     <>
                       <div className="text-gray-500">{t('table.foul', settings.uiLanguage)}:</div>
-                      <div className="font-semibold text-amber-600">{selectedMapAction.action.foulLabel || selectedMapAction.action.foulCode}</div>
+                      <div className="font-semibold text-amber-600">{getScoutFoulLabel(selectedMapAction.action, { sportTemplate, uiLanguage: settings.uiLanguage }) || selectedMapAction.action.foulCode}</div>
                     </>
                   )}
                   <div className="text-gray-500">{t('input.result', settings.uiLanguage)}:</div>
@@ -943,26 +943,6 @@ function StatCard({ title, value, color }: { title: string; value: string | numb
     <div className={`${color} p-4 rounded-xl min-w-[140px] flex-1 flex flex-col justify-between`}>
       <h3 className="text-xs font-bold uppercase opacity-80 mb-2">{title}</h3>
       <span className="text-2xl font-black">{value}</span>
-    </div>
-  );
-}
-
-function ReportRanking({ title, entries, emptyLabel }: { title: string; entries: Array<[string, number]>; emptyLabel: string }) {
-  return (
-    <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-      <h3 className="mb-3 text-sm font-black text-gray-700 dark:text-gray-200">{title}</h3>
-      {entries.length === 0 ? (
-        <p className="text-xs text-gray-500 dark:text-gray-400">{emptyLabel}</p>
-      ) : (
-        <ol className="space-y-2">
-          {entries.map(([label, count]) => (
-            <li key={label} className="flex items-center justify-between gap-3 text-sm">
-              <span className="truncate text-gray-700 dark:text-gray-200">{label}</span>
-              <strong className="rounded-full bg-sky-50 px-2 py-0.5 text-xs text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">{count}</strong>
-            </li>
-          ))}
-        </ol>
-      )}
     </div>
   );
 }

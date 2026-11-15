@@ -27,7 +27,6 @@ export default function HUDSkillRadial({
   onPointerUp,
   onClick,
   onDone,
-  phase = "skill",
   onPhaseChange,
   hoveredSkill,
   hoveredDescriptor,
@@ -55,11 +54,11 @@ export default function HUDSkillRadial({
   };
 
   const handleDescriptorSelect = (groupId: string, value: string) => {
-    updateActionField("descriptors" as any, value, groupId);
+    updateActionField("descriptors", value, groupId);
   };
 
   const handleHoverItem = (payload: {
-    type: "skill" | "descriptor" | "result";
+    type: "skill" | "descriptor" | "result" | "resultDetail";
     code: string | null;
     groupId?: string;
   }) => {

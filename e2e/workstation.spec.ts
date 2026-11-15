@@ -2,22 +2,14 @@ import { expect, test } from '@playwright/test';
 
 async function enableWorkstation(page: import('@playwright/test').Page, language: 'th' | 'en' = 'th') {
   await page.goto('/');
-  const activeAppHeader = page.locator('header.coach-header, header.workstation-topbar').filter({ visible: true });
-  await expect(activeAppHeader).toHaveCount(1, { timeout: 10_000 });
-  if (await activeAppHeader.evaluate(header => header.classList.contains('workstation-topbar'))) {
-    await page.getByRole('button', { name: /Settings|ตั้งค่า/i }).click();
-    const settingsModal = page.locator('#settings-modal');
-    await expect(settingsModal).toBeVisible();
-    await settingsModal.getByRole('button', { name: 'Classic', exact: true }).click();
-    await settingsModal.getByRole('button', { name: /ปิดการตั้งค่า|Close settings/i }).click();
-  }
-  const currentHeader = page.locator('header.coach-header').filter({ visible: true });
-  await expect(currentHeader).toHaveCount(1);
-  const toggle = currentHeader.getByTestId('workspace-menu-toggle');
+  const topbar = page.locator('header.workstation-topbar').filter({ visible: true });
+  await expect(topbar).toHaveCount(1, { timeout: 10_000 });
+  await expect(page.locator('header.coach-header')).toHaveCount(0);
+
+  const toggle = page.getByTestId('workspace-menu-toggle');
   await expect(toggle).toBeEnabled({ timeout: 10_000 });
-  const canLoadPilot = await page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i }).count();
-  if (canLoadPilot) {
-    const pilotBtn = page.getByRole('button', { name: /Pilot.*4|4.*Pilot/i });
+  const pilotBtn = page.getByRole('button', { name: /โหลดตัวอย่าง Pilot ครบ 4 กีฬา|Load four-sport pilot samples/i });
+  if (await pilotBtn.count()) {
     await expect(pilotBtn).toBeEnabled();
     await pilotBtn.click();
     await expect(page.getByText(/เพิ่มโปรเจกต์ตัวอย่าง|Added.*samples/i)).toBeVisible({ timeout: 3_000 }).catch(() => {});
@@ -28,23 +20,19 @@ async function enableWorkstation(page: import('@playwright/test').Page, language
   await expect(footballBtn).toBeVisible();
   await footballBtn.click();
   await expect(toggle).toContainText('SPORTSCOUT Pilot - Football');
-  // Wait for workspace dropdown to fully close before interacting with header buttons
+  // Wait for workspace dropdown to fully close before interacting with command bar buttons
   await expect(page.getByText(/คลังโครงการ|Workspace Library/i)).toBeHidden({ timeout: 5_000 });
-  if (language === 'en') {
-    const langToggle = page.getByRole('button', { name: /^EN$/ });
-    await expect(langToggle).toBeVisible({ timeout: 10_000 });
+
+  const langToggle = page.getByRole('button', { name: /สลับภาษา|Toggle language/i });
+  await expect(langToggle).toBeVisible({ timeout: 10_000 });
+  const currentLang = (await langToggle.textContent())?.trim();
+  if (language === 'en' && currentLang === 'TH') {
     await langToggle.click();
+    await expect(langToggle).toHaveText('EN');
+  } else if (language === 'th' && currentLang === 'EN') {
+    await langToggle.click();
+    await expect(langToggle).toHaveText('TH');
   }
-  const settingsBtn = currentHeader.getByRole('button', {
-    name: language === 'th' ? 'ตั้งค่า' : 'Settings',
-    exact: true,
-  });
-  await expect(settingsBtn).toBeVisible({ timeout: 10_000 });
-  await settingsBtn.click();
-  const settingsModal = page.locator('#settings-modal');
-  await expect(settingsModal).toBeVisible();
-  await settingsModal.getByRole('button', { name: 'Workstation Beta', exact: true }).click();
-  await settingsModal.getByRole('button', { name: /ปิดการตั้งค่า|Close settings/i }).click();
 }
 
 async function expectNoInspectorOverflow(
@@ -135,8 +123,46 @@ for (const viewport of [
   });
 }
 
-test('keeps the Classic interface on phone landscape', async ({ page }) => {
-  await page.setViewportSize({ width: 844, height: 390 });
-  await page.goto('/');
-  await expect(page.getByRole('navigation', { name: /Workstation modes/i })).toHaveCount(0);
+test('keeps Workstation accessible and responsive on phone and narrow viewports (<1024px) without Classic switcher', async ({ page }) => {
+  const viewports = [
+    { width: 844, height: 390 },
+    { width: 390, height: 844 },
+    { width: 800, height: 900 },
+  ];
+
+  await page.setViewportSize(viewports[0]);
+  await enableWorkstation(page, 'en');
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await expect(page.locator('header.workstation-topbar')).toBeVisible();
+    await expect(page.locator('header.coach-header')).toHaveCount(0);
+
+    const nav = page.getByRole('navigation', { name: /Workstation modes/i });
+    await expect(nav).toBeVisible();
+    for (const label of ['Scout', 'Review', 'Analyze', 'Report', 'Labs']) {
+      await expect(nav.getByRole('button', { name: label, exact: true })).toBeVisible();
+    }
+
+    const hasHorizontalOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 1,
+    );
+    expect(hasHorizontalOverflow).toBe(false);
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('navigation', { name: /Workstation modes/i }).getByRole('button', { name: 'Labs', exact: true }).click();
+  await expect(page.getByRole('tabpanel', { name: 'Labs' })).toBeVisible();
+  await page.getByRole('navigation', { name: /Workstation modes/i }).getByRole('button', { name: 'Scout', exact: true }).click();
+
+  await page.getByRole('button', { name: /Settings|ตั้งค่า/i }).click();
+  const settingsModal = page.locator('#settings-modal');
+  await expect(settingsModal).toBeVisible();
+  await expect(settingsModal.getByRole('button', { name: 'Classic', exact: true })).toHaveCount(0);
+  await expect(settingsModal.getByRole('button', { name: /Workstation Beta/i })).toHaveCount(0);
+  const modalBox = await settingsModal.boundingBox();
+  expect(modalBox).not.toBeNull();
+  expect((modalBox?.x ?? -1) >= 0).toBe(true);
+  expect((modalBox?.x ?? 0) + (modalBox?.width ?? 0)).toBeLessThanOrEqual(391);
+  await settingsModal.getByRole('button', { name: /Close settings|ปิดการตั้งค่า/i }).click();
 });

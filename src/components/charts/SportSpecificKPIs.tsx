@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { EventRow, Team, MatchInfo, SportType } from '../../types';
+import { Action, EventRow, Team, MatchInfo } from '../../types';
+import { getSportRuleEngine } from '../../sports/rules/registry';
 
 interface SportSpecificKPIsProps {
   events: EventRow[];
@@ -8,6 +9,10 @@ interface SportSpecificKPIsProps {
   teamFilter: 'ALL' | 'teamA' | 'teamB';
   uiLanguage: 'en' | 'th';
 }
+
+type MatchedSkillAction = Action & {
+  resultText: EventRow['resultText'];
+};
 
 export default function SportSpecificKPIs({ events, teams, matchInfo, teamFilter, uiLanguage }: SportSpecificKPIsProps) {
   const sport = matchInfo.sportType;
@@ -24,8 +29,8 @@ export default function SportSpecificKPIs({ events, teams, matchInfo, teamFilter
 
     const data: Array<{ label: string; thLabel: string; value: string; color: string }> = [];
 
-    const getActionsBySkill = (skillList: string[]) => {
-      const matched: any[] = [];
+    const getActionsBySkill = (skillList: string[]): MatchedSkillAction[] => {
+      const matched: MatchedSkillAction[] = [];
       filteredEvents.forEach(ev => {
         ev.actions.forEach(a => {
           if (a.skillCode && skillList.includes(a.skillCode.toUpperCase())) {
@@ -37,19 +42,19 @@ export default function SportSpecificKPIs({ events, teams, matchInfo, teamFilter
     };
 
     if (sport === 'volleyball') {
-      const serves = getActionsBySkill(['SV', 'SRV']);
+      const serves = getActionsBySkill(['SV']);
       const totalServes = serves.length;
       const serveAces = serves.filter(s => s.resultText === '+1').length;
       const serveErrors = serves.filter(s => s.resultText === '-1').length;
       const serveEfficiency = totalServes > 0 ? ((serveAces - serveErrors) / totalServes * 100).toFixed(1) : '0.0';
       
-      const receives = getActionsBySkill(['REC', 'RCV']);
+      const receives = getActionsBySkill(['REC']);
       const totalReceives = receives.length;
       const receiveExcellent = receives.filter(r => r.resultText === '+1').length;
       const receiveErrors = receives.filter(r => r.resultText === '-1').length;
       const receiveEfficiency = totalReceives > 0 ? ((receiveExcellent - receiveErrors) / totalReceives * 100).toFixed(1) : '0.0';
 
-      const attacks = getActionsBySkill(['SPK', 'ATK']);
+      const attacks = getActionsBySkill(['SPK']);
       const attackErrors = attacks.filter(a => a.resultText === '-1').length;
 
       const blocks = getActionsBySkill(['BLK']);
@@ -74,8 +79,19 @@ export default function SportSpecificKPIs({ events, teams, matchInfo, teamFilter
         { label: 'Net Play Winners', thLabel: 'แต้มหน้าเน็ต', value: netSuccess.toString(), color: 'text-teal-600 dark:text-teal-400' }
       );
     } else if (sport === 'basketball') {
+      const basketballEngine = getSportRuleEngine('basketball');
+      const teamCodes: [string, string] = [teamA, teamB];
       const shots = getActionsBySkill(['SHT', 'LAY', '3PT']);
-      const made = shots.filter(s => s.resultText === '+1').length;
+      const made = shots.filter(s => {
+        if (typeof s.scoreDelta === 'number') return s.scoreDelta > 0;
+        if (s.outcomeStatus) return s.outcomeStatus === 'success';
+        const resolved = basketballEngine.resolveAction(s, {
+          sportType: 'basketball',
+          teamCodes,
+          activeTeamCode: s.teamCode,
+        });
+        return resolved.scoreDelta > 0 || resolved.outcomeStatus === 'success';
+      }).length;
       const shotRate = shots.length > 0 ? (made / shots.length * 100).toFixed(1) : '0.0';
 
       const rebounds = getActionsBySkill(['REB']);

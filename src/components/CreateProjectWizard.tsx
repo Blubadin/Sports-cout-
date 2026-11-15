@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { 
-  X, Trophy, Flag, User, Layout, Settings2, Video, Languages, 
-  Palette, Laptop, Info, CheckCircle2, ShieldCheck, Sparkles, AlertCircle
+  X, Trophy, Flag, Layout, Video, 
+  Laptop, CheckCircle2, Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useScoutContext } from '../context/ScoutContext';
 import { COUNTRIES } from '../countries';
 import CustomSelect, { Option } from './ui/CustomSelect';
-import { SportType, Team, AppSettings } from '../types';
+import { SportType, Team, AppSettings, MatchInfo, ScoutProject } from '../types';
 
 interface CreateProjectWizardProps {
   isOpen: boolean;
@@ -16,10 +16,10 @@ interface CreateProjectWizardProps {
   onCreate: (
     title: string, 
     sportType: SportType, 
-    customMatchInfo?: any, 
+    customMatchInfo?: Partial<MatchInfo>, 
     customTeams?: Team[],
     settingsSnapshot?: Partial<AppSettings>,
-    videoMeta?: any
+    videoMeta?: ScoutProject['videoMeta']
   ) => void;
 }
 
@@ -48,15 +48,14 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
   const [courtConfig, setCourtConfig] = useState('standard');
   const [gameFormat, setGameFormat] = useState('standard');
   const [areaPrecision, setAreaPrecision] = useState<'normal' | 'detailed' | 'point'>('normal');
-  const [courtViewMode, setCourtViewMode] = useState<'auto' | 'full' | 'half'>('auto');
+  const courtViewMode: 'auto' | 'full' | 'half' = 'auto';
   const [outOfBounds, setOutOfBounds] = useState<'on' | 'off'>('off');
 
   // Section 4: Video & Workspace
   const [videoSource, setVideoSource] = useState<'youtube' | 'local' | 'none'>('none');
   const [youtubeUrlInput, setYoutubeUrlInput] = useState('');
   const [localFileTitle, setLocalFileTitle] = useState('');
-  const [selectedTheme, setSelectedTheme] = useState<'light' | 'dark' | 'monochrome'>('light');
-  const [selectedLanguage, setSelectedLanguage] = useState<'th' | 'en'>(isThai ? 'th' : 'en');
+  const selectedLanguage: 'th' | 'en' = isThai ? 'th' : 'en';
 
   const courtOptions = React.useMemo(() => {
     switch (sportType) {
@@ -148,11 +147,11 @@ export default function CreateProjectWizard({ isOpen, onClose, onCreate }: Creat
       hudDefaultMode: 'classic',
       hudExperienceMode: 'auto',
       uiLanguage: selectedLanguage,
-      theme: selectedTheme,
-      darkMode: selectedTheme === 'dark' || selectedTheme === 'monochrome'
+      theme: 'light',
+      darkMode: false
     };
 
-    let videoMeta: any = {
+    const videoMeta: NonNullable<ScoutProject['videoMeta']> = {
       sourceType: videoSource,
       youtubeUrl: videoSource === 'youtube' ? youtubeUrlInput : '',
       localFileName: videoSource === 'local' ? (localFileTitle || 'local_video.mp4') : undefined

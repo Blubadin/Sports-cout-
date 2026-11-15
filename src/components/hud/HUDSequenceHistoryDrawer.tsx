@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { EventRow, Action } from "../../types";
 import { useScoutContext } from "../../context/ScoutContext";
+import { useConfirmDialog } from "../../context/ConfirmContext";
 import {
   X,
   Undo2,
@@ -49,7 +50,8 @@ export default function HUDSequenceHistoryDrawer({
   onCopyEvent,
   controllerCommand,
 }: HUDSequenceHistoryDrawerProps) {
-  const { getActionText, sportTemplate, teams, deleteEventRow, settings, videoTime, toggleEventBookmark, showToast } = useScoutContext();
+  const { teams, deleteEventRow, settings, videoTime, toggleEventBookmark, showToast } = useScoutContext();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [activeTab, setActiveTab] = useState<"rally" | "recent" | "bookmarks" | "filter">(
     "rally",
   );
@@ -629,8 +631,19 @@ export default function HUDSequenceHistoryDrawer({
                         {t('history.copy', settings.uiLanguage)}
                       </button>
                       <button
-                        onClick={() => {
-                          if (window.confirm(settings?.uiLanguage === 'th' ? `ต้องการลบซีเควนซ์ที่ ${evt.no} หรือไม่?` : `Do you want to delete sequence #${evt.no}?`)) {
+                        onClick={async () => {
+                          const isThai = settings?.uiLanguage === 'th';
+                          const confirmed = await confirm({
+                            title: isThai ? 'ยืนยันการลบเหตุการณ์' : 'Delete Sequence',
+                            message: isThai
+                              ? `ต้องการลบซีเควนซ์ที่ ${evt.no} หรือไม่?`
+                              : `Do you want to delete sequence #${evt.no}?`,
+                            confirmLabel: isThai ? 'ลบ' : 'Delete',
+                            cancelLabel: isThai ? 'ยกเลิก' : 'Cancel',
+                            tone: 'danger',
+                            language: settings?.uiLanguage || 'th',
+                          });
+                          if (confirmed) {
                             deleteEventRow(evt.id);
                           }
                         }}
@@ -654,6 +667,7 @@ export default function HUDSequenceHistoryDrawer({
           onClose={() => setReplayClipEvent(null)}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { Action, EventRow } from '../../types';
 import {
   createScoutId,
   getValidSportType,
@@ -61,8 +62,9 @@ describe('getValidSportType', () => {
     }
   );
 
-  it('should return fallback for invalid value', () => {
-    expect(getValidSportType('tennis')).toBe('volleyball');
+  it('should return fallback for unsupported or invalid values', () => {
+    expect(getValidSportType('unsupported_sport')).toBe('volleyball');
+    expect(getValidSportType('')).toBe('volleyball');
     expect(getValidSportType(null)).toBe('volleyball');
     expect(getValidSportType(undefined)).toBe('volleyball');
     expect(getValidSportType(42)).toBe('volleyball');
@@ -243,9 +245,9 @@ describe('deriveEventResultText', () => {
 // ═══════════════════════════════════════════════════════════
 describe('sanitizeEvents', () => {
   it('should return empty array for non-array input', () => {
-    expect(sanitizeEvents(null as any)).toEqual([]);
-    expect(sanitizeEvents(undefined as any)).toEqual([]);
-    expect(sanitizeEvents('hello' as any)).toEqual([]);
+    expect(sanitizeEvents(null as unknown as EventRow[])).toEqual([]);
+    expect(sanitizeEvents(undefined as unknown as EventRow[])).toEqual([]);
+    expect(sanitizeEvents('hello' as unknown as EventRow[])).toEqual([]);
   });
 
   it('should sanitize and renumber events', () => {
@@ -420,8 +422,8 @@ describe('buildDataQualityReport', () => {
 
   it('groups data quality issues for coach drill-down without losing event references', () => {
     const events = [
-      createMockEvent({ id: 'duplicate', actions: [] as any, eventText: '' }),
-      createMockEvent({ id: 'duplicate', actions: [] as any, eventText: '' }),
+      createMockEvent({ id: 'duplicate', actions: [] as Action[], eventText: '' }),
+      createMockEvent({ id: 'duplicate', actions: [] as Action[], eventText: '' }),
     ];
     const drilldown = buildDataQualityDrilldown(buildDataQualityReport(events));
 

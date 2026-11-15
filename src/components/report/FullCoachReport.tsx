@@ -1,19 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Trophy, Flag, Shield, Activity, Target, Flame, AlertTriangle, 
-  CheckCircle2, Video, Printer, Eye, BarChart2, TrendingUp, 
-  Lightbulb, Layers, HelpCircle, ArrowRight, UserCheck, ShieldAlert,
+  Activity, Target, Flame, AlertTriangle, 
+  CheckCircle2, Video, Printer, TrendingUp, 
+  Lightbulb, Layers, UserCheck, ShieldAlert,
   Gauge, Crosshair
 } from 'lucide-react';
 import { useScoutContext } from '../../context/ScoutContext';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { EventRow, Team, Action } from '../../types';
+import { EventRow } from '../../types';
 import { SPORT_TEMPLATES } from '../../sports';
 import { formatPreciseTime } from '../../utils';
 import { buildVolleyballPyramidSummary } from '../../volleyball/volleyballPyramid';
 import { buildDataQualityReport } from '../../utils/scoutData';
 import { getSportRuleEngine } from '../../sports/rules/registry';
-import { buildAnalyticsSummary } from '../../utils/analyticsEngine';
 import { loadBadmintonTrackingAnalysis, type TrackingAnalysis } from '../../services/storage/trackingStorage';
 import ReportClipModal from '../ReportClipModal';
 import VolleyballPyramidPanel from '../VolleyballPyramidPanel';
@@ -22,7 +21,8 @@ interface FullCoachReportProps {
   onGoToVideoTime?: (time: number) => void;
 }
 
-export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProps) {
+export default function FullCoachReport(props: FullCoachReportProps) {
+  void props;
   const { 
     events, teams, matchInfo, settings 
   } = useScoutContext();
@@ -73,15 +73,6 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
 
   const teamAScore = matchScores[team1.code] ?? 0;
   const teamBScore = matchScores[team2.code] ?? 0;
-
-  // Canonical Analytics Engine (PDF §13)
-  const analyticsSummary = useMemo(() => {
-    return buildAnalyticsSummary(events, {
-      sportType: matchInfo.sportType,
-      teams,
-      uiLanguage: settings.uiLanguage,
-    });
-  }, [events, matchInfo.sportType, teams, settings.uiLanguage]);
 
   const volleyballPyramidSummary = useMemo(() => {
     return buildVolleyballPyramidSummary(events);
@@ -148,8 +139,8 @@ export default function FullCoachReport({ onGoToVideoTime }: FullCoachReportProp
             zoneCounts[z].total++;
             if (ev.resultText === '+1') zoneCounts[z].kills++;
             if (ev.resultText === '-1') zoneCounts[z].errors++;
-            if (a.skillCode === 'SRV' || a.skillCode?.includes('SERVE')) zoneCounts[z].serves++;
-            if (a.skillCode === 'ATK' || a.skillCode === 'SPK' || a.skillCode?.includes('ATTACK')) zoneCounts[z].attacks++;
+            if (a.skillCode === 'SV') zoneCounts[z].serves++;
+            if (a.skillCode === 'SPK') zoneCounts[z].attacks++;
           }
         }
       });

@@ -36,10 +36,19 @@ function sanitizeProjectCourtCalibration<T extends { videoMeta?: ScoutProject['v
   }
   if (validateCourtCalibration(videoMeta.courtCalibration).valid) return project;
 
-  const { courtCalibration: _invalidCalibration, ...safeVideoMeta } = videoMeta;
+  const safeVideoMeta = { ...videoMeta };
+  delete safeVideoMeta.courtCalibration;
   return { ...project, videoMeta: safeVideoMeta };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * One-time read of legacy `scout_projects` from localStorage for initial IndexedDB migration only.
+ * IndexedDB (`projectRepository`) is the single source of truth for match/project state.
+ */
 function readLegacyProjects(): ScoutProject[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -61,8 +70,8 @@ interface WorkspaceContextType {
     sportType: SportType, 
     initMatchInfo?: Partial<MatchInfo>, 
     initTeams?: Team[],
-    settingsSnapshot?: AppSettings,
-    videoMeta?: any
+    settingsSnapshot?: Partial<AppSettings>,
+    videoMeta?: ScoutProject['videoMeta']
   ) => void;
   openProject: (projectId: string) => void;
   saveCurrentProject: () => Promise<void>;
@@ -70,7 +79,7 @@ interface WorkspaceContextType {
   deleteProject: (projectId: string) => void;
   duplicateProject: (projectId: string) => void;
   renameProject: (projectId: string, newTitle: string) => void;
-  importProject: (project: any) => Promise<boolean>;
+  importProject: (project: unknown) => Promise<boolean>;
   updateProjectLastVideoTime: (time: number) => void;
   updateProjectVideoCalibration: (calibration: CourtCalibration) => void;
   updateProjectAnnotations: (annotations: TelestrationShape[]) => void;
@@ -178,6 +187,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   loadProjectStateRef.current = loadProjectState;
   const latestScoutStateRef = React.useRef({ matchInfo, settings, teams });
   latestScoutStateRef.current = { matchInfo, settings, teams };
+  const mountRecoveryRef = React.useRef({ events, matchInfo, teams, activeProjectId, setActiveProjectId });
+  mountRecoveryRef.current = { events, matchInfo, teams, activeProjectId, setActiveProjectId };
 
   useEffect(() => {
     projectsRef.current = projects;
@@ -229,10 +240,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [markLiveSnapshotCandidateDurable]);
 
-  // IndexedDB becomes the source of truth. The original localStorage value is kept as a recovery backup.
+  // IndexedDB is the single source of truth for match/project state; legacy localStorage is only read once at init.
   useEffect(() => {
     let cancelled = false;
     acceptingProjectOperationsRef.current = true;
+    const operationQueue = projectOperationQueueRef.current;
     const session = createProjectPersistenceSession({
       repository: projectRepository,
       onConflict: () => {
@@ -254,27 +266,28 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
             events: sanitizeEvents(project.events, getValidSportType(project.sportType)),
           }));
 
-        if (initializedProjects.length === 0 && Array.isArray(events) && events.length > 0) {
+        const recovery = mountRecoveryRef.current;
+        if (initializedProjects.length === 0 && Array.isArray(recovery.events) && recovery.events.length > 0) {
           const recoveredId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
           const recoveredProject: ScoutProject = {
             id: recoveredId,
             title: 'Recovered Scout',
-            sportType: matchInfo.sportType,
-            matchInfo,
-            teams,
-            events: sanitizeEvents(events, matchInfo.sportType),
+            sportType: recovery.matchInfo.sportType,
+            matchInfo: recovery.matchInfo,
+            teams: recovery.teams,
+            events: sanitizeEvents(recovery.events, recovery.matchInfo.sportType),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
           initializedProjects = [recoveredProject];
           await session.save(initializedProjects);
-          if (!activeProjectId) setActiveProjectId(recoveredId);
+          if (!recovery.activeProjectId) recovery.setActiveProjectId(recoveredId);
         }
 
         if (cancelled) return;
         projectsRef.current = initializedProjects;
         setProjects(initializedProjects);
-        const projectToOpen = initializedProjects.find(project => project.id === (activeProjectIdRef.current || activeProjectId))
+        const projectToOpen = initializedProjects.find(project => project.id === (activeProjectIdRef.current || recovery.activeProjectId))
           || initializedProjects[0];
         if (projectToOpen) loadProjectStateRef.current(projectToOpen);
         repositoryReadyRef.current = true;
@@ -300,7 +313,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       clearPendingProjectTimers();
       void (async () => {
         try {
-          await projectOperationQueueRef.current.drain().catch(error => {
+          await operationQueue.drain().catch(error => {
             console.error('Failed to drain project operation queue during cleanup:', error);
           });
           const canApplyCleanupSnapshot = cleanupPendingLiveSnapshot
@@ -577,8 +590,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     sportType: SportType, 
     customMatchInfo?: Partial<MatchInfo>, 
     customTeams?: Team[],
-    settingsSnapshot?: AppSettings,
-    videoMeta?: any
+    settingsSnapshot?: Partial<AppSettings>,
+    videoMeta?: ScoutProject['videoMeta']
   ) => {
     if (!repositoryReadyRef.current || !acceptingProjectOperationsRef.current) {
       return false;
@@ -590,8 +603,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       title,
       sportType,
       matchInfo: {
-        scouterName: customMatchInfo?.scouterName ?? matchInfo.scouterName,
-        nickname: customMatchInfo?.nickname ?? matchInfo.nickname,
+        scouterName: customMatchInfo?.scouterName ?? matchInfo.scouterName ?? '',
+        nickname: customMatchInfo?.nickname ?? matchInfo.nickname ?? '',
         matchName: customMatchInfo?.matchName ?? '',
         matchType: customMatchInfo?.matchType ?? 'Team',
         setOrGame: customMatchInfo?.setOrGame ?? '1',
@@ -809,7 +822,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const importProject = async (project: any): Promise<boolean> => {
+  const importProject = async (rawProject: unknown): Promise<boolean> => {
     const reportImportFailure = () => {
       showToast(settings.uiLanguage === 'th'
         ? 'นำเข้าโปรเจกต์ไม่สำเร็จ กรุณาลองอีกครั้ง'
@@ -821,104 +834,127 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
     clearPendingProjectTimers();
-    const importCounts = getImportPayloadCounts(project);
+    const importCounts = getImportPayloadCounts(rawProject);
     if (importCounts.projects > MAX_IMPORT_PROJECTS || importCounts.events > MAX_IMPORT_EVENTS) {
       showToast(settings.uiLanguage === 'th'
         ? `ข้อมูลนำเข้าใหญ่เกินขีดจำกัด (${MAX_IMPORT_PROJECTS} โปรเจกต์ / ${MAX_IMPORT_EVENTS.toLocaleString()} เหตุการณ์)`
         : `Import exceeds the limit of ${MAX_IMPORT_PROJECTS} projects or ${MAX_IMPORT_EVENTS.toLocaleString()} events`);
       return false;
     }
-    
-    if (Array.isArray(project)) {
-      project = {
+
+    let projectCandidate: Record<string, unknown> | null = null;
+    if (Array.isArray(rawProject)) {
+      const firstEvent = isRecord(rawProject[0]) ? rawProject[0] : undefined;
+      const inferredSport = typeof firstEvent?.sportType === 'string'
+        ? firstEvent.sportType
+        : (matchInfo.sportType || 'volleyball');
+      projectCandidate = {
         title: 'Imported Events',
-        sportType: project[0]?.sportType || matchInfo.sportType || 'volleyball',
-        matchInfo: { ...matchInfo, sportType: project[0]?.sportType || matchInfo.sportType || 'volleyball' },
+        sportType: inferredSport,
+        matchInfo: { ...matchInfo, sportType: getValidSportType(inferredSport) },
         teams,
-        events: project
+        events: rawProject,
       };
-    } else if (project?.type === 'events' && Array.isArray(project.events)) {
-      project = {
-        title: project.title || `Imported Events ${new Date().toLocaleDateString()}`,
-        sportType: project.events[0]?.sportType || matchInfo.sportType || 'volleyball',
-        matchInfo: { ...matchInfo, sportType: project.events[0]?.sportType || matchInfo.sportType || 'volleyball' },
-        teams,
-        events: project.events
-      };
-    } else if (project?.type === 'projects' && Array.isArray(project.projects)) {
-      const results = await Promise.all(project.projects.map((p: any) => importProject(p)));
-      return results.some(Boolean);
-    } else if (Array.isArray(project?.indexedDbProjects?.projects)) {
-      const results = await Promise.all(project.indexedDbProjects.projects.map((p: any) => importProject(p)));
-      return results.some(Boolean);
-    } else if (project?.localStorage?.scout_projects) {
-      try {
-        const restoredProjects = JSON.parse(project.localStorage.scout_projects);
-        if (Array.isArray(restoredProjects)) {
-          return await importProject({ type: 'projects', projects: restoredProjects });
+    } else if (isRecord(rawProject)) {
+      if (rawProject.type === 'events' && Array.isArray(rawProject.events)) {
+        const firstEvent = isRecord(rawProject.events[0]) ? rawProject.events[0] : undefined;
+        const inferredSport = typeof firstEvent?.sportType === 'string'
+          ? firstEvent.sportType
+          : (matchInfo.sportType || 'volleyball');
+        projectCandidate = {
+          title: typeof rawProject.title === 'string' ? rawProject.title : `Imported Events ${new Date().toLocaleDateString()}`,
+          sportType: inferredSport,
+          matchInfo: { ...matchInfo, sportType: getValidSportType(inferredSport) },
+          teams,
+          events: rawProject.events,
+        };
+      } else if (rawProject.type === 'projects' && Array.isArray(rawProject.projects)) {
+        const results = await Promise.all(rawProject.projects.map((p: unknown) => importProject(p)));
+        return results.some(Boolean);
+      } else if (isRecord(rawProject.indexedDbProjects) && Array.isArray(rawProject.indexedDbProjects.projects)) {
+        const results = await Promise.all(rawProject.indexedDbProjects.projects.map((p: unknown) => importProject(p)));
+        return results.some(Boolean);
+      } else if (isRecord(rawProject.localStorage) && typeof rawProject.localStorage.scout_projects === 'string') {
+        try {
+          const restoredProjects = JSON.parse(rawProject.localStorage.scout_projects) as unknown;
+          if (Array.isArray(restoredProjects)) {
+            return await importProject({ type: 'projects', projects: restoredProjects });
+          }
+        } catch {
+          reportImportFailure();
+          return false;
         }
-      } catch {
-        reportImportFailure();
-        return false;
+      } else {
+        projectCandidate = { ...rawProject };
       }
     }
 
-    if (!project || typeof project !== 'object' || !Array.isArray(project.events)) {
+    if (!projectCandidate || !Array.isArray(projectCandidate.events)) {
       reportImportFailure();
       return false;
     }
 
-    project.sportType = getValidSportType(project.sportType);
-    project.title = sanitizeUserText(project.title, 160) || 'Imported Project';
+    const sportType = getValidSportType(projectCandidate.sportType);
+    const title = sanitizeUserText(projectCandidate.title, 160) || 'Imported Project';
 
     // Sanitize MatchInfo
-    if (!project.matchInfo || typeof project.matchInfo !== 'object') {
-      project.matchInfo = {
-        scouterName: '',
-        nickname: '',
-        matchName: '',
-        matchType: 'Team',
-        setOrGame: '1',
-        currentPoint: 1,
-        sportType: project.sportType
-      };
-    } else {
-      project.matchInfo = {
-        scouterName: sanitizeUserText(project.matchInfo.scouterName, 120),
-        nickname: sanitizeUserText(project.matchInfo.nickname, 80),
-        matchName: sanitizeUserText(project.matchInfo.matchName, 160),
-        matchType: project.matchInfo.matchType === 'Single' ? 'Single' : 'Team',
-        setOrGame: sanitizeUserText(project.matchInfo.setOrGame, 20) || '1',
-        currentPoint: typeof project.matchInfo.currentPoint === 'number' && Number.isFinite(project.matchInfo.currentPoint)
-          ? Math.max(0, Math.min(100_000, Math.round(project.matchInfo.currentPoint)))
-          : 1,
-        sportType: project.sportType,
-        courtConfig: sanitizeUserText(project.matchInfo.courtConfig, 80) || 'standard',
-        gameFormat: sanitizeUserText(project.matchInfo.gameFormat, 80) || 'standard'
-      };
-    }
+    const rawMatchInfo = isRecord(projectCandidate.matchInfo) ? projectCandidate.matchInfo : null;
+    const normalizedMatchInfo: MatchInfo = rawMatchInfo
+      ? {
+          scouterName: sanitizeUserText(rawMatchInfo.scouterName, 120),
+          nickname: sanitizeUserText(rawMatchInfo.nickname, 80),
+          matchName: sanitizeUserText(rawMatchInfo.matchName, 160),
+          matchType: rawMatchInfo.matchType === 'Single' ? 'Single' : 'Team',
+          setOrGame: sanitizeUserText(rawMatchInfo.setOrGame, 20) || '1',
+          currentPoint: typeof rawMatchInfo.currentPoint === 'number' && Number.isFinite(rawMatchInfo.currentPoint)
+            ? Math.max(0, Math.min(100_000, Math.round(rawMatchInfo.currentPoint)))
+            : 1,
+          sportType,
+          courtConfig: sanitizeUserText(rawMatchInfo.courtConfig, 80) || 'standard',
+          gameFormat: sanitizeUserText(rawMatchInfo.gameFormat, 80) || 'standard',
+        }
+      : {
+          scouterName: '',
+          nickname: '',
+          matchName: '',
+          matchType: 'Team',
+          setOrGame: '1',
+          currentPoint: 1,
+          sportType,
+        };
 
     // Sanitize Teams
-    if (!Array.isArray(project.teams) || project.teams.length < 2) {
-      project.teams = DEFAULT_TEAMS;
-    } else {
-      project.teams = project.teams.map((t: any, index: number) => ({
-        id: sanitizeIdentifier(t.id) || `t${index + 1}`,
-        code: sanitizeIdentifier(t.code, 12).toUpperCase() || `T${index + 1}`,
-        name: sanitizeUserText(t.name, 120) || `Team ${index + 1}`,
-        thaiName: sanitizeUserText(t.thaiName, 120),
-        icon: sanitizeUserText(t.icon, 8),
-        teamType: t.teamType === 'country' || t.teamType === 'club' ? t.teamType : 'country'
-      }));
-    }
+    const normalizedTeams: Team[] = !Array.isArray(projectCandidate.teams) || projectCandidate.teams.length < 2
+      ? DEFAULT_TEAMS
+      : projectCandidate.teams.map((rawTeam: unknown, index: number): Team => {
+          const t = isRecord(rawTeam) ? rawTeam : {};
+          return {
+            id: sanitizeIdentifier(t.id) || `t${index + 1}`,
+            code: sanitizeIdentifier(t.code, 12).toUpperCase() || `T${index + 1}`,
+            name: sanitizeUserText(t.name, 120) || `Team ${index + 1}`,
+            thaiName: sanitizeUserText(t.thaiName, 120),
+            icon: sanitizeUserText(t.icon, 8),
+            teamType: t.teamType === 'country' || t.teamType === 'club' ? t.teamType : 'country',
+          };
+        });
 
-    // Sanitize Event rows
-    project.events = sanitizeEvents(project.events, project.sportType);
-    project = sanitizeProjectCourtCalibration(project);
-
-    // Timestamp safety
-    project.createdAt = typeof project.createdAt === 'string' ? project.createdAt : new Date().toISOString();
-    project.updatedAt = new Date().toISOString();
+    const sanitizedEvents = sanitizeEvents(projectCandidate.events, sportType);
+    const normalizedProject = sanitizeProjectCourtCalibration({
+      ...projectCandidate,
+      sportType,
+      title,
+      matchInfo: normalizedMatchInfo,
+      teams: normalizedTeams,
+      events: sanitizedEvents,
+      videoMeta: isRecord(projectCandidate.videoMeta)
+        ? (projectCandidate.videoMeta as ScoutProject['videoMeta'])
+        : undefined,
+      settingsSnapshot: isRecord(projectCandidate.settingsSnapshot)
+        ? (projectCandidate.settingsSnapshot as AppSettings)
+        : undefined,
+      createdAt: typeof projectCandidate.createdAt === 'string' ? projectCandidate.createdAt : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
 
     try {
       const committed = await enqueueProjectMutation(current => {
@@ -930,7 +966,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           collisionIndex += 1;
           importedId = `${baseId}-${collisionIndex}`;
         }
-        return [...current, { ...project, id: importedId } as ScoutProject];
+        return [...current, { ...normalizedProject, id: importedId } as ScoutProject];
       });
       if (committed) return true;
     } catch (error) {

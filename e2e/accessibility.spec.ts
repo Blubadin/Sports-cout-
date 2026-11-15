@@ -21,13 +21,14 @@ async function openPilotWorkspace(page: import('@playwright/test').Page) {
 test('uses offline Noto typography and preserves native Tab navigation', async ({ page }) => {
   await openPilotWorkspace(page);
 
-  const scoutTab = page.getByRole('tab').nth(0);
-  const dashboardTab = page.getByRole('tab').nth(1);
-  await scoutTab.focus();
+  const nav = page.getByRole('navigation', { name: /Workstation modes/i });
+  const scoutBtn = nav.getByRole('button', { name: 'Scout', exact: true });
+  const reviewBtn = nav.getByRole('button', { name: 'Review', exact: true });
+  await scoutBtn.focus();
   await page.keyboard.press('Tab');
 
-  await expect(dashboardTab).toBeFocused();
-  await expect(scoutTab).toHaveAttribute('aria-selected', 'true');
+  await expect(reviewBtn).toBeFocused();
+  await expect(scoutBtn).toHaveAttribute('aria-current', 'page');
 
   const fontFamily = await page.locator('body').evaluate((element) => getComputedStyle(element).fontFamily);
   expect(fontFamily).toContain('Noto Sans Thai');
@@ -36,19 +37,24 @@ test('uses offline Noto typography and preserves native Tab navigation', async (
 test('switches analysis views with scoped Ctrl+Tab and arrow keys', async ({ page }) => {
   await openPilotWorkspace(page);
 
-  const analysisTablist = page.getByRole('tablist', { name: /Analysis views|มุมมองการวิเคราะห์/i });
-  const tabs = analysisTablist.getByRole('tab');
+  const nav = page.getByRole('navigation', { name: /Workstation modes/i });
+  await nav.getByRole('button', { name: 'Review', exact: true }).click();
+
+  const reviewTablist = page.getByRole('tablist', { name: /Review views|มุมมองทบทวน/i });
+  const tabs = reviewTablist.getByRole('tab');
   await tabs.nth(0).focus();
   await page.keyboard.press('Control+Tab');
   await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
   await expect(tabs.nth(1)).toBeFocused();
 
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  const labsTab = analysisTablist.getByRole('tab', { name: 'Labs', exact: true });
-  await expect(labsTab).toHaveAttribute('aria-selected', 'true', { timeout: 10_000 });
-  await expect(labsTab).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(tabs.nth(0)).toBeFocused();
+
+  const labsBtn = nav.getByRole('button', { name: 'Labs', exact: true });
+  await labsBtn.click();
+  await expect(labsBtn).toHaveAttribute('aria-current', 'page', { timeout: 10_000 });
+  await expect(page.getByRole('tabpanel', { name: 'Labs' })).toBeVisible();
 });
 
 test('keeps primary navigation usable at 200% browser zoom', async ({ page }) => {
@@ -58,13 +64,13 @@ test('keeps primary navigation usable at 200% browser zoom', async ({ page }) =>
     document.documentElement.style.zoom = '2';
   });
 
-  const tabs = page.getByRole('tab');
-  await expect(tabs.nth(0)).toBeVisible();
-  await tabs.nth(0).focus();
+  const navButtons = page.getByRole('navigation', { name: /Workstation modes/i }).getByRole('button');
+  await expect(navButtons.nth(0)).toBeVisible();
+  await navButtons.nth(0).focus();
   await page.keyboard.press('Tab');
-  await expect(tabs.nth(1)).toBeFocused();
+  await expect(navButtons.nth(1)).toBeFocused();
 
-  const minimumImportantFontSize = await tabs.evaluateAll((elements) => Math.min(
+  const minimumImportantFontSize = await navButtons.evaluateAll((elements) => Math.min(
     ...elements.map((element) => Number.parseFloat(getComputedStyle(element).fontSize)),
   ));
   expect(minimumImportantFontSize).toBeGreaterThanOrEqual(12);

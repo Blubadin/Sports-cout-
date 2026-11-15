@@ -9,33 +9,26 @@ import {
 } from '../../workstation/workstationModel';
 
 describe('workstation model', () => {
-  it('keeps Classic as the default even when Workstation is available', () => {
+  it('always resolves to workstation mode regardless of viewport width or legacy flag inputs', () => {
     expect(resolveWorkspaceExperience({
       featureEnabled: true,
       preferredExperience: undefined,
-      viewportWidth: 1440,
-    })).toBe('classic');
-  });
-
-  it('opens Workstation only when the feature and desktop viewport allow it', () => {
-    expect(resolveWorkspaceExperience({
-      featureEnabled: true,
-      preferredExperience: 'workstation',
       viewportWidth: 1440,
     })).toBe('workstation');
     expect(resolveWorkspaceExperience({
       featureEnabled: false,
       preferredExperience: 'workstation',
       viewportWidth: 1440,
-    })).toBe('classic');
-  });
-
-  it('preserves the phone workflow below the Workstation breakpoint', () => {
+    })).toBe('workstation');
     expect(resolveWorkspaceExperience({
       featureEnabled: true,
       preferredExperience: 'workstation',
       viewportWidth: 900,
-    })).toBe('classic');
+    })).toBe('workstation');
+    expect(resolveWorkspaceExperience({
+      viewportWidth: 390,
+    })).toBe('workstation');
+    expect(resolveWorkspaceExperience()).toBe('workstation');
   });
 
   it.each([
@@ -43,6 +36,7 @@ describe('workstation model', () => {
     ['review', 'table'],
     ['analysis', 'dashboard'],
     ['report', 'report'],
+    ['lab', 'labs'],
   ] as const)('maps the %s preset to the %s analysis view', (preset, tab) => {
     expect(getAnalysisTabForPreset(preset)).toBe(tab);
     expect(getPresetForAnalysisTab(tab)).toBe(preset);
@@ -55,6 +49,7 @@ describe('workstation model', () => {
     expect(isReviewTab('input')).toBe(false);
     expect(isReviewTab('dashboard')).toBe(false);
     expect(isReviewTab('report')).toBe(false);
+    expect(isReviewTab('labs')).toBe(false);
   });
 
   it('formats finite video time and safely falls back for invalid player progress', () => {

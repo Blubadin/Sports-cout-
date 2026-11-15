@@ -19,7 +19,7 @@ async function openSportHud(page: import('@playwright/test').Page, sportName: st
   await page.getByRole('button', { name: 'YouTube', exact: true }).click();
   await page.getByPlaceholder('YouTube URL...').fill('https://www.youtube.com/watch?v=kejGdB0Y2c4');
   await page.getByRole('button', { name: 'Load', exact: true }).click();
-  await page.getByRole('button', { name: 'HUD Mode', exact: true }).click();
+  await page.getByRole('button', { name: /โหมด HUD|HUD Mode/i }).click();
 }
 
 const sportCases = [

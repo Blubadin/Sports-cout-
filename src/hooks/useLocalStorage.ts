@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 
-function safeMerge<T>(initial: T, parsed: any): T {
-  if (initial === null || initial === undefined) return parsed;
+function safeMerge<T>(initial: T, parsed: unknown): T {
+  if (initial === null || initial === undefined) return parsed as T;
   if (parsed === null || parsed === undefined) return initial;
 
   if (Array.isArray(initial)) {
@@ -21,15 +21,17 @@ function safeMerge<T>(initial: T, parsed: any): T {
   if (typeof initial === "object") {
     if (typeof parsed !== "object" || Array.isArray(parsed)) return initial;
 
-    const result = { ...initial } as Record<string, unknown>;
-    for (const key of Object.keys(initial as Record<string, unknown>)) {
-      const val = parsed[key];
+    const parsedRecord = parsed as Record<string, unknown>;
+    const initialRecord = initial as Record<string, unknown>;
+    const result: Record<string, unknown> = { ...initialRecord };
+    for (const key of Object.keys(initialRecord)) {
+      const val = parsedRecord[key];
       if (val === null || val === undefined) {
         // Keep initial default value for null/undefined properties
         continue;
       }
 
-      const expectedType = typeof (initial as Record<string, unknown>)[key];
+      const expectedType = typeof initialRecord[key];
       const actualType = typeof val;
 
       if (expectedType !== "undefined" && actualType !== expectedType) {
@@ -37,8 +39,8 @@ function safeMerge<T>(initial: T, parsed: any): T {
         continue;
       }
 
-      if (expectedType === "object" && (initial as Record<string, unknown>)[key] !== null) {
-        result[key] = safeMerge((initial as Record<string, unknown>)[key], val);
+      if (expectedType === "object" && initialRecord[key] !== null) {
+        result[key] = safeMerge(initialRecord[key], val);
       } else {
         result[key] = val;
       }
@@ -50,7 +52,7 @@ function safeMerge<T>(initial: T, parsed: any): T {
     return initial;
   }
 
-  return parsed;
+  return parsed as T;
 }
 
 export function useLocalStorage<T>(key: string, initialValue: T) {
@@ -64,7 +66,7 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
         return initialValue;
       }
 
-      let parsed: any;
+      let parsed: unknown;
       try {
         parsed = JSON.parse(item);
       } catch (parseErr) {
@@ -74,7 +76,9 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
         );
         try {
           window.localStorage.removeItem(key);
-        } catch (e) {}
+        } catch {
+          // Ignore storage removal errors
+        }
         return initialValue;
       }
 

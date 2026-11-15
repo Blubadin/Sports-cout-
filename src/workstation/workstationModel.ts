@@ -10,13 +10,13 @@ export function isReviewTab(tab: WorkstationAnalysisTab): tab is WorkstationRevi
   return REVIEW_TABS.includes(tab as WorkstationReviewTab);
 }
 
-export function resolveWorkspaceExperience(_options: {
-  featureEnabled: boolean;
-  preferredExperience?: WorkspaceExperience;
-  viewportWidth: number;
-}): WorkspaceExperience {
-  if (!_options.featureEnabled || _options.viewportWidth < 1024) return 'classic';
-  return _options.preferredExperience === 'workstation' ? 'workstation' : 'classic';
+export function resolveWorkspaceExperience(options: {
+  featureEnabled?: boolean;
+  preferredExperience?: WorkspaceExperience | string;
+  viewportWidth?: number;
+} = {}): WorkspaceExperience {
+  void options;
+  return 'workstation';
 }
 
 const PRESET_TO_TAB: Record<WorkbenchPresetId, WorkstationAnalysisTab> = {

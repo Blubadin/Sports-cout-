@@ -13,9 +13,10 @@ import {
   EyeOff,
 } from "lucide-react";
 import { formatPreciseTime } from "../../utils";
+import type { SportType } from "../../types";
 
 interface Props {
-  videoControls: any;
+  videoControls: { getCurrentTime: () => number };
   onClose: () => void;
   isFullscreen: boolean;
   toggleFullscreen: () => void;
@@ -68,7 +69,7 @@ export default function HUDTopStatsBar({
     : "-";
 
   const [showSportSelector, setShowSportSelector] = React.useState(false);
-  const sportsList = [
+  const sportsList: Array<{ id: SportType; code: string; label: string; bg: string }> = [
     {
       id: "volleyball",
       code: "VOLL",
@@ -114,7 +115,7 @@ export default function HUDTopStatsBar({
                 <button
                   key={sport.id}
                   onClick={() => {
-                    changeSportType(sport.id as any);
+                    changeSportType(sport.id);
                     setShowSportSelector(false);
                   }}
                   className={`w-full text-left px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center justify-between ${

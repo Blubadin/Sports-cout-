@@ -15,7 +15,7 @@ export type AreaRequirement = "always" | "optional" | "never" | "optionalWhenOut
 
 export type AreaPrecisionMode = 'normal' | 'detailed' | 'point';
 export type AreaCourtViewMode = 'auto' | 'full' | 'half';
-export type WorkspaceExperience = 'classic' | 'workstation';
+export type WorkspaceExperience = 'workstation';
 
 export type OutZoneType =
   | 'side_left_near'

@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_INTERFACE_MODE, FEATURE_FLAGS, resolveFeatureFlags } from '../featureFlags';
+import { resolveFeatureFlags } from '../featureFlags';
 
 describe('pilot feature flags', () => {
-  it('keeps Classic as default when VITE_ENABLE_WORKSTATION is unconfigured', () => {
-    expect(DEFAULT_INTERFACE_MODE).toBe('classic');
-    expect(resolveFeatureFlags({}).workstation).toBe(false);
+  it('enables Workstation by default when VITE_ENABLE_WORKSTATION is unconfigured', () => {
+    expect(resolveFeatureFlags({}).workstation).toBe(true);
   });
 
-  it('can opt into Workstation explicitly without changing the default', () => {
+  it('allows explicit disable only via VITE_ENABLE_WORKSTATION=false', () => {
     expect(resolveFeatureFlags({ VITE_ENABLE_WORKSTATION: 'true' }).workstation).toBe(true);
     expect(resolveFeatureFlags({ VITE_ENABLE_WORKSTATION: 'false' }).workstation).toBe(false);
+    expect(resolveFeatureFlags({ VITE_ENABLE_WORKSTATION: 'false ' }).workstation).toBe(false);
   });
 
   it('handles whitespace resilience in environment flags', () => {
     expect(resolveFeatureFlags({ VITE_ENABLE_WORKSTATION: 'true ' }).workstation).toBe(true);
     expect(resolveFeatureFlags({ VITE_ENABLE_WORKSTATION: ' true\n' }).workstation).toBe(true);
+    expect(resolveFeatureFlags({ VITE_ENABLE_FOOTBALL_PICCO: ' true ' }).footballPicco).toBe(true);
   });
 });

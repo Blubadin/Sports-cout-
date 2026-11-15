@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useScoutContext } from '../context/ScoutContext';
-import { EventRow } from '../types';
+import { useConfirmDialog } from '../context/ConfirmContext';
+import { AppSettings, EventRow } from '../types';
 import { formatPreciseTime as formatTime } from '../utils';
 import {
   ChevronLeft,
@@ -30,7 +31,6 @@ import {
   createEventsExport,
 } from '../utils/scoutData';
 import {
-  applyEventQuery,
   getCachedEventQuery,
   getEventQueryOptions,
   getEventTimestamp,
@@ -94,8 +94,7 @@ function ResultSelect({ value, onChange }: { value: string, onChange: (v: string
 
 interface ScoutingTableRowProps {
   row: EventRow;
-  index: number;
-  settings: any;
+  settings: AppSettings;
   copiedId: string | null;
   handleNoteChange: (id: string, field: 'point' | 'note', value: number | string) => void;
   handleResultTextChange: (id: string, newResultText: '+1' | '-1' | '0') => void;
@@ -105,13 +104,11 @@ interface ScoutingTableRowProps {
   toggleBookmark: (row: EventRow) => void;
   copyToClipboard: (text: string, id: string) => void;
   duplicateRow: (row: EventRow) => void;
-  deleteEventRow: (id: string) => void;
-  showToast: (msg: string) => void;
+  onRequestDeleteRow: (row: EventRow) => void;
 }
 
 const ScoutingTableRow = React.memo(({
   row,
-  index,
   settings,
   copiedId,
   handleNoteChange,
@@ -122,8 +119,7 @@ const ScoutingTableRow = React.memo(({
   toggleBookmark,
   copyToClipboard,
   duplicateRow,
-  deleteEventRow,
-  showToast
+  onRequestDeleteRow,
 }: ScoutingTableRowProps) => {
   return (
     <tr 
@@ -241,13 +237,7 @@ const ScoutingTableRow = React.memo(({
             <Copy size={15} className="opacity-60" />
           </button>
           <button 
-            onClick={() => {
-              const confirmDelete = window.confirm(settings.uiLanguage === 'th' ? 'ต้องการลบรายการนี้ใช่หรือไม่? การกระทำนี้สามารถ Undo ได้' : 'Delete this event? You can undo this action.');
-              if (confirmDelete) {
-                deleteEventRow(row.id);
-                showToast(settings.uiLanguage === 'th' ? `ลบซีเควนซ์ที่ ${row.no} เรียบร้อยแล้ว` : `Sequence #${row.no} has been deleted`);
-              }
-            }} 
+            onClick={() => onRequestDeleteRow(row)} 
             className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-all cursor-pointer" 
             title={settings.uiLanguage === 'th' ? 'ลบซีเควนซ์' : 'Delete Sequence'}
           >
@@ -332,7 +322,25 @@ export default function ScoutingTable() {
     redoEventAction,
     toggleEventBookmark,
   } = useScoutContext();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const requestDeleteRow = React.useCallback(async (row: EventRow) => {
+    const isThai = settings.uiLanguage === 'th';
+    const confirmed = await confirm({
+      title: isThai ? 'ยืนยันการลบเหตุการณ์' : 'Delete Event',
+      message: isThai
+        ? 'ต้องการลบรายการนี้ใช่หรือไม่? การกระทำนี้สามารถ Undo ได้'
+        : 'Delete this event? You can undo this action.',
+      confirmLabel: isThai ? 'ลบ' : 'Delete',
+      cancelLabel: isThai ? 'ยกเลิก' : 'Cancel',
+      tone: 'danger',
+      language: settings.uiLanguage,
+    });
+    if (confirmed) {
+      deleteEventRow(row.id);
+      showToast(isThai ? `ลบซีเควนซ์ที่ ${row.no} เรียบร้อยแล้ว` : `Sequence #${row.no} has been deleted`);
+    }
+  }, [confirm, deleteEventRow, settings.uiLanguage, showToast]);
   const [query, setQuery] = useState<EventQuery>(INITIAL_EVENT_QUERY);
   const [page, setPage] = useState(1);
   const deferredSearch = React.useDeferredValue(query.search);
@@ -644,7 +652,6 @@ export default function ScoutingTable() {
                 <ScoutingTableRow 
                   key={`${row.id}-${index}`}
                   row={row}
-                  index={index}
                   settings={settings}
                   copiedId={copiedId}
                   handleNoteChange={handleNoteChange}
@@ -655,8 +662,7 @@ export default function ScoutingTable() {
                   toggleBookmark={toggleBookmark}
                   copyToClipboard={copyToClipboard}
                   duplicateRow={duplicateRow}
-                  deleteEventRow={deleteEventRow}
-                  showToast={showToast}
+                  onRequestDeleteRow={(targetRow) => void requestDeleteRow(targetRow)}
                 />
               ))}
               {filteredEvents.length === 0 && (
@@ -735,13 +741,7 @@ export default function ScoutingTable() {
                     {copiedId === `mob-th-${row.id}` ? <CopyCheck size={16} className="text-green-500" /> : <Type size={16} />}
                   </button>
                   <button 
-                    onClick={() => {
-                      const confirmDelete = window.confirm(settings.uiLanguage === 'th' ? 'ต้องการลบรายการนี้ใช่หรือไม่? การกระทำนี้สามารถ Undo ได้' : 'Delete this event? You can undo this action.');
-                      if (confirmDelete) {
-                        deleteEventRow(row.id);
-                        showToast(settings.uiLanguage === 'th' ? `ลบซีเควนซ์ที่ ${row.no} เรียบร้อยแล้ว` : `Sequence #${row.no} has been deleted`);
-                      }
-                    }} 
+                    onClick={() => void requestDeleteRow(row)} 
                     className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-all cursor-pointer" 
                     title={settings.uiLanguage === 'th' ? 'ลบซีเควนซ์' : 'Delete'}
                   >
@@ -874,6 +874,7 @@ export default function ScoutingTable() {
           event={editingEvent}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { AppSettings, Team, AreaSelectionPayload } from "../types";
+import { AppSettings, Team, AreaSelectionPayload, type Action, type FoulOption, type SportTemplate } from "../types";
+import type { HUDDeviceLayout } from "./useHUDDeviceLayout";
 import type { HudCommandMenu } from "../utils/hudCommandBindings";
 import {
   getHudMenuForKeyboardCode,
@@ -27,14 +28,14 @@ interface UseProHUDMarkingControllerProps {
   settings: AppSettings;
   teams: Team[];
   selectedSkill: string | null;
-  updateActionField: (field: string, value: any, extraId?: any) => void;
+  updateActionField: (field: keyof Action, value: unknown, descriptorGroupId?: string) => void;
   commitSkillSelection: (payload: { skillCode: string; descriptorGroupId?: string; descriptorCode?: string }) => void;
   commitResult: (resultCode: string, fastMode?: boolean, resultDetailCode?: string) => void;
   onCloseHUD: () => void;
-  layout: any;
+  layout: HUDDeviceLayout;
   selectArea?: (payload: AreaSelectionPayload) => void;
-  selectFoul?: (foul: any) => void;
-  sportTemplate?: any;
+  selectFoul?: (foul: FoulOption) => void;
+  sportTemplate?: SportTemplate;
 }
 
 export function useProHUDMarkingController({
@@ -185,7 +186,7 @@ export function useProHUDMarkingController({
     (
       type: "skill" | "descriptor" | "area" | "result" | "team",
       value: string,
-      extra?: any,
+      extra?: { groupId?: string; courtSide?: string },
     ) => {
       switch (type) {
         case "skill":
@@ -353,7 +354,7 @@ export function useProHUDMarkingController({
       } else if (menu === "foul") {
         const hFoul = hoveredFoulRef.current;
         if (hFoul) {
-          const foulDef = sportTemplate?.fouls?.find((f: any) => f.code === hFoul);
+          const foulDef = sportTemplate?.fouls?.find((f: FoulOption) => f.code === hFoul);
           if (foulDef && typeof selectFoul === 'function') {
              selectFoul(foulDef);
           } else if (typeof updateActionField === 'function') {
@@ -488,6 +489,7 @@ export function useProHUDMarkingController({
       settings.areaAutoSelectOnArrow,
       selectArea,
       setHoveredArea,
+      updateActionField,
     ],
   );
 

@@ -1,10 +1,10 @@
 import React from 'react';
 import { useScoutContext } from '../context/ScoutContext';
-import { SportType } from '../types';
+import { AreaPrecisionMode, SportType } from '../types';
 import { SPORT_TEMPLATES } from '../sports';
 import { 
-  X, Save, Trash2, Download, Upload, Settings, RefreshCw, Gamepad2, ShieldCheck,
-  Sliders, Users, Layout, Video, Database, Check, Sun, Moon, Contrast
+  X, Save, Trash2, Settings, RefreshCw, Gamepad2, ShieldCheck,
+  Sliders, Users, Video, Database, Sun, Moon, Contrast
 } from 'lucide-react';
 import CustomSelect, { Option } from './ui/CustomSelect';
 import { t, SupportedLanguage } from '../i18n';
@@ -14,7 +14,6 @@ import { useWorkspace } from '../context/WorkspaceContext';
 import { createPilotDiagnosticReport } from '../utils/pilotDiagnostics';
 import { sanitizeFileName } from '../utils/security';
 import { SPORTSCOUT_APP_VERSION, SPORTSCOUT_CREATOR } from '../appMetadata';
-import { FEATURE_FLAGS } from '../featureFlags';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -84,7 +83,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     subLabel: t.thaiName
   }));
 
-  const tabs: { id: SettingsCategory; labelTh: string; labelEn: string; icon: any }[] = [
+  const tabs: { id: SettingsCategory; labelTh: string; labelEn: string; icon: React.ElementType }[] = [
     { id: 'general', labelTh: 'ทั่วไป & ธีม', labelEn: 'General', icon: Sliders },
     { id: 'scouting', labelTh: 'การสเกาต์ & สนาม', labelEn: 'Scouting', icon: Users },
     { id: 'video', labelTh: 'วิดีโอ & ไทม์ไลน์', labelEn: 'Video', icon: Video },
@@ -231,45 +230,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         </div>
                       </div>
                     </section>
-
-                    {/* Workspace Experience */}
-                    {FEATURE_FLAGS.workstation && (
-                      <section className="border border-sky-200 bg-sky-50/70 p-4 rounded-xl dark:border-sky-900/70 dark:bg-sky-950/20">
-                        <div className="mb-3 flex items-start justify-between gap-4">
-                          <div>
-                            <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                              {isThai ? 'รูปแบบพื้นที่ทำงาน' : 'Workspace experience'}
-                            </h3>
-                            <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-                              {isThai
-                                ? 'Classic ใช้หน้าตาเดิม ส่วน Workstation Beta จัดวิดีโอ คำสั่ง และข้อมูลสำหรับเดสก์ท็อป'
-                                : 'Classic keeps standard layout. Workstation Beta provides dense layout for analysis.'}
-                            </p>
-                          </div>
-                          <span className="shrink-0 border border-sky-300 px-2 py-1 text-xs font-bold text-sky-700 dark:border-sky-800 dark:text-sky-300 rounded">Beta</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setSettings(current => ({ ...current, workspaceExperience: 'classic' }))}
-                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-colors ${(settings.workspaceExperience || 'classic') === 'classic'
-                              ? 'bg-sky-600 text-white shadow-sm'
-                              : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700'}`}
-                          >
-                            Classic
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSettings(current => ({ ...current, workspaceExperience: 'workstation' }))}
-                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-colors ${settings.workspaceExperience === 'workstation'
-                              ? 'bg-sky-600 text-white shadow-sm'
-                              : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700'}`}
-                          >
-                            Workstation Beta
-                          </button>
-                        </div>
-                      </section>
-                    )}
                   </div>
                 </div>
               )}
@@ -399,7 +359,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         </div>
                         <select 
                           value={settings.areaPrecisionMode || 'normal'} 
-                          onChange={e => setSettings(p => ({...p, areaPrecisionMode: e.target.value as any}))}
+                          onChange={e => setSettings(p => ({...p, areaPrecisionMode: e.target.value as AreaPrecisionMode}))}
                           className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1 text-xs font-bold text-gray-800 dark:text-gray-200 cursor-pointer"
                         >
                           <option value="normal">{isThai ? 'ปกติ (Normal Zone)' : 'Normal Zone'}</option>

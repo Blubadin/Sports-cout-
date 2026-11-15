@@ -2,10 +2,13 @@ import { expect, test } from '@playwright/test';
 
 async function openTrackingLab(page: import('@playwright/test').Page) {
   await page.goto('/');
-  await expect(page.locator('header.coach-header').filter({ visible: true })).toBeVisible();
+  await expect(page.locator('header.workstation-topbar').filter({ visible: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('header.coach-header')).toHaveCount(0);
   await page.getByRole('button', { name: /Draft/ }).click();
-  await page.getByRole('tab', { name: 'Labs', exact: true }).click();
-  return page.getByRole('tabpanel', { name: 'Labs' }).getByRole('status');
+  await page.getByRole('navigation', { name: 'Workstation modes' }).getByRole('button', { name: 'Labs', exact: true }).click();
+  const status = page.getByRole('tabpanel', { name: 'Labs' }).getByRole('status');
+  await expect(status).toBeVisible({ timeout: 15_000 });
+  return status;
 }
 
 test('Tracking Lab shows connected when the protected capability probe succeeds', async ({ page }) => {

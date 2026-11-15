@@ -28,16 +28,16 @@ export default function WorkstationInspector() {
   const area = sportTemplate?.areas?.find(item => item.code === safeAction.areaCode);
 
   const fields = [
-    { label: language === 'th' ? 'ทีม' : 'Team', value: team?.code || currentAction.teamCode },
-    { label: language === 'th' ? 'ทักษะ' : 'Skill', value: skill?.code || currentAction.skillCode },
+    { label: language === 'th' ? 'ทีม' : 'Team', value: team?.code || safeAction.teamCode },
+    { label: language === 'th' ? 'ทักษะ' : 'Skill', value: skill?.code || safeAction.skillCode },
     {
       label: language === 'th' ? 'พื้นที่' : 'Area',
-      value: currentAction.areaLabel || currentAction.outZone || area?.code || currentAction.areaCode,
+      value: safeAction.areaLabel || safeAction.outZone || area?.code || safeAction.areaCode,
     },
-    { label: language === 'th' ? 'ผลลัพธ์' : 'Result', value: result?.code || currentAction.resultCode },
+    { label: language === 'th' ? 'ผลลัพธ์' : 'Result', value: result?.code || safeAction.resultCode },
     {
       label: language === 'th' ? 'ผู้เล่น' : 'Player',
-      value: [currentAction.playerNumber, currentAction.playerName].filter(Boolean).join(' '),
+      value: [safeAction.playerNumber, safeAction.playerName].filter(Boolean).join(' '),
     },
   ];
 

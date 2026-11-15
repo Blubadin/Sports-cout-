@@ -4,7 +4,7 @@ for (const language of ['th', 'en'] as const) {
   test(`Lab starts Auto Court without manual corners (${language}, keyboard, reduced motion)`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.addInitScript((language) => {
-      localStorage.setItem('scout_settings', JSON.stringify({ uiLanguage: language, theme: 'dark', workspaceExperience: 'classic' }));
+      localStorage.setItem('scout_settings', JSON.stringify({ uiLanguage: language, theme: 'dark', workspaceExperience: 'workstation' }));
       localStorage.setItem('scout_match_info', JSON.stringify({ sportType: 'badminton' }));
     }, language);
     const created: any[] = [];
@@ -31,7 +31,7 @@ for (const language of ['th', 'en'] as const) {
     await page.goto('/');
     await page.getByRole('button', { name: /Draft/ }).click();
     await page.getByRole('button', { name: /Save project now|บันทึกโปรเจกต์ตอนนี้/ }).click();
-    await page.getByRole('tab', { name: 'Labs', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Workstation modes' }).getByRole('button', { name: 'Labs', exact: true }).click();
     const lab = page.getByRole('tabpanel', { name: 'Labs' });
     await lab.getByLabel('Select video file').setInputFiles({ name: 'browser-fixture.mp4', mimeType: 'video/mp4', buffer: Buffer.from('fixture bytes; decoder is mocked at API boundary') });
     const auto = lab.getByRole('checkbox', { name: language === 'th' ? 'ตรวจจับสนามอัตโนมัติ' : 'Automatic court calibration' });

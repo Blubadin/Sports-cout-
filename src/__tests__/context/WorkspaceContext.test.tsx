@@ -93,7 +93,7 @@ function interceptProjectAutosaveTimers() {
   let nextTimerId = 100_000;
 
   const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(
-    ((handler: TimerHandler, timeout?: number, ...args: any[]) => {
+    ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
       if (timeout === 250 && typeof handler === "function") {
         const timerId = nextTimerId;
         nextTimerId += 1;
@@ -134,7 +134,7 @@ function interceptProjectSnapshotTimers() {
   let scheduledCount = 0;
 
   const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(
-    ((handler: TimerHandler, timeout?: number, ...args: any[]) => {
+    ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
       if (timeout === 800 && typeof handler === "function") {
         const timerId = nextTimerId;
         nextTimerId += 1;
@@ -1408,6 +1408,7 @@ describe("WorkspaceProvider persistence integration", () => {
       imported = await workspace?.importProject(createProject("too-early"));
     });
     expect(imported).toBe(false);
+    rendered.unmount();
   });
 
   it("returns false without committing an import when persistence rejects", async () => {

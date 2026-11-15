@@ -1,15 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useScoutContext } from '../context/ScoutContext';
-import { Folder, Plus, Save, ChevronDown, Trash2, Copy, Edit2, Download, Upload, X } from 'lucide-react';
+import { useConfirmDialog } from '../context/ConfirmContext';
+import { Folder, Plus, Save, ChevronDown, Trash2, Copy, Edit2, Download, Upload } from 'lucide-react';
 import { classNames } from '../utils';
-import { ScoutProject, SportType } from '../types';
+import { AppSettings, MatchInfo, ScoutProject, SportType, Team } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import CreateProjectWizard from './CreateProjectWizard';
-import CustomSelect from './ui/CustomSelect';
-import { SPORT_TEMPLATES } from '../sports';
 import { createProjectsExport } from '../utils/scoutData';
-import { MAX_IMPORT_FILE_BYTES, validateImportFileSize } from '../utils/importSafety';
+import { importProjectJsonFile } from '../utils/projectImport';
 
 export default function WorkspaceMenu() {
   const {
@@ -26,10 +25,10 @@ export default function WorkspaceMenu() {
     renameProject,
     importProject,
   } = useWorkspace();
-  const { matchInfo, showToast, settings } = useScoutContext();
+  const { showToast, settings } = useScoutContext();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [isOpen, setIsOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedSport, setSelectedSport] = useState<SportType>(matchInfo.sportType || 'volleyball');
   const [isRenamingId, setIsRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -41,8 +40,17 @@ export default function WorkspaceMenu() {
         setIsOpen(false);
       }
     }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const activeProject = projects.find(p => p.id === activeProjectId);
@@ -53,27 +61,20 @@ export default function WorkspaceMenu() {
     ? `${saveLabel} ${new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : saveLabel;
 
-  const sportOptions = Object.values(SPORT_TEMPLATES).map(t => ({
-    value: t.id,
-    label: t.name,
-    subLabel: t.thaiName
-  }));
-
   const openCreateModal = () => {
-    setSelectedSport(matchInfo.sportType || 'volleyball');
     setIsCreateModalOpen(true);
     setIsOpen(false);
   };
 
   const handleWizardCreate = (
-    title: string, 
-    sportType: any, 
-    matchInfo: any, 
-    teams: any,
-    settingsSnapshot?: any,
-    videoMeta?: any
+    title: string,
+    sportType: SportType,
+    nextMatchInfo: Partial<MatchInfo>,
+    nextTeams: Team[],
+    settingsSnapshot?: Partial<AppSettings>,
+    videoMeta?: ScoutProject['videoMeta']
   ) => {
-    createNewProject(title, sportType, matchInfo, teams, settingsSnapshot, videoMeta);
+    createNewProject(title, sportType, nextMatchInfo, nextTeams, settingsSnapshot, videoMeta);
     setIsCreateModalOpen(false);
   };
 
@@ -106,36 +107,33 @@ export default function WorkspaceMenu() {
     document.body.removeChild(dlAnchorElem);
   };
 
-  const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (!validateImportFileSize(file.size)) {
-      showToast(settings.uiLanguage === 'th'
-        ? `ไฟล์ใหญ่เกินไป ต้องไม่เกิน ${MAX_IMPORT_FILE_BYTES / 1024 / 1024} MB`
-        : `Import file must be ${MAX_IMPORT_FILE_BYTES / 1024 / 1024} MB or smaller`);
-      event.target.value = '';
-      return;
+    await importProjectJsonFile({
+      file,
+      uiLanguage: settings.uiLanguage,
+      importProject,
+      showToast,
+    });
+    event.target.value = '';
+  };
+
+  const handleRequestDeleteProject = async (proj: ScoutProject) => {
+    const isThai = settings.uiLanguage === 'th';
+    const confirmed = await confirm({
+      title: isThai ? 'ยืนยันการลบโปรเจกต์' : 'Delete Project',
+      message: isThai
+        ? `ต้องการลบโปรเจกต์ "${proj.title}" ใช่หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้`
+        : `Delete "${proj.title}"? This action cannot be undone.`,
+      confirmLabel: isThai ? 'ลบโปรเจกต์' : 'Delete',
+      cancelLabel: isThai ? 'ยกเลิก' : 'Cancel',
+      tone: 'danger',
+      language: settings.uiLanguage,
+    });
+    if (confirmed) {
+      deleteProject(proj.id);
     }
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const content = e.target?.result as string;
-        const imported = JSON.parse(content);
-        
-        const originalTitle = imported.title || 'Imported Project';
-        imported.title = `${originalTitle} (Imported)`;
-
-        const success = await importProject(imported);
-        if (success) {
-          showToast(`Imported: ${originalTitle}`);
-        }
-      } catch (err) {
-        showToast('Failed to parse JSON');
-      }
-    };
-    reader.readAsText(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
@@ -196,7 +194,7 @@ export default function WorkspaceMenu() {
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
             className={classNames(
-              "absolute top-full right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[70vh] origin-top-right",
+              "absolute top-full left-0 mt-2 w-72 max-w-[calc(100vw-1rem)] bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col max-h-[70vh] origin-top-left",
               !isOpen && "pointer-events-none"
             )}
           >
@@ -270,12 +268,7 @@ export default function WorkspaceMenu() {
                       <button onClick={() => handleExport(proj)} className="p-2 md:p-1 text-gray-400 hover:text-green-600 rounded-lg bg-gray-100 md:bg-transparent" title={settings.uiLanguage === 'th' ? 'สำรองข้อมูลโปรเจกต์ (Backup Project)' : 'Backup Project (Export JSON)'}>
                         <Download size={14} className="md:w-3 md:h-3" />
                       </button>
-                      <button onClick={() => {
-                        const confirmMsg = settings.uiLanguage === 'th' ? 'ต้องการลบโปรเจคนี้ใช่หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้' : 'Delete this project? This action cannot be undone.';
-                        if (window.confirm(confirmMsg)) {
-                          deleteProject(proj.id);
-                        }
-                      }} className="p-2 md:p-1 text-gray-400 hover:text-red-600 rounded-lg bg-gray-100 md:bg-transparent">
+                      <button onClick={() => void handleRequestDeleteProject(proj)} className="p-2 md:p-1 text-gray-400 hover:text-red-600 rounded-lg bg-gray-100 md:bg-transparent">
                         <Trash2 size={14} className="md:w-3 md:h-3" />
                       </button>
                     </div>
@@ -294,6 +287,7 @@ export default function WorkspaceMenu() {
         </motion.div>
         )}
       </AnimatePresence>
+      {confirmDialog}
     </div>
   );
 }
