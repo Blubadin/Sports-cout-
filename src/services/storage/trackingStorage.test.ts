@@ -22,6 +22,11 @@ import {
   type TrackingAnalysis,
   type TrackingSampleChunk,
 } from './trackingStorage';
+import * as storageTypes from './types';
+import * as storageDriver from './driver';
+import * as storageAnalytics from './analytics';
+import * as storageChunking from './chunking';
+import * as storageStream from './streamingBuilder';
 import type { TrackingTelemetryV1 } from '../../types';
 
 describe('tracking IndexedDB schema', () => {
@@ -436,5 +441,56 @@ describe('persistent storage availability', () => {
       startCursor: 0, endCursor: 1,
       frames: [{ schemaVersion: 1, analysisId: 'unavailable', timestampSec: 0, frameIndex: 1, players: [] }],
     })).rejects.toThrow('Persistent tracking storage is unavailable');
+  });
+});
+
+describe('modular storage barrel and schema parity', () => {
+  it('preserves exact IndexedDB object store names and barrel re-exports', () => {
+    expect(TRACKING_STORE_NAMES).toEqual([
+      'trackingAnalyses',
+      'trackingSampleChunks',
+      'trackingCandidates',
+      'trackingTelemetryPages',
+    ]);
+    expect(storageTypes.TRACKING_STORE_NAMES).toBe(TRACKING_STORE_NAMES);
+    expect(storageTypes.MAX_TRACKING_PAGE_SIZE).toBe(MAX_TRACKING_PAGE_SIZE);
+    expect(storageDriver.ensureTrackingObjectStores).toBe(ensureTrackingObjectStores);
+    expect(storageDriver.MemoryTrackingDriver).toBe(MemoryTrackingDriver);
+    expect(storageDriver.IndexedDbTrackingDriver).toBe(IndexedDbTrackingDriver);
+    expect(storageDriver.saveTrackingAnalysis).toBe(saveTrackingAnalysis);
+    expect(storageAnalytics.getTrackingMovementMetrics).toBe(getTrackingMovementMetrics);
+    expect(storageAnalytics.computePlayerMovementMetrics).toBe(computePlayerMovementMetrics);
+    expect(storageChunking.downsampleAndChunkTrackingSamples).toBe(downsampleAndChunkTrackingSamples);
+    expect(storageStream.TrackingAnalysisStreamBuilder).toBe(TrackingAnalysisStreamBuilder);
+  });
+
+  it('bounds page sizes and sorts analyses newest-first deterministically via extracted types helpers', () => {
+    expect(storageTypes.boundedPageSize(0)).toBe(1);
+    expect(storageTypes.boundedPageSize(-10)).toBe(1);
+    expect(storageTypes.boundedPageSize(9999)).toBe(MAX_TRACKING_PAGE_SIZE);
+    expect(storageTypes.boundedPageSize(undefined)).toBe(MAX_TRACKING_PAGE_SIZE);
+
+    const baseAnalysis = (id: string, createdAt: string): TrackingAnalysis => ({
+      id,
+      projectId: 'p1',
+      sportType: 'badminton',
+      gameType: 'singles',
+      status: 'completed',
+      engineVersion: 'v1',
+      detectorModel: 'yolo',
+      trackerModel: 'bytetrack',
+      sampleRateHz: 10,
+      createdAt,
+      players: [],
+      summary: { durationSeconds: 10, sampleCount: 100, players: {} },
+      quality: { detectionCoverage: 1, lostTimePercent: 0, confidence: 0.9, lowConfidenceWarning: false },
+    });
+
+    const sorted = [
+      baseAnalysis('a1', '2026-01-01T10:00:00Z'),
+      baseAnalysis('a2', '2026-01-01T10:00:00Z'),
+      baseAnalysis('a0', '2026-01-02T10:00:00Z'),
+    ].sort(storageTypes.compareAnalysesNewestFirst);
+    expect(sorted.map((item) => item.id)).toEqual(['a0', 'a2', 'a1']);
   });
 });

@@ -14,14 +14,12 @@ import type {
   TrackingOverlayMode,
   TrackingSessionStatus,
   ProcessingConfig,
-  ProcessingProfile,
 } from '../types';
 import {
   aiTrackingService,
   type BadmintonGameType,
 } from './aiTrackingService';
 import {
-  saveTrackingAnalysis,
   getTrackingAnalysis,
   getTrackingSampleChunkPage,
   deleteTrackingTelemetryPages,
@@ -36,7 +34,6 @@ import {
   type TrackingAnalysis,
   type TrackingSampleChunk,
 } from './storage/trackingStorage';
-import { loadProjectVideoFileHandle } from '../utils/videoFileStore';
 
 export interface ProjectTrackingUIPreferences {
   overlayMode: TrackingOverlayMode;
@@ -128,7 +125,7 @@ export function createDefaultProjectTrackingState(projectId: string): ProjectTra
     chunksHasMore: false,
     isPersisting: false,
     uiPreferences: {
-      overlayMode: 'skeleton',
+      overlayMode: 'box',
       videoCurrentTime: 0,
       selectedInspectorTab: 'analysis',
     },

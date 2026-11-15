@@ -80,12 +80,6 @@
         "warning": 0
       }
     },
-    "src/__tests__/badminton/trackingOverlayAndTelemetry.test.tsx": {
-      "@typescript-eslint/no-unused-vars": {
-        "error": 1,
-        "warning": 0
-      }
-    },
     "src/__tests__/badminton/visionBenchmarkProtocol.test.ts": {
       "@typescript-eslint/no-unused-vars": {
         "error": 4,
@@ -406,27 +400,7 @@
         "warning": 0
       }
     },
-    "src/components/labs/BadmintonTrackingLab.tsx": {
-      "@typescript-eslint/no-unused-vars": {
-        "error": 2,
-        "warning": 0
-      },
-      "react-hooks/exhaustive-deps": {
-        "error": 0,
-        "warning": 4
-      },
-      "@typescript-eslint/no-explicit-any": {
-        "error": 3,
-        "warning": 0
-      }
-    },
     "src/components/labs/TrackingLabInspector.tsx": {
-      "@typescript-eslint/no-unused-vars": {
-        "error": 1,
-        "warning": 0
-      }
-    },
-    "src/components/labs/TrackingVideoOverlay.tsx": {
       "@typescript-eslint/no-unused-vars": {
         "error": 1,
         "warning": 0
@@ -539,12 +513,6 @@
     "src/services/trackingSessionApi.ts": {
       "@typescript-eslint/no-explicit-any": {
         "error": 6,
-        "warning": 0
-      }
-    },
-    "src/services/trackingSessionStore.ts": {
-      "@typescript-eslint/no-unused-vars": {
-        "error": 3,
         "warning": 0
       }
     },

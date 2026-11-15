@@ -1,5 +1,6 @@
 import React from 'react';
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { trackingSessionStore, createDefaultProjectTrackingState } from '../../services/trackingSessionStore';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import TrackingVideoOverlay, {
   resolveBodyCenterProxy,
@@ -271,6 +272,24 @@ describe('Phase 3 — Tracking Overlays & Pure Resolvers', () => {
       expect(screen.queryByTestId('pose-bone')).not.toBeInTheDocument();
     });
 
+    it('defaults to bounding box mode (skeleton OFF) when mode and showSkeleton are omitted', () => {
+      render(<TrackingVideoOverlay frames={makeFrame([p1])} time={1.0} />);
+      expect(screen.getByTestId('player-bbox')).toBeInTheDocument();
+      expect(screen.queryByTestId('pose-bone')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('pose-point')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('body-center-marker')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('feet-marker')).not.toBeInTheDocument();
+    });
+
+    it('keeps legacy showSkeleton compatibility when mode is omitted', () => {
+      const { rerender } = render(<TrackingVideoOverlay frames={makeFrame([p1])} time={1.0} showSkeleton={false} />);
+      expect(screen.getByTestId('player-bbox')).toBeInTheDocument();
+      expect(screen.queryByTestId('pose-bone')).not.toBeInTheDocument();
+
+      rerender(<TrackingVideoOverlay frames={makeFrame([p1])} time={1.0} showSkeleton={true} />);
+      expect(screen.getAllByTestId('pose-bone').length).toBeGreaterThan(0);
+    });
+
     it('filters out lost players so stale geometry is never rendered', () => {
       const lostPlayer: TrackingPlayerV1 = {
         ...p1,
@@ -353,7 +372,10 @@ describe('Phase 3.12 — Internal Lab Inspector & Live Telemetry UI', () => {
     expect(screen.getByText('Predicted')).toBeInTheDocument();
   });
 
-  it('allows switching overlay modes without rerunning analysis', async () => {
+  it('defaults to box overlay mode (skeleton OFF) and supports opt-in switch to skeleton without rerunning analysis', async () => {
+    expect(createDefaultProjectTrackingState('p-default').uiPreferences.overlayMode).toBe('box');
+    trackingSessionStore.updateProjectState('p1', createDefaultProjectTrackingState('p1'));
+
     vi.spyOn(aiTrackingService, 'checkBackendHealth').mockResolvedValue(true);
     vi.spyOn(aiTrackingService, 'getCapabilities').mockResolvedValue({
       selectedDevice: 'cpu',
@@ -369,14 +391,25 @@ describe('Phase 3.12 — Internal Lab Inspector & Live Telemetry UI', () => {
     const input = screen.getByLabelText('Select video file');
     fireEvent.change(input, { target: { files: [file] } });
 
-    // Switch overlay mode buttons
-    const centerBtn = await screen.findByRole('button', { name: 'Body Center' });
+    const boxBtn = await screen.findByRole('button', { name: 'Bounding Box' });
+    const skeletonBtn = screen.getByRole('button', { name: 'Skeleton' });
+    const centerBtn = screen.getByRole('button', { name: 'Body Center' });
     const feetBtn = screen.getByRole('button', { name: 'Feet' });
-    const boxBtn = screen.getByRole('button', { name: 'Bounding Box' });
+
+    // Default UI preference is 'box' (Skeleton OFF)
+    expect(trackingSessionStore.getProjectState('p1')?.uiPreferences.overlayMode).toBe('box');
+    expect(boxBtn.className).toContain('bg-sky-600');
+    expect(skeletonBtn.className).not.toContain('bg-sky-600');
+
+    // Opt-in toggle to Skeleton, Center, Feet, Box
+    fireEvent.click(skeletonBtn);
+    expect(trackingSessionStore.getProjectState('p1')?.uiPreferences.overlayMode).toBe('skeleton');
+    expect(skeletonBtn.className).toContain('bg-sky-600');
 
     fireEvent.click(centerBtn);
     fireEvent.click(feetBtn);
     fireEvent.click(boxBtn);
+    expect(trackingSessionStore.getProjectState('p1')?.uiPreferences.overlayMode).toBe('box');
 
     // Switching overlay mode must never trigger session creation / analysis
     expect(createSessionSpy).not.toHaveBeenCalled();

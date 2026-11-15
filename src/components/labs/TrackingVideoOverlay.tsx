@@ -265,6 +265,7 @@ export function resolveOverlayAtTime(
   time: number,
   _isProcessing = false,
 ): OverlayTimeResolution {
+  void _isProcessing;
   const freshnessToleranceSec = deriveOverlayFreshnessToleranceSec(frames);
   if (frames.length === 0 || !Number.isFinite(time)) {
     return { status: 'unavailable', players: [], freshnessToleranceSec };
@@ -374,8 +375,8 @@ export default function TrackingVideoOverlay({
   showSkeleton,
   isProcessing = false,
 }: TrackingVideoOverlayProps) {
-  // Determine effective overlay mode (default: 'skeleton')
-  const effectiveMode: TrackingOverlayMode = mode ?? (showSkeleton === false ? 'box' : 'skeleton');
+  // Determine effective overlay mode (default: 'box'; Skeleton OFF unless explicitly opted in)
+  const effectiveMode: TrackingOverlayMode = mode ?? (showSkeleton === true ? 'skeleton' : 'box');
 
   if (effectiveMode === 'off') {
     return (

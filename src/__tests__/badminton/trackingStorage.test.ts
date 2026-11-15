@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   calculateP95,
+  calculateNominalAnalysisHz,
+  calculateEffectiveStoredHz,
   computePlayerMovementMetrics,
   downsampleAndChunkTrackingSamples,
   MemoryTrackingDriver,
@@ -277,6 +279,20 @@ describe('Phase 8 — Tracking Data Persistence & Metrics', () => {
       expect(afterDelete).toBeNull();
       const samplesAfterDelete = await getTrackingSamples('analysis_uuid_1');
       expect(samplesAfterDelete.samples).toHaveLength(0);
+    });
+  });
+
+  describe('cadence helpers (analytics module)', () => {
+    it('calculates nominal and effective stored Hz safely for valid and invalid inputs', () => {
+      expect(calculateNominalAnalysisHz(30, 2)).toBe(15);
+      expect(calculateNominalAnalysisHz(29.97, 3)).toBe(9.99);
+      expect(calculateNominalAnalysisHz(0, 1)).toBeNull();
+      expect(calculateNominalAnalysisHz(30, 0)).toBeNull();
+      expect(calculateNominalAnalysisHz(undefined, 2)).toBeNull();
+
+      expect(calculateEffectiveStoredHz(100, 10)).toBe(10);
+      expect(calculateEffectiveStoredHz(0, 10)).toBeNull();
+      expect(calculateEffectiveStoredHz(50, 0)).toBeNull();
     });
   });
 });

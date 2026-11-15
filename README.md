@@ -1,400 +1,121 @@
-# SPORTSCOUT
+# SPORTSCOUT (`v0.11.0-pilot.1`)
 
-คู่มือ Pilot สำหรับโค้ช: [เริ่มใช้งาน SPORTSCOUT](docs/COACH_QUICK_GUIDE_TH.md)
+> Match scouting, tactical video review, analytics, and coach reporting workstation (`Scout → Review → Analyze → Report`), plus experimental Local AI vision extensions (`Labs`).
 
-QA และ Design: [Hardware/Pilot Protocol](docs/pilot/HARDWARE_QA_TH.md) · [Overall Readiness Audit](docs/pilot/OVERALL_READINESS_AUDIT_TH.md) · [GridGeist สำหรับ SPORTSCOUT](docs/GRIDGEIST_USAGE_TH.md)
-
-Project Overview
-
-Sports Scout Logger เป็นเว็บแอปสำหรับบันทึกและวิเคราะห์ข้อมูลการแข่งขันกีฬาแบบ Scouting / Game Analysis โดยออกแบบมาเพื่อใช้กับงานของโค้ช อาจารย์ นักศึกษา และนักวิเคราะห์เกมกีฬา
-
-ระบบรองรับการดูวิดีโอการแข่งขันจากไฟล์วิดีโอในเครื่อง หรือ YouTube และสามารถบันทึกเหตุการณ์สำคัญระหว่างการแข่งขัน เช่น ทักษะที่เกิดขึ้น พื้นที่ในสนาม ทีม ผู้เล่น ผลลัพธ์ และข้อมูลประกอบอื่น ๆ เพื่อนำไปวิเคราะห์ต่อใน Dashboard, ตารางข้อมูล, Heatmap, Sequence Map และ Export ข้อมูลออกไปใช้งานภายนอก
-
-โปรเจคนี้ยังไม่มีระบบ AI วิเคราะห์วิดีโออัตโนมัติ และยังไม่มี backend/database/login ข้อมูลโปรเจกต์หลักเก็บแบบ local-first ใน IndexedDB ส่วนการตั้งค่าขนาดเล็กและ legacy recovery backup ยังใช้ localStorage โดยจะไม่ลบข้อมูลเก่าระหว่างช่วง Pilot
+- **Coach Guide (TH):** [เริ่มใช้งาน SPORTSCOUT](docs/COACH_QUICK_GUIDE_TH.md)
+- **Verification Protocol:** [Frontend Verification](docs/FRONTEND-VERIFICATION.md) · [Shuttle Runtime Setup](docs/SHUTTLE-RUNTIME-SETUP.md)
+- **Refactoring Roadmap:** [Refactoring Guide](docs/REFACTORING-GUIDE.md)
+- **QA & Pilot Docs:** [Hardware/Pilot Protocol](docs/pilot/HARDWARE_QA_TH.md) · [Overall Readiness Audit](docs/pilot/OVERALL_READINESS_AUDIT_TH.md) · [GridGeist Usage](docs/GRIDGEIST_USAGE_TH.md)
 
 ---
 
-Current Goal
+## Product Overview
 
-เป้าหมายของโปรเจคในระยะนี้คือทำให้ระบบ Sports Scouting ใช้งานได้เสถียรขึ้นสำหรับการทดสอบจริง โดยเน้น 4 เรื่องหลัก:
+**SPORTSCOUT** is a local-first sports scouting workstation designed for coaches, analysts, lecturers, and sports science researchers. Matches, rosters, events, tactical markings, and tracking telemetry persist locally in IndexedDB (`idb-keyval` and `sportscout-tracking-v1` schema v3) with exportable schema `1.2` JSON/CSV workflows.
 
-1. ความถูกต้องของข้อมูลที่บันทึก
-2. การใช้งานจริงระหว่างดูวิดีโอและบันทึกเหตุการณ์
-3. การดูผลลัพธ์ผ่าน Dashboard / Table / Chart
-4. ความพร้อมในการต่อยอดไปสู่ระบบ production หรือระบบของมหาวิทยาลัยในอนาคต
+### Core Workstation Modules
+1. **Workstation Shell (`Scout → Review → Analyze → Report`):** Unified dark high-density workstation UI (`#071018` / `#0b1219`, responsive across desktop and narrow `<1024px` viewports; legacy Classic UI switcher retired).
+2. **Multi-Sport Scouting & Rules (`src/sports/rules/`):** Driven by the modular `SportRuleEngine` supporting:
+   - **Badminton** (`singles` / `doubles`, Pro HUD Touch Court, rally & area/zone validation)
+   - **Volleyball** (`Pro HUD` with in-court & OOB zones, foul & setter/rotation context)
+   - **Football** (halves, zones, fouls & cards)
+   - **Basketball** (quarters, clock/shot validation, fouls)
+3. **Video Playback & Pro HUD:** Local video file playback (including FileSystem handle reconnection) and YouTube URL playback for scouting, W-hold area selection, keyboard shortcuts, and opt-in **Controller V1** gamepad mapping.
+4. **Analytics & Reports:** Match dashboard, team comparison, court sequence map, heatmaps, interactive event table, Coach Report (`FullCoachReport`), and schema-versioned JSON/CSV import/export.
 
----
+### Experimental Extension: Badminton Tracking Lab (`Labs`)
+Located in the **Labs** tab (`src/components/labs/BadmintonTrackingLab.tsx`), backed by a local Python FastAPI vision service (`ai_service/`) connected explicitly over localhost or an authenticated tunnel (`aiConnection.ts`).
 
-Tech Stack
+- **Real Video Tracking Only:** Uses real decoded local video frames, YOLO player detection, ByteTrack multi-object tracking (`trackId` kept strictly distinct from sports identity `P1..P4`), and 2D pose estimation. Synthetic demo data is blocked from production tracking pipelines and IndexedDB persistence.
+- **Court Calibration & Recovery:** Supports both **Auto Court calibration** and manual 4-corner selection with camera-segment (`cameraSegmentId`) cut safety and manual corner recovery.
+- **Shuttle Tracking Engine:** Separate configurable inference runtime (`opencv_onnx` / `rallylens_tracknet`) with per-session runtime provenance and live diagnostics.
+- **Display Overlay Default:** Defaults to compact player bounding boxes (`overlayMode: 'box'`, Skeleton OFF) to reduce visual clutter, while keeping an instant opt-in toggle (`Skeleton` / `Body Center` / `Feet` / `Bounding Box` / `Off`) with no re-analysis required.
 
-- React
-- TypeScript
-- Vite
-- Tailwind CSS
-- Recharts
-- ReactPlayer
-- PWA
-- IndexedDB (`idb-keyval`) สำหรับ project/session data
-- localStorage สำหรับ settings และ legacy recovery backup
-
----
-
-Main Features
-
-Video
-
-- รองรับ Local Video Upload
-- รองรับ YouTube URL
-- มีระบบควบคุมวิดีโอ เช่น play/pause, seek, speed, volume, brightness
-- รองรับการใช้งานร่วมกับการกด shortcut / HUD mode
-
-Scouting
-
-- บันทึกเหตุการณ์ระหว่างการแข่งขัน
-- เลือกทีม
-- เลือกกีฬา
-- เลือกทักษะ
-- เลือกพื้นที่สนาม
-- เลือกผลลัพธ์
-- รองรับ multi-sport template
-
-Sports Supported
-
-- Volleyball
-- Football
-- Badminton
-- Basketball
-
-Analysis
-
-- Dashboard summary
-- Skill frequency chart
-- Result distribution
-- Team comparison
-- Field / court sequence map
-- Heatmap
-- Event table
-- Export / Import JSON
-- Export CSV
-
-Interface
-
-- Normal Input Panel
-- HUD Mode
-- Phone Scout Mode
-- Phone Landscape / Gamepad Mode
-- Dark mode
-- Thai / English language support
-- PWA installable
+> **Scientific Scope Limitation:** Keypoints and body overlays computed by the local tracking service from monocular camera footage are **2D image-space estimates** only. SPORTSCOUT does not claim true 3D kinematics, ground reaction forces, joint torques, or vertical jump heights from standard single-camera video.
 
 ---
 
-Important Architecture
+## Tech Stack
 
-Core Files
-
-- "src/App.tsx"
-  Main application entry
-
-- "src/context/ScoutContext.tsx"
-  Main scouting state, events, teams, sport type, current action, saving, undo/redo, validation
-
-- "src/context/WorkspaceContext.tsx"
-  Project/workspace state, active project, create/delete/import/export project
-
-- "src/types.ts"
-  Main TypeScript types for Event, Action, SportTemplate, Team, MatchInfo, Settings
-
-- "src/sports.ts"
-  Sport-specific templates such as skills, results, areas, and sport configuration
-
-- "src/components/InputPanel.tsx"
-  Normal scouting input UI
-
-- "src/components/ScoutingTable.tsx"
-  Event table, export, edit/delete/duplicate events
-
-- "src/components/Dashboard.tsx"
-  Summary dashboard and charts
-
-- "src/components/VideoPlayer.tsx"
-  Video playback UI and controls
-
-- "src/components/hud/"
-  HUD-related components for full-screen / mobile scouting modes
-
-- "src/utils/projectRepository.ts"
-  IndexedDB project repository, migration, retry และ recovery envelope
-
-- "src/hooks/useLocalStorage.ts"
-  localStorage helper สำหรับ settings/legacy backup และ quota handling
+- **Frontend:** React 19, TypeScript (~5.8), Vite 6, Tailwind CSS v4, Recharts, ReactPlayer, Lucide icons, Motion, Vite PWA (`vite-plugin-pwa`).
+- **Offline Persistence:** IndexedDB via `idb-keyval` (projects/workspaces) + native IndexedDB database `sportscout-tracking-v1` (version 3: `trackingAnalyses`, `trackingSampleChunks`, `trackingCandidates`, `trackingTelemetryPages`) + `localStorage` for compact settings/UI preferences.
+- **Local AI Vision Service (`ai_service/`):** Python, FastAPI, Uvicorn, Ultralytics YOLO, PyTorch/ONNX Runtime, OpenCV.
+- **Quality & Testing:** Vitest (`@testing-library/react`), Playwright E2E (Chromium), Python `unittest`, ESLint 9 (`typescript-eslint` + `react-hooks` baseline tracker), TypeScript (`tsc --noEmit`).
 
 ---
 
-Current Data Model
+## Repository Architecture
 
-Event
-
-An event represents a saved scouting moment.
-
-Typical fields include:
-
-- id
-- timestamp
-- videoTime
-- sportType
-- team
-- teamCode
-- actions
-- notes
-
-Action
-
-An action represents one scouting action inside an event.
-
-Typical fields include:
-
-- no
-- teamCode
-- skillCode
-- resultCode
-- areaCode
-- areaResolution
-- gridX
-- gridY
-- pointX
-- pointY
-- outZone
-- descriptor
-- notes
-
-Project
-
-A project contains a match/session.
-
-Typical fields include:
-
-- id
-- title
-- sportType
-- events
-- teams
-- matchInfo
-- createdAt
-- updatedAt
+```text
+├── src/
+│   ├── App.tsx                         # Root workstation coordinator
+│   ├── appMetadata.ts                  # Version ('0.11.0-pilot.1') & schema ('1.2') constants
+│   ├── workstation/
+│   │   └── workstationModel.ts         # Unified workstation mode & preset model
+│   ├── sports/
+│   │   ├── rules/                      # SportRuleEngine & per-sport rule adapters
+│   │   ├── badminton/ · volleyball/ · football/ · basketball/
+│   ├── context/
+│   │   ├── ScoutContext.tsx            # Active match events, undo/redo history, scouting validation
+│   │   └── WorkspaceContext.tsx        # Local-first multi-project management & persistence queue
+│   ├── services/
+│   │   ├── aiTrackingService.ts        # Tracking API facade & capability probes
+│   │   ├── aiConnection.ts             # Explicit local/remote AI endpoint & auth state
+│   │   ├── trackingSessionApi.ts       # HTTP session lifecycle & bounded result paging
+│   │   ├── trackingSessionStore.ts     # Project-scoped tracking state & telemetry ingestion
+│   │   └── storage/                    # Modular tracking IndexedDB storage package
+│   │       ├── trackingStorage.ts      # Public barrel re-export preserving consumer contracts
+│   │       ├── types.ts                # Shared storage types, store names, bounded helpers
+│   │       ├── driver.ts               # IndexedDB v3 driver, Memory driver & repository CRUD
+│   │       ├── analytics.ts            # Movement metrics, quality & bounded stream aggregation
+│   │       ├── chunking.ts             # Downsampling & fixed-duration chunk generation
+│   │       └── streamingBuilder.ts     # Fixed-memory incremental analysis stream builder
+│   └── components/
+│       ├── analytics/                  # Dashboard & BadmintonMovementDashboard
+│       ├── hud/                        # Pro HUD touch overlays & zone selectors
+│       ├── report/                     # FullCoachReport printable view
+│       ├── settings/                   # Settings, import/export, gamepad & AI configuration
+│       └── labs/                       # Modular Badminton Tracking Lab UI & hooks
+│           ├── BadmintonTrackingLab.tsx
+│           ├── TrackingPerformanceControls.tsx
+│           ├── TrackingVideoStage.tsx
+│           ├── TrackingVideoOverlay.tsx
+│           ├── ShuttleOverlay.tsx
+│           ├── TrackingLabInspector.tsx
+│           ├── trackingLabStatus.ts
+│           └── useTracking*.ts         # Connection, overlay window, lifecycle, workflow, recovery hooks
+├── ai_service/                         # Python FastAPI real-video tracking & court/shuttle pipeline
+├── scripts/                            # Build, icon check/generation, pilot readiness & QA helpers
+├── e2e/                                # Playwright browser acceptance specs
+└── docs/                               # Architecture specs, QA protocols & refactoring roadmap
+```
 
 ---
 
-Phase 10 Status
+## Development & Verification Commands
 
-Phase 10 focused on Stabilization & Data Integrity.
+### Prerequisites
+- Node.js `22.x` + npm
+- Python virtual environment with `ai_service/requirements.txt` (required to run local AI tracking or Python unit tests)
 
-Implemented items:
+### Setup & Run
+```powershell
+npm ci
+npm run dev                 # Frontend dev server at http://127.0.0.1:3000
+npm run start:local         # Start frontend + local ai_service together (Windows)
+```
 
-1. Sport Locking
-   
-   - Prevent changing sport after events exist
-   - Protect against sport mismatch and corrupted event data
+### Verification Gates
+Run all gates from the repository root (`docs/FRONTEND-VERIFICATION.md`):
 
-2. Event Validation
-   
-   - Prevent saving incomplete events
-   - Required fields include team, skill, area, and result depending on sport/action flow
+```powershell
+npm run typecheck           # tsc --noEmit
+npm run lint                # ESLint src/**/*.{ts,tsx} verified against .eslint-baseline.json
+npm test                    # Vitest unit & integration suite
+npm run check-icons         # Validate PWA icons (192x192, 512x512, maskable)
+npm run build               # Generate PWA icons & Vite production build
+npm run test:e2e            # Playwright Chromium end-to-end suite
+python -m unittest discover -s ai_service/tests -p "test_*.py"
+```
 
-3. Undo / Redo
-   
-   - Basic undo/redo support for event operations
-   - Should cover save, delete, and edit events
-
-4. JSON Schema Versioning
-   
-   - Export JSON now supports schemaVersion
-   - Import should support both new schema and legacy array format
-
-5. Confirmation Dialogs
-   
-   - Confirm before deleting event
-   - Confirm before deleting project
-
-6. localStorage Quota Handling
-   
-   - Warn users when browser storage is full or near full
-   - Avoid silent data loss
-
----
-
-Known Issues / Areas To Verify
-
-Before adding more features, always verify:
-
-1. "saveEvent()" should use undo/redo-safe state update.
-2. "setEvents()" direct calls should be avoided for important event operations.
-3. "ScoutingTable.tsx" duplicate/delete all actions should not bypass undo/redo history.
-4. "SettingsModal.tsx" import logic should sanitize and renumber events.
-5. "ScoutContext.tsx" should not have duplicate localStorage quota event listeners.
-6. Sport locking must work from all UI entry points, including HUD.
-7. Importing old JSON files must still work.
-8. Export CSV must not break after JSON schema changes.
-9. HUD mode must still work after validation changes.
-10. Dashboard should not crash when events are empty or incomplete.
-
----
-
-Phase 11 Direction
-
-Phase 11 should focus on adding a Foul / Violation category and verifying Dashboard/Table usefulness.
-
-Main goals:
-
-1. Add foul metadata to action/event model.
-2. Add sport-specific foul templates.
-3. Add foul selection in Normal Input.
-4. Add foul selection/display in HUD.
-5. Show foul data in ScoutingTable.
-6. Add foul summary to Dashboard.
-7. Preserve backward compatibility with old events.
-8. Keep foul optional; do not force every event to have foul data.
-
----
-
-Recommended Foul Data Model
-
-Foul should be optional metadata of an action, not a replacement for skill or result.
-
-Recommended fields in Action:
-
-foulCode?: string;
-foulRole?: 'committed' | 'drawn' | 'violation' | 'technical';
-foulSeverity?: 'normal' | 'warning' | 'card' | 'technical';
-
-Recommended new types:
-
-export type FoulRole = 'committed' | 'drawn' | 'violation' | 'technical';
-
-export type FoulSeverity = 'normal' | 'warning' | 'card' | 'technical';
-
-export interface FoulOption {
-  code: string;
-  label: string;
-  labelTh?: string;
-  role?: FoulRole;
-  severity?: FoulSeverity;
-}
-
-Recommended SportTemplate addition:
-
-fouls?: FoulOption[];
-
----
-
-Suggested Fouls By Sport
-
-Volleyball
-
-- NET_TOUCH: แตะเน็ต
-- FOOT_FAULT: เหยียบเส้น
-- ROTATION: ผิดตำแหน่งหมุน
-- DOUBLE: สัมผัสสองครั้ง
-- FOUR_HITS: เล่นเกิน 3 ครั้ง / 4 hits
-- CARRY: อุ้มบอล / พักบอล
-
-Football
-
-- FOUL: ทำฟาวล์
-- HANDBALL: แฮนด์บอล
-- OFFSIDE: ล้ำหน้า
-- YELLOW: ใบเหลือง
-- RED: ใบแดง
-- PENALTY: เสียจุดโทษ
-
-Badminton
-
-- SERVICE_FAULT: เสิร์ฟผิดกติกา
-- NET_TOUCH: แตะเน็ต
-- DOUBLE_HIT: ตีสองครั้ง
-- CARRY: พักลูก / อุ้มลูก
-- WRONG_COURT: ยืนผิดตำแหน่ง
-
-Basketball
-
-- PERSONAL: ฟาวล์บุคคล
-- OFFENSIVE: ฟาวล์รุก
-- SHOOTING: ฟาวล์ขณะยิง
-- TECHNICAL: ฟาวล์เทคนิค
-- UNSPORT: ฟาวล์ไม่มีน้ำใจนักกีฬา
-- TRAVEL: เดิน
-- DOUBLE_DRIBBLE: เลี้ยงสองครั้ง
-
----
-
-AI Studio Working Rules
-
-When using Google AI Studio, follow these rules:
-
-1. Always inspect the existing files before editing.
-2. Do not rewrite the whole app.
-3. Do not remove existing HUD modes.
-4. Do not remove Thai/English language support.
-5. Do not remove multi-sport support.
-6. Do not change the main data model unless necessary.
-7. Keep backward compatibility with existing localStorage data and JSON exports.
-8. Do not add backend, database, login, Electron, or Tauri unless explicitly requested. AI tracking is approved only for the Task 9 Motion spike (client-side only, no backend).
-9. Prefer small, safe changes.
-10. After editing, always run:
-
-- "npm run lint"
-- "npm run build"
-
-11. Report changed files clearly.
-12. Report remaining risks clearly.
-
----
-
-Build Commands
-
-Interface feature flag:
-
-- Classic UI เป็นค่าเริ่มต้นสำหรับ Pilot
-- Workstation UI เปิดแบบ opt-in ด้วย `VITE_ENABLE_WORKSTATION=true`
-- ทั้งสอง interface ต้องอ่านและเขียนผ่าน project/event data layer ชุดเดียวกัน
-
-Install dependencies:
-
-npm install
-
-Run development server:
-
-npm run dev
-
-Run lint:
-
-npm run lint
-
-Run TypeScript checks, ESLint, frontend/Python tests, icon validation, build,
-and browser acceptance using the commands in
-[Frontend verification](docs/FRONTEND-VERIFICATION.md). ESLint covers frontend
-TypeScript/TSX under `src/`; `npm run typecheck` remains a separate check.
-
-Build production:
-
-npm run build
-
----
-
-Recommended Manual Test Flow
-
-1. Create a new Volleyball project.
-2. Record 3 complete events.
-3. Try changing sport to Basketball; it should be blocked.
-4. Save an incomplete event; it should be blocked.
-5. Delete one event and undo it.
-6. Redo the deleted event.
-7. Export JSON.
-8. Import JSON back.
-9. Export CSV.
-10. Open Dashboard.
-11. Switch Thai/English language.
-12. Test HUD mode.
-13. Test local video.
-14. Test YouTube video.
-15. Confirm build passes.
+> **Note:** When running Python tests against an environment with an active user store, set `SPORTSCOUT_ANALYSIS_STORE_DIR` to an isolated temporary directory first.

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, cleanup, act } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import BadmintonTrackingLab from './BadmintonTrackingLab';
+import BadmintonTrackingLab, { deriveShuttleEngineStatus } from './BadmintonTrackingLab';
+import { connectionStatusText, normalizeBackendSessionStatus } from './trackingLabStatus';
 import { aiTrackingService } from '../../services/aiTrackingService';
 import { trackingSessionApi } from '../../services/trackingSessionApi';
 import { computeVideoFingerprint, createDefaultProjectTrackingState, trackingSessionStore } from '../../services/trackingSessionStore';
@@ -432,4 +433,43 @@ it('surfaces a backend failure as an accessible seek-time error', async () => {
   });
   fireEvent.loadedMetadata(video);
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load tracking data');
+});
+
+it('defaults overlay mode to box (skeleton OFF) and supports opt-in skeleton toggle in TrackingVideoStage', async () => {
+  render(<BadmintonTrackingLab />);
+  const file = new File(['video'], 'rally.mp4', { type: 'video/mp4' });
+  fireEvent.change(screen.getByLabelText('Select video file'), { target: { files: [file] } });
+
+  const boxBtn = await screen.findByRole('button', { name: 'Bounding Box' });
+  const skeletonBtn = screen.getByRole('button', { name: 'Skeleton' });
+
+  expect(boxBtn).toHaveAttribute('aria-pressed', 'true');
+  expect(skeletonBtn).toHaveAttribute('aria-pressed', 'false');
+  expect(trackingSessionStore.getProjectState('p1')?.uiPreferences.overlayMode).toBe('box');
+
+  fireEvent.click(skeletonBtn);
+  expect(skeletonBtn).toHaveAttribute('aria-pressed', 'true');
+  expect(boxBtn).toHaveAttribute('aria-pressed', 'false');
+  expect(trackingSessionStore.getProjectState('p1')?.uiPreferences.overlayMode).toBe('skeleton');
+  expect(aiTrackingService.createSession).not.toHaveBeenCalled();
+});
+
+it('applies performance profiles in TrackingPerformanceControls and maps extracted status helpers cleanly', async () => {
+  expect(normalizeBackendSessionStatus('READY')).toBe('CREATED');
+  expect(normalizeBackendSessionStatus('PROCESSING')).toBe('PROCESSING');
+  expect(connectionStatusText(null, false)).toBe('Checking local AI service…');
+  expect(deriveShuttleEngineStatus({ enabled: false }).status).toBe('DISABLED');
+
+  render(<BadmintonTrackingLab />);
+  await waitFor(() => expect(aiTrackingService.checkConnection).toHaveBeenCalled());
+
+  const profileSelect = screen.getByLabelText('Performance profile');
+  fireEvent.change(profileSelect, { target: { value: 'fast' } });
+
+  fireEvent.click(screen.getByRole('button', { name: /Advanced settings/i }));
+  expect(screen.getByTestId('advanced-settings-drawer')).toBeInTheDocument();
+  expect(screen.getByLabelText('Detector Input Size')).toHaveValue('416');
+  expect(screen.getByLabelText('Frame Stride')).toHaveValue('3');
+  expect(screen.getByLabelText('Pose Stride')).toHaveValue('2');
+  expect(screen.getByLabelText('Court ROI Cropping')).toBeChecked();
 });
