@@ -48,6 +48,21 @@ class TestDeviceSelection(unittest.TestCase):
         report = capability_report()
         self.assertEqual(report['torchVersion'], expected_version)
 
+    def test_capability_report_cuda_available_selects_cuda(self):
+        """CASE 1: CUDA available -> capability may be available."""
+        report = capability_report(torch_module=fake_torch(cuda_available=True, version='2.5.1'))
+        self.assertEqual(report['selectedDevice'], 'cuda')
+        self.assertTrue(report['cudaAvailable'])
+        self.assertIsNone(report['fallbackReason'])
+
+    def test_capability_report_cuda_simulated_unavailable_reports_cpu_fallback(self):
+        """CASE 2: CUDA intentionally simulated as unavailable -> unavailable behavior is correctly reported."""
+        report = capability_report(requested='cuda', torch_module=fake_torch(cuda_available=False, version='2.5.1'))
+        self.assertEqual(report['selectedDevice'], 'cpu')
+        self.assertFalse(report['cudaAvailable'])
+        self.assertEqual(report['fallbackReason'], 'CUDA unavailable; CPU selected')
+
 
 if __name__ == '__main__':
     unittest.main()
+

@@ -98,6 +98,27 @@ class TestServerSafetyEndpoints(unittest.TestCase):
         self.assertIn("detectorModel", data)
         self.assertIn("poseModel", data)
 
+    def test_capabilities_endpoint_simulated_cuda_available(self):
+        """CASE 1: CUDA available -> capability is reported as available and selected."""
+        with patch("device_runtime._availability", return_value=(True, False)), \
+             patch("server.analyzer.device", "cuda"):
+            res = self.client.get("/api/capabilities")
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data["selectedDevice"], "cuda")
+            self.assertTrue(data["cudaAvailable"])
+
+    def test_capabilities_endpoint_simulated_cuda_unavailable(self):
+        """CASE 2: CUDA intentionally simulated as unavailable -> reports cpu and cudaAvailable=False."""
+        with patch("device_runtime._availability", return_value=(False, False)), \
+             patch("server.analyzer.device", "cpu"):
+            res = self.client.get("/api/capabilities")
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data["selectedDevice"], "cpu")
+            self.assertFalse(data["cudaAvailable"])
+
+
     def test_nonexistent_video_does_not_silently_fallback(self):
         """An explicitly enabled direct source still rejects missing files."""
         with patch.dict(os.environ, {"SPORTSCOUT_AI_LEGACY_DIRECT_SOURCES": "true"}):
