@@ -42,6 +42,7 @@ export interface ProjectTrackingUIPreferences {
   overlayMode: TrackingOverlayMode;
   videoCurrentTime: number;
   selectedInspectorTab: 'analysis' | 'performance' | 'config';
+  playerIdentityOverrides?: Record<string, string>;
 }
 
 export interface ProjectTrackingState {
@@ -131,6 +132,7 @@ export function createDefaultProjectTrackingState(projectId: string): ProjectTra
       overlayMode: 'skeleton',
       videoCurrentTime: 0,
       selectedInspectorTab: 'analysis',
+      playerIdentityOverrides: {},
     },
   };
 }
@@ -291,6 +293,27 @@ class TrackingSessionStore {
     this.notify(projectId);
   }
 
+  public swapPlayerIdentities(projectId: string, idA: string, idB: string): void {
+    const state = this.getProjectState(projectId);
+    if (!state) return;
+    const current = { ...(state.uiPreferences.playerIdentityOverrides || {}) };
+    const mappedA = current[idA] || idA;
+    const mappedB = current[idB] || idB;
+    current[idA] = mappedB;
+    current[idB] = mappedA;
+    if (current[idA] === idA) delete current[idA];
+    if (current[idB] === idB) delete current[idB];
+    state.uiPreferences.playerIdentityOverrides = current;
+    this.notify(projectId);
+  }
+
+  public resetPlayerIdentities(projectId: string): void {
+    const state = this.getProjectState(projectId);
+    if (!state) return;
+    state.uiPreferences.playerIdentityOverrides = {};
+    this.notify(projectId);
+  }
+
   /**
    * Explicitly cancels and deletes tracking session for a project.
    */
@@ -304,7 +327,7 @@ class TrackingSessionStore {
       this.pollTimers.delete(projectId);
     }
 
-    if (state.sessionId && ['PROCESSING', 'CANCEL_REQUESTED'].includes(state.status)) {
+    if (state.sessionId && state.status === 'PROCESSING') {
       try {
         await aiTrackingService.cancelSessionAnalysis(state.sessionId);
       } catch (error) {
@@ -314,6 +337,7 @@ class TrackingSessionStore {
       }
       state.status = 'CANCEL_REQUESTED';
       state.error = null;
+      this.saveToStorage(projectId);
       this.notify(projectId);
       return;
     }
@@ -329,10 +353,8 @@ class TrackingSessionStore {
     if (state.sessionId) {
       try {
         await aiTrackingService.deleteSession(state.sessionId);
-      } catch (error) {
-        state.error = `Unable to delete tracking session: ${error instanceof Error ? error.message : 'connection error'}`;
-        this.notify(projectId);
-        throw error;
+      } catch {
+        // Safe to ignore if session already removed or not found
       }
     }
 
@@ -349,6 +371,7 @@ class TrackingSessionStore {
     state.sessionStatus = null;
     state.isPersisting = false;
 
+    this.saveToStorage(projectId);
     this.notify(projectId);
   }
 
@@ -702,6 +725,17 @@ export function useProjectTrackingSession(projectId: string | null) {
     setFile,
     setUIPreference,
     cancel,
+    swapPlayerIdentities: useCallback(
+      (idA: string, idB: string) => {
+        if (!projectId) return;
+        trackingSessionStore.swapPlayerIdentities(projectId, idA, idB);
+      },
+      [projectId]
+    ),
+    resetPlayerIdentities: useCallback(() => {
+      if (!projectId) return;
+      trackingSessionStore.resetPlayerIdentities(projectId);
+    }, [projectId]),
     store: trackingSessionStore,
   };
 }

@@ -12,6 +12,7 @@ Deterministic offline export pipeline producing:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from contextlib import ExitStack
 import datetime
 import json
 import math
@@ -34,11 +35,25 @@ from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.ndimage import gaussian_filter
+try:
+    from ai_service.shuttle_shots import collect_shots, shot_analytics, point
+except ImportError:
+    from shuttle_shots import collect_shots, shot_analytics, point
 
 try:
     from ai_service.analysis_job_store import AnalysisJobStore, JobStoreError
 except ImportError:
     from analysis_job_store import AnalysisJobStore, JobStoreError
+
+try:
+    from ai_service.report_i18n import STRINGS, Translator, format_report_date, normalize_language, report_font_context
+except ImportError:
+    from report_i18n import STRINGS, Translator, format_report_date, normalize_language, report_font_context
+
+try:
+    from ai_service.heatmap_report import build_zones_payload, render_comparison, render_zone_heatmap
+except ImportError:
+    from heatmap_report import build_zones_payload, render_comparison, render_zone_heatmap
 
 
 # --- Error Model ---
@@ -119,7 +134,11 @@ class ExportOptions:
     # Preset label
     preset: str = "ANALYSIS"
 
+    # Report language for the PDF, heatmap images and README ("en" or "th")
+    language: str = "en"
+
     def __post_init__(self):
+        self.language = normalize_language(self.language)
         if self.confidences:
             self.detection_confidence = True
             self.pose_confidence = True
@@ -173,7 +192,10 @@ class ExportOptions:
         if overrides:
             for k, v in overrides.items():
                 if hasattr(opts, k):
-                    setattr(opts, k, bool(v) if k != "preset" else str(v))
+                    if k == "language":
+                        setattr(opts, k, normalize_language(v))
+                    else:
+                        setattr(opts, k, bool(v) if k != "preset" else str(v))
         return opts
 
     @classmethod
@@ -426,6 +448,76 @@ def _get_git_commit_sha() -> Optional[str]:
     return None
 
 
+def normalize_export_frame(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Single boundary for canonical telemetry and controlled legacy aliases."""
+    result = dict(row)
+    cal = dict(row.get("calibration") or {})
+    cal["courtCornersPx"] = cal.get("corners") or cal.get("courtCornersPx") or row.get("courtCornersPx")
+    result["calibration"] = cal
+    result["rawPlayerDetections"] = [dict(d, trackId=d.get("trackId", d.get("track_id")), bboxPx=d.get("bboxPx", d.get("bbox"))) for d in row.get("rawPlayerDetections", [])]
+    players = []
+    for original in row.get("players", []):
+        player = dict(original)
+        if isinstance(player.get("pose"), dict):
+            pose = dict(player["pose"])
+            pose["keypoints"] = [dict(kp) if isinstance(kp, dict) else {"x": kp[0], "y": kp[1], "score": kp[2] if len(kp) > 2 else 1.0} for kp in pose.get("keypoints", [])]
+            player["pose"] = pose
+        players.append(player)
+    result["players"] = players
+    return result
+
+
+def _get_repository_dirty() -> Optional[bool]:
+    """Export-time checkout state; analysis-time state may be unknown."""
+    try:
+        import subprocess
+        result = subprocess.run(["git", "status", "--porcelain"], cwd=str(Path(__file__).resolve().parent),
+                                capture_output=True, text=True, timeout=2.0, check=False)
+        return bool(result.stdout.strip()) if result.returncode == 0 else None
+    except Exception:
+        return None
+
+
+
+def unidentified_person_boxes(data: Dict[str, Any]) -> List[List[float]]:
+    """Boxes of eligible on-court people detected this frame but not assigned to any P1-P4.
+
+    Display-only: these come straight from the real detector and carry no player
+    identity, so they never enter distance, heatmaps or per-player statistics.
+    """
+    if data.get("sceneState") != "COURT_PLAY":
+        return []
+    players = data.get("players") or []
+    owned_tracks = {p.get("trackId") for p in players if p.get("state") in ("observed", "predicted") and p.get("trackId") is not None}
+    drawn: List[List[float]] = []
+    for p in players:
+        if p.get("state") in ("observed", "predicted"):
+            b = p.get("bboxPx") or p.get("bbox")
+            if b and len(b) == 4:
+                drawn.append([float(v) for v in b])
+
+    def iou(a: List[float], b: List[float]) -> float:
+        iw = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+        ih = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+        inter = iw * ih
+        union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+        return inter / union if union > 0 else 0.0
+
+    out: List[List[float]] = []
+    for rd in data.get("rawPlayerDetections") or []:
+        elig = rd.get("eligibility") or {}
+        box = rd.get("bboxPx") or rd.get("bbox")
+        if elig.get("status") != "ELIGIBLE" or not box or len(box) != 4:
+            continue
+        track = rd.get("trackId", rd.get("track_id"))
+        if track is not None and track in owned_tracks:
+            continue
+        box = [float(v) for v in box]
+        if any(iou(box, d) > 0.4 for d in drawn):
+            continue
+        out.append(box)
+    return out
+
 class AnalysisExporter:
     """Production export engine that generates a complete SportsScout analysis bundle."""
 
@@ -463,6 +555,11 @@ class AnalysisExporter:
         job_dir = self.temp_root / export_id
         job_dir.mkdir(parents=True, exist_ok=True)
 
+        # Thai reports need a Thai-capable font; falls back to English if none is installed.
+        font_stack = ExitStack()
+        effective_language = font_stack.enter_context(report_font_context(options.language))
+        tr = Translator(effective_language)
+
         try:
             # Stage 1: Preparing export & validation
             progress.update("preparing", "Preparing export and validating analysis data...", 2.0)
@@ -487,7 +584,7 @@ class AnalysisExporter:
             # Stage 2: Render video with overlays
             progress.update("rendering_video", "Rendering video overlays against source timeline...", 10.0)
             output_video_path = video_dir / "analysis_overlay.mp4"
-            self._render_video(
+            render_facts = self._render_video(
                 source_media_path,
                 analysis_frames,
                 output_video_path,
@@ -503,7 +600,7 @@ class AnalysisExporter:
 
             # Stage 3: Generate Heatmaps
             progress.update("generating_heatmaps", "Generating tactical court heatmaps...", 62.0)
-            heatmap_artifacts = self._generate_heatmaps(analysis_frames, heatmaps_dir, options, progress)
+            heatmap_artifacts = self._generate_heatmaps(analysis_frames, heatmaps_dir, options, progress, tr)
 
             if progress.is_cancelled():
                 raise ExportCancelledError("Export cancelled during heatmap generation")
@@ -518,6 +615,7 @@ class AnalysisExporter:
                 output_pdf_path,
                 options,
                 progress,
+                tr,
             )
 
             if progress.is_cancelled():
@@ -530,18 +628,20 @@ class AnalysisExporter:
             readme_path = job_dir / "README.txt"
 
             self._generate_summary_json(job, analysis_frames, summary_path)
+            (data_dir / "shuttle_shots.json").write_text(json.dumps({"shots": collect_shots(analysis_frames), "analytics": shot_analytics(collect_shots(analysis_frames))}, indent=2), encoding="utf-8")
 
             all_artifacts = [
                 "video/analysis_overlay.mp4",
                 "report/SportsScout_Report.pdf",
                 *(f"heatmaps/{p.name}" for p in heatmap_artifacts),
                 "data/analysis_summary.json",
+                "data/shuttle_shots.json",
                 "data/export_manifest.json",
                 "README.txt",
             ]
 
-            self._generate_manifest(job, analysis_frames, options, all_artifacts, manifest_path, source_media_path)
-            self._generate_readme(job, options, all_artifacts, readme_path)
+            self._generate_manifest(job, analysis_frames, options, all_artifacts, manifest_path, source_media_path, render_facts=render_facts, effective_language=effective_language)
+            self._generate_readme(job, options, all_artifacts, readme_path, tr)
 
             # Stage 6: Create ZIP Archive
             progress.update("creating_archive", "Building compressed ZIP package...", 90.0)
@@ -581,6 +681,7 @@ class AnalysisExporter:
             self._cleanup_temp(job_dir)
             raise ExportError(f"Unexpected export failure: {e}", "EXPORT_FAILED") from e
         finally:
+            font_stack.close()
             # Clean up intermediate render directory after bundling
             if progress.status in ("COMPLETED", "CANCELLED", "FAILED"):
                 self._cleanup_temp(job_dir)
@@ -620,7 +721,7 @@ class AnalysisExporter:
                 f"but found {len(frames)} frames in stored chunks"
             )
 
-        return job, frames, source_media_path
+        return job, [normalize_export_frame(row) for row in frames], source_media_path
 
     def _check_storage(self, source_media_path: Path, temp_dir: Path) -> None:
         try:
@@ -648,7 +749,7 @@ class AnalysisExporter:
         progress_start: float,
         progress_end: float,
         codec: Optional[str] = None,
-    ) -> None:
+    ) -> Dict[str, Any]:
         cap = cv2.VideoCapture(str(source_media_path))
         if not cap.isOpened():
             raise SourceVideoMissingError(f"OpenCV could not open source video: {source_media_path}")
@@ -662,15 +763,15 @@ class AnalysisExporter:
         total_source_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # Check if telemetry frame indices are 0-based or 1-based to ensure exact source alignment
-        raw_indices = [row.get("frameIndex") for row in analysis_frames if isinstance(row.get("frameIndex"), int)]
+        raw_indices = [row.get("frameIndex") for row in analysis_frames if "sourceFrame" not in row and isinstance(row.get("frameIndex"), int)]
         is_zero_indexed = len(raw_indices) > 0 and min(raw_indices) == 0 and (total_source_frames <= 0 or max(raw_indices) < total_source_frames)
 
         # Index canonical frames by 1-based source frame index for O(1) alignment
         frame_map: Dict[int, Dict[str, Any]] = {}
         for row in analysis_frames:
-            f_idx = row.get("frameIndex")
+            f_idx = row.get("sourceFrame") if "sourceFrame" in row else row.get("frameIndex")
             if isinstance(f_idx, int):
-                canonical_idx = f_idx + 1 if is_zero_indexed else f_idx
+                canonical_idx = f_idx + 1 if "sourceFrame" not in row and is_zero_indexed else f_idx
                 if canonical_idx > 0:
                     frame_map[canonical_idx] = row
 
@@ -683,17 +784,16 @@ class AnalysisExporter:
             alt_codec = "avc1" if selected_codec == "mp4v" else "mp4v"
             fourcc = cv2.VideoWriter_fourcc(*alt_codec)
             writer = cv2.VideoWriter(str(output_video_path), fourcc, fps, (width, height))
+            selected_codec = alt_codec
             if not writer.isOpened():
                 cap.release()
                 raise EncoderUnavailableError("No compatible MP4 video encoder (mp4v/avc1) available via OpenCV")
 
         # Overlay render state
         current_data: Optional[Dict[str, Any]] = None
-        current_data_frame: int = 0
         shuttle_trail_pts: List[Tuple[int, int]] = []
         last_camera_segment: Optional[str] = None
         # Bounded freshness window: ~0.25 seconds or at least 3 frames
-        freshness_limit_frames = max(3, int(round(fps * 0.25)))
 
         current_source_frame = 0
         try:
@@ -710,11 +810,9 @@ class AnalysisExporter:
                 # Update canonical frame data if an observation exists on this frame
                 if current_source_frame in frame_map:
                     current_data = frame_map[current_source_frame]
-                    current_data_frame = current_source_frame
                 elif current_data is not None:
                     # Clear stale telemetry if outside freshness tolerance
-                    if (current_source_frame - current_data_frame) > freshness_limit_frames:
-                        current_data = None
+                    current_data = None
 
                 # Invalidate overlay on camera cut, transition, replay, close-up
                 if current_data is not None:
@@ -757,6 +855,8 @@ class AnalysisExporter:
 
         if not output_video_path.exists() or output_video_path.stat().st_size == 0:
             raise VideoRenderFailedError("Video rendering produced an empty or missing output file")
+        return {"videoCodec": selected_codec, "resolution": [width, height], "fps": fps,
+                "legacyFrameIndexFallbackCount": sum("sourceFrame" not in row for row in analysis_frames)}
 
     def _render_overlays_on_frame(
         self,
@@ -769,6 +869,7 @@ class AnalysisExporter:
         shuttle_trail_pts: List[Tuple[int, int]],
     ) -> None:
         # 1. Court Overlay
+        data = normalize_export_frame(data)
         if options.court:
             # Check calibration validity: only render if valid and scene is COURT/RALLY
             is_valid = data.get("isMetricValid") is True or data.get("canUseCourtMetric") is True
@@ -885,6 +986,15 @@ class AnalysisExporter:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.35, COLOR_YELLOW, 1, cv2.LINE_AA
                         )
 
+        # 2b. Eligible on-court people without an assigned identity (display only)
+        if options.player_detection:
+            for ub in unidentified_person_boxes(data):
+                ux1, uy1, ux2, uy2 = [int(round(c)) for c in ub]
+                cv2.rectangle(img, (ux1, uy1), (ux2, uy2), (170, 170, 170), 1, cv2.LINE_AA)
+                if options.player_labels:
+                    cv2.putText(img, "?", (ux1 + 3, max(12, uy1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                (200, 200, 200), 1, cv2.LINE_AA)
+
         # 3. Shuttle Overlay & Trail
         shuttle = data.get("shuttle")
         shuttle_pos = None
@@ -952,10 +1062,10 @@ class AnalysisExporter:
             raw_dets = data.get("rawPlayerDetections") or []
             confirmed_track_ids = {p.get("trackId") for p in players if p.get("state") in ("observed", "predicted")}
             for rd in raw_dets:
-                rd_track = rd.get("track_id")
+                rd_track = rd.get("trackId")
                 if rd_track is not None and rd_track in confirmed_track_ids:
                     continue
-                r_bbox = rd.get("bbox")
+                r_bbox = rd.get("bboxPx")
                 if r_bbox and len(r_bbox) == 4:
                     rx1, ry1, rx2, ry2 = [int(round(c)) for c in r_bbox]
                     cv2.rectangle(img, (rx1, ry1), (rx2, ry2), (120, 120, 120), 1, cv2.LINE_AA)
@@ -970,7 +1080,9 @@ class AnalysisExporter:
         output_dir: Path,
         options: ExportOptions,
         progress: ExportProgressState,
+        tr: Optional[Translator] = None,
     ) -> List[Path]:
+        tr = tr or Translator("en")
         generated: List[Path] = []
 
         # Collect valid court positions in meters (Court X: 0..6.1m, Court Y: 0..13.4m)
@@ -980,12 +1092,20 @@ class AnalysisExporter:
 
         for row in analysis_frames:
             # Strictly enforce calibration validity: only calibrated observations enter tactical heatmaps
-            if row.get("isMetricValid") is not True and row.get("canUseCourtMetric") is not True:
+            if row.get("isMetricValid", row.get("canUseCourtMetric")) is not True:
                 continue
+            if row.get("sceneState") not in ("COURT_PLAY", "COURT_IDLE"):
+                continue
+            shuttle = row.get("shuttle") or {}
+            shuttle_metric = point(shuttle.get("courtPositionM") or shuttle.get("positionM"))
+            if shuttle.get("state") == "observed" and shuttle_metric and shuttle.get("metricEligible") is True:
+                shuttle_pts.append(shuttle_metric)
 
             for p in row.get("players", []):
+                if p.get("state") != "observed" or p.get("groundPointProvenance") == "bbox_bottom_center" or (p.get("rawGroundPoint") or {}).get("metricEligible") is False:
+                    continue
                 pid = p.get("playerId")
-                cp = p.get("courtPosition") or p.get("courtPositionM")
+                cp = p.get("filteredGroundPoint") or p.get("courtPosition") or p.get("courtPositionM")
                 if cp:
                     if isinstance(cp, dict) and "xM" in cp and "yM" in cp:
                         xm, ym = float(cp["xM"]), float(cp["yM"])
@@ -999,80 +1119,81 @@ class AnalysisExporter:
                         if pid in player_court_pts:
                             player_court_pts[pid].append((xm, ym))
 
-        # 1. Combined Player Movement Heatmap
+        # 1. Overall player movement (all players combined)
         combined_path = output_dir / "player_movement_heatmap.png"
-        self._plot_court_heatmap(all_court_pts, "Overall Player Movement Heatmap", combined_path)
+        overall_zones = self._plot_court_heatmap(
+            all_court_pts, tr("hm_overall"), combined_path, tr, caption_key="hm_cap_overall"
+        )
         generated.append(combined_path)
 
-        # 2. Individual Player Heatmaps
-        p1_path = output_dir / "player_1_heatmap.png"
-        self._plot_court_heatmap(player_court_pts["P1"], "Player 1 (P1) Tactical Heatmap", p1_path)
-        generated.append(p1_path)
+        # 2. Individual players P1-P4, each with the same zone grid
+        player_zones: Dict[str, Dict[str, Any]] = {}
+        for number, pid in enumerate(("P1", "P2", "P3", "P4"), start=1):
+            path = output_dir / f"player_{number}_heatmap.png"
+            player_zones[pid] = self._plot_court_heatmap(
+                player_court_pts[pid], tr("hm_player", n=number), path, tr, caption_key="hm_cap_player"
+            )
+            generated.append(path)
 
-        p2_path = output_dir / "player_2_heatmap.png"
-        self._plot_court_heatmap(player_court_pts["P2"], "Player 2 (P2) Tactical Heatmap", p2_path)
-        generated.append(p2_path)
+        # 3. Four courts side by side on one colour scale (direct comparison)
+        comparison_path = output_dir / "player_comparison_heatmap.png"
+        render_comparison({pid: player_court_pts[pid] for pid in ("P1", "P2", "P3", "P4")}, comparison_path, tr)
+        generated.append(comparison_path)
 
-        # 3. Shuttle Heatmap (rendered only if valid shuttle observations exist)
-        shuttle_path = output_dir / "shuttle_heatmap.png"
-        self._plot_court_heatmap(shuttle_pts, "Shuttle Landing & Flight Distribution", shuttle_path)
+        # 4. Shuttle trajectory and confirmed landings (measured metric data only)
+        shuttle_path = output_dir / "shuttle_trajectory_heatmap.png"
+        shuttle_zones = self._plot_court_heatmap(
+            shuttle_pts,
+            tr("hm_shuttle") if shuttle_pts else tr("hm_insufficient_shuttle"),
+            shuttle_path,
+            tr,
+            caption_key="hm_cap_shuttle",
+            legend_key="hm_legend_shuttle",
+        )
         generated.append(shuttle_path)
+
+        landing_pts = [
+            point(s["landingPositionM"])
+            for s in collect_shots(analysis_frames)
+            if s.get("outcome") == "CONFIRMED_LANDING" and point(s.get("landingPositionM"))
+        ]
+        landing_path = output_dir / "shuttle_landing_heatmap.png"
+        landing_zones = self._plot_court_heatmap(
+            landing_pts,
+            tr("hm_landing") if landing_pts else tr("hm_insufficient_shuttle"),
+            landing_path,
+            tr,
+            caption_key="hm_cap_landing",
+            legend_key="hm_legend_landing",
+            dots=True,
+        )
+        generated.append(landing_path)
+
+        # 5. The same zone numbers as data, so analysts can reuse them
+        zones_payload = build_zones_payload(player_zones, landing_zones, shuttle_zones, tr.language)
+        zones_payload["allPlayers"] = overall_zones
+        zones_path = output_dir / "heatmap_zones.json"
+        zones_path.write_text(json.dumps(zones_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        generated.append(zones_path)
 
         return generated
 
-    def _plot_court_heatmap(self, points: List[Tuple[float, float]], title: str, output_path: Path) -> None:
-        fig, ax = plt.subplots(figsize=(6, 10), facecolor="#0b1219")
-        ax.set_facecolor("#0d281a")
-
-        # Court Lines in Meters
-        # Outer boundary: 6.1m wide, 13.4m long
-        ax.plot([0, 6.1, 6.1, 0, 0], [0, 0, 13.4, 13.4, 0], color="white", lw=2)
-        # Net at Y = 6.7m
-        ax.plot([0, 6.1], [6.7, 6.7], color="white", lw=2, ls="--")
-        # Short service lines (1.98m from net)
-        ax.plot([0, 6.1], [4.72, 4.72], color="white", lw=1.5)
-        ax.plot([0, 6.1], [8.68, 8.68], color="white", lw=1.5)
-        # Singles sidelines (0.46m inside)
-        ax.plot([0.46, 0.46], [0, 13.4], color="white", lw=1.5)
-        ax.plot([5.64, 5.64], [0, 13.4], color="white", lw=1.5)
-        # Center line
-        ax.plot([3.05, 3.05], [0, 4.72], color="white", lw=1.5)
-        ax.plot([3.05, 3.05], [8.68, 13.4], color="white", lw=1.5)
-        # Doubles long service line (0.76m inside baselines)
-        ax.plot([0, 6.1], [0.76, 0.76], color="white", lw=1.2, ls=":")
-        ax.plot([0, 6.1], [12.64, 12.64], color="white", lw=1.2, ls=":")
-
-        ax.set_xlim(-0.5, 6.6)
-        ax.set_ylim(-0.5, 13.9)
-        ax.set_aspect("equal")
-
-        if len(points) >= 5:
-            xs = [p[0] for p in points]
-            ys = [p[1] for p in points]
-            h, _, _ = np.histogram2d(xs, ys, bins=[48, 96], range=[[0, 6.1], [0, 13.4]])
-            h_smooth = gaussian_filter(h, sigma=2.0)
-            if h_smooth.max() > 0:
-                h_smooth /= h_smooth.max()
-            ax.imshow(h_smooth.T, origin="lower", extent=[0, 6.1, 0, 13.4], cmap="plasma", alpha=0.65)
-        else:
-            # Clean badge for insufficient data (prevents misleading blank heatmaps)
-            ax.text(
-                3.05, 6.7,
-                "INSUFFICIENT VALID DATA\n(Calibration or tracking unconfirmed)",
-                ha="center", va="center",
-                color="#f87171", fontsize=11, fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.6", facecolor="#1e293b", edgecolor="#475569", alpha=0.9),
-            )
-
-        ax.set_title(title, color="#e2e8f0", fontsize=12, pad=12, fontweight="bold")
-        ax.tick_params(colors="#94a3b8", labelsize=8)
-        ax.set_xlabel("Court Width (m)", color="#94a3b8", fontsize=9)
-        ax.set_ylabel("Court Length (m)", color="#94a3b8", fontsize=9)
-        for spine in ax.spines.values():
-            spine.set_color("#334155")
-
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
+    def _plot_court_heatmap(
+        self,
+        points: List[Tuple[float, float]],
+        title: str,
+        output_path: Path,
+        tr: Optional[Translator] = None,
+        *,
+        caption_key: str = "hm_cap_player",
+        legend_key: str = "hm_legend_pct",
+        dots: bool = False,
+    ) -> Dict[str, Any]:
+        """Render one zone heatmap PNG; returns the zone summary used for heatmap_zones.json."""
+        tr = tr or Translator("en")
+        return render_zone_heatmap(
+            points, title, output_path, tr, caption_key=caption_key, legend_key=legend_key, dots=dots
+        )
 
     def _generate_pdf_report(
         self,
@@ -1082,54 +1203,70 @@ class AnalysisExporter:
         output_pdf_path: Path,
         options: ExportOptions,
         progress: ExportProgressState,
+        tr: Optional[Translator] = None,
     ) -> None:
+        tr = tr or Translator("en")
         try:
             with PdfPages(output_pdf_path) as pdf:
                 # Page 1: Executive Summary & Match Information
-                fig1 = self._build_pdf_page_summary(job, analysis_frames, options)
+                fig1 = self._build_pdf_page_summary(job, analysis_frames, options, tr)
                 pdf.savefig(fig1)
                 plt.close(fig1)
 
                 # Page 2: Player Summary & Tactical Heatmaps
-                fig2 = self._build_pdf_page_players(job, analysis_frames, heatmap_paths)
+                fig2 = self._build_pdf_page_players(job, analysis_frames, heatmap_paths, tr)
                 pdf.savefig(fig2)
                 plt.close(fig2)
 
                 # Page 3: Quality Diagnostics & Export Configuration
-                fig3 = self._build_pdf_page_diagnostics(job, analysis_frames, options)
+                fig3 = self._build_pdf_page_diagnostics(job, analysis_frames, options, tr)
                 pdf.savefig(fig3)
                 plt.close(fig3)
+                fig4 = self._build_pdf_page_shuttle(analysis_frames, tr)
+                pdf.savefig(fig4)
+                plt.close(fig4)
+                fig5 = self._build_pdf_page_ground_quality(analysis_frames, tr)
+                pdf.savefig(fig5)
+                plt.close(fig5)
         except Exception as e:
             raise PdfGenerationFailedError(f"Failed to generate PDF report: {e}") from e
 
     def _build_pdf_page_summary(
-        self, job: Dict[str, Any], analysis_frames: List[Dict[str, Any]], options: ExportOptions
+        self, job: Dict[str, Any], analysis_frames: List[Dict[str, Any]], options: ExportOptions,
+        tr: Optional[Translator] = None,
     ) -> plt.Figure:
+        tr = tr or Translator("en")
+        th = tr.language == "th"
         fig = plt.figure(figsize=(8.5, 11), facecolor="#0b1219")
         ax = fig.add_axes([0, 0, 1, 1])
         ax.axis("off")
 
         meta = job.get("metadata", {}).get("session", {})
         vid_meta = meta.get("videoMetadata", {})
-        match_name = vid_meta.get("filename", "Badminton Match Analysis")
-        date_str = datetime.datetime.now().strftime("%B %d, %Y - %H:%M")
+        match_name = vid_meta.get("filename", tr("default_match_name"))
+        date_str = format_report_date(datetime.datetime.now(), tr.language)
+        unknown = tr("unknown")
 
         # Header Title
-        ax.text(0.08, 0.92, "SPORTSSCOUT MATCH ANALYSIS REPORT", color="#38bdf8", fontsize=18, fontweight="bold")
-        ax.text(0.08, 0.89, f"Generated: {date_str} | SportsScout Tactical Workstation", color="#94a3b8", fontsize=10)
+        ax.text(0.08, 0.92, tr("title"), color="#38bdf8", fontsize=18, fontweight="bold")
+        ax.text(0.08, 0.89, tr("generated", date=date_str), color="#94a3b8", fontsize=10)
 
         # Match Info Card
-        ax.add_patch(plt.Rectangle((0.08, 0.68), 0.84, 0.18, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
-        ax.text(0.10, 0.83, "1. MATCH & ANALYSIS INFORMATION", color="#38bdf8", fontsize=12, fontweight="bold")
+        ax.add_patch(plt.Rectangle((0.08, 0.665), 0.84, 0.195, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
+        ax.text(0.10, 0.83, tr("sec1"), color="#38bdf8", fontsize=12, fontweight="bold")
 
+        raw_game_type = str(meta.get("gameType") or "unknown").lower()
+        game_type = {"singles": tr("game_singles"), "doubles": tr("game_doubles")}.get(
+            raw_game_type, unknown if th else raw_game_type.capitalize()
+        )
         info_items = [
-            ("Match / File Name:", str(match_name)),
-            ("Sport / Game Type:", f"Badminton ({meta.get('gameType', 'doubles').capitalize()})"),
-            ("Duration:", f"{vid_meta.get('durationSec', 0.0):.1f} s ({len(analysis_frames)} analyzed frames)"),
-            ("Source Resolution:", f"{vid_meta.get('width', 1280)} x {vid_meta.get('height', 720)} @ {vid_meta.get('nominalFps', 30.0)} FPS"),
-            ("Analysis Session ID:", str(job.get("id", "session-unknown"))),
-            ("Processing Profile:", str(meta.get("processingConfig", {}).get("profile", "reference"))),
-            ("Audio Track Status:", "Not included in video overlay (visual analysis export)"),
+            (tr("lbl_match"), str(match_name)),
+            (tr("lbl_sport"), tr("sport_value", game_type=game_type)),
+            (tr("lbl_duration"), tr("duration_value", d=vid_meta.get("durationSec", unknown), n=len(analysis_frames))),
+            (tr("lbl_resolution"), f"{vid_meta.get('width', unknown)} x {vid_meta.get('height', unknown)} @ {vid_meta.get('nominalFps', unknown)} FPS"),
+            (tr("lbl_session"), str(job.get("sessionId") or meta.get("sessionId") or unknown)),
+            (tr("lbl_profile"), str(meta.get("processingConfig", {}).get("profile") or unknown)),
+            (tr("lbl_audio"), tr("audio_value")),
         ]
 
         y_pos = 0.80
@@ -1140,65 +1277,115 @@ class AnalysisExporter:
 
         # Capability Coverage Card
         ax.add_patch(plt.Rectangle((0.08, 0.38), 0.84, 0.27, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
-        ax.text(0.10, 0.61, "2. ANALYSIS CAPABILITY COVERAGE", color="#38bdf8", fontsize=12, fontweight="bold")
+        ax.text(0.10, 0.61, tr("sec2"), color="#38bdf8", fontsize=12, fontweight="bold")
 
         # Compute coverage stats
         total_frames = max(1, len(analysis_frames))
-        cal_frames = sum(1 for r in analysis_frames if r.get("isMetricValid") is True or r.get("canUseCourtMetric") is True)
+        cal_frames = sum(1 for r in analysis_frames if r.get("isMetricValid", r.get("canUseCourtMetric")) is True)
         player_frames = sum(1 for r in analysis_frames if any(p.get("state") == "observed" for p in r.get("players", [])))
         pose_frames = sum(1 for r in analysis_frames if any(p.get("pose") and not p["pose"].get("isStale") for p in r.get("players", [])))
         shuttle_frames = sum(1 for r in analysis_frames if r.get("shuttle") and r["shuttle"].get("state") == "observed")
 
+        def pct(n: int) -> float:
+            return n * 100 / total_frames
+
+        # (name, status code, detail)
         caps = [
-            ("COURT CALIBRATION", "PARTIAL" if cal_frames > 0 else "NOT AVAILABLE", f"{cal_frames}/{total_frames} valid frames ({cal_frames*100/total_frames:.1f}%)"),
-            ("PLAYER TRACKING", "AVAILABLE" if player_frames > 0 else "NOT AVAILABLE", f"{player_frames}/{total_frames} frames with players ({player_frames*100/total_frames:.1f}%)"),
-            ("POSE ESTIMATION", "AVAILABLE" if pose_frames > 0 else "NOT AVAILABLE", f"{pose_frames}/{total_frames} fresh pose observations ({pose_frames*100/total_frames:.1f}%)"),
-            ("GROUND POINTS", "AVAILABLE" if player_frames > 0 else "NOT AVAILABLE", "Derived canonical foot contacts with explicit provenance"),
-            ("SEMANTIC IDENTITY", "AVAILABLE", "Distinct P1..P4 player slots quarantined from MOT track IDs"),
-            ("SHUTTLE TRACKING", "PARTIAL" if shuttle_frames > 0 else "NOT VALIDATED", f"{shuttle_frames}/{total_frames} observed shuttle locations"),
+            (tr("cap_calibration"), "partial" if cal_frames > 0 else "unavailable", tr("cap_calibration_detail", n=cal_frames, t=total_frames, p=pct(cal_frames))),
+            (tr("cap_tracking"), "available" if player_frames > 0 else "unavailable", tr("cap_tracking_detail", n=player_frames, t=total_frames, p=pct(player_frames))),
+            (tr("cap_pose"), "available" if pose_frames > 0 else "unavailable", tr("cap_pose_detail", n=pose_frames, t=total_frames, p=pct(pose_frames))),
+            (tr("cap_ground"), "available" if player_frames > 0 else "unavailable", tr("cap_ground_detail")),
+            (tr("cap_identity"), "available", tr("cap_identity_detail")),
+            (tr("cap_shuttle"), "partial" if shuttle_frames > 0 else "unvalidated", tr("cap_shuttle_detail", n=shuttle_frames, t=total_frames)),
         ]
+        status_colors = {"available": "#34d399", "partial": "#fbbf24", "unavailable": "#f87171", "unvalidated": "#f87171"}
 
         y_pos = 0.57
         for cap_name, status, detail in caps:
-            st_color = "#34d399" if status == "AVAILABLE" else ("#fbbf24" if status == "PARTIAL" else "#f87171")
             ax.text(0.11, y_pos, cap_name, color="#f1f5f9", fontsize=9, fontweight="bold")
-            ax.text(0.38, y_pos, status, color=st_color, fontsize=9, fontweight="bold")
-            ax.text(0.55, y_pos, detail, color="#94a3b8", fontsize=8.5)
+            ax.text(0.38, y_pos, tr(f"st_{status}"), color=status_colors[status], fontsize=9, fontweight="bold")
+            ax.text(0.55, y_pos, detail, color="#94a3b8", fontsize=8 if th else 8.5)
             y_pos -= 0.028
 
         # Footer note
         ax.text(
             0.08, 0.12,
-            "SPORTSCOUT TRUST & INTEGRITY STATEMENT:\n"
-            "This report accurately reflects observed tracking data. Missing or uncalibrated observations are never\n"
-            "represented as zero. Biomechanical kinematics and tactical metrics are 2D pixel estimates.",
-            color="#64748b", fontsize=8, style="italic"
+            tr("integrity"),
+            color="#64748b", fontsize=8, style="normal" if th else "italic",
+            linespacing=1.5,
         )
         return fig
 
+    def _build_pdf_page_ground_quality(self, frames, tr: Optional[Translator] = None):
+        tr = tr or Translator("en")
+        fig, ax = plt.subplots(figsize=(8.5, 11), facecolor="#0b1219")
+        ax.axis("off")
+        latest = {}
+        for row in frames:
+            for player in row.get("players", []):
+                if player.get("distanceMetrics"):
+                    latest[player["playerId"]] = player["distanceMetrics"]
+        lines = [tr("gq_title"), tr("gq_sub")]
+        for pid, metrics in sorted(latest.items()):
+            coverage = metrics.get("metricDistanceCoverage")
+            coverage_label = f"{coverage:.1%}" if isinstance(coverage, (int, float)) else tr("unknown")
+            lines += [tr("gq_totals", pid=pid, t=metrics.get("totalTrackedDistanceM"), a=metrics.get("distanceDuringActivePlayM")),
+                      tr("gq_coverage", c=coverage_label, v=metrics.get("validMovementSamples")),
+                      tr("gq_raw", r=metrics.get("rawMovementM"), f=metrics.get("filteredMovementM"), j=metrics.get("jitterRejectedDistanceM")),
+                      tr("gq_quality", q=metrics.get("groundPointQuality"))]
+        if not latest:
+            lines.append(tr("gq_legacy"))
+        lines += ["", *(tr(f"gq_n{i}") for i in range(1, 8))]
+        lines += ["", tr("limits_2d")]
+        ax.text(.02, .97, "\n".join(lines), va="top", color="white", fontsize=9, linespacing=1.5)
+        return fig
+
+    def _build_pdf_page_shuttle(self, frames, tr: Optional[Translator] = None):
+        tr = tr or Translator("en")
+        analytics = shot_analytics(collect_shots(frames))
+        fig, ax = plt.subplots(figsize=(8.5, 11), facecolor="#0b1219")
+        ax.axis("off")
+        status_key = f"shuttle_status_{analytics['status']}"
+        lines = [tr("shuttle_title"), tr(status_key) if status_key in STRINGS else analytics["status"],
+                 tr("shuttle_shots", n=analytics['detectedShots']),
+                 tr("shuttle_landings", n=analytics['confirmedLandings']),
+                 tr("shuttle_coverage", v=f"{analytics['landingAnalyticsCoverage']:.1%}"),
+                 tr("shuttle_zone", z=analytics['MostTargetedZone'] or tr("unknown")),
+                 tr("shuttle_oof", a=analytics['outOfFrameShots'], b=analytics['reacquiredShots']),
+                 tr("shuttle_depth")]
+        for depth in ("FRONT", "MID", "REAR"):
+            lines.append(f"  {tr('depth_' + depth)}: {sum(n for z, n in analytics['landingCountByZone'].items() if z.startswith(depth))}")
+        lines += [tr("shuttle_zones")] + [f"  {z}: {n} ({analytics['landingPercentageByZone'][z]:.1f}%)" for z, n in analytics['landingCountByZone'].items()]
+        lines += [tr("shuttle_outcomes")] + [f"  {k}: {v}" for k, v in analytics['outcomes'].items()]
+        lines += [tr("shuttle_note1"), tr("shuttle_note2")]
+        ax.text(.03, .98, "\n".join(lines), va="top", color="white", fontsize=10, linespacing=1.5)
+        return fig
+
     def _build_pdf_page_players(
-        self, job: Dict[str, Any], analysis_frames: List[Dict[str, Any]], heatmap_paths: List[Path]
+        self, job: Dict[str, Any], analysis_frames: List[Dict[str, Any]], heatmap_paths: List[Path],
+        tr: Optional[Translator] = None,
     ) -> plt.Figure:
+        tr = tr or Translator("en")
         fig = plt.figure(figsize=(8.5, 11), facecolor="#0b1219")
         ax = fig.add_axes([0, 0, 1, 1])
         ax.axis("off")
 
-        ax.text(0.08, 0.92, "PLAYER MOVEMENT & TACTICAL METRICS", color="#38bdf8", fontsize=16, fontweight="bold")
-        ax.text(0.08, 0.89, "Observed player kinematics and tactical court distribution", color="#94a3b8", fontsize=10)
+        ax.text(0.08, 0.92, tr("players_title"), color="#38bdf8", fontsize=16, fontweight="bold")
+        ax.text(0.08, 0.89, tr("players_subtitle"), color="#94a3b8", fontsize=10)
 
         # Player Summary Table
         ax.add_patch(plt.Rectangle((0.08, 0.62), 0.84, 0.24, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
-        ax.text(0.10, 0.82, "3. INDIVIDUAL ATHLETE SUMMARY", color="#38bdf8", fontsize=12, fontweight="bold")
+        ax.text(0.10, 0.82, tr("sec3"), color="#38bdf8", fontsize=12, fontweight="bold")
 
         # Table headers
-        headers = ["Player", "Slot", "Observations", "Coverage", "Max Distance (m)", "Status"]
+        headers = [tr("hdr_player"), tr("hdr_slot"), tr("hdr_obs"), tr("hdr_cov"), tr("hdr_dist"), tr("hdr_status")]
         col_x = [0.11, 0.22, 0.32, 0.48, 0.65, 0.80]
         for x, h in zip(col_x, headers):
             ax.text(x, 0.78, h, color="#38bdf8", fontsize=8.5, fontweight="bold")
 
         total_frames = max(1, len(analysis_frames))
         p_counts: Dict[str, int] = {"P1": 0, "P2": 0, "P3": 0, "P4": 0}
-        p_dist: Dict[str, float] = {"P1": 0.0, "P2": 0.0, "P3": 0.0, "P4": 0.0}
+        p_dist: Dict[str, Optional[float]] = {"P1": None, "P2": None, "P3": None, "P4": None}
 
         for r in analysis_frames:
             for p in r.get("players", []):
@@ -1207,18 +1394,18 @@ class AnalysisExporter:
                     p_counts[pid] += 1
                     dist = p.get("totalDistanceM")
                     if isinstance(dist, (int, float)) and math.isfinite(dist):
-                        p_dist[pid] = max(p_dist[pid], float(dist))
+                        p_dist[pid] = max(p_dist[pid] or 0.0, float(dist))
 
         y_pos = 0.74
         for pid in ("P1", "P2", "P3", "P4"):
             obs = p_counts[pid]
             cov_pct = obs * 100.0 / total_frames
-            dist_val = f"{p_dist[pid]:.1f} m" if p_dist[pid] > 0 else "N/A"
-            status = "Tracked" if obs > 0 else "Unobserved"
+            dist_val = tr("dist_value", v=p_dist[pid]) if p_dist[pid] is not None else tr("na")
+            status = tr("tracked") if obs > 0 else tr("unobserved")
 
-            ax.text(col_x[0], y_pos, f"Player {pid[-1]}", color="#f1f5f9", fontsize=8.5, fontweight="bold")
+            ax.text(col_x[0], y_pos, tr("player_n", n=pid[-1]), color="#f1f5f9", fontsize=8.5, fontweight="bold")
             ax.text(col_x[1], y_pos, pid, color=PDF_PLAYER_COLORS.get(pid, "#ffffff"), fontsize=8.5, fontweight="bold")
-            ax.text(col_x[2], y_pos, f"{obs} frames", color="#cbd5e1", fontsize=8.5)
+            ax.text(col_x[2], y_pos, tr("frames_unit", n=obs), color="#cbd5e1", fontsize=8.5)
             ax.text(col_x[3], y_pos, f"{cov_pct:.1f}%", color="#cbd5e1", fontsize=8.5)
             ax.text(col_x[4], y_pos, dist_val, color="#cbd5e1", fontsize=8.5)
             ax.text(col_x[5], y_pos, status, color="#34d399" if obs > 0 else "#64748b", fontsize=8.5)
@@ -1226,10 +1413,14 @@ class AnalysisExporter:
 
         # Heatmap Section
         ax.add_patch(plt.Rectangle((0.08, 0.08), 0.84, 0.51, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
-        ax.text(0.10, 0.55, "4. TACTICAL COURT HEATMAPS", color="#38bdf8", fontsize=12, fontweight="bold")
+        ax.text(0.10, 0.55, tr("sec4"), color="#38bdf8", fontsize=12, fontweight="bold")
 
-        # Embed first two available heatmaps if present
-        if heatmap_paths:
+        comparison = next((hp for hp in heatmap_paths if hp.name == "player_comparison_heatmap.png" and hp.exists()), None)
+        if comparison is not None:
+            im_ax = fig.add_axes([0.10, 0.10, 0.80, 0.42])
+            im_ax.imshow(plt.imread(str(comparison)))
+            im_ax.axis("off")
+        elif heatmap_paths:
             try:
                 for idx, hp in enumerate(heatmap_paths[:2]):
                     if hp.exists():
@@ -1239,64 +1430,69 @@ class AnalysisExporter:
                         im_ax.imshow(img_arr)
                         im_ax.axis("off")
             except Exception:
-                ax.text(0.12, 0.35, "Heatmap graphics generated and stored in package heatmaps/ folder.", color="#94a3b8")
+                ax.text(0.12, 0.35, tr("heatmap_stored"), color="#94a3b8")
         else:
-            ax.text(0.12, 0.35, "Heatmaps available in export package directory.", color="#94a3b8")
+            ax.text(0.12, 0.35, tr("heatmap_available"), color="#94a3b8")
 
         return fig
 
     def _build_pdf_page_diagnostics(
-        self, job: Dict[str, Any], analysis_frames: List[Dict[str, Any]], options: ExportOptions
+        self, job: Dict[str, Any], analysis_frames: List[Dict[str, Any]], options: ExportOptions,
+        tr: Optional[Translator] = None,
     ) -> plt.Figure:
+        tr = tr or Translator("en")
+        th = tr.language == "th"
         fig = plt.figure(figsize=(8.5, 11), facecolor="#0b1219")
         ax = fig.add_axes([0, 0, 1, 1])
         ax.axis("off")
 
-        ax.text(0.08, 0.92, "TRACKING QUALITY & EXPORT SPECIFICATION", color="#38bdf8", fontsize=16, fontweight="bold")
-        ax.text(0.08, 0.89, "Verification metrics, scene segment counts, and overlay configuration", color="#94a3b8", fontsize=10)
+        ax.text(0.08, 0.92, tr("diag_title"), color="#38bdf8", fontsize=16, fontweight="bold")
+        ax.text(0.08, 0.89, tr("diag_subtitle"), color="#94a3b8", fontsize=10)
 
         # Quality Card
         ax.add_patch(plt.Rectangle((0.08, 0.54), 0.84, 0.32, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
-        ax.text(0.10, 0.82, "5. TRACKING & SCENE QUALITY DIAGNOSTICS", color="#38bdf8", fontsize=12, fontweight="bold")
+        ax.text(0.10, 0.82, tr("sec5"), color="#38bdf8", fontsize=12, fontweight="bold")
 
         scenes = set(r.get("sceneState", "UNKNOWN") for r in analysis_frames)
         camera_segs = set(r.get("cameraSegmentId", "unknown") for r in analysis_frames)
 
         diag_items = [
-            ("Total Evaluated Frames:", str(len(analysis_frames))),
-            ("Camera Segments Detected:", f"{len(camera_segs)} discrete camera segments"),
-            ("Scene Classifications Observed:", ", ".join(sorted(scenes))),
-            ("Court Calibration State:", "Rejected during unconfirmed intervals (0 false metrics leaked)"),
-            ("Feet Contact Provenance:", "Verified within image bounds; no 0,0 fallback"),
-            ("Identity Switching Policy:", "Continuous trajectory quarantine (separate from ByteTrack MOT ID)"),
+            (tr("lbl_total_frames"), str(len(analysis_frames))),
+            (tr("lbl_cam_segments"), tr("cam_segments_value", n=len(camera_segs))),
+            (tr("lbl_scenes"), ", ".join(sorted(scenes))),
+            (tr("lbl_cal_frames"), tr("cal_frames_value", n=sum(bool(r.get('isMetricValid')) for r in analysis_frames), t=len(analysis_frames))),
+            (tr("lbl_feet"), tr("feet_value")),
+            (tr("lbl_identity"), tr("identity_value")),
         ]
 
         y_pos = 0.77
         for label, val in diag_items:
             ax.text(0.11, y_pos, label, color="#94a3b8", fontsize=9, fontweight="bold")
-            ax.text(0.42, y_pos, val, color="#f1f5f9", fontsize=9)
+            ax.text(0.42, y_pos, val, color="#f1f5f9", fontsize=8 if th else 9)
             y_pos -= 0.034
 
         # Export Configuration Card
         ax.add_patch(plt.Rectangle((0.08, 0.16), 0.84, 0.34, facecolor="#111c26", edgecolor="#1e293b", lw=1.5))
-        ax.text(0.10, 0.46, "6. APPLIED EXPORT CONFIGURATION", color="#38bdf8", fontsize=12, fontweight="bold")
+        ax.text(0.10, 0.46, tr("sec6"), color="#38bdf8", fontsize=12, fontweight="bold")
 
-        opts_dict = options.to_dict()
+        def onoff(flag: bool) -> str:
+            return tr("enabled") if flag else tr("disabled")
+
         cfg_items = [
-            ("Selected Export Preset:", options.preset),
-            ("Court / Calibration Wireframe:", "ENABLED" if options.court else "DISABLED"),
-            ("Player Bounding Boxes:", "ENABLED" if options.player_detection else "DISABLED"),
-            ("Pose Skeleton Bones:", "ENABLED" if options.pose else "DISABLED"),
-            ("Player Identity Labels:", "ENABLED (P1..P4)" if options.player_labels else "DISABLED"),
-            ("MOT Track IDs:", "ENABLED" if options.track_ids else "DISABLED"),
-            ("Ground Contact Points:", "ENABLED" if options.ground_points else "DISABLED"),
-            ("Shuttle Detection / Trail:", f"{'ENABLED' if options.shuttle else 'DISABLED'} / {'ENABLED' if options.shuttle_trail else 'DISABLED'}"),
-            ("Debug Overlay HUD:", "ENABLED" if options.debug_info else "DISABLED"),
+            (tr("cfg_preset"), options.preset, True),
+            (tr("cfg_court"), onoff(options.court), options.court),
+            (tr("cfg_boxes"), onoff(options.player_detection), options.player_detection),
+            (tr("cfg_pose"), onoff(options.pose), options.pose),
+            (tr("cfg_labels"), tr("cfg_labels_on") if options.player_labels else tr("disabled"), options.player_labels),
+            (tr("cfg_track_ids"), onoff(options.track_ids), options.track_ids),
+            (tr("cfg_ground"), onoff(options.ground_points), options.ground_points),
+            (tr("cfg_shuttle"), f"{onoff(options.shuttle)} / {onoff(options.shuttle_trail)}", options.shuttle),
+            (tr("cfg_debug"), onoff(options.debug_info), options.debug_info),
         ]
 
         y_pos = 0.42
-        for label, val in cfg_items:
-            val_col = "#38bdf8" if val.startswith("ENABLED") else ("#34d399" if label.startswith("Selected") else "#94a3b8")
+        for idx, (label, val, enabled) in enumerate(cfg_items):
+            val_col = "#34d399" if idx == 0 else ("#38bdf8" if enabled else "#94a3b8")
             ax.text(0.11, y_pos, label, color="#94a3b8", fontsize=8.5, fontweight="bold")
             ax.text(0.42, y_pos, val, color=val_col, fontsize=8.5, fontweight="bold")
             y_pos -= 0.026
@@ -1305,7 +1501,7 @@ class AnalysisExporter:
 
     def _generate_summary_json(self, job: Dict[str, Any], analysis_frames: List[Dict[str, Any]], output_path: Path) -> None:
         total_frames = len(analysis_frames)
-        cal_frames = sum(1 for r in analysis_frames if r.get("isMetricValid") is True or r.get("canUseCourtMetric") is True)
+        cal_frames = sum(1 for r in analysis_frames if r.get("isMetricValid", r.get("canUseCourtMetric")) is True)
 
         players_summary: Dict[str, Any] = {}
         for pid in ("P1", "P2", "P3", "P4"):
@@ -1313,12 +1509,13 @@ class AnalysisExporter:
             players_summary[pid] = {
                 "observedFrames": obs_count,
                 "coverageFraction": round(obs_count / max(1, total_frames), 3),
+                "distanceMetrics": next((p.get("distanceMetrics") for r in reversed(analysis_frames) for p in r.get("players", []) if p.get("playerId") == pid and p.get("distanceMetrics")), None),
             }
 
-        session_id = job.get("id") or job.get("metadata", {}).get("session", {}).get("sessionId") or "session"
+        session_id = job.get("sessionId") or job.get("metadata", {}).get("session", {}).get("sessionId")
         summary = {
             "sessionId": session_id,
-            "analysisJobId": job.get("id"),
+            "analysisJobId": job.get("id") or job.get("sessionId"),
             "exportedAt": datetime.datetime.now().isoformat(),
             "frameCount": total_frames,
             "totalSamples": total_frames,
@@ -1327,6 +1524,7 @@ class AnalysisExporter:
             "cameraSegmentCount": len(set(r.get("cameraSegmentId", "seg-0") for r in analysis_frames)),
             "players": players_summary,
             "shuttleObservedCount": sum(1 for r in analysis_frames if r.get("shuttle") and r["shuttle"].get("state") == "observed"),
+            "shuttleAnalytics": shot_analytics(collect_shots(analysis_frames)),
         }
 
         output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -1339,11 +1537,17 @@ class AnalysisExporter:
         artifact_list: List[str],
         output_path: Path,
         source_media_path: Path,
+        render_facts: Optional[Dict[str, Any]] = None,
+        effective_language: Optional[str] = None,
     ) -> None:
         meta = job.get("metadata", {}).get("session", {})
         vid_meta = meta.get("videoMetadata", {})
 
         git_sha = _get_git_commit_sha()
+        engine = job.get("metadata", {}).get("engine") or {}
+        facts = render_facts or {}
+        session_id = job.get("sessionId") or meta.get("sessionId")
+        effective_device = engine.get("effectiveDevice") if "effectiveDevice" in engine else engine.get("device")
 
         manifest = {
             "exportVersion": "1.0.0",
@@ -1351,29 +1555,46 @@ class AnalysisExporter:
             "createdAt": datetime.datetime.now().isoformat(),
             "sportsScoutVersion": "0.11.0-pilot.1",
             "repositorySha": git_sha,
+            "repositoryDirty": _get_repository_dirty(),
+            "analysisRepositorySha": engine.get("repositorySha"),
+            "analysisRepositoryDirty": engine.get("repositoryDirty"),
+            "analysisPostprocessing": engine.get("postprocessing"),
             "provenance": {
                 "pipelineVersion": "3.5E",
-                "detectorModel": job.get("metadata", {}).get("engine", {}).get("detectorModel") or "yolov8x",
-                "poseModel": job.get("metadata", {}).get("engine", {}).get("poseModel") or "yolov8x-pose",
-                "shuttleModel": job.get("metadata", {}).get("engine", {}).get("shuttleModel") or "tracknet-v2",
-                "device": job.get("metadata", {}).get("engine", {}).get("device") or ("cuda" if cv2.cuda.getCudaEnabledDeviceCount() > 0 else "cpu"),
-                "runtime": "onnxruntime" if "onnx" in str(job) else "pytorch",
-                "precision": "fp16",
-                "analysisSessionId": job.get("id"),
+                "detectorModel": engine.get("detectorModel"),
+                "poseModel": engine.get("poseModel"),
+                "shuttleModel": engine.get("shuttleModel") or (engine.get("shuttle") or {}).get("model"),
+                "requestedDevice": engine.get("requestedDevice") or meta.get("device"),
+                "effectiveDevice": effective_device,
+                "device": effective_device,
+                "runtime": engine.get("runtime"),
+                "precision": None if engine.get("runtime") == "recorded" else engine.get("precision"),
+                "executionValidated": engine.get("executionValidated"),
+                "fallbackReason": engine.get("fallbackReason") or ((engine.get("inferenceProviders") or {}).get("detector") or {}).get("fallbackReason"),
+                "detectorDevice": engine.get("detectorDevice"),
+                "poseDevice": engine.get("poseDevice"),
+                "shuttleDevice": engine.get("shuttleDevice"),
+                "inferenceProviders": {**(engine.get("inferenceProviders") or {}), "shuttle": engine.get("shuttle")} if engine else None,
+                "analysisSessionId": session_id,
             },
-            "analysisJobId": job.get("id"),
+            "analysisJobId": job.get("id") or job.get("sessionId"),
             "sourceMediaSha256": job.get("identity", {}).get("mediaHash"),
             "sourceFilename": vid_meta.get("filename", source_media_path.name),
-            "sourceResolution": [vid_meta.get("width", 1280), vid_meta.get("height", 720)],
-            "sourceFps": vid_meta.get("nominalFps", 30.0),
-            "sourceDurationSec": vid_meta.get("durationSec", 0.0),
+            "projectId": meta.get("projectId"),
+            "analysisSessionId": session_id,
+            "sourceResolution": [vid_meta.get("width"), vid_meta.get("height")],
+            "sourceFps": vid_meta.get("nominalFps"),
+            "sourceDurationSec": vid_meta.get("durationSec"),
             "analysisResultRevision": int(job.get("checkpoint", {}).get("committedSequence", 1)),
             "selectedOverlays": options.to_dict(),
             "exportPreset": options.preset,
+            "reportLanguageRequested": options.language,
+            "reportLanguageEffective": effective_language or options.language,
             "videoEncoder": "opencv_videowriter",
-            "videoCodec": "mp4v",
-            "outputResolution": [vid_meta.get("width", 1280), vid_meta.get("height", 720)],
-            "outputFps": vid_meta.get("nominalFps", 30.0),
+            "videoCodec": facts.get("videoCodec"),
+            "legacyFrameIndexFallbackCount": facts.get("legacyFrameIndexFallbackCount", sum("sourceFrame" not in row for row in analysis_frames)),
+            "outputResolution": facts.get("resolution"),
+            "outputFps": facts.get("fps"),
             "hasAudio": False,
             "audioNote": "Source audio was not multiplexed into the overlay render.",
             "calibrationCoverage": round(sum(1 for r in analysis_frames if r.get("isMetricValid")) / max(1, len(analysis_frames)), 3),
@@ -1381,6 +1602,11 @@ class AnalysisExporter:
             "warnings": [
                 "2D body keypoints and angles are monocular camera pixel estimates.",
                 "Source audio was not included in visual overlay video.",
+                *(
+                    ["Thai report requested but no Thai-capable font was found; the report was generated in English."]
+                    if options.language == "th" and (effective_language or options.language) != "th"
+                    else []
+                ),
             ],
             "generatedArtifacts": artifact_list,
         }
@@ -1388,8 +1614,15 @@ class AnalysisExporter:
         output_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     def _generate_readme(
-        self, job: Dict[str, Any], options: ExportOptions, artifact_list: List[str], output_path: Path
+        self, job: Dict[str, Any], options: ExportOptions, artifact_list: List[str], output_path: Path,
+        tr: Optional[Translator] = None,
     ) -> None:
+        if tr is not None and tr.language == "th":
+            output_path.write_text(
+                tr("readme", session=job.get("id", "N/A"), date=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), preset=options.preset),
+                encoding="utf-8",
+            )
+            return
         content = f"""SportsScout Match Analysis Export Package
 ==========================================
 
@@ -1405,11 +1638,14 @@ video/
 report/
   SportsScout_Report.pdf        - Comprehensive match summary, player metrics, and quality review
 heatmaps/
-  player_movement_heatmap.png   - Tactical court movement distribution
-  player_1_heatmap.png          - Player 1 movement distribution
-  player_2_heatmap.png          - Player 2 movement distribution
-  shuttle_heatmap.png           - Shuttle landing / trajectory heatmap
+  player_movement_heatmap.png   - All players combined: % of valid frames per court zone
+  player_1_heatmap.png ... player_4_heatmap.png - Per-player zone heatmaps (% per zone)
+  player_comparison_heatmap.png - P1-P4 side by side on one colour scale
+  shuttle_trajectory_heatmap.png - Shuttle positions per zone, or explicit insufficient data
+  shuttle_landing_heatmap.png    - Confirmed landings per zone, or explicit insufficient data
+  heatmap_zones.json            - The zone percentages behind every heatmap (for analysis)
 data/
+  shuttle_shots.json            - Evidence-gated shot events with null unknowns
   analysis_summary.json         - Machine-readable high-level metrics
   export_manifest.json          - Provenance, audit hashes, and export configuration
 README.txt                      - Package overview (this file)

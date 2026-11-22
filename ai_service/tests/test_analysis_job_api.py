@@ -179,8 +179,36 @@ class TestAnalysisJobAPI(unittest.TestCase):
         restored = server._restore_persisted_session(session_id)
         self.assertIsNone(restored.analyzer.mapper.H)
         self.assertEqual(restored.analyzer.calibration_context.camera_segment_id, "segment-2")
+        self.assertTrue(restored.analyzer._identity_requires_metric_calibration)
         restored.analyzer.start_camera_segment()
         self.assertEqual(restored.analyzer.calibration_context.camera_segment_id, "segment-3")
+
+    def test_legacy_uncalibrated_segment_zero_checkpoint_stays_fail_closed(self):
+        session_id = self._create_ready_demo()
+        session = server.tracking_sessions[session_id]
+        session.analyzer.lose_calibration()
+        session.current_frame = session.analyzed_frames = session.analyzer.frame_count = 1
+        server._append_session_result(session, {
+            "frameIndex": 1, "timestampSec": 1 / 30,
+            "cameraSegmentId": "segment-0", "players": [],
+        })
+        server._commit_pending_results(session)
+        server._persist_session_job(session, status="CANCELLED")
+
+        # Older segment-0 checkpoints did not persist this fail-closed marker.
+        checkpoint = server.analysis_job_store.get_job(session_id)["checkpoint"]
+        legacy_segment = dict(checkpoint["segmentCalibrationState"])
+        legacy_segment.pop("identityRequiresCalibration", None)
+        server.analysis_job_store.update_job(session_id, {
+            "checkpoint": {"segmentCalibrationState": legacy_segment},
+        })
+        server.tracking_sessions.clear()
+
+        restored = server._restore_persisted_session(session_id)
+
+        self.assertEqual(restored.analyzer.calibration_context.camera_segment_id, "segment-0")
+        self.assertIsNone(restored.analyzer.mapper.H)
+        self.assertTrue(restored.analyzer._identity_requires_metric_calibration)
 
     def test_worker_concurrency_is_bounded(self):
         import threading

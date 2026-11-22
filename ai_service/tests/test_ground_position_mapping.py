@@ -308,6 +308,38 @@ class TestDistanceTrackerSegmentation(unittest.TestCase):
         stats = self.tracker.get_stats(1)
         self.assertGreater(stats["total_dist_m"], 0.0)
 
+    def test_alternating_reused_pose_frames_do_not_reset_distance(self):
+        """Pose runs on alternate frames; reused-pose frames must be held, not reset."""
+        total_frames = 40
+        for i in range(total_frames):
+            t = i / 30.0
+            x = 200.0 + 6.0 * i  # steady lateral travel
+            if i % 2 == 0:
+                self.tracker.update(
+                    1, (x, 300.0), timestamp_sec=t, camera_segment_id="seg-1",
+                    calibration_id="cal-1", provenance=CANONICAL_PROVENANCE_BOTH_ANKLES,
+                )
+            else:
+                self.tracker.update(
+                    1, (x, 300.0), timestamp_sec=t, camera_segment_id="seg-1",
+                    calibration_id="cal-1", provenance="bbox_bottom_center",
+                    metric_eligible=False, hold_trajectory=True,
+                )
+        stats = self.tracker.get_stats(1)
+        self.assertGreater(stats["total_dist_m"], 0.5)
+        self.assertGreater(stats["validMovementSamples"], 0)
+
+    def test_alternating_without_hold_reproduces_zero_distance(self):
+        """Without hold, bbox fallback frames reset the trajectory (documented behaviour)."""
+        for i in range(40):
+            t = i / 30.0
+            x = 200.0 + 6.0 * i
+            kwargs = {"provenance": CANONICAL_PROVENANCE_BOTH_ANKLES} if i % 2 == 0 else {
+                "provenance": "bbox_bottom_center", "metric_eligible": False}
+            self.tracker.update(1, (x, 300.0), timestamp_sec=t, camera_segment_id="seg-1",
+                                calibration_id="cal-1", **kwargs)
+        self.assertEqual(self.tracker.get_stats(1)["total_dist_m"], 0.0)
+
     def test_camera_segment_change_breaks_distance(self):
         """Changing cameraSegmentId establishes new segment without distance bridge."""
         self.tracker.update(1, (200.0, 200.0), timestamp_sec=0.0, camera_segment_id="seg-1", calibration_id="cal-1")

@@ -477,6 +477,8 @@ export interface TrackingPlayerV1 {
   athleteId?: string | null;
   trackId?: number | null;
   teamCode?: string;
+  /** Stable shoe-tone cue, learned only from repeated clear, confirmed observations. */
+  shoeColor?: 'DARK' | 'LIGHT' | null;
   bboxPct?: {
     x: number;
     y: number;
@@ -489,6 +491,31 @@ export interface TrackingPlayerV1 {
     y: number;
   } | null;
   groundPointProvenance?: GroundPointProvenance | null;
+  rawGroundPoint?: {
+    groundPx: { x: number; y: number };
+    groundPct: { x: number; y: number };
+    provenance: GroundPointProvenance;
+    confidence: number;
+    poseSource: string;
+    poseAgeFrames: number;
+    poseAgeSec: number;
+    validity: string;
+    metricEligible: boolean;
+    metricQuality: string;
+  } | null;
+  filteredGroundPoint?: { xM: number; yM: number } | null;
+  distanceMetrics?: {
+    totalTrackedDistanceM?: number | null;
+    distanceDuringActivePlayM?: number | null;
+    metricDistanceCoverage?: number | null;
+    groundPointQuality?: string | null;
+    rawMovementM?: number | null;
+    filteredMovementM?: number | null;
+    jitterRejectedDistanceM?: number | null;
+    validMovementSamples?: number | null;
+    provenanceDistribution?: Record<string, number>;
+    measurementUncertaintyM?: number | null;
+  } | null;
   groundPositionM?: { xM: number; yM: number } | null;
   courtPositionM?: { xM: number; yM: number } | null;
   /** Source-frame pixel coordinates. */
@@ -521,9 +548,31 @@ export interface TrackingPlayerV1 {
   detectionConfidence?: number | null;
   confidence?: number | null;
   state: 'observed' | 'predicted' | 'lost';
+  /** Why a player is lost or has not been assigned a semantic identity yet. */
+  trackingReason?: TrackingReason | null;
   observationState?: 'observed' | 'predicted' | 'interpolated' | 'manual' | null;
   reviewState?: 'unreviewed' | 'reviewed' | 'corrected';
   pose?: TrackingPoseV1 | null;
+}
+
+export type TrackingReason =
+  | 'NO_PERSON_DETECTION'
+  | 'OUTSIDE_COURT'
+  | 'COURT_FILTER_REJECTED_ALL'
+  | 'CALIBRATION_UNAVAILABLE'
+  | 'IDENTITY_AMBIGUOUS'
+  | 'REACQUISITION_PENDING'
+  | 'ASSOCIATION_REJECTED'
+  | 'OBSERVED'
+  | 'PREDICTED'
+  | 'UNKNOWN';
+
+export interface CourtFilterDiagnosticsV1 {
+  active: boolean;
+  calibrationAvailable: boolean;
+  candidateCount: number;
+  acceptedCount: number;
+  rejectedOutsideCourtCount: number;
 }
 
 /** Fresh detector output retained independently from semantic P1–P4 profiles. */
@@ -546,6 +595,8 @@ export interface TrackingTelemetryV1 {
   pipelineRunId?: string;
   timestampSec: number;
   frameIndex: number;
+  sourceFrame?: number;
+  shuttleShotEvents?: import('./types/shuttleShots').ShuttleShotEvents | null;
   timebase?: string | null;
   sceneState?: import('./types/scene').SceneState | string | null;
   sceneTransition?: import('./types/scene').SceneStateTransition | null;
@@ -582,6 +633,9 @@ export interface TrackingTelemetryV1 {
   isSynthetic?: boolean;
   source?: 'real_tracking' | 'synthetic_demo' | string;
   trackedPlayerCount?: number;
+  rawTrackerIdSwitches?: number;
+  semanticPlayerIdSwitches?: number;
+  courtFilter?: CourtFilterDiagnosticsV1 | null;
   players: TrackingPlayerV1[];
   /** Raw MOT detections/poses are separate from semantic player profiles. */
   rawPlayerDetections?: RawPlayerDetectionV1[];
@@ -661,6 +715,7 @@ export type BackendSessionStatus =
 
 export interface TrackingSessionStatus {
   sessionId: string;
+  gameType?: 'singles' | 'doubles';
   status: BackendSessionStatus;
   progressPct: number;
   currentFrame: number;
@@ -810,6 +865,17 @@ export interface TrackingQualityStats {
   meanTargetCoveragePct?: number | null;
   simultaneousCoveragePct?: number | null;
   playerCoverage?: Record<string, PlayerTrackingCoverage>;
+  courtFilterCounts?: {
+    candidateCount: number;
+    acceptedCount: number;
+    rejectedOutsideCourtCount: number;
+    filteredFrames: number;
+  };
+  trackingReasonCounts?: Record<string, Record<string, number>>;
+  identityCounters?: {
+    rawTrackerIdSwitches: number;
+    semanticPlayerIdSwitches: number;
+  };
 }
 
 export type ShuttleTrackingStatus =

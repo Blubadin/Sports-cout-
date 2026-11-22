@@ -1,0 +1,53 @@
+{
+  "clipId": "B05_testshort_holdout",
+  "provenance": "UNVERIFIED",
+  "provenanceNote": "Committed in 1a2aac3 (2026-11-03) together with script-generated streams and placeholder reviewer identities that named no real person. No record of a person annotating this video exists. Treat as unverified until re-annotated and reviewed by named humans.",
+  "sourceMediaSha256": "3cc570297184e465ac5a85795be97dcee81df36ae6ec8f58d41333cba45f5f30",
+  "reviewerId": null,
+  "independentSecondReviewer": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "UNVERIFIED",
+  "gameType": "singles",
+  "cornersPx": [
+    [
+      520.0,
+      510.0
+    ],
+    [
+      1400.0,
+      510.0
+    ],
+    [
+      1620.0,
+      1020.0
+    ],
+    [
+      300.0,
+      1020.0
+    ]
+  ],
+  "cornersCourtM": [
+    [
+      0.0,
+      0.0
+    ],
+    [
+      6.1,
+      0.0
+    ],
+    [
+      6.1,
+      13.4
+    ],
+    [
+      0.0,
+      13.4
+    ]
+  ],
+  "validIntervals": [
+    [
+      0.0,
+      131.533
+    ]
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "clipId": "B04_bad_duo_holdout",
+  "provenance": "UNVERIFIED",
+  "provenanceNote": "Committed in 1a2aac3 (2026-11-03) together with script-generated streams and placeholder reviewer identities that named no real person. No record of a person annotating this video exists. Treat as unverified until re-annotated and reviewed by named humans.",
+  "sourceMediaSha256": "df26cac506d27671b294742a9c81204254f9079edbd92245642577e275442b16",
+  "reviewerId": null,
+  "independentSecondReviewer": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "UNVERIFIED",
+  "description": "Ground truth camera cuts for Bad duo 1080p match from verified segment transitions",
+  "cuts": [
+    15.467,
+    28.567,
+    29.4,
+    31.5,
+    32.733,
+    37.167,
+    43.533,
+    44.333,
+    54.767,
+    59.267,
+    71.4,
+    77.433,
+    82.867
+  ]
+}

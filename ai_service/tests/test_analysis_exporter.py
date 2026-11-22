@@ -487,7 +487,9 @@ class TestAnalysisExporter(unittest.TestCase):
         self.exporter.export(self.session_id, target_zip_path=out_zip)
         with zipfile.ZipFile(out_zip, "r") as zf:
             self.assertIn("heatmaps/player_movement_heatmap.png", zf.namelist())
-            self.assertIn("heatmaps/shuttle_heatmap.png", zf.namelist())
+            self.assertIn("heatmaps/shuttle_trajectory_heatmap.png", zf.namelist())
+            self.assertIn("heatmaps/shuttle_landing_heatmap.png", zf.namelist())
+            self.assertIn("data/shuttle_shots.json", zf.namelist())
             img_bytes = zf.read("heatmaps/player_movement_heatmap.png")
             self.assertTrue(img_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
 
@@ -522,3 +524,29 @@ class TestAnalysisExporter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnidentifiedPersonBoxTests(unittest.TestCase):
+    def _frame(self, scene="COURT_PLAY"):
+        elig = {"status": "ELIGIBLE"}
+        return {
+            "sceneState": scene,
+            "players": [
+                {"playerId": "P1", "state": "observed", "trackId": 1, "bboxPx": [0, 0, 100, 200]},
+                {"playerId": "P2", "state": "lost", "trackId": None},
+            ],
+            "rawPlayerDetections": [
+                {"trackId": 1, "bboxPx": [0, 0, 100, 200], "eligibility": elig},
+                {"trackId": 2, "bboxPx": [300, 0, 400, 200], "eligibility": elig},
+                {"trackId": 3, "bboxPx": [600, 0, 700, 200], "eligibility": {"status": "SPECTATOR_OR_OFFICIAL"}},
+                {"trackId": 4, "bboxPx": [5, 5, 105, 205], "eligibility": elig},
+            ],
+        }
+
+    def test_only_eligible_unassigned_non_overlapping_people_are_returned(self):
+        from analysis_exporter import unidentified_person_boxes
+        self.assertEqual(unidentified_person_boxes(self._frame()), [[300.0, 0.0, 400.0, 200.0]])
+
+    def test_nothing_outside_court_play(self):
+        from analysis_exporter import unidentified_person_boxes
+        self.assertEqual(unidentified_person_boxes(self._frame("CAMERA_TRANSITION")), [])

@@ -144,7 +144,7 @@ class TestProcessingConfigAndPresets(unittest.TestCase):
     def test_quality_preset(self):
         cfg = resolve_processing_config({"profile": "quality"})
         self.assertEqual(cfg["profile"], "quality")
-        self.assertEqual(cfg["detectorInputSize"], 640)
+        self.assertEqual(cfg["detectorInputSize"], 1280)
         self.assertFalse(cfg["useCourtRoi"])
         self.assertEqual(cfg["frameStride"], 1)
         self.assertEqual(cfg["poseStride"], 1)
@@ -223,7 +223,7 @@ class TestProcessingConfigAndPresets(unittest.TestCase):
 
         # Quality profile
         quality = resolve_processing_config({"profile": "quality"})
-        self.assertEqual(quality["detectorInputSize"], 640)
+        self.assertEqual(quality["detectorInputSize"], 1280)
         self.assertEqual(quality["frameStride"], 1)
         self.assertEqual(quality["poseStride"], 1)
         self.assertFalse(quality["useCourtRoi"])
@@ -480,6 +480,39 @@ class TestPhase4PerformanceAndQualityHardening(unittest.TestCase):
         self.assertEqual(metrics["lostFramesPct"], 50.0)
         self.assertEqual(metrics["predictedFramesPct"], 12.5)
 
+    def test_quality_accumulator_exposes_court_filter_and_identity_diagnostics(self):
+        from server import SessionQualityAccumulator
+
+        accumulator = SessionQualityAccumulator(2)
+        accumulator.update({
+            "timestampSec": 0.0,
+            "rawTrackerIdSwitches": 3,
+            "semanticPlayerIdSwitches": 1,
+            "courtFilter": {
+                "candidateCount": 8,
+                "acceptedCount": 4,
+                "rejectedOutsideCourtCount": 4,
+                "active": True,
+            },
+            "players": [
+                {"playerId": "P1", "state": "lost", "trackingReason": "IDENTITY_AMBIGUOUS"},
+                {"playerId": "P2", "state": "observed"},
+            ],
+        })
+
+        quality = accumulator.to_dict()
+        self.assertEqual(quality["identityCounters"], {"rawTrackerIdSwitches": 3, "semanticPlayerIdSwitches": 1})
+        self.assertEqual(quality["courtFilterCounts"], {
+            "candidateCount": 8,
+            "acceptedCount": 4,
+            "rejectedOutsideCourtCount": 4,
+            "filteredFrames": 1,
+        })
+        self.assertEqual(quality["trackingReasonCounts"]["P1"]["IDENTITY_AMBIGUOUS"], 1)
+
+        restored = SessionQualityAccumulator(2, accumulator.snapshot())
+        self.assertEqual(restored.to_dict(), quality)
+
     def test_physical_court_margin_filtering(self):
         """Detections must be filtered using physical margin in meters in calibrated court space."""
         analyzer = BadmintonAnalyzerV2(
@@ -506,7 +539,9 @@ class TestPhase4PerformanceAndQualityHardening(unittest.TestCase):
 
             active_bboxes = [p["bbox"] for p in res["players"] if p["bbox"] is not None]
             self.assertIn([380, 450, 420, 500], active_bboxes)
-            self.assertIn([70, 450, 90, 500], active_bboxes)
+            # An unknown near-court person cannot fill the remaining player slot.
+            self.assertNotIn([70, 450, 90, 500], active_bboxes)
+            self.assertTrue(any(d["trackId"] == 2 for d in res["rawPlayerDetections"]))
             self.assertNotIn([0, 450, 20, 500], active_bboxes)
 
     def test_runtime_provenance_contract(self):

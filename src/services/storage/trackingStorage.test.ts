@@ -438,3 +438,41 @@ describe('persistent storage availability', () => {
     })).rejects.toThrow('Persistent tracking storage is unavailable');
   });
 });
+
+
+describe('canonical ground quality in local metric summaries', () => {
+  it('excludes bbox visual points and samples stabilized coordinates consistently', () => {
+    const frames: TrackingTelemetryV1[] = [0, 1, 2].map((index) => ({
+      schemaVersion: 1, analysisId: 'quality', frameIndex: index + 1, timestampSec: index,
+      isMetricValid: true, calibrationState: 'CALIBRATED', calibrationId: 'c', cameraSegmentId: 's',
+      calibration: { state: 'CALIBRATED', calibrationId: 'c', cameraSegmentId: 's', source: 'manual', createdAtFrame: 1, createdAtTimestampSec: 0, confidence: 1 },
+      players: [{ playerId: 'P1', state: 'observed', totalDistanceM: 0,
+        groundPointProvenance: index === 1 ? 'bbox_bottom_center' : 'pose_both_ankles',
+        rawGroundPoint: { metricEligible: index !== 1 } as TrackingTelemetryV1['players'][number]['rawGroundPoint'],
+        filteredGroundPoint: index === 1 ? null : { xM: 3, yM: 5 },
+        courtPosition: { xM: 1 + index, yM: 8, xPct: 10, yPct: 20 },
+      }],
+    }));
+    const batch = downsampleAndChunkTrackingSamples('quality', frames);
+    const builder = new TrackingAnalysisStreamBuilder('quality', ['P1']);
+    const stream = [...builder.addFrames(frames), ...builder.finishChunks()];
+    const samples = batch.chunks.flatMap((chunk) => chunk.samples);
+    expect(samples).toHaveLength(2);
+    expect(samples.map((sample) => [sample.courtX, sample.courtY, sample.normalizedX, sample.normalizedY]))
+      .toEqual([[3, 5, 0.492, 0.373], [3, 5, 0.492, 0.373]]);
+    expect(stream.flatMap((chunk) => chunk.samples)).toEqual(samples);
+    expect(builder.finish().summary.players.P1.totalDistanceMeters).toBe(0);
+  });
+});
+
+
+it('does not reintegrate stabilized jitter when canonical accepted travel is zero', () => {
+  const samples = Array.from({ length: 100 }, (_, i) => ({
+    timestamp: i / 10, playerId: 'P1', courtX: 3 + (i % 2 ? 0.05 : -0.05), courtY: 5,
+    cumulativeDistanceM: 0, speed: 0, confidence: 0.9, trackingState: 'tracked' as const,
+    groundPointProvenance: 'pose_both_ankles' as const,
+  }));
+  const metrics = computePlayerMovementMetrics(samples);
+  expect(metrics.totalDistanceMeters).toBe(0);
+  expect(metrics.maxSpeedMps).toBe(0);
+});

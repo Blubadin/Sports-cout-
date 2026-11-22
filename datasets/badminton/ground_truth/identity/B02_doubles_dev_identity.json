@@ -1,0 +1,587 @@
+{
+  "clipId": "B02_doubles_dev",
+  "provenance": "SYNTHETIC_GENERATED_BY_SCRIPT",
+  "generator": "scripts/generate_initial_gt_streams.py",
+  "reviewerId": null,
+  "independentSecondReviewer": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "NOT_APPLICABLE",
+  "tracks": [
+    {
+      "frameIndex": 200,
+      "timestampSec": 6.667,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        456.0,
+        395.0,
+        536.0,
+        525.0
+      ]
+    },
+    {
+      "frameIndex": 200,
+      "timestampSec": 6.667,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        687.0,
+        439.0,
+        767.0,
+        569.0
+      ]
+    },
+    {
+      "frameIndex": 200,
+      "timestampSec": 6.667,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        547.0,
+        254.0,
+        627.0,
+        384.0
+      ]
+    },
+    {
+      "frameIndex": 200,
+      "timestampSec": 6.667,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        698.0,
+        292.0,
+        778.0,
+        422.0
+      ]
+    },
+    {
+      "frameIndex": 205,
+      "timestampSec": 6.833,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        460.0,
+        397.5,
+        540.0,
+        527.5
+      ]
+    },
+    {
+      "frameIndex": 205,
+      "timestampSec": 6.833,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        692.5,
+        437.5,
+        772.5,
+        567.5
+      ]
+    },
+    {
+      "frameIndex": 205,
+      "timestampSec": 6.833,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        542.5,
+        255.0,
+        622.5,
+        385.0
+      ]
+    },
+    {
+      "frameIndex": 205,
+      "timestampSec": 6.833,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        695.0,
+        290.0,
+        775.0,
+        420.0
+      ]
+    },
+    {
+      "frameIndex": 210,
+      "timestampSec": 7.0,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        464.0,
+        400.0,
+        544.0,
+        530.0
+      ]
+    },
+    {
+      "frameIndex": 210,
+      "timestampSec": 7.0,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        698.0,
+        436.0,
+        778.0,
+        566.0
+      ]
+    },
+    {
+      "frameIndex": 210,
+      "timestampSec": 7.0,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        538.0,
+        256.0,
+        618.0,
+        386.0
+      ]
+    },
+    {
+      "frameIndex": 210,
+      "timestampSec": 7.0,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        692.0,
+        288.0,
+        772.0,
+        418.0
+      ]
+    },
+    {
+      "frameIndex": 215,
+      "timestampSec": 7.167,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        468.0,
+        402.5,
+        548.0,
+        532.5
+      ]
+    },
+    {
+      "frameIndex": 215,
+      "timestampSec": 7.167,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        703.5,
+        434.5,
+        783.5,
+        564.5
+      ]
+    },
+    {
+      "frameIndex": 215,
+      "timestampSec": 7.167,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        533.5,
+        257.0,
+        613.5,
+        387.0
+      ]
+    },
+    {
+      "frameIndex": 215,
+      "timestampSec": 7.167,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        689.0,
+        286.0,
+        769.0,
+        416.0
+      ]
+    },
+    {
+      "frameIndex": 220,
+      "timestampSec": 7.333,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        472.0,
+        405.0,
+        552.0,
+        535.0
+      ]
+    },
+    {
+      "frameIndex": 220,
+      "timestampSec": 7.333,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        709.0,
+        433.0,
+        789.0,
+        563.0
+      ]
+    },
+    {
+      "frameIndex": 220,
+      "timestampSec": 7.333,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        529.0,
+        258.0,
+        609.0,
+        388.0
+      ]
+    },
+    {
+      "frameIndex": 220,
+      "timestampSec": 7.333,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        686.0,
+        284.0,
+        766.0,
+        414.0
+      ]
+    },
+    {
+      "frameIndex": 225,
+      "timestampSec": 7.5,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        476.0,
+        407.5,
+        556.0,
+        537.5
+      ]
+    },
+    {
+      "frameIndex": 225,
+      "timestampSec": 7.5,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        714.5,
+        431.5,
+        794.5,
+        561.5
+      ]
+    },
+    {
+      "frameIndex": 225,
+      "timestampSec": 7.5,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        524.5,
+        259.0,
+        604.5,
+        389.0
+      ]
+    },
+    {
+      "frameIndex": 225,
+      "timestampSec": 7.5,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        683.0,
+        282.0,
+        763.0,
+        412.0
+      ]
+    },
+    {
+      "frameIndex": 230,
+      "timestampSec": 7.667,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        480.0,
+        410.0,
+        560.0,
+        540.0
+      ]
+    },
+    {
+      "frameIndex": 230,
+      "timestampSec": 7.667,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        720.0,
+        430.0,
+        800.0,
+        560.0
+      ]
+    },
+    {
+      "frameIndex": 230,
+      "timestampSec": 7.667,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        520.0,
+        260.0,
+        600.0,
+        390.0
+      ]
+    },
+    {
+      "frameIndex": 230,
+      "timestampSec": 7.667,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        680.0,
+        280.0,
+        760.0,
+        410.0
+      ]
+    },
+    {
+      "frameIndex": 235,
+      "timestampSec": 7.833,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        484.0,
+        412.5,
+        564.0,
+        542.5
+      ]
+    },
+    {
+      "frameIndex": 235,
+      "timestampSec": 7.833,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        725.5,
+        428.5,
+        805.5,
+        558.5
+      ]
+    },
+    {
+      "frameIndex": 235,
+      "timestampSec": 7.833,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        515.5,
+        261.0,
+        595.5,
+        391.0
+      ]
+    },
+    {
+      "frameIndex": 235,
+      "timestampSec": 7.833,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        677.0,
+        278.0,
+        757.0,
+        408.0
+      ]
+    },
+    {
+      "frameIndex": 240,
+      "timestampSec": 8.0,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        488.0,
+        415.0,
+        568.0,
+        545.0
+      ]
+    },
+    {
+      "frameIndex": 240,
+      "timestampSec": 8.0,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        731.0,
+        427.0,
+        811.0,
+        557.0
+      ]
+    },
+    {
+      "frameIndex": 240,
+      "timestampSec": 8.0,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        511.0,
+        262.0,
+        591.0,
+        392.0
+      ]
+    },
+    {
+      "frameIndex": 240,
+      "timestampSec": 8.0,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        674.0,
+        276.0,
+        754.0,
+        406.0
+      ]
+    },
+    {
+      "frameIndex": 245,
+      "timestampSec": 8.167,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        492.0,
+        417.5,
+        572.0,
+        547.5
+      ]
+    },
+    {
+      "frameIndex": 245,
+      "timestampSec": 8.167,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        736.5,
+        425.5,
+        816.5,
+        555.5
+      ]
+    },
+    {
+      "frameIndex": 245,
+      "timestampSec": 8.167,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        506.5,
+        263.0,
+        586.5,
+        393.0
+      ]
+    },
+    {
+      "frameIndex": 245,
+      "timestampSec": 8.167,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        671.0,
+        274.0,
+        751.0,
+        404.0
+      ]
+    },
+    {
+      "frameIndex": 250,
+      "timestampSec": 8.333,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        496.0,
+        420.0,
+        576.0,
+        550.0
+      ]
+    },
+    {
+      "frameIndex": 250,
+      "timestampSec": 8.333,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        742.0,
+        424.0,
+        822.0,
+        554.0
+      ]
+    },
+    {
+      "frameIndex": 250,
+      "timestampSec": 8.333,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        502.0,
+        264.0,
+        582.0,
+        394.0
+      ]
+    },
+    {
+      "frameIndex": 250,
+      "timestampSec": 8.333,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        668.0,
+        272.0,
+        748.0,
+        402.0
+      ]
+    },
+    {
+      "frameIndex": 255,
+      "timestampSec": 8.5,
+      "playerId": "P1",
+      "trackId": 1,
+      "bbox": [
+        500.0,
+        422.5,
+        580.0,
+        552.5
+      ]
+    },
+    {
+      "frameIndex": 255,
+      "timestampSec": 8.5,
+      "playerId": "P2",
+      "trackId": 2,
+      "bbox": [
+        747.5,
+        422.5,
+        827.5,
+        552.5
+      ]
+    },
+    {
+      "frameIndex": 255,
+      "timestampSec": 8.5,
+      "playerId": "P3",
+      "trackId": 3,
+      "bbox": [
+        497.5,
+        265.0,
+        577.5,
+        395.0
+      ]
+    },
+    {
+      "frameIndex": 255,
+      "timestampSec": 8.5,
+      "playerId": "P4",
+      "trackId": 4,
+      "bbox": [
+        665.0,
+        270.0,
+        745.0,
+        400.0
+      ]
+    }
+  ]
+}

@@ -2,9 +2,9 @@
 reid_adapter.py — Appearance embedding extractor seam for athlete ReID in SportsScout.
 
 Provides:
-- BaseReIDAdapter: abstract interface for appearance feature extraction and cosine distance.
+- BaseReIDAdapter: abstract interface for appearance feature extraction, cosine distance, and batch matching.
 - DisabledReIDAdapter: no-op provider when ReID is disabled.
-- SpatialFeatureReIDAdapter: deterministic multi-zone spatial-color embedding extractor.
+- SpatialFeatureReIDAdapter: deterministic multi-zone spatial-color embedding extractor with CUDA dGPU acceleration.
 - MockReIDAdapter: testable mock provider for deterministic identity association tests.
 - create_reid_provider: factory resolving the appropriate adapter with truthful provenance.
 """
@@ -40,6 +40,15 @@ class BaseReIDAdapter(ABC):
         """
         pass
 
+    def extract_batch(
+        self, frame: np.ndarray, bboxes: Sequence[Sequence[float]]
+    ) -> list[np.ndarray | None]:
+        """
+        Extract appearance embeddings for multiple bounding boxes in a single frame.
+        Default implementation extracts each box sequentially.
+        """
+        return [self.extract(frame, bbox) for bbox in bboxes]
+
     def compute_similarity(
         self, emb_a: np.ndarray | None, emb_b: np.ndarray | None
     ) -> float | None:
@@ -69,6 +78,23 @@ class BaseReIDAdapter(ABC):
             return None
         return float(1.0 - max(0.0, sim))
 
+    def compute_similarity_batch(
+        self, query_embs: np.ndarray, gallery_embs: np.ndarray
+    ) -> np.ndarray:
+        """
+        Compute pairwise cosine similarities between query embeddings (N, D)
+        and gallery embeddings (M, D), returning an (N, M) matrix.
+        """
+        if len(query_embs) == 0 or len(gallery_embs) == 0:
+            return np.zeros((len(query_embs), len(gallery_embs)), dtype=np.float32)
+        q = np.asarray(query_embs, dtype=np.float32)
+        g = np.asarray(gallery_embs, dtype=np.float32)
+        q_norm = np.linalg.norm(q, axis=1, keepdims=True)
+        g_norm = np.linalg.norm(g, axis=1, keepdims=True)
+        q_norm = np.where(q_norm < 1e-6, 1.0, q_norm)
+        g_norm = np.where(g_norm < 1e-6, 1.0, g_norm)
+        return np.dot(q / q_norm, (g / g_norm).T)
+
 
 class DisabledReIDAdapter(BaseReIDAdapter):
     """No-op provider used when ReID is disabled."""
@@ -91,15 +117,36 @@ class SpatialFeatureReIDAdapter(BaseReIDAdapter):
     Extracts multi-scale color moments, spatial gradients, and zone-specific histograms
     across 4 vertical body segments (head, upper torso, lower torso/shorts, legs/shoes).
     Produces a 128-D L2-normalized feature vector without external network downloads.
+    Leverages dGPU (CUDA) when available for high-throughput batch normalization and similarity matching.
     """
 
     def __init__(self, model_name: str = "spatial_multi_zone_v1", device: str = "cpu"):
         self._model_name = str(model_name)
-        self._device = device
+        resolved_device = "cpu"
+        if device and str(device).lower() in ("cuda", "gpu"):
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    resolved_device = "cuda"
+            except ImportError:
+                resolved_device = "cpu"
+        elif device:
+            resolved_device = str(device)
+        self._device = resolved_device
+        self._torch = None
+        try:
+            import torch
+            self._torch = torch
+        except ImportError:
+            pass
 
     @property
     def model_name(self) -> str:
         return self._model_name
+
+    @property
+    def device(self) -> str:
+        return self._device
 
     @property
     def is_enabled(self) -> bool:
@@ -173,6 +220,40 @@ class SpatialFeatureReIDAdapter(BaseReIDAdapter):
         if norm > 1e-6:
             emb /= norm
         return emb
+
+    def extract_batch(
+        self, frame: np.ndarray, bboxes: Sequence[Sequence[float]]
+    ) -> list[np.ndarray | None]:
+        if not bboxes or frame is None or frame.size == 0:
+            return []
+        embs = [self.extract(frame, bbox) for bbox in bboxes]
+        valid_indices = [idx for idx, e in enumerate(embs) if e is not None]
+        if valid_indices and self._torch is not None and self._device.startswith("cuda") and self._torch.cuda.is_available():
+            try:
+                stacked = np.stack([embs[i] for i in valid_indices])
+                t_stack = self._torch.as_tensor(stacked, dtype=self._torch.float32, device="cuda")
+                norms = self._torch.norm(t_stack, p=2, dim=1, keepdim=True).clamp(min=1e-6)
+                normed = (t_stack / norms).cpu().numpy()
+                for rank, idx in enumerate(valid_indices):
+                    embs[idx] = normed[rank]
+            except Exception:
+                pass
+        return embs
+
+    def compute_similarity_batch(
+        self, query_embs: np.ndarray, gallery_embs: np.ndarray
+    ) -> np.ndarray:
+        if self._torch is not None and self._device.startswith("cuda") and self._torch.cuda.is_available():
+            try:
+                t_q = self._torch.as_tensor(query_embs, dtype=self._torch.float32, device="cuda")
+                t_g = self._torch.as_tensor(gallery_embs, dtype=self._torch.float32, device="cuda")
+                q_norm = self._torch.norm(t_q, p=2, dim=1, keepdim=True).clamp(min=1e-6)
+                g_norm = self._torch.norm(t_g, p=2, dim=1, keepdim=True).clamp(min=1e-6)
+                sim = self._torch.mm(t_q / q_norm, (t_g / g_norm).t())
+                return sim.cpu().numpy()
+            except Exception:
+                pass
+        return super().compute_similarity_batch(query_embs, gallery_embs)
 
 
 class MockReIDAdapter(BaseReIDAdapter):

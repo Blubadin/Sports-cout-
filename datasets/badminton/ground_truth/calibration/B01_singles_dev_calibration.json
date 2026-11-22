@@ -1,0 +1,52 @@
+{
+  "clipId": "B01_singles_dev",
+  "provenance": "UNVERIFIED",
+  "provenanceNote": "Committed in 1a2aac3 (2026-11-03) together with script-generated streams and placeholder reviewer identities that named no real person. No record of a person annotating this video exists. Treat as unverified until re-annotated and reviewed by named humans.",
+  "sourceMediaSha256": "e7c5581bdf88f622aff88901bab139133fea50f93c25c0a928056294a2bc9a4e",
+  "reviewerId": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "UNVERIFIED",
+  "gameType": "singles",
+  "cornersPx": [
+    [
+      280.0,
+      180.0
+    ],
+    [
+      1000.0,
+      180.0
+    ],
+    [
+      1160.0,
+      680.0
+    ],
+    [
+      120.0,
+      680.0
+    ]
+  ],
+  "cornersCourtM": [
+    [
+      0.0,
+      0.0
+    ],
+    [
+      6.1,
+      0.0
+    ],
+    [
+      6.1,
+      13.4
+    ],
+    [
+      0.0,
+      13.4
+    ]
+  ],
+  "validIntervals": [
+    [
+      0.0,
+      295.633
+    ]
+  ]
+}

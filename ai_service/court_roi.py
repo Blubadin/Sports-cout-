@@ -84,3 +84,61 @@ def inverse_transform_point(
     """
     x, y = point
     return float(x + offset_x), float(y + offset_y)
+
+
+def filter_court_bboxes(
+    boxes: list[list[float] | tuple[float, float, float, float]],
+    *,
+    image_to_court: np.ndarray | list[list[float]] | None,
+    court_width_m: float,
+    court_length_m: float,
+    margin_m: float = 0.5,
+    offset_x: int = 0,
+    offset_y: int = 0,
+) -> tuple[list[int], dict[str, int]]:
+    """Return candidate indices whose bottom-centre falls on/near the calibrated court.
+
+    ``image_to_court`` maps full-source pixels to court metres. Boxes may be in
+    ROI-local coordinates; offsets are applied before projection. Invalid
+    calibration fails closed because this helper is used only when the court
+    filter is explicitly active.
+    """
+    counts = {"candidateCount": len(boxes), "acceptedCount": 0, "rejectedOutsideCourtCount": 0}
+    try:
+        matrix = np.asarray(image_to_court, dtype=np.float64)
+        if matrix.shape != (3, 3) or not np.all(np.isfinite(matrix)) or abs(float(np.linalg.det(matrix))) < 1e-12:
+            raise ValueError("Invalid image-to-court homography")
+        court_width = float(court_width_m)
+        court_length = float(court_length_m)
+        margin = max(0.0, float(margin_m))
+        if not np.isfinite([court_width, court_length, margin]).all() or court_width <= 0 or court_length <= 0:
+            raise ValueError("Invalid court dimensions or margin")
+    except (TypeError, ValueError, np.linalg.LinAlgError):
+        counts["rejectedOutsideCourtCount"] = len(boxes)
+        return [], counts
+
+    accepted: list[int] = []
+    for index, box in enumerate(boxes):
+        try:
+            x1, y1, x2, y2 = (float(v) for v in box)
+            if not np.isfinite([x1, y1, x2, y2]).all() or x2 <= x1 or y2 <= y1:
+                raise ValueError("Invalid box")
+            foot = np.asarray([
+                (x1 + x2) / 2.0 + float(offset_x),
+                y2 + float(offset_y),
+                1.0,
+            ], dtype=np.float64)
+            projected = matrix @ foot
+            if not np.isfinite(projected).all() or abs(float(projected[2])) < 1e-12:
+                raise ValueError("Invalid projected footpoint")
+            x_m = float(projected[0] / projected[2])
+            y_m = float(projected[1] / projected[2])
+            inside = -margin <= x_m <= court_width + margin and -margin <= y_m <= court_length + margin
+        except (TypeError, ValueError, OverflowError):
+            inside = False
+        if inside:
+            accepted.append(index)
+
+    counts["acceptedCount"] = len(accepted)
+    counts["rejectedOutsideCourtCount"] = len(boxes) - len(accepted)
+    return accepted, counts

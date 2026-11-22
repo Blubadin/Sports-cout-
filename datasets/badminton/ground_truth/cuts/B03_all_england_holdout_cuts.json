@@ -1,0 +1,21 @@
+{
+  "clipId": "B03_all_england_holdout",
+  "provenance": "UNVERIFIED",
+  "provenanceNote": "Committed in 1a2aac3 (2026-11-03) together with script-generated streams and placeholder reviewer identities that named no real person. No record of a person annotating this video exists. Treat as unverified until re-annotated and reviewed by named humans.",
+  "sourceMediaSha256": "1ac8b3d811f5a5d42e419902b6ebbe2aab3fd8bb1b509cdb8b13da4308508074",
+  "reviewerId": null,
+  "independentSecondReviewer": null,
+  "reviewDate": null,
+  "predictionBlindingStatus": "UNVERIFIED",
+  "description": "Ground truth camera cuts for All England 2020 broadcast held-out match",
+  "cuts": [
+    12.333,
+    25.8,
+    41.2,
+    58.6,
+    75.1,
+    98.4,
+    132.7,
+    184.2
+  ]
+}

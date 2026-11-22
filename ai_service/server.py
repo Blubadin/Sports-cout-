@@ -522,7 +522,7 @@ def _video_tracking_worker(video_source: str, loop: asyncio.AbstractEventLoop):
             frame_idx += 1
             pos_msec = cap.get(cv2.CAP_PROP_POS_MSEC)
             timestamp_sec = _video_frame_timestamp(frame_idx, fps, pos_msec, last_timestamp_sec)
-            telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+            telemetry = analyzer.process_frame(frame, timestamp_sec=timestamp_sec, source_frame=frame_idx)
             telemetry["sourceFrame"] = frame_idx
             telemetry["is_synthetic"] = False
             asyncio.run_coroutine_threadsafe(broadcast_telemetry(telemetry), loop)
@@ -676,7 +676,7 @@ def resolve_processing_config(cfg: dict | None, runtime_device: str = "cpu") -> 
     effective_profile = requested_profile
 
     if requested_profile == "quality":
-        detector_input_size = 640
+        detector_input_size = 1280
         use_court_roi = False
         court_roi_margin_px = 60
         court_roi_margin_m = 0.5
@@ -933,6 +933,17 @@ class SessionQualityAccumulator:
         self.player_samples = 0
         self.previous_timestamp: float | None = None
         self.previous_states: dict[str, str] | None = None
+        self.court_filter_counts = {
+            "candidateCount": 0,
+            "acceptedCount": 0,
+            "rejectedOutsideCourtCount": 0,
+            "filteredFrames": 0,
+        }
+        self.tracking_reason_counts = {pid: {} for pid in self.player_ids}
+        self.identity_counters = {
+            "rawTrackerIdSwitches": 0,
+            "semanticPlayerIdSwitches": 0,
+        }
         if snapshot:
             self.restore(snapshot)
 
@@ -984,6 +995,23 @@ class SessionQualityAccumulator:
                 self.lost[pid] += 1
         self.player_samples += len(self.player_ids)
         self.pose_observed += poses
+        court_filter = frame.get("courtFilter") or {}
+        if court_filter.get("active"):
+            for key in ("candidateCount", "acceptedCount", "rejectedOutsideCourtCount"):
+                self.court_filter_counts[key] += max(0, int(court_filter.get(key, 0) or 0))
+            self.court_filter_counts["filteredFrames"] += 1
+        for player in frame.get("players", []):
+            pid = player.get("playerId")
+            if not pid and "id" in player:
+                pid = f"P{player['id']}"
+            reason = player.get("trackingReason")
+            if pid in self.tracking_reason_counts and reason and reason not in {"OBSERVED", "PREDICTED"}:
+                reasons = self.tracking_reason_counts[pid]
+                reasons[reason] = reasons.get(reason, 0) + 1
+        for key in self.identity_counters:
+            value = frame.get(key)
+            if value is not None:
+                self.identity_counters[key] = max(self.identity_counters[key], max(0, int(value)))
         self.frames += 1
         self.previous_timestamp = timestamp
         self.previous_states = states
@@ -1000,6 +1028,9 @@ class SessionQualityAccumulator:
             "playerSamples": self.player_samples,
             "previousTimestamp": self.previous_timestamp,
             "previousStates": self.previous_states,
+            "courtFilterCounts": self.court_filter_counts,
+            "trackingReasonCounts": self.tracking_reason_counts,
+            "identityCounters": self.identity_counters,
         }
 
     def restore(self, snapshot: dict) -> None:
@@ -1012,6 +1043,19 @@ class SessionQualityAccumulator:
         self.player_samples = int(snapshot.get("playerSamples", 0))
         self.previous_timestamp = snapshot.get("previousTimestamp")
         self.previous_states = snapshot.get("previousStates")
+        for key, target in (
+            ("courtFilterCounts", self.court_filter_counts),
+            ("identityCounters", self.identity_counters),
+        ):
+            source = snapshot.get(key, {})
+            for field in target:
+                target[field] = max(0, int(source.get(field, target[field]) or 0))
+        source_reasons = snapshot.get("trackingReasonCounts", {})
+        for pid in self.player_ids:
+            self.tracking_reason_counts[pid] = {
+                str(reason): max(0, int(count))
+                for reason, count in (source_reasons.get(pid, {}) or {}).items()
+            }
 
     def to_dict(self) -> dict:
         if self.frames == 0:
@@ -1021,6 +1065,9 @@ class SessionQualityAccumulator:
                 "predictedFramesPct": None,
                 "poseCoveragePct": None,
                 "playerCoverage": {},
+                "courtFilterCounts": dict(self.court_filter_counts),
+                "trackingReasonCounts": self.tracking_reason_counts,
+                "identityCounters": dict(self.identity_counters),
             }
         player_coverage = {}
         for pid in self.player_ids:
@@ -1044,6 +1091,11 @@ class SessionQualityAccumulator:
             "predictedFramesPct": round(sum(row["predictedFramesPct"] for row in player_coverage.values()) / len(player_coverage), 1),
             "poseCoveragePct": round(self.pose_observed / self.player_samples * 100.0, 1) if self.player_samples else 0.0,
             "playerCoverage": player_coverage,
+            "courtFilterCounts": dict(self.court_filter_counts),
+            "trackingReasonCounts": {
+                pid: dict(reasons) for pid, reasons in self.tracking_reason_counts.items()
+            },
+            "identityCounters": dict(self.identity_counters),
         }
 
 
@@ -1221,6 +1273,7 @@ def _session_identity(session: TrackingSession, current: dict | None = None) -> 
 def _session_job_metadata(session: TrackingSession, existing: dict | None = None) -> dict:
     metadata = dict(existing or {})
     metadata["session"] = {
+        "sessionId": session.session_id,
         "videoSource": session.video_source,
         "ownedVideo": bool(session.owned_video_path),
         "gameType": session.game_type,
@@ -1235,6 +1288,10 @@ def _session_job_metadata(session: TrackingSession, existing: dict | None = None
         "players": session.player_assignments,
         "mediaHash": session.media_hash,
     }
+    if session.analyzer is not None and hasattr(session.analyzer, "get_provenance"):
+        metadata["engine"] = session.analyzer.get_provenance()
+        if getattr(session, "shuttle_pipeline", None) is not None:
+            metadata["engine"]["shuttle"] = session.shuttle_pipeline.get_provenance()
     return metadata
 
 
@@ -1277,7 +1334,7 @@ def _checkpoint_payload(session: TrackingSession) -> dict:
         "durationSec": session.duration_sec,
         "elapsedSec": session.elapsed_sec,
         "playerSummary": analyzer.get_live_player_statuses(),
-        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None, "needsReacquisition": profile.identity_needs_reacquisition} for pid, profile in analyzer.profiles.items()},
+        "identityProfiles": {str(pid): {"name": profile.name, "team": profile.team, "colorHistogram": profile.color_hist.tolist() if profile.color_hist is not None else None, "reidEmbedding": profile.reid_embedding.tolist() if profile.reid_embedding is not None else None, "shoeColor": profile.shoe_color, "identityEstablished": profile.identity_established, "needsReacquisition": profile.identity_needs_reacquisition} for pid, profile in analyzer.profiles.items()},
         "identityCounters": {"rawTrackerIdSwitches": analyzer.raw_tracker_id_switches, "semanticPlayerIdSwitches": analyzer.semantic_player_id_switches},
         "frameStride": session.frame_stride,
         "segmentCalibrationState": {
@@ -1287,6 +1344,7 @@ def _checkpoint_payload(session: TrackingSession) -> dict:
             "calibrationVersion": calibration.get("calibrationVersion"),
             "cornersPx": analyzer.court_corners_px.tolist() if analyzer.court_corners_px is not None else None,
             "provenance": calibration.get("calibration"),
+            "identityRequiresCalibration": analyzer._identity_requires_metric_calibration,
         },
         "backendProvenance": _build_session_metrics(session)[2],
         "distanceAggregates": analyzer.dist_tracker.aggregate_snapshot(),
@@ -1417,6 +1475,9 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
     checkpoint = job.get("checkpoint", {})
     segment_state = checkpoint.get("segmentCalibrationState") or {}
     segment_id = segment_state.get("cameraSegmentId")
+    # A checkpoint is not proof of metric calibration by itself. Keep new and
+    # legacy sessions fail-closed until their saved calibration is revalidated.
+    session.analyzer._identity_requires_metric_calibration = True
     if segment_id:
         session.analyzer.calibration_context.camera_segment_id = segment_id
         session.analyzer.calibration_context.camera_segment_index = int(segment_id.removeprefix("segment-"))
@@ -1459,15 +1520,25 @@ def _restore_persisted_session(session_id: str) -> TrackingSession | None:
         profile.name = saved.get("name", profile.name)
         profile.team = saved.get("team", 0)
         # MOT/spatial continuity and pending confirmation counts are not durable.
-        # Older checkpoints in a later segment must also forbid initial seeding.
-        profile.identity_needs_reacquisition = saved.get("needsReacquisition", segment_id not in (None, "segment-0"))
+        # Empty slots can still seed after an intro cut or backend restart.
+        profile.identity_established = saved.get("identityEstablished", bool(
+            saved.get("colorHistogram") is not None or saved.get("reidEmbedding") is not None
+        ))
+        profile.identity_needs_reacquisition = bool(profile.identity_established)
         profile.identity_confirmation_track = None
         profile.identity_confirmation_frames = 0
+        shoe_color = saved.get("shoeColor")
+        if shoe_color not in (None, "DARK", "LIGHT"):
+            raise JobStoreError("Invalid saved shoe color evidence")
+        profile.shoe_color = shoe_color
+        profile.shoe_candidate_color = None
+        profile.shoe_candidate_frames = 0
+        profile.shoe_candidate_last_seen_sec = None
         histogram = saved.get("colorHistogram")
         embedding = saved.get("reidEmbedding")
         if histogram is not None:
             restored_histogram = np.asarray(histogram, dtype=np.float32)
-            if restored_histogram.shape != (16, 16) or not np.isfinite(restored_histogram).all():
+            if restored_histogram.shape not in ((8, 2), (16, 16)) or not np.isfinite(restored_histogram).all():
                 raise JobStoreError("Invalid saved appearance histogram")
             profile.color_hist = restored_histogram
         if embedding is not None:
@@ -1725,7 +1796,7 @@ def _analyze_captured_frames(session: TrackingSession, cap, start_time: float):
                     _finish_resume_warmup(session, resume_analyzer_frame)
                 continue
             with session._state_lock:
-                telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec)
+                telemetry = session.analyzer.process_frame(frame, timestamp_sec=timestamp_sec, source_frame=frame_idx)
                 telemetry["sourceFrame"] = frame_idx
                 if session.is_resuming and frame_idx <= resume_source_frame:
                     if frame_idx >= resume_source_frame:
@@ -1769,6 +1840,8 @@ def create_tracking_session(req: CreateSessionRequest):
     except (ValueError, InvalidEngineConfigError, ModelNotFoundError, PoseArchitectureNotImplementedError) as error:
         logger.error('Tracking session configuration rejected (%s)', type(error).__name__)
         detail = 'Invalid tracking configuration; check device (cuda/mps), model and processing settings'
+        if str(error).startswith('Explicit CUDA requested'):
+            detail = 'Explicit CUDA requested but CUDA is unavailable; select AUTO or CPU to permit CPU execution'
         raise HTTPException(status_code=422, detail=detail) from error
     try:
         session.job_store.create_job(
@@ -2046,6 +2119,11 @@ def calibrate_session(session_id: str, req: SessionCalibrationRequest):
                  if frame.get("frameIndex") == selected_frame_index),
                 None,
             )
+            if selected_frame is None:
+                try:
+                    selected_frame = session.job_store.find_result_frame(session_id, selected_frame_index)
+                except (OSError, JobStoreError, ValueError):
+                    raise HTTPException(status_code=507, detail="Selected calibration frame could not be read from committed results") from None
             timestamp_tolerance = max(0.05, 1.0 / session.source_fps) if session.source_fps > 0 else 0.05
             if (
                 selected_frame is None
@@ -2436,6 +2514,7 @@ def get_session_status(session_id: str):
         "processingConfig": public_metadata(session.processing_config),
         "effectiveProcessingConfig": public_metadata(session.effective_processing_config),
         "runtimeProvenance": runtime_provenance,
+        "gameType": session.game_type,
         "provenance": runtime_provenance,
         "performance": performance_stats,
         "quality": quality_stats,
@@ -2557,6 +2636,7 @@ class ExportSessionRequest(BaseModel):
     debugInfo: Optional[bool] = Field(default=None, alias="debug_info")
     confidences: Optional[bool] = None
     format: str = "MP4"
+    language: Optional[str] = None  # report language: "th" or "en" (default "en")
 
 
 @app.post("/api/tracking/sessions/{session_id}/export")
@@ -2612,6 +2692,8 @@ def start_session_export(session_id: str, req: ExportSessionRequest | None = Non
         options.confidences = req.confidences
     if req.format:
         options.format = req.format
+    if req.language is not None:
+        options.language = req.language.strip().lower() if req.language.strip().lower() in ("th", "en") else "en"
 
     try:
         export_id = export_job_manager.start_export(session_id, options=options)
@@ -2663,6 +2745,90 @@ def download_export_archive(export_id: str):
         media_type="application/zip",
         filename=archive_path.name,
     )
+
+
+# --------------------------------------------------------------------------
+# Standalone Web Workstation Static Assets & SPA Routing
+# --------------------------------------------------------------------------
+def _get_web_dist_dir() -> Optional[Path]:
+    env_dist = os.getenv("SPORTSCOUT_WEB_DIST")
+    if env_dist:
+        custom_path = Path(env_dist).resolve()
+        if custom_path.is_dir() and (custom_path / "index.html").is_file():
+            return custom_path
+    default_dist = (_REPO_ROOT / "dist").resolve()
+    if default_dist.is_dir() and (default_dist / "index.html").is_file():
+        return default_dist
+    return None
+
+
+class UnsafeWebPathError(ValueError):
+    """Raised when a requested web asset path could escape the web dist directory."""
+
+
+# Backslashes and drive separators would let a Windows path step outside the
+# URL namespace; NUL bytes are never valid in a file name.
+_UNSAFE_WEB_PATH_CHARS = ("\\", ":", "\x00")
+
+
+def resolve_web_asset(dist_dir: Path, request_path: str) -> Optional[Path]:
+    """Return the regular file under ``dist_dir`` that ``request_path`` names.
+
+    Returns ``None`` when the path is safe but names no file, so the caller can
+    fall back to the SPA index. Raises ``UnsafeWebPathError`` when the path
+    contains traversal segments or resolves (including via symlinks) outside
+    ``dist_dir``; such requests must not fall back to the index.
+    """
+    if not request_path:
+        return None
+    if any(ch in request_path for ch in _UNSAFE_WEB_PATH_CHARS):
+        raise UnsafeWebPathError(request_path)
+    if any(segment == ".." for segment in request_path.split("/")):
+        raise UnsafeWebPathError(request_path)
+
+    root = dist_dir.resolve()
+    candidate = (root / request_path).resolve()
+    if not candidate.is_relative_to(root):
+        raise UnsafeWebPathError(request_path)
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+def register_web_spa_routes(target_app: FastAPI, dist_dir: Path) -> None:
+    """Serve the built web UI from ``dist_dir`` with client-side route fallback."""
+    from fastapi.staticfiles import StaticFiles
+
+    root = dist_dir.resolve()
+    index_file = root / "index.html"
+
+    assets_dir = root / "assets"
+    if assets_dir.is_dir():
+        target_app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="web_assets")
+
+    @target_app.get("/")
+    def serve_index():
+        return FileResponse(str(index_file))
+
+    @target_app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("ws/") or full_path == "ws":
+            raise HTTPException(status_code=404, detail="Not found")
+        try:
+            asset = resolve_web_asset(root, full_path)
+        except UnsafeWebPathError:
+            raise HTTPException(status_code=404, detail="Not found")
+        if asset is not None:
+            return FileResponse(str(asset))
+        if index_file.is_file():
+            return FileResponse(str(index_file))
+        raise HTTPException(status_code=404, detail="Frontend assets not found")
+
+
+_web_dist_dir = _get_web_dist_dir()
+
+if _web_dist_dir:
+    register_web_spa_routes(app, _web_dist_dir)
 
 
 def configure_server_event_loop() -> str:

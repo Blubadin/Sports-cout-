@@ -456,12 +456,33 @@ class AutomaticCourtCalibrationProvider:
 
         t_clusters = cluster_segments(transverse_segs)
         l_clusters = cluster_segments(longitudinal_segs)
+        # Hough segments can split the two edges of the same painted cross-line
+        # into adjacent positional clusters. Merge by their fitted centre, not
+        # by the first fragment, before choosing boundaries and landmarks.
+        def centre_y(parts):
+            points = np.array([[x, y] for _, segment in parts
+                               for x, y in ((segment[0], segment[1]), (segment[2], segment[3]))], dtype=np.float32)
+            vx, vy, x0, y0 = cv2.fitLine(points, cv2.DIST_HUBER, 0, .01, .01).flatten()
+            return float(y0 + (w_img / 2 - x0) * vy / vx)
+
+        merged_transverse = []
+        for cluster in t_clusters:
+            if merged_transverse:
+                previous = merged_transverse[-1]
+                if abs(centre_y(previous) - centre_y(cluster)) <= min(self.cluster_threshold_px, max(6.0, h_img * .01)):
+                    previous.extend(cluster)
+                    continue
+            merged_transverse.append(cluster)
+        t_clusters = merged_transverse
         # A short logo stroke is not a court boundary. Require substantial
         # observed extent before extrapolating a segment into an infinite line.
         t_clusters = [c for c in t_clusters if max(s[1][2] for s in c) - min(s[1][0] for s in c) >= w_img * 0.2]
+        # A centre marking can occupy only a small part of a letterboxed image.
+        # The final checks below require 65% boundary and 35% centre support
+        # relative to the actual court, rather than to the full image height.
         l_clusters = [c for c in l_clusters if _segment_coverage(
             c, np.array((0.0, 0.0)), np.array((0.0, float(h_img))),
-        ) >= 0.25]
+        ) >= 0.10]
 
         if len(t_clusters) < 2 or len(l_clusters) < 2:
             return None
@@ -525,7 +546,7 @@ class AutomaticCourtCalibrationProvider:
         def projected_line_samples(
             clusters: list[list], lines: list[tuple[tuple[float, float, float], float]],
             boundary_a: tuple[float, float, float], boundary_b: tuple[float, float, float],
-            coordinate: int, edge_start: np.ndarray, edge_end: np.ndarray,
+            coordinate: int,
         ) -> list[tuple[float, float, tuple[float, float, float], float]] | None:
             samples = []
             for cluster, (line, _) in zip(clusters[1:-1], lines[1:-1]):
@@ -537,17 +558,18 @@ class AutomaticCourtCalibrationProvider:
                     np.asarray([[p1, p2]], dtype=np.float32), h_mat
                 )[0]
                 values = projected[:, coordinate]
-                coverage = _segment_coverage(cluster, edge_start, edge_end)
+                # Each interior line has its own perspective direction and
+                # length. Projecting a right sideline onto the left boundary
+                # incorrectly discards most of its observed support.
+                coverage = _segment_coverage(cluster, np.asarray(p1), np.asarray(p2))
                 samples.append((float(np.mean(values)), float(abs(values[0] - values[1])), line, coverage))
             return samples
 
         vertical = projected_line_samples(
             l_clusters, l_lines, top_line, bot_line, 0,
-            candidate_corners[0], candidate_corners[3],
         )
         horizontal = projected_line_samples(
             t_clusters, t_lines, left_line, right_line, 1,
-            candidate_corners[0], candidate_corners[1],
         )
         if vertical is None or horizontal is None:
             return None

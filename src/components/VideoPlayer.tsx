@@ -33,6 +33,7 @@ import {
 import { resolveLocalVideoState, type LocalVideoState } from "../utils/videoState";
 import { getLocalizedVideoError } from "../utils/videoError";
 import { t } from "../i18n";
+import { isDesktopApp, pickVideoFileNative } from "../utils/desktopApp";
 import CourtZoneOverlay from "./video/CourtZoneOverlay";
 import TimelinePanel from "./video/TimelinePanel";
 import TelestrationCanvas from "./video/TelestrationCanvas";
@@ -358,6 +359,25 @@ export default function VideoPlayer({ activeTool, onSelectTool, showHudToggle = 
   };
 
   const handlePickLocalVideo = async () => {
+    if (isDesktopApp()) {
+      try {
+        const nativeFile = await pickVideoFileNative();
+        if (nativeFile) {
+          if (videoSrc && videoSourceType === "local" && videoSrc.startsWith('blob:')) {
+            URL.revokeObjectURL(videoSrc);
+          }
+          const playbackSrc = nativeFile.assetUrl || nativeFile.filePath;
+          setVideoSrc(playbackSrc);
+          setLocalFileName(nativeFile.fileName);
+          setVideoSourceType("local");
+          setLocalVideoState('ready');
+          setIsPlaying(false);
+          return;
+        }
+      } catch (nativeErr) {
+        console.warn("[Desktop] Native dialog fallback to browser input:", nativeErr);
+      }
+    }
     if ('showOpenFilePicker' in window) {
       try {
         const [fileHandle] = await (window as unknown as { showOpenFilePicker: (opts: unknown) => Promise<PersistentVideoFileHandle[]> }).showOpenFilePicker({
@@ -1168,7 +1188,7 @@ export default function VideoPlayer({ activeTool, onSelectTool, showHudToggle = 
           </div>
         </div>
       ) : (
-        <div className="bg-gray-100 dark:bg-gray-900 aspect-video rounded-lg flex flex-col items-center justify-center border border-dashed border-gray-300 dark:border-gray-700 p-6 gap-3">
+        <div className="bg-gray-100 dark:bg-gray-900 rounded-2xl flex flex-col items-center justify-center border border-dashed border-gray-300 dark:border-gray-700 p-6 sm:p-8 min-h-[160px] gap-3">
           <p className="text-gray-400 dark:text-gray-500 text-sm text-center px-4">
             {videoSourceType === "local"
               ? t('video.noLocalSelected', settings.uiLanguage)

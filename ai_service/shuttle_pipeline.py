@@ -399,7 +399,7 @@ class ProductionShuttlePipeline:
             return self._record_observation(observation)
         except InferenceExecutionError:
             self.status = 'ERROR'
-            self.failure_reason = 'Shuttle CPU execution failed; analysis job stopped'
+            self.failure_reason = 'Shuttle execution failed; analysis job stopped'
             self.last_failure = self.failure_reason
             raise
         except ModelUnavailableError:

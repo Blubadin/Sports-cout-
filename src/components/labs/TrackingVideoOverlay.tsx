@@ -427,11 +427,11 @@ export default function TrackingVideoOverlay({
                 <text
                   x={p.bboxPct.x}
                   y={Math.max(2, p.bboxPct.y - 1)}
-                  fill="white"
+                  fill={p.reviewState === 'corrected' ? '#fde047' : 'white'}
                   fontSize="2"
                   fontWeight="bold"
                 >
-                  {p.playerId}{provenance !== 'observed' ? ` (${provenance})` : ''}
+                  {p.playerId}{p.reviewState === 'corrected' ? ' (manual)' : ''}{provenance !== 'observed' ? ` (${provenance})` : ''}
                 </text>
               </>
             )}

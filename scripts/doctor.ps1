@@ -1,5 +1,8 @@
 param(
-    [string]$Python = ''
+    [string]$Python = '',
+    [ValidateSet('auto', 'cuda', 'cpu')][string]$Mode = 'auto',
+    [string]$EngineConfig = '',
+    [string]$ShuttleModel = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,5 +22,8 @@ if (-not (Test-Path -LiteralPath $doctorScript -PathType Leaf)) {
 }
 
 Write-Output "Running SportsScout Runtime Doctor..."
-& $Python $doctorScript
+$doctorArgs = @($doctorScript, '--mode', $Mode)
+if ($EngineConfig) { $doctorArgs += @('--engine-config', $EngineConfig) }
+if ($ShuttleModel) { $doctorArgs += @('--shuttle-model', $ShuttleModel) }
+& $Python @doctorArgs
 exit $LASTEXITCODE

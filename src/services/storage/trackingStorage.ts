@@ -167,6 +167,7 @@ export interface TrackingSample {
   athleteId?: string | null;
   courtX: number; // meters (0..6.10)
   courtY: number; // meters (0..13.40)
+  cumulativeDistanceM?: number; // accepted canonical travel; absent for legacy samples
   speed: number | null; // m/s
   confidence: number | null; // 0..1
   trackingState: 'tracked' | 'predicted' | 'lost';
@@ -1160,17 +1161,19 @@ export function computeSinglePlayerMovementMetrics(
       if (prev.trackingState === 'tracked' &&
           (s.metricRunId === undefined || prev.metricRunId === undefined || s.metricRunId === prev.metricRunId) &&
           (s.calibrationId === undefined || prev.calibrationId === undefined || s.calibrationId === prev.calibrationId) &&
-          (s.cameraSegmentId === undefined || prev.cameraSegmentId === undefined || s.cameraSegmentId === prev.cameraSegmentId)) {
+          (s.cameraSegmentId === undefined || prev.cameraSegmentId === undefined || s.cameraSegmentId === prev.cameraSegmentId) &&
+          s.groundPointProvenance === prev.groundPointProvenance) {
         const dx = s.courtX - prev.courtX;
         const dy = s.courtY - prev.courtY;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const dist = acceptedSampleDistance(s, prev);
         // Teleport filter: badminton players can't move > 12 m/s
         const dt = Math.max(0.001, s.timestamp - prev.timestamp);
-        const instantSpeed = dist / dt;
+        const instantSpeed = typeof s.speed === 'number' ? s.speed : dist / dt;
         if (instantSpeed <= 12.0) {
           totalDist += dist;
-          lateralDist += Math.abs(dx);
-          frontBackDist += Math.abs(dy);
+          const acceptedRatio = dist / Math.max(Number.EPSILON, Math.hypot(dx, dy));
+          lateralDist += Math.abs(dx) * acceptedRatio;
+          frontBackDist += Math.abs(dy) * acceptedRatio;
           validSpeeds.push(instantSpeed);
         }
       }
@@ -1351,6 +1354,13 @@ export function computeMultiPlayerMovementMetrics(samples: TrackingSample[]): Pl
  * If samples belong to multiple players, groups by playerId and aggregates
  * to guarantee that physical movement calculations only connect samples of the same player.
  */
+function acceptedSampleDistance(current: TrackingSample, previous: TrackingSample): number {
+  if (Number.isFinite(current.cumulativeDistanceM) && Number.isFinite(previous.cumulativeDistanceM)) {
+    return Math.max(0, current.cumulativeDistanceM! - previous.cumulativeDistanceM!);
+  }
+  return Math.hypot(current.courtX - previous.courtX, current.courtY - previous.courtY);
+}
+
 export function computePlayerMovementMetrics(samples: TrackingSample[], canonicalTotalDist?: number): PlayerMovementMetrics {
   if (samples.length === 0) {
     return computeSinglePlayerMovementMetrics([], canonicalTotalDist).metrics;
@@ -1663,6 +1673,7 @@ export function downsampleAndChunkTrackingSamples(
         lastTotalDistances.set(p.playerId, p.totalDistanceM);
       }
       if (
+        p.rawGroundPoint?.metricEligible === false || p.groundPointProvenance === 'bbox_bottom_center' ||
         !p.courtPosition ||
         p.courtPosition.xM == null ||
         p.courtPosition.yM == null ||
@@ -1676,8 +1687,9 @@ export function downsampleAndChunkTrackingSamples(
       const sample: TrackingSample = {
         timestamp: frame.timestampSec,
         playerId: p.playerId,
-        courtX: Number(p.courtPosition.xM.toFixed(2)),
-        courtY: Number(p.courtPosition.yM.toFixed(2)),
+        courtX: Number((p.filteredGroundPoint?.xM ?? p.courtPosition.xM).toFixed(2)),
+        courtY: Number((p.filteredGroundPoint?.yM ?? p.courtPosition.yM).toFixed(2)),
+        cumulativeDistanceM: p.distanceMetrics?.totalTrackedDistanceM ?? p.totalDistanceM,
         speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
         confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
@@ -1686,8 +1698,8 @@ export function downsampleAndChunkTrackingSamples(
         cameraSegmentId: frame.cameraSegmentId,
         calibrationId: frame.calibrationId,
         metricRunId: runIds.get(frame),
-        normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
-        normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
+        normalizedX: Number((p.filteredGroundPoint ? p.filteredGroundPoint.xM / 6.1 : p.courtPosition.xPct / 100).toFixed(3)),
+        normalizedY: Number((p.filteredGroundPoint ? p.filteredGroundPoint.yM / 13.4 : p.courtPosition.yPct / 100).toFixed(3)),
         canBuildHeatmap: frame.canBuildHeatmap !== false,
         canUseCourtMetric: true,
       };
@@ -1713,6 +1725,7 @@ export function downsampleAndChunkTrackingSamples(
 
     for (const p of frame.players) {
       if (
+        p.rawGroundPoint?.metricEligible === false || p.groundPointProvenance === 'bbox_bottom_center' ||
         !p.courtPosition ||
         p.courtPosition.xM == null ||
         p.courtPosition.yM == null ||
@@ -1725,8 +1738,9 @@ export function downsampleAndChunkTrackingSamples(
       const sample: TrackingSample = {
         timestamp: frame.timestampSec,
         playerId: p.playerId,
-        courtX: Number(p.courtPosition.xM.toFixed(2)),
-        courtY: Number(p.courtPosition.yM.toFixed(2)),
+        courtX: Number((p.filteredGroundPoint?.xM ?? p.courtPosition.xM).toFixed(2)),
+        courtY: Number((p.filteredGroundPoint?.yM ?? p.courtPosition.yM).toFixed(2)),
+        cumulativeDistanceM: p.distanceMetrics?.totalTrackedDistanceM ?? p.totalDistanceM,
         speed: typeof p.speedMps === 'number' ? Number(p.speedMps.toFixed(2)) : null,
         confidence: typeof p.detectionConfidence === 'number' ? Number(p.detectionConfidence.toFixed(2)) : null,
         trackingState: p.state === 'lost' ? 'lost' : p.state === 'predicted' ? 'predicted' : 'tracked',
@@ -1735,8 +1749,8 @@ export function downsampleAndChunkTrackingSamples(
         cameraSegmentId: frame.cameraSegmentId,
         calibrationId: frame.calibrationId,
         metricRunId: runIds.get(frame),
-        normalizedX: Number((p.courtPosition.xPct / 100).toFixed(3)),
-        normalizedY: Number((p.courtPosition.yPct / 100).toFixed(3)),
+        normalizedX: Number((p.filteredGroundPoint ? p.filteredGroundPoint.xM / 6.1 : p.courtPosition.xPct / 100).toFixed(3)),
+        normalizedY: Number((p.filteredGroundPoint ? p.filteredGroundPoint.yM / 13.4 : p.courtPosition.yPct / 100).toFixed(3)),
         canBuildHeatmap: frame.canBuildHeatmap !== false,
         canUseCourtMetric: true,
       };
@@ -1846,6 +1860,7 @@ function streamingSample(
 ): TrackingSample | null {
   const position = player.courtPosition;
   if (
+    player.rawGroundPoint?.metricEligible === false || player.groundPointProvenance === 'bbox_bottom_center' ||
     !position || position.xM == null || position.yM == null ||
     !Number.isFinite(position.xM) || !Number.isFinite(position.yM) ||
     (position.xM === 0 && position.yM === 0)
@@ -1853,8 +1868,9 @@ function streamingSample(
   return {
     timestamp: frame.timestampSec,
     playerId: player.playerId,
-    courtX: Number(position.xM.toFixed(2)),
-    courtY: Number(position.yM.toFixed(2)),
+    courtX: Number((player.filteredGroundPoint?.xM ?? position.xM).toFixed(2)),
+    courtY: Number((player.filteredGroundPoint?.yM ?? position.yM).toFixed(2)),
+    cumulativeDistanceM: player.distanceMetrics?.totalTrackedDistanceM ?? player.totalDistanceM,
     speed: typeof player.speedMps === 'number' ? Number(player.speedMps.toFixed(2)) : null,
     confidence: typeof player.detectionConfidence === 'number' ? Number(player.detectionConfidence.toFixed(2)) : null,
     trackingState: player.state === 'lost' ? 'lost' : player.state === 'predicted' ? 'predicted' : 'tracked',
@@ -1863,8 +1879,8 @@ function streamingSample(
     cameraSegmentId: frame.cameraSegmentId,
     calibrationId: frame.calibrationId,
     metricRunId,
-    normalizedX: Number((position.xPct / 100).toFixed(3)),
-    normalizedY: Number((position.yPct / 100).toFixed(3)),
+    normalizedX: Number((player.filteredGroundPoint ? player.filteredGroundPoint.xM / 6.1 : position.xPct / 100).toFixed(3)),
+    normalizedY: Number((player.filteredGroundPoint ? player.filteredGroundPoint.yM / 13.4 : position.yPct / 100).toFixed(3)),
     canBuildHeatmap: frame.canBuildHeatmap !== false,
     canUseCourtMetric: true,
   };
@@ -2049,7 +2065,10 @@ export class TrackingAnalysisStreamBuilder {
       for (const player of frame.players) {
         let aggregate = this.playerSummaries.get(player.playerId);
         const sample = streamingSample(frame, player, runId);
-        if (!sample) continue;
+        if (!sample) {
+          if (aggregate) aggregate.previousSample = undefined;
+          continue;
+        }
         if (!aggregate) {
           aggregate = this.createPlayerSummary();
           this.playerSummaries.set(player.playerId, aggregate);
@@ -2072,17 +2091,19 @@ export class TrackingAnalysisStreamBuilder {
             previous?.trackingState === 'tracked' &&
             previous.metricRunId === sample.metricRunId &&
             previous.calibrationId === sample.calibrationId &&
+            previous.groundPointProvenance === sample.groundPointProvenance &&
             previous.cameraSegmentId === sample.cameraSegmentId
           ) {
             const dx = sample.courtX - previous.courtX;
             const dy = sample.courtY - previous.courtY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            const distance = acceptedSampleDistance(sample, previous);
             const deltaSec = Math.max(0.001, sample.timestamp - previous.timestamp);
-            const speed = distance / deltaSec;
+            const speed = typeof sample.speed === 'number' ? sample.speed : distance / deltaSec;
             if (speed <= 12.0) {
               aggregate.totalDistanceM += distance;
-              aggregate.lateralMovementM += Math.abs(dx);
-              aggregate.frontBackMovementM += Math.abs(dy);
+              const acceptedRatio = distance / Math.max(Number.EPSILON, Math.hypot(dx, dy));
+              aggregate.lateralMovementM += Math.abs(dx) * acceptedRatio;
+              aggregate.frontBackMovementM += Math.abs(dy) * acceptedRatio;
               aggregate.avgSpeedSum += speed;
               aggregate.speedCount++;
               const bin = Math.max(0, Math.min(1200, Math.round(speed * 100)));
@@ -2333,6 +2354,26 @@ export async function getTrackingTelemetryPage(
   return getTrackingStorageDriver().getTelemetryPage(analysisId, afterCursor);
 }
 
+/** Read indexed local pages near a time-derived cursor; never scan from page zero. */
+export async function getTrackingTelemetryTimeRange(
+  analysisId: string,
+  startTimeSec: number,
+  endTimeSec: number,
+  cursorHint: number,
+  signal: AbortSignal,
+): Promise<TrackingTelemetryV1[] | null> {
+  let cursor = Math.max(0, Math.floor(cursorHint));
+  const frames: TrackingTelemetryV1[] = [];
+  for (let attempt = 0; attempt < 4 && !signal.aborted; attempt += 1) {
+    const page = await getTrackingTelemetryPage(analysisId, cursor);
+    if (!page?.frames.length || signal.aborted) break;
+    frames.push(...page.frames.filter((frame) => frame.timestampSec >= startTimeSec && frame.timestampSec <= endTimeSec));
+    if (page.frames[page.frames.length - 1].timestampSec >= endTimeSec || page.endCursor <= cursor) break;
+    cursor = page.endCursor;
+  }
+  return signal.aborted || !frames.length ? null : frames;
+}
+
 export async function deleteTrackingTelemetryPages(analysisId: string): Promise<void> {
   await getTrackingStorageDriver().deleteTelemetryPages(analysisId);
 }
@@ -2511,15 +2552,17 @@ export async function getTrackingMovementMetrics(
       if (previous?.trackingState === 'tracked' &&
         (sample.metricRunId === undefined || previous.metricRunId === undefined || sample.metricRunId === previous.metricRunId) &&
         (sample.calibrationId === undefined || previous.calibrationId === undefined || sample.calibrationId === previous.calibrationId) &&
-        (sample.cameraSegmentId === undefined || previous.cameraSegmentId === undefined || sample.cameraSegmentId === previous.cameraSegmentId)) {
+        (sample.cameraSegmentId === undefined || previous.cameraSegmentId === undefined || sample.cameraSegmentId === previous.cameraSegmentId) &&
+        sample.groundPointProvenance === previous.groundPointProvenance) {
         const dx = sample.courtX - previous.courtX;
         const dy = sample.courtY - previous.courtY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const speed = distance / Math.max(0.001, sample.timestamp - previous.timestamp);
+        const distance = acceptedSampleDistance(sample, previous);
+        const speed = typeof sample.speed === 'number' ? sample.speed : distance / Math.max(0.001, sample.timestamp - previous.timestamp);
         if (speed <= 12.0) {
           movement.totalDistance += distance;
-          movement.lateralDistance += Math.abs(dx);
-          movement.frontBackDistance += Math.abs(dy);
+          const acceptedRatio = distance / Math.max(Number.EPSILON, Math.hypot(dx, dy));
+          movement.lateralDistance += Math.abs(dx) * acceptedRatio;
+          movement.frontBackDistance += Math.abs(dy) * acceptedRatio;
           movement.speedCount += 1;
           movement.speedSum += speed;
           movement.maxSpeed = Math.max(movement.maxSpeed, speed);

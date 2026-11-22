@@ -98,8 +98,8 @@ class TestCutCalibrationSafety(unittest.TestCase):
         self.analyzer = BadmintonAnalyzerV2(game_type="singles", max_players=1)
         self.analyzer._detector = "dummy"
         self.analyzer.pose_adapter = MagicMock()
-        self.analyzer.pose_adapter.estimate_pose_in_roi.return_value = {
-            "keypoints": [(100, 150, 0.9)], "metrics": {},
+        self.analyzer.pose_adapter.estimate_pose_in_roi.side_effect = lambda frame, bbox: {
+            "keypoints": [(self.feet_x, 260, .9) for _ in range(17)], "metrics": {},
             "keypointCoordinateSpace": "pixel",
         }
         self.feet_x = 170
@@ -146,6 +146,8 @@ class TestCutCalibrationSafety(unittest.TestCase):
         for _ in range(5):
             later = self.analyzer.process_frame(replay_frame(), timestamp_sec=0.2)
             self.assertEqual(later["cameraSegmentId"], "segment-1")
+            self.assertEqual(later["players"][0]["state"], "lost")
+            self.assertEqual(later["players"][0]["trackingReason"], "CALIBRATION_UNAVAILABLE")
 
     def test_manual_recalibration_creates_new_identity_without_distance_bridge(self):
         # Calibration recovery is independent of sports identity recovery.
@@ -160,7 +162,9 @@ class TestCutCalibrationSafety(unittest.TestCase):
         cv2.polylines(new_view, [np.array(self.corners, dtype=np.int32)], True, (230, 230, 230), 3)
         self.analyzer.set_court_corners(self.corners)
         first = self.analyzer.process_frame(person_frame(court_frame()), timestamp_sec=0.0)
-        self.feet_x = 200
+        # About 0.73 m in one second: resolvable motion above conservative
+        # uncertainty with physically plausible speed, before testing the cut.
+        self.feet_x = 230
         moved = self.analyzer.process_frame(person_frame(court_frame()), timestamp_sec=1.0)
         previous_distance = moved["players"][0]["totalDistanceM"]
         self.assertGreater(previous_distance, 0)
@@ -169,10 +173,18 @@ class TestCutCalibrationSafety(unittest.TestCase):
         lost = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=3.0)
         self.assertEqual(lost["players"][0]["totalDistanceM"], previous_distance)
         self.feet_x = 470
+        # Let the new image settle before accepting manual calibration; the
+        # first large image displacement is correctly treated as pan/transition.
+        self.analyzer.process_frame(person_frame(new_view), timestamp_sec=3.5)
         self.analyzer.set_court_corners(self.corners)
         pending = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=4.0)
-        self.assertIsNone(pending["players"][0]["courtPosition"])
+        # The settle observation also supplies an appearance confirmation.
+        # Recovery may already be complete; calibration must still not bridge.
+        self.assertEqual(pending["players"][0]["totalDistanceM"], previous_distance)
         restored = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=5.0)
+        self.assertIsNone(restored["players"][0]["courtPosition"])
+        self.assertEqual(restored["players"][0]["trackingReason"], "REACQUISITION_PENDING")
+        restored = self.analyzer.process_frame(person_frame(new_view), timestamp_sec=5.5)
         self.assertEqual(restored["calibrationState"], "CALIBRATED")
         self.assertEqual(restored["cameraSegmentId"], lost["cameraSegmentId"])
         self.assertNotEqual(restored["calibrationId"], first["calibrationId"])

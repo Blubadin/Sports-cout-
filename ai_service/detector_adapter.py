@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 import numpy as np
 
-from court_roi import inverse_transform_bbox
+from court_roi import filter_court_bboxes, inverse_transform_bbox
 from engine_config import (
     ModelNotFoundError,
     resolve_tracker_config,
@@ -54,12 +54,76 @@ class BaseDetectorAdapter(ABC):
         classes: list[int] | None = None,
         offset_x: int = 0,
         offset_y: int = 0,
+        court_filter_active: bool = False,
+        image_to_court: np.ndarray | list[list[float]] | None = None,
+        court_width_m: float = 6.10,
+        court_length_m: float = 13.40,
+        court_margin_m: float = 0.5,
     ) -> list[dict[str, Any]]:
         """
         Execute detection and tracking on a full frame or ROI subframe.
         Returns detections mapped to full-source frame coordinates.
         """
         pass
+
+
+def court_filtered_predictor(base_predictor, court_filter_state: dict, on_counts):
+    """Create a predictor that removes off-court person boxes before MOT callbacks run.
+
+    Ultralytics updates ByteTrack from ``Results`` after ``postprocess`` returns,
+    so applying this filter here keeps neighboring-court and spectator tracks
+    out of the tracker itself. State is mutable because Ultralytics reuses its
+    predictor instance across frames.
+    """
+    class CourtFilteredPredictor(base_predictor):
+        def postprocess(self, predictions, tensor, originals, **kwargs):
+            results = super().postprocess(predictions, tensor, originals, **kwargs)
+            totals = {
+                "candidateCount": 0,
+                "acceptedCount": 0,
+                "rejectedOutsideCourtCount": 0,
+            }
+            filtered_results = []
+            for result in results:
+                boxes = result.boxes.xyxy.cpu().numpy()
+                totals["candidateCount"] += len(boxes)
+                if court_filter_state.get("active"):
+                    accepted, counts = filter_court_bboxes(
+                        boxes,
+                        image_to_court=court_filter_state.get("imageToCourt"),
+                        court_width_m=court_filter_state.get("courtWidthM", 6.10),
+                        court_length_m=court_filter_state.get("courtLengthM", 13.40),
+                        margin_m=court_filter_state.get("marginM", 0.5),
+                        offset_x=court_filter_state.get("offsetX", 0),
+                        offset_y=court_filter_state.get("offsetY", 0),
+                    )
+                    totals["acceptedCount"] += counts["acceptedCount"]
+                    totals["rejectedOutsideCourtCount"] += counts["rejectedOutsideCourtCount"]
+                else:
+                    accepted = list(range(len(boxes)))
+                    totals["acceptedCount"] += len(accepted)
+                filtered_results.append(result[np.asarray(accepted, dtype=np.int64)])
+
+            image_to_court = court_filter_state.get("imageToCourt")
+            calibration_available = False
+            if image_to_court is not None:
+                try:
+                    matrix = np.asarray(image_to_court, dtype=np.float64)
+                    calibration_available = (
+                        matrix.shape == (3, 3)
+                        and np.all(np.isfinite(matrix))
+                        and abs(float(np.linalg.det(matrix))) >= 1e-12
+                    )
+                except (TypeError, ValueError, np.linalg.LinAlgError):
+                    calibration_available = False
+            on_counts({
+                **totals,
+                "active": bool(court_filter_state.get("active")),
+                "calibrationAvailable": calibration_available,
+            })
+            return filtered_results
+
+    return CourtFilteredPredictor
 
 
 class UltralyticsDetectorAdapter(BaseDetectorAdapter):
@@ -83,6 +147,22 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
         self._model = None
         self.execution = InferenceExecution(device or 'auto', backend=runtime, precision=precision)
         self._artifact_hash = None
+        self._court_filter_state = {
+            "active": False,
+            "imageToCourt": None,
+            "courtWidthM": 6.10,
+            "courtLengthM": 13.40,
+            "marginM": 0.5,
+            "offsetX": 0,
+            "offsetY": 0,
+        }
+        self.last_court_filter_counts = {
+            "candidateCount": 0,
+            "acceptedCount": 0,
+            "rejectedOutsideCourtCount": 0,
+            "active": False,
+            "calibrationAvailable": False,
+        }
 
     @property
     def model_name(self) -> str:
@@ -171,17 +251,45 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
         classes: list[int] | None = None,
         offset_x: int = 0,
         offset_y: int = 0,
+        court_filter_active: bool = False,
+        image_to_court: np.ndarray | list[list[float]] | None = None,
+        court_width_m: float = 6.10,
+        court_length_m: float = 13.40,
+        court_margin_m: float = 0.5,
     ) -> list[dict[str, Any]]:
         self._init_model()
+        self._court_filter_state.update({
+            "active": bool(court_filter_active),
+            "imageToCourt": image_to_court,
+            "courtWidthM": float(court_width_m),
+            "courtLengthM": float(court_length_m),
+            "marginM": float(court_margin_m),
+            "offsetX": int(offset_x),
+            "offsetY": int(offset_y),
+        })
+        self.last_court_filter_counts = {
+            "candidateCount": 0,
+            "acceptedCount": 0,
+            "rejectedOutsideCourtCount": 0,
+            "active": bool(court_filter_active),
+            "calibrationAvailable": image_to_court is not None,
+        }
         tracker_cfg = resolve_tracker_config(tracker_name, tracker_config_path or tracker_config)
         provenance = TrackerProvenance(tracker_name, tracker_config or tracker_config_path, reid_enabled, reid_model)
         target_classes = classes if classes is not None else [0]  # Person class
 
         options = {}
+        from ultralytics.models.yolo.detect import DetectionPredictor
+        predictor = court_filtered_predictor(
+            DetectionPredictor,
+            self._court_filter_state,
+            lambda counts: setattr(self, "last_court_filter_counts", counts),
+        )
         if self._runtime == 'pytorch':
-            from ultralytics.models.yolo.detect import DetectionPredictor
-            options['predictor'] = runtime_predictor(DetectionPredictor, self.execution)
+            options['predictor'] = runtime_predictor(predictor, self.execution)
             options.update(precision_options(self._precision))
+        else:
+            options['predictor'] = predictor
         try:
             results = self._model.track(
                 frame,
@@ -228,5 +336,5 @@ class UltralyticsDetectorAdapter(BaseDetectorAdapter):
             'providerVersion': package_version('ultralytics'),
             'modelVersion': self._artifact_hash, 'modelSha256': self._artifact_hash,
             'preprocessVersion': 'ultralytics-letterbox-bgr-rgb-v1',
-            'postprocessVersion': 'ultralytics-nms-bytetrack-source-bbox-v1',
+            'postprocessVersion': 'ultralytics-nms-court-filter-bytetrack-source-bbox-v2',
         }

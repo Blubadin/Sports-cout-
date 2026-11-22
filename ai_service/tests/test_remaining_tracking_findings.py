@@ -63,7 +63,7 @@ class TestPostCutIdentity(unittest.TestCase):
             self.assertIsNotNone(result["rawPlayerDetections"][0]["pose"])
         np.testing.assert_array_equal(analyzer.profiles[1].color_hist, prior_histogram)
 
-    def test_returning_person_needs_repeated_distinct_appearance_evidence(self):
+    def test_returning_person_stays_quarantined_until_segment_calibration(self):
         analyzer = self.setup_analyzer()
         analyzer.detect_and_track = lambda _: [{
             "bbox": [420, 150, 460, 260], "center": (440, 260), "conf": .9, "track_id": 99,
@@ -71,9 +71,8 @@ class TestPostCutIdentity(unittest.TestCase):
         after_cut = replay_frame()
         after_cut[150:260, 420:460] = (20, 20, 210)
         results = [analyzer.process_frame(after_cut, timestamp_sec=i / 30) for i in range(1, 7)]
-        self.assertTrue(all(r["players"][0]["trackId"] is None for r in results[:3]))
-        self.assertEqual(results[3]["players"][0]["trackId"], 99)
-        self.assertIsNone(results[3]["players"][0]["courtPosition"])
+        self.assertTrue(all(r["players"][0]["trackId"] is None for r in results))
+        self.assertTrue(all(r["players"][0]["trackingReason"] == "CALIBRATION_UNAVAILABLE" for r in results))
 
     def test_ambiguous_appearance_does_not_choose_a_slot(self):
         analyzer = self.setup_analyzer(max_players=2)
@@ -100,7 +99,7 @@ class TestPostCutIdentity(unittest.TestCase):
             frame = analyzer.process_frame(image, timestamp_sec=i / 30)
             self.assertIsNone(frame["players"][0]["trackId"])
 
-    def test_missing_frame_breaks_reacquisition_confirmation(self):
+    def test_post_cut_identity_stays_quarantined_without_segment_calibration(self):
         analyzer = self.setup_analyzer()
         detection = {"bbox": [420, 150, 460, 260], "center": (440, 260), "conf": .9, "track_id": 99}
         image = replay_frame()
@@ -108,10 +107,8 @@ class TestPostCutIdentity(unittest.TestCase):
         for i in range(1, 7):
             analyzer.detect_and_track = lambda _, i=i: [] if i == 3 else [detection.copy()]
             frame = analyzer.process_frame(image, timestamp_sec=i / 30)
-            if i < 6:
-                self.assertIsNone(frame["players"][0]["trackId"])
-            else:
-                self.assertEqual(frame["players"][0]["trackId"], 99)
+            self.assertIsNone(frame["players"][0]["trackId"])
+            self.assertEqual(frame["players"][0]["trackingReason"], "CALIBRATION_UNAVAILABLE")
 
 
 class TestShuttleSceneAndLifecycle(unittest.TestCase):

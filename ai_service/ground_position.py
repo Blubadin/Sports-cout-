@@ -99,11 +99,27 @@ class CanonicalGroundPoint:
         if not (isfinite(self.ground_pct[0]) and isfinite(self.ground_pct[1])):
             raise ValueError("Ground point percentages must be finite")
 
+    @property
+    def metric_eligible(self) -> bool:
+        return (self.ground_position_m is not None and not self.is_stale
+                and self.pose_age_frames == 0 and self.pose_source == "fresh"
+                and self.provenance != CANONICAL_PROVENANCE_BBOX
+                and self.confidence >= DEFAULT_ANKLE_CONFIDENCE_THRESHOLD)
+
+    @property
+    def quality(self) -> str:
+        if not self.metric_eligible:
+            return "VISUAL_ONLY"
+        return "BOTH_ANKLES" if self.provenance == CANONICAL_PROVENANCE_BOTH_ANKLES else "SINGLE_ANKLE"
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "groundPx": {"x": round(self.ground_px[0], 1), "y": round(self.ground_px[1], 1)},
             "groundPct": {"x": round(self.ground_pct[0], 2), "y": round(self.ground_pct[1], 2)},
             "provenance": self.provenance,
+            "validity": "STALE" if self.is_stale else "OBSERVED",
+            "metricEligible": self.metric_eligible,
+            "metricQuality": self.quality,
             "confidence": round(self.confidence, 3),
             "poseSource": self.pose_source,
             "poseAgeFrames": self.pose_age_frames,

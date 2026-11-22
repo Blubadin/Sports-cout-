@@ -2,7 +2,7 @@
 
 **Authoritative Baseline:** Phase 3 Evaluation (2026-10-05)  
 **Target Environment:** Windows 11 / Linux x86_64, Python 3.12 64-bit  
-**Branch:** `fix/phase3-final-remediation`
+**Current remediation branch:** `fix/phase3-sol-correctness-v2`
 
 ---
 
@@ -20,7 +20,9 @@ To ensure both developer usability and byte-for-byte evaluation reproducibility,
 
 ---
 
-## 2. Hardware Validation Matrix
+## 2. Historical Hardware Validation Matrix
+
+The rows below summarize earlier recorded runs, not correctness certification of the current remediation. Current execution evidence and its limits are in `docs/evidence/PHASE_3_CORRECTNESS_V2_RESULTS.md`.
 
 | Target / Accelerator | Status | Details |
 |---|---|---|
@@ -69,3 +71,18 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r ai_service/requirements.txt
 ```
+
+
+## 5. Explicit execution modes and doctor
+
+`AUTO` selects an available supported accelerator and may fall back to CPU with a recorded reason. An explicit `CUDA` request fails when CUDA is unavailable or inference fails; it never silently succeeds as CPU analysis. Select CPU explicitly for a CPU workflow. Requested/effective devices, execution validation and per-model provider/device provenance must be inspected rather than inferred from installed torch or GPU hardware.
+
+```powershell
+npm run doctor -- -Mode auto
+npm run doctor -- -Mode cuda
+npm run doctor -- -Mode cpu
+# Use the production TrackingEngineConfig JSON and explicitly enabled shuttle:
+npm run doctor -- -Mode cuda -EngineConfig path/to/engine.json -ShuttleModel .local-models/rallylens-shuttle-tracknet.pth
+```
+
+The Python entrypoint accepts `--mode auto|cuda|cpu`, `--engine-config` and `--shuttle-model`. CPU mode runs real CPU tensor and configured detector/pose inference without requiring CUDA. CUDA mode runs and synchronizes real CUDA tensors and the configured models. The doctor reports actual artifact paths and provider/device facts. Missing weights fail clearly; no weights are downloaded. Shuttle inference is checked only when its configured artifact is explicitly supplied. A successful doctor validates execution on this workstation, not held-out tracking/landing accuracy or an entire CPU-only installation.
